@@ -152,11 +152,30 @@ it("leaves ordinary scrolling and gestures outside the PDF untouched", () => {
   expect(state.update).not.toHaveBeenCalled();
 });
 it("accumulates small pinch deltas and handles line-based wheel input", () => {
-  for (let i = 0; i < 20; i++) wheel({ deltaY: -0.1 });
+  for (let i = 0; i < 100; i++) wheel({ deltaY: -0.1 });
   expect(state.scale).toBeGreaterThan(1);
   const previous = state.scale;
   wheel({ deltaY: -1, deltaMode: 1 });
   expect(state.scale).toBeGreaterThan(previous);
+});
+it.each([100, 120, 100000])(
+  "limits a large wheel delta %s to a gentle step and reverses without drift",
+  (delta) => {
+    for (let i = 0; i < 10; i++) {
+      wheel({ deltaY: -delta });
+      expect(state.scale).toBeCloseTo(1.1, 2);
+      wheel({ deltaY: delta });
+      expect(state.scale).toBeCloseTo(1, 2);
+    }
+    wheel({ deltaY: delta });
+    expect(state.scale).toBeCloseTo(1 / 1.1, 2);
+  },
+);
+it("keeps small deltas proportional instead of applying a full wheel step", () => {
+  wheel({ deltaY: -20 });
+  expect(state.scale).toBeCloseTo(1.02, 2);
+  wheel({ deltaY: 20 });
+  expect(state.scale).toBeCloseTo(1, 2);
 });
 it("ignores plain keys, composing input and alternate modifier chords", () => {
   expect(key("+", document, { metaKey: false }).defaultPrevented).toBe(false);
@@ -188,9 +207,9 @@ it("keeps manual zoom across theme changes and resizing, then permits fit width"
   expect(state.scaleValue).toBe("page-width");
 });
 it("bounds gesture zoom and removes event handlers on disposal", async () => {
-  for (let i = 0; i < 10; i++) wheel({ deltaY: -100000 });
+  for (let i = 0; i < 40; i++) wheel({ deltaY: -100000 });
   expect(state.scale).toBe(5);
-  for (let i = 0; i < 10; i++) wheel({ deltaY: 100000 });
+  for (let i = 0; i < 40; i++) wheel({ deltaY: 100000 });
   expect(state.scale).toBe(0.25);
   await adapter.destroy();
   state.update.mockClear();
