@@ -409,9 +409,9 @@ export class PDFReaderAdapter implements ReaderAdapter {
           ? this.container.clientHeight
           : 1;
     const delta = Math.max(-100, Math.min(100, event.deltaY * unit));
-    // A full wheel event changes scale by at most 10%; smaller pinch deltas
+    // A full wheel event changes scale by at most 20%; smaller pinch deltas
     // remain proportional. Opposite deltas use reciprocal factors.
-    const factor = Math.exp((-delta / 100) * Math.log(1.1));
+    const factor = Math.exp((-delta / 100) * Math.log(1.2));
     // Retain sub-percent deltas that PDF.js rounds when applying each scale.
     this.wheelScale = Math.min(
       5,

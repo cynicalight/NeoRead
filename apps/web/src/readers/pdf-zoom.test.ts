@@ -163,17 +163,17 @@ it.each([100, 120, 100000])(
   (delta) => {
     for (let i = 0; i < 10; i++) {
       wheel({ deltaY: -delta });
-      expect(state.scale).toBeCloseTo(1.1, 2);
+      expect(state.scale).toBeCloseTo(1.2, 2);
       wheel({ deltaY: delta });
       expect(state.scale).toBeCloseTo(1, 2);
     }
     wheel({ deltaY: delta });
-    expect(state.scale).toBeCloseTo(1 / 1.1, 2);
+    expect(state.scale).toBeCloseTo(1 / 1.2, 2);
   },
 );
 it("keeps small deltas proportional instead of applying a full wheel step", () => {
   wheel({ deltaY: -20 });
-  expect(state.scale).toBeCloseTo(1.02, 2);
+  expect(state.scale).toBeCloseTo(1.04, 2);
   wheel({ deltaY: 20 });
   expect(state.scale).toBeCloseTo(1, 2);
 });
