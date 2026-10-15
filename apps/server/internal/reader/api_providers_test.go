@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -399,5 +400,89 @@ func TestProviderProbeTimeoutIndependentFromGeneration(t *testing.T) {
 	result, err := testServer(t).probeConnection(t.Context(), c, "api:p::same", AIInput{Prompt: "probe"}, 2*time.Second)
 	if err != nil || result != "READER_OK" {
 		t.Fatalf("generation timer shortened probe deadline: %q %v", result, err)
+	}
+}
+
+func TestProviderMigrationPreservesOverlappingLegacyIDs(t *testing.T) {
+	s := testServer(t)
+	levels := func() map[string]map[string]string {
+		return map[string]map[string]string{"api": {"x::m": "low", "default::x::m": "high"}, "codex": {"native": "medium"}}
+	}
+	c := AIConfig{API: APIConnection{URL: "https://legacy.example", Key: "legacy-key"}, APIModels: []string{"x::m", "default::x::m"}, Models: map[string]string{"api": "x::m"}, TranslationModels: map[string]string{"api": "default::x::m"}, VisionModels: map[string]string{"api": "x::m"}, Efforts: levels(), TranslationEfforts: levels(), VisionEfforts: levels()}
+	passModels(&c, map[string]bool{"x::m": true, "default::x::m": false})
+	sourceCaps := c.Capabilities
+	sourceEfforts := []map[string]string{c.Efforts["api"], c.TranslationEfforts["api"], c.VisionEfforts["api"]}
+	migrateAPIProviders(&c)
+	// Migration must write new maps: a destination may also be an unread source key.
+	// This invariant detects the collision regardless of Go's map iteration order.
+	if _, ok := sourceCaps["api:x::m"]; !ok {
+		t.Error("migration overwrote its source capabilities")
+	}
+	for _, source := range sourceEfforts {
+		if source["x::m"] != "low" || source["default::x::m"] != "high" {
+			t.Error("migration overwrote its source efforts")
+		}
+	}
+	if err := s.writeAIConfig(c); err != nil {
+		t.Fatal(err)
+	}
+	got := s.aiConfig()
+	if got.Models["api"] != "default::x::m" || got.TranslationModels["api"] != "default::default::x::m" || got.VisionModels["api"] != "default::x::m" {
+		t.Fatal("task references changed meaning", got.Models, got.TranslationModels, got.VisionModels)
+	}
+	for _, efforts := range []map[string]map[string]string{got.Efforts, got.TranslationEfforts, got.VisionEfforts} {
+		if len(efforts["api"]) != 2 || efforts["api"]["default::x::m"] != "low" || efforts["api"]["default::default::x::m"] != "high" || efforts["codex"]["native"] != "medium" {
+			t.Errorf("overlapping efforts lost: %+v", efforts)
+		}
+	}
+	if len(got.Capabilities) != 2 || !capable(got, "api:default::x::m", true) || !capable(got, "api:default::default::x::m", false) || capable(got, "api:default::default::x::m", true) {
+		t.Errorf("overlapping capabilities lost: %+v", got.Capabilities)
+	}
+}
+
+func TestExplicitProviderChoiceSkipsUnrelatedCatalog(t *testing.T) {
+	for _, task := range []modelTask{taskChat, taskTranslation, taskVision} {
+		t.Run(string(task), func(t *testing.T) {
+			s := testServer(t)
+			var unrelated, requests atomic.Int32
+			slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { unrelated.Add(1); <-r.Context().Done() }))
+			defer slow.Close()
+			healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "GET" {
+					fmt.Fprint(w, `{"data":[{"id":"same","context_window":8192}]}`)
+					return
+				}
+				requests.Add(1)
+				var body apiCall
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Model != "same" {
+					t.Error("wire model changed", body.Model, err)
+				}
+				writeAPIReply(w, "healthy")
+			}))
+			defer healthy.Close()
+			c := AIConfig{Models: map[string]string{"api": "healthy::same"}, TranslationModels: map[string]string{"api": "healthy::same"}, VisionModels: map[string]string{"api": "healthy::same"}, APIProviders: []APIProvider{{ID: "unrelated", Name: "Unrelated", Connection: APIConnection{URL: slow.URL}}, {ID: "healthy", Name: "Healthy", Connection: APIConnection{URL: healthy.URL}, Models: []string{"same"}}}}
+			passModels(&c, map[string]bool{"healthy::same": true})
+			adapter := s.apiAgentAdapter(c, task)
+			ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+			defer cancel()
+			input := AIInput{Prompt: "request"}
+			if task == taskVision {
+				input.Image = []byte{1}
+			}
+			result, err := adapter.Stream(ctx, GenerateRequest{input}, nil)
+			if err != nil || result.Text != "healthy" {
+				t.Errorf("healthy selected model blocked: %+v %v", result, err)
+			}
+			if unrelated.Load() != 0 {
+				t.Errorf("explicit request discovered unrelated provider %d times", unrelated.Load())
+			}
+			if requests.Load() != 1 {
+				t.Errorf("healthy requests=%d", requests.Load())
+			}
+			resolved, err := adapter.resolve(ctx, task == taskVision)
+			if err != nil || resolved.ContextWindow != 8192 {
+				t.Error("owner metadata missing", resolved.ContextWindow, err)
+			}
+		})
 	}
 }

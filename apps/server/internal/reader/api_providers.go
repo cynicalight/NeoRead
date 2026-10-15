@@ -3,7 +3,6 @@ package reader
 import (
 	"encoding/json"
 	"errors"
-	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -86,19 +85,23 @@ func migrateAPIProviders(c *AIConfig) {
 		}
 	}
 	for _, efforts := range []map[string]map[string]string{c.Efforts, c.TranslationEfforts, c.VisionEfforts} {
-		for model, level := range maps.Clone(efforts["api"]) {
-			if strings.Contains(model, "::") {
-				delete(efforts["api"], model)
-				efforts["api"][convert(model)] = level
-			}
+		if efforts["api"] == nil {
+			continue
 		}
-	}
-	for key, cap := range maps.Clone(c.Capabilities) {
-		if model, ok := strings.CutPrefix(key, "api:"); ok && strings.Contains(model, "::") {
-			delete(c.Capabilities, key)
-			c.Capabilities[apiCapabilityKey(convert(model))] = cap
+		migrated := make(map[string]string, len(efforts["api"]))
+		for model, level := range efforts["api"] {
+			migrated[convert(model)] = level
 		}
+		efforts["api"] = migrated
 	}
+	migrated := make(map[string]Capability, len(c.Capabilities))
+	for key, cap := range c.Capabilities {
+		if model, ok := strings.CutPrefix(key, "api:"); ok {
+			key = apiCapabilityKey(convert(model))
+		}
+		migrated[key] = cap
+	}
+	c.Capabilities = migrated
 }
 
 // Legacy fields are a projection only. Modern writes always take apiProviders as authoritative.

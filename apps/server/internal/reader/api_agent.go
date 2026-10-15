@@ -24,9 +24,10 @@ type apiAgentAdapter struct {
 	text, vision apiModelChoice
 	task         modelTask
 	// catalog lists the endpoint's models with this snapshot's check results.
-	catalog       func(context.Context) ([]AgentModel, error)
-	config        *AIConfig
-	enabledModels []string
+	catalog         func(context.Context) ([]AgentModel, error)
+	catalogForModel func(context.Context, string) ([]AgentModel, error)
+	config          *AIConfig
+	enabledModels   []string
 }
 
 // An empty model picks the recommended model among those that passed.
@@ -88,7 +89,19 @@ func (s *Server) apiAgentAdapter(c AIConfig, task modelTask) apiAgentAdapter {
 		}
 		return apiModelChoice{model, level}
 	}
-	return apiAgentAdapter{conn: c.API, text: choice(models, efforts), vision: choice(c.VisionModels, c.VisionEfforts), task: task, config: &c, catalog: func(ctx context.Context) ([]AgentModel, error) { return s.apiAgentModels(ctx, c) }}
+	return apiAgentAdapter{
+		conn: c.API, text: choice(models, efforts), vision: choice(c.VisionModels, c.VisionEfforts), task: task, config: &c,
+		catalog: func(ctx context.Context) ([]AgentModel, error) { return s.apiAgentModels(ctx, c) },
+		catalogForModel: func(ctx context.Context, ref string) ([]AgentModel, error) {
+			provider, _, ok := resolveAPIProvider(c, ref)
+			if !ok {
+				return nil, generationError(ErrorConfiguration, "所选 API 提供商已移除，请重新选择")
+			}
+			local := c
+			local.APIProviders = []APIProvider{provider}
+			return s.apiAgentModels(ctx, local)
+		},
+	}
 }
 
 // resolve fixes the model and requested effort for one request. Wire mapping
@@ -113,7 +126,14 @@ func (a apiAgentAdapter) resolve(ctx context.Context, vision bool) (completionRe
 	if req.Model != "" && a.enabledModels != nil && !slices.Contains(a.enabledModels, req.Model) {
 		return req, generationError(ErrorCapability, "所选 API 模型已停用或移除，请在设置中重新选择")
 	}
-	models, err := a.catalog(ctx)
+	var models []AgentModel
+	var err error
+	if req.Model != "" && a.catalogForModel != nil {
+		// An explicit choice only needs metadata from its own provider.
+		models, err = a.catalogForModel(ctx, req.Model)
+	} else {
+		models, err = a.catalog(ctx)
+	}
 	if err != nil {
 		if req.Model == "" {
 			return req, err
