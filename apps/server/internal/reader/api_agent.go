@@ -32,6 +32,10 @@ type apiModelChoice struct{ model, level string }
 
 func apiCapabilityKey(model string) string { return "api:" + model }
 
+func apiModelEnabled(c AIConfig, model string) bool {
+	return c.APIEnabledModels == nil || slices.Contains(c.APIEnabledModels, model)
+}
+
 // apiTaskModel is the user's choice for a task; empty means automatic.
 func apiTaskModel(c AIConfig, task modelTask, vision bool) string {
 	if vision {
@@ -47,10 +51,10 @@ func apiTaskModel(c AIConfig, task modelTask, vision bool) string {
 // passed its check or, with no choice, some checked model passed.
 func apiCapable(c AIConfig, task modelTask, vision bool) bool {
 	if model := apiTaskModel(c, task, vision); model != "" {
-		return capable(c, apiCapabilityKey(model), vision)
+		return apiModelEnabled(c, model) && capable(c, apiCapabilityKey(model), vision)
 	}
 	for key := range c.Capabilities {
-		if strings.HasPrefix(key, "api:") && capable(c, key, vision) {
+		if strings.HasPrefix(key, "api:") && apiModelEnabled(c, strings.TrimPrefix(key, "api:")) && capable(c, key, vision) {
 			return true
 		}
 	}
@@ -106,7 +110,7 @@ func (a apiAgentAdapter) resolve(ctx context.Context, vision bool) (completionRe
 		return req, nil
 	}
 	for _, m := range models {
-		if req.Model == "" && slices.Contains(m.RecommendedFor, string(task)) {
+		if req.Model == "" && (m.Enabled == nil || *m.Enabled) && slices.Contains(m.RecommendedFor, string(task)) {
 			req.Model = m.ID
 		}
 	}
@@ -118,6 +122,9 @@ func (a apiAgentAdapter) resolve(ctx context.Context, vision bool) (completionRe
 	}
 	for _, m := range models {
 		if m.ID == req.Model {
+			if m.Enabled != nil && !*m.Enabled {
+				return req, generationError(ErrorCapability, "所选 API 模型已停用，请在设置中启用或重新选择")
+			}
 			req.ContextWindow = m.ContextWindow
 			req.SupportedEfforts = m.SupportedEfforts
 		}
@@ -250,9 +257,15 @@ func (s *Server) apiCatalog(c APIConnection) func(context.Context) ([]AgentModel
 func (s *Server) apiAgentModels(ctx context.Context, c AIConfig) ([]AgentModel, error) {
 	listed, err := s.apiCatalog(c.API)(ctx)
 	models := append([]AgentModel{}, listed...)
-	for _, id := range c.APIModels {
+	ids := append([]string{}, c.APIModels...)
+	ids = append(ids, c.APIEnabledModels...)
+	ids = append(ids, c.Models["api"], c.TranslationModels["api"], c.VisionModels["api"])
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
 		if !slices.ContainsFunc(models, func(m AgentModel) bool { return m.ID == id }) {
-			models = append(models, AgentModel{ID: id, Name: id, Custom: true})
+			models = append(models, AgentModel{ID: id, Name: id, Custom: slices.Contains(c.APIModels, id)})
 		}
 	}
 	if len(models) == 0 {
@@ -262,6 +275,8 @@ func (s *Server) apiAgentModels(ctx context.Context, c AIConfig) ([]AgentModel, 
 		return nil, err
 	}
 	for i := range models {
+		enabled := apiModelEnabled(c, models[i].ID)
+		models[i].Enabled = &enabled
 		models[i].EffortInfo = reasoningRule(resolveAPIEndpoint(c.API), models[i].ID, models[i].SupportedEfforts).info()
 		key := apiCapabilityKey(models[i].ID)
 		if result, ok := c.Capabilities[key]; ok && result.Fingerprint == configPrint(c, key) {
@@ -271,7 +286,7 @@ func (s *Server) apiAgentModels(ctx context.Context, c AIConfig) ([]AgentModel, 
 	for _, task := range []modelTask{taskChat, taskTranslation, taskVision} {
 		passed := []AgentModel{}
 		for _, m := range models {
-			if m.Capability != nil && m.Capability.Text && (task != taskVision || m.Capability.Vision) {
+			if (m.Enabled == nil || *m.Enabled) && m.Capability != nil && m.Capability.Text && (task != taskVision || m.Capability.Vision) {
 				passed = append(passed, m)
 			}
 		}

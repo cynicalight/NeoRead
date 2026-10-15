@@ -379,6 +379,7 @@ export function catalogRevision(config: AIConfig | null | undefined) {
     config.api.url,
     config.api.protocol ?? "auto",
     ...(config.apiModels ?? []),
+    JSON.stringify(config.apiEnabledModels),
     ...checks,
   ].join("\n");
 }
@@ -392,6 +393,8 @@ export function usableModels(
   if (provider !== "api") return models;
   return models.filter(
     (model) =>
-      model.capability?.text && (task !== "vision" || model.capability.vision),
+      model.enabled !== false &&
+      model.capability?.text &&
+      (task !== "vision" || model.capability.vision),
   );
 }

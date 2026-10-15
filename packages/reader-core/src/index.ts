@@ -541,6 +541,9 @@ export interface TranslationBlock {
   error?: string;
 }
 export interface AICapability {
+  textLastSucceededAt?: string;
+  visionLastSucceededAt?: string;
+  toolsLastSucceededAt?: string;
   tools?: "passed" | "unsupported" | "failed";
   toolSchemaVersion?: string;
   toolError?: string;
@@ -551,6 +554,8 @@ export interface AICapability {
   error?: string;
 }
 export interface APIConnection {
+  textProbeTimeoutSeconds?: number;
+  visionProbeTimeoutSeconds?: number;
   /** Auto detects official endpoints; other addresses use OpenAI Chat Completions. */
   protocol?: "auto" | "openai" | "anthropic";
   url: string;
@@ -561,6 +566,8 @@ export interface APIConnection {
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export interface AIConfig {
+  /** Omitted uses legacy models; [] disables every API model. */
+  apiEnabledModels?: string[];
   primary: string;
   models: Record<string, string>;
   efforts?: Record<string, Record<string, ReasoningEffort>>;
@@ -578,6 +585,7 @@ export interface AIConfig {
   capabilities: Record<string, AICapability>;
 }
 export interface AgentModel {
+  enabled?: boolean;
   contextWindow?: number;
   maxOutputTokens?: number;
   effortInfo?: {

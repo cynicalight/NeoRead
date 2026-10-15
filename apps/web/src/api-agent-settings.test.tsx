@@ -176,7 +176,7 @@ it("groups proxy settings and log export under diagnostics without a network tab
   await act(async () => exportButton.click());
   expect(exportLogs).toHaveBeenCalledOnce();
 });
-it("saves the API endpoint and key, then tests the new connection", async () => {
+it("saves the API endpoint and key without starting paid probes", async () => {
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   expect(host.textContent).toContain("未配置");
   expect(host.textContent).toContain("点击卡片配置你的apikey");
@@ -197,15 +197,7 @@ it("saves the API endpoint and key, then tests the new connection", async () => 
       },
     }),
   );
-  // Each listed model is checked on its own, text first, then vision.
-  for (const model of ["deepseek-flash", "deepseek-v4-pro"])
-    for (const stage of ["text", "vision"])
-      expect(api.testAI).toHaveBeenCalledWith("api", stage, model);
-  expect(api.testAI).toHaveBeenCalledTimes(4);
-  expect(
-    host.querySelectorAll('.api-model-list [aria-label="图片理解：已通过"]'),
-  ).toHaveLength(1);
-  expect(toast.warning).not.toHaveBeenCalled();
+  expect(api.testAI).not.toHaveBeenCalled();
   expect(input("API Key").value).toBe("");
   expect(input("API Key").placeholder).toBe("已保存，留空保持不变");
   await act(async () =>
@@ -216,10 +208,10 @@ it("saves the API endpoint and key, then tests the new connection", async () => 
   expect(input("API 地址")).toBeNull();
   expect(host.textContent).not.toContain("点击卡片查看 API 配置");
   const card = host.querySelector('[aria-label="配置 API Key"]')!;
-  expect(card.querySelector('[aria-label="文本推理：已通过"]')).not.toBeNull();
-  expect(card.querySelector('[aria-label="图片理解：已通过"]')).not.toBeNull();
+  expect(card.querySelector('[aria-label="文本推理：已通过"]')).toBeNull();
+  expect(card.querySelector('[aria-label="图片理解：已通过"]')).toBeNull();
 });
-it("keeps the saved key when changing only the API endpoint and rechecks models", async () => {
+it("keeps the saved key when changing only the API endpoint without probing", async () => {
   config.api = { url: "https://api.deepseek.com", model: "", hasKey: true };
   config.capabilities = {
     "api:deepseek-flash": { text: true, vision: true, checkedAt: "saved" },
@@ -244,10 +236,7 @@ it("keeps the saved key when changing only the API endpoint and rechecks models"
       },
     }),
   );
-  for (const model of ["deepseek-flash", "deepseek-v4-pro"])
-    for (const stage of ["text", "vision"])
-      expect(api.testAI).toHaveBeenCalledWith("api", stage, model);
-  expect(api.testAI).toHaveBeenCalledTimes(4);
+  expect(api.testAI).not.toHaveBeenCalled();
   expect(config.api).toEqual({
     url: "https://api.deepseek.com/v1",
     protocol: "auto",
@@ -256,16 +245,24 @@ it("keeps the saved key when changing only the API endpoint and rechecks models"
   });
   expect(
     host.querySelectorAll('.api-model-list [aria-label="图片理解：已通过"]'),
-  ).toHaveLength(1);
+  ).toHaveLength(0);
 });
-it("warns when no listed model passes the vision check", async () => {
+it("runs vision probes only after an explicit vision action", async () => {
   config.api = { url: "https://api.example.com", model: "", hasKey: true };
   listed = { "text-only": false };
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   await openAPI();
   expect(input("API 地址").value).toBe("https://api.example.com");
+  expect(api.testAI).not.toHaveBeenCalled();
+  await clickButton("检测已启用模型的文本");
+  expect(api.testAI).toHaveBeenCalledExactlyOnceWith(
+    "api",
+    "text",
+    "text-only",
+  );
+  await clickButton("检测已启用模型的图片");
   expect(api.testAI).toHaveBeenCalledWith("api", "vision", "text-only");
-  expect(toast.warning).toHaveBeenCalledOnce();
+  expect(toast.warning).not.toHaveBeenCalled();
   await act(async () =>
     (
       host.querySelector('[aria-label="返回 Agent 设置"]') as HTMLButtonElement
@@ -275,7 +272,7 @@ it("warns when no listed model passes the vision check", async () => {
   expect(card.querySelector('[aria-label="文本推理：已通过"]')).not.toBeNull();
   expect(card.querySelector('[aria-label="图片理解：未通过"]')).not.toBeNull();
 });
-it("adds and removes a model ID by hand and checks it", async () => {
+it("adds and removes a model ID by hand without checking it automatically", async () => {
   config.api = { url: "https://api.example.com", model: "", hasKey: true };
   config.capabilities = {
     "api:deepseek-flash": { text: true, vision: true, checkedAt: "saved" },
@@ -291,8 +288,7 @@ it("adds and removes a model ID by hand and checks it", async () => {
     ),
   );
   expect(config.apiModels).toEqual(["my-model"]);
-  expect(api.testAI).toHaveBeenCalledWith("api", "text", "my-model");
-  expect(api.testAI).toHaveBeenCalledTimes(2);
+  expect(api.testAI).not.toHaveBeenCalled();
   await act(async () =>
     (
       host.querySelector('[aria-label="移除 my-model"]') as HTMLButtonElement
@@ -335,4 +331,95 @@ it("keeps selection auto-copy opt-in and lets reading settings toggle it", async
 it("does not expose automatic chapter context", async () => {
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   expect(host.querySelector('[aria-label="提问时附带本章原文"]')).toBeNull();
+});
+
+const clickButton = async (label: string) =>
+  act(async () => {
+    const button = host.querySelector<HTMLButtonElement>(
+      `[aria-label="${label}"]`,
+    );
+    expect(button, label).not.toBeNull();
+    button!.click();
+  });
+
+it("opening and refetching settings never probes API models", async () => {
+  config.api = { url: "https://api.example.com", model: "", hasKey: true };
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  expect(api.testAI).not.toHaveBeenCalled();
+  await clickButton("刷新模型列表");
+  expect(api.testAI).not.toHaveBeenCalled();
+});
+
+it("checks enabled models only with at most two requests in flight", async () => {
+  config.api = { url: "https://api.example.com", model: "", hasKey: true };
+  config.apiEnabledModels = ["a", "b", "c"];
+  listed = { a: true, b: true, c: true, disabled: true };
+  let active = 0,
+    peak = 0;
+  const finish: Array<() => void> = [];
+  vi.mocked(api.testAI).mockImplementation(async (_provider, stage, model) => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise<void>((resolve) => finish.push(resolve));
+    active--;
+    return { text: true, vision: false, checkedAt: model! };
+  });
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  expect(api.testAI).not.toHaveBeenCalled();
+  await clickButton("检测已启用模型的文本");
+  expect(api.testAI).toHaveBeenCalledTimes(2);
+  await act(async () => finish.shift()!());
+  expect(api.testAI).toHaveBeenCalledTimes(3);
+  await act(async () => finish.splice(0).forEach((resolve) => resolve()));
+  expect(peak).toBe(2);
+  expect(vi.mocked(api.testAI).mock.calls.map((call) => call.slice(1))).toEqual(
+    [
+      ["text", "a"],
+      ["text", "b"],
+      ["text", "c"],
+    ],
+  );
+});
+
+it("first enable edit retains legacy task choices and manual IDs then allows disabling all", async () => {
+  config.api = { url: "https://api.example.com", model: "", hasKey: true };
+  config.models = { api: "legacy-chat" };
+  config.visionModels = { api: "legacy-vision" };
+  config.translationModels = { api: "legacy-translation" };
+  config.apiModels = ["manual"];
+  listed = { a: true };
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  await clickButton("启用 a");
+  expect(config.apiEnabledModels).toEqual(
+    expect.arrayContaining([
+      "legacy-chat",
+      "legacy-vision",
+      "legacy-translation",
+      "manual",
+    ]),
+  );
+  expect(config.apiEnabledModels).not.toContain("a");
+  await clickButton("停用全部模型");
+  expect(config.apiEnabledModels).toEqual([]);
+  expect(api.testAI).not.toHaveBeenCalled();
+});
+
+it("saves independent text and vision probe timeouts", async () => {
+  config.api = { url: "https://api.example.com", model: "", hasKey: true };
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  expect(input("文本检测时限（秒）").value).toBe("45");
+  expect(input("图片检测时限（秒）").value).toBe("90");
+  await type("文本检测时限（秒）", "120");
+  await type("图片检测时限（秒）", "240");
+  await submit();
+  expect(config.api).toMatchObject({
+    textProbeTimeoutSeconds: 120,
+    visionProbeTimeoutSeconds: 240,
+    hasKey: true,
+  });
+  expect(api.testAI).not.toHaveBeenCalled();
 });

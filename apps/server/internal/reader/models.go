@@ -16,6 +16,7 @@ import (
 )
 
 type AgentModel struct {
+	Enabled         *bool          `json:"enabled,omitempty"`
 	EffortInfo      *APIEffortInfo `json:"effortInfo,omitempty"`
 	ContextWindow   int            `json:"contextWindow,omitempty"`
 	MaxOutputTokens int            `json:"maxOutputTokens,omitempty"`

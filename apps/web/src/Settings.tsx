@@ -67,8 +67,6 @@ import {
 import { libraryModes } from "./LibraryModeSwitcher";
 import { Checkbox } from "@reader/ui/components/checkbox";
 import { toast } from "sonner";
-// Checks run automatically for this many API models; the rest on demand.
-const autoAPIChecks = 12;
 export function Settings({
   open,
   onOpenChange,
@@ -153,8 +151,8 @@ export function Settings({
   } = useReaderStore();
   const paperPreferences =
     useReaderStore((s) => s.libraryPreferences.papers) || {};
-  // Run the text check, then the vision check, for an agent or an API model
-  // ("api:<model>"). A result is dropped if its configuration changed meanwhile.
+  // CLI agents check text then vision; API models check only the requested stage.
+  // Drop a result if its configuration changed meanwhile.
   const check = async (
     id: string,
     first: "text" | "vision",
@@ -183,6 +181,7 @@ export function Settings({
       if (stage === "text") {
         const capability = await run("text");
         if (!update(capability) || !capability.text) return;
+        if (model) return;
         stage = "vision";
         setTesting((current) => new Map(current).set(id, "vision"));
       }
@@ -217,19 +216,13 @@ export function Settings({
         ),
       ),
     );
-    await Promise.all(ids.map((id) => check(id, firstStage(id), snapshot)));
-  };
-  const warnWithoutVision = (models: AgentModel[]) => {
-    const capabilities = useReaderStore.getState().aiConfig?.capabilities;
-    const results = models.map(({ id }) => capabilities?.[`api:${id}`]);
-    if (
-      results.length &&
-      results.every(Boolean) &&
-      !results.some((r) => r?.vision)
-    )
-      toast.warning(
-        "此 API Key 不符合图片理解要求：拉取到的模型都没有通过图片理解检测。",
-      );
+    const pending = [...ids];
+    await Promise.all(
+      Array.from({ length: Math.min(2, pending.length) }, async () => {
+        for (let id = pending.shift(); id; id = pending.shift())
+          await check(id, firstStage(id), snapshot);
+      }),
+    );
   };
   const refresh = async (force = false) => {
     if (refreshing.current) return;
@@ -270,27 +263,10 @@ export function Settings({
         }
       }
       setAPIModels(models);
-      // Large catalogs are checked on demand, row by row.
-      const modelChecks = models
-        .filter((model) => {
-          const saved = config.capabilities[`api:${model.id}`];
-          if (!force && saved && !saved.pendingVision) return false;
-          return (
-            force || !checked.current.has(JSON.stringify(["api", model.id]))
-          );
-        })
-        .slice(0, autoAPIChecks);
-      for (const model of modelChecks)
-        checked.current.add(JSON.stringify(["api", model.id]));
       const firstStage = (id: string): "text" | "vision" =>
         !force && config.capabilities[id]?.pendingVision ? "vision" : "text";
       setLoading(false);
-      await checkAll(
-        [...pending, ...modelChecks.map(({ id }) => `api:${id}`)],
-        firstStage,
-        config,
-      );
-      if (modelChecks.length) warnWithoutVision(models);
+      await checkAll(pending, firstStage, config);
     } catch (e) {
       toast.error(String(e));
     } finally {
@@ -301,12 +277,21 @@ export function Settings({
   useEffect(() => {
     if (open) void refresh();
   }, [open]);
-  const checkModel = async (model: AgentModel) => {
+  const modelEnabled = (model: AgentModel, value = config) =>
+    value?.apiEnabledModels ? value.apiEnabledModels.includes(model.id) : true;
+  const checkModels = async (stage: "text" | "vision", model?: AgentModel) => {
     const snapshot = useReaderStore.getState().aiConfig;
-    if (!snapshot) return;
-    checked.current.add(JSON.stringify(["api", model.id]));
-    await checkAll([`api:${model.id}`], () => "text", snapshot);
-    warnWithoutVision(apiModels);
+    if (!snapshot || testing.size || saving) return;
+    const selected = (model ? [model] : apiModels).filter(
+      (item) =>
+        modelEnabled(item, snapshot) &&
+        (stage === "text" || snapshot.capabilities[`api:${item.id}`]?.text),
+    );
+    await checkAll(
+      selected.map((item) => `api:${item.id}`),
+      () => stage,
+      snapshot,
+    );
   };
   const checkTools = async (model: AgentModel) => {
     const snapshot = useReaderStore.getState().aiConfig;
@@ -339,23 +324,46 @@ export function Settings({
       setAIConfig(await api.saveAIConfig(change(await api.aiConfig())));
     } catch (e) {
       toast.error((e as Error).message);
-      return;
+      return false;
     } finally {
       setSaving(false);
     }
     await refresh();
+    return true;
   };
-  const saveAPI = (connection: APIConnection) => {
-    // A new address or key is a new connection: test its models again.
-    for (const key of checked.current)
-      if (key.startsWith('["api"')) checked.current.delete(key);
-    return saveConfig((latest) => ({ ...latest, api: connection }));
+  const saveAPI = async (connection: APIConnection) => {
+    if (!(await saveConfig((latest) => ({ ...latest, api: connection }))))
+      throw new Error("保存失败");
   };
-  const saveAPIModels = (change: (models: string[]) => string[]) =>
-    saveConfig((latest) => ({
-      ...latest,
-      apiModels: change(latest.apiModels ?? []),
-    }));
+  const saveAPIModels = async (change: (models: string[]) => string[]) => {
+    if (
+      !(await saveConfig((latest) => ({
+        ...latest,
+        apiModels: change(latest.apiModels ?? []),
+      })))
+    )
+      throw new Error("保存失败");
+  };
+  const setModelEnabled = (id: string, enabled: boolean) =>
+    saveConfig((latest) => {
+      const current = latest.apiEnabledModels ?? [
+        ...new Set(
+          [
+            ...apiModels.map((model) => model.id),
+            ...(latest.apiModels ?? []),
+            latest.models.api,
+            latest.translationModels?.api,
+            latest.visionModels?.api,
+          ].filter((value): value is string => !!value),
+        ),
+      ];
+      return {
+        ...latest,
+        apiEnabledModels: enabled
+          ? [...new Set([...current, id])]
+          : current.filter((value) => value !== id),
+      };
+    });
   const checkStatus = (id: string, capability?: AICapability) => (
     <div className="flex flex-wrap gap-x-5">
       {(
@@ -430,6 +438,7 @@ export function Settings({
         const ready = apiModels.some((model) => {
           const id = `api:${model.id}`;
           return (
+            modelEnabled(model) &&
             !errors[`${id}:text`] &&
             !errors[`${id}:${kind}`] &&
             config?.capabilities[id]?.[kind]
@@ -498,7 +507,62 @@ export function Settings({
               {config &&
                 providers.some((p) => p.id === "api" && p.installed) && (
                   <div className="mt-6">
-                    <h3 className="mb-1 text-sm font-medium">模型</h3>
+                    <h3 className="mb-1 text-sm font-medium">启用模型</h3>
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label="刷新模型列表"
+                        disabled={loading || saving || testing.size > 0}
+                        onClick={() => void refresh()}
+                      >
+                        刷新列表
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label="检测已启用模型的文本"
+                        disabled={
+                          saving ||
+                          testing.size > 0 ||
+                          !apiModels.some((model) => modelEnabled(model))
+                        }
+                        onClick={() => void checkModels("text")}
+                      >
+                        检测文本
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label="检测已启用模型的图片"
+                        disabled={
+                          saving ||
+                          testing.size > 0 ||
+                          !apiModels.some(
+                            (model) =>
+                              modelEnabled(model) &&
+                              config.capabilities[`api:${model.id}`]?.text,
+                          )
+                        }
+                        onClick={() => void checkModels("vision")}
+                      >
+                        检测图片
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label="停用全部模型"
+                        disabled={saving || testing.size > 0}
+                        onClick={() =>
+                          void saveConfig((latest) => ({
+                            ...latest,
+                            apiEnabledModels: [],
+                          }))
+                        }
+                      >
+                        全部停用
+                      </Button>
+                    </div>
                     <ul className="api-model-list">
                       {apiModels.map((model) => {
                         const id = `api:${model.id}`;
@@ -506,33 +570,80 @@ export function Settings({
                         return (
                           <li
                             key={model.id}
-                            className="flex min-h-9 items-center gap-3"
+                            className="flex min-h-9 flex-wrap items-center gap-3"
                           >
+                            <Checkbox
+                              aria-label={`启用 ${model.id}`}
+                              checked={modelEnabled(model)}
+                              disabled={saving || testing.size > 0}
+                              onCheckedChange={(value) =>
+                                void setModelEnabled(model.id, !!value)
+                              }
+                            />
                             <span
-                              className="min-w-0 flex-1 truncate text-sm"
+                              className="min-w-24 flex-1 truncate text-sm"
                               title={model.id}
                             >
                               {model.name}
                             </span>
-                            {testing.has(id) ||
-                            result ||
-                            errors[`${id}:text`] ? (
-                              checkStatus(id, result)
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={saving}
-                                onClick={() => void checkModel(model)}
+                            {(testing.has(id) ||
+                              result ||
+                              errors[`${id}:text`]) &&
+                              checkStatus(id, result)}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`检测 ${model.id} 文本`}
+                              disabled={
+                                saving ||
+                                testing.size > 0 ||
+                                !modelEnabled(model)
+                              }
+                              onClick={() => void checkModels("text", model)}
+                            >
+                              文本
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`检测 ${model.id} 图片`}
+                              disabled={
+                                saving ||
+                                testing.size > 0 ||
+                                !modelEnabled(model) ||
+                                !result?.text
+                              }
+                              onClick={() => void checkModels("vision", model)}
+                            >
+                              图片
+                            </Button>
+                            {result?.error && (
+                              <span
+                                className="w-full break-words text-xs text-muted-foreground"
+                                title={result.error}
                               >
-                                检测
-                              </Button>
+                                {result.error}
+                              </span>
+                            )}
+                            {(result?.textLastSucceededAt ||
+                              result?.visionLastSucceededAt) && (
+                              <span className="w-full text-xs text-muted-foreground">
+                                最近成功{" "}
+                                {result.textLastSucceededAt &&
+                                  `文本 ${result.textLastSucceededAt}`}{" "}
+                                {result.visionLastSucceededAt &&
+                                  `图片 ${result.visionLastSucceededAt}`}
+                              </span>
                             )}
                             {result?.text && (
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                disabled={saving || testing.has(id)}
+                                disabled={
+                                  saving ||
+                                  testing.size > 0 ||
+                                  !modelEnabled(model)
+                                }
                                 onClick={() => void checkTools(model)}
                                 title={result.toolError}
                               >
@@ -547,11 +658,11 @@ export function Settings({
                                 size="icon-sm"
                                 aria-label={`移除 ${model.name}`}
                                 title="移除"
-                                disabled={saving || testing.has(id)}
+                                disabled={saving || testing.size > 0}
                                 onClick={() =>
                                   void saveAPIModels((models) =>
                                     models.filter((item) => item !== model.id),
-                                  )
+                                  ).catch(() => {})
                                 }
                               >
                                 <X />

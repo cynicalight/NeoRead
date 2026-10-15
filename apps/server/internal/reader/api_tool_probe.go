@@ -2,10 +2,10 @@ package reader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 func probeAPIDocumentTools(ctx context.Context, c APIConnection, model string) (string, error) {
@@ -44,7 +44,7 @@ func (s *Server) testDocumentToolConnection(w http.ResponseWriter, r *http.Reque
 		fail(w, 409, "请先完成文本检测")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), probeTimeout(c.API, false))
 	defer cancel()
 	cap, e := s.checkDocumentTools(ctx, c, key)
 	if e != nil {
@@ -75,7 +75,7 @@ func (s *Server) ensureDocumentTools(ctx context.Context, connection APIConnecti
 			return Capability{}, err
 		}
 	}
-	child, cancel := context.WithTimeout(ctx, 60*time.Second)
+	child, cancel := context.WithTimeout(ctx, probeTimeout(c.API, false))
 	defer cancel()
 	return s.checkDocumentTools(child, c, key)
 }
@@ -83,8 +83,12 @@ func (s *Server) ensureDocumentTools(ctx context.Context, connection APIConnecti
 func (s *Server) checkDocumentTools(ctx context.Context, c AIConfig, key string) (Capability, error) {
 	model := strings.TrimPrefix(key, "api:")
 	status, e := probeAPIDocumentTools(ctx, c.API, model)
-	if ctx.Err() != nil {
+	if errors.Is(ctx.Err(), context.Canceled) {
 		return Capability{}, ctx.Err()
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		status = "failed"
+		e = generationError(ErrorTimeout, "工具检测超时，请调整文本检测时限后重试")
 	}
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
@@ -93,7 +97,15 @@ func (s *Server) checkDocumentTools(ctx context.Context, c AIConfig, key string)
 		return Capability{}, generationError(ErrorConfiguration, "配置已改变，请重新检测")
 	}
 	cap := latest.Capabilities[key]
-	cap.Tools = status
+	if cap.Tools == "passed" && cap.ToolsLastSucceededAt == "" {
+		cap.ToolsLastSucceededAt = cap.CheckedAt
+	}
+	if status == "passed" || !transientProbeFailure(e) || cap.Tools != "passed" {
+		cap.Tools = status
+	}
+	if status == "passed" {
+		cap.ToolsLastSucceededAt = now()
+	}
 	cap.ToolSchemaVersion = documentToolSchemaVersion
 	cap.ToolError = ""
 	if e != nil {

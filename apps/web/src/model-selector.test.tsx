@@ -338,3 +338,31 @@ it("keeps the slider interactive during saving and persists the latest choice", 
   expect(document.querySelector(".effort-title")?.textContent).toBe("Low");
   expect(useReaderStore.getState().aiModelSaving).toBe(false);
 });
+
+it("excludes disabled API candidates even when their checks passed", async () => {
+  const { usableModels } = await import("./ModelSelector");
+  const models = [
+    {
+      id: "disabled",
+      name: "disabled",
+      description: "",
+      isDefault: true,
+      enabled: false,
+      capability: { text: true, vision: true, checkedAt: "saved" },
+    },
+    {
+      id: "enabled",
+      name: "enabled",
+      description: "",
+      isDefault: false,
+      enabled: true,
+      capability: { text: true, vision: true, checkedAt: "saved" },
+    },
+  ];
+  expect(usableModels("api", models, "chat").map((model) => model.id)).toEqual([
+    "enabled",
+  ]);
+  expect(
+    usableModels("api", models, "vision").map((model) => model.id),
+  ).toEqual(["enabled"]);
+});

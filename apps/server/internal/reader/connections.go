@@ -23,27 +23,34 @@ import (
 )
 
 type APIConnection struct {
-	Protocol string `json:"protocol,omitempty"`
-	URL      string `json:"url"`
-	Model    string `json:"model"`
-	Key      string `json:"key,omitempty"`
-	HasKey   bool   `json:"hasKey"`
+	TextProbeTimeoutSeconds   int    `json:"textProbeTimeoutSeconds,omitempty"`
+	VisionProbeTimeoutSeconds int    `json:"visionProbeTimeoutSeconds,omitempty"`
+	Protocol                  string `json:"protocol,omitempty"`
+	URL                       string `json:"url"`
+	Model                     string `json:"model"`
+	Key                       string `json:"key,omitempty"`
+	HasKey                    bool   `json:"hasKey"`
 }
 type Capability struct {
-	Tools             string `json:"tools,omitempty"`
-	ToolSchemaVersion string `json:"toolSchemaVersion,omitempty"`
-	ToolError         string `json:"toolError,omitempty"`
-	PendingVision     bool   `json:"pendingVision,omitempty"`
-	Text              bool   `json:"text"`
-	Vision            bool   `json:"vision"`
-	CheckedAt         string `json:"checkedAt"`
-	Error             string `json:"error,omitempty"`
-	Fingerprint       string `json:"-"`
+	TextLastSucceededAt   string `json:"textLastSucceededAt,omitempty"`
+	VisionLastSucceededAt string `json:"visionLastSucceededAt,omitempty"`
+	ToolsLastSucceededAt  string `json:"toolsLastSucceededAt,omitempty"`
+	Tools                 string `json:"tools,omitempty"`
+	ToolSchemaVersion     string `json:"toolSchemaVersion,omitempty"`
+	ToolError             string `json:"toolError,omitempty"`
+	PendingVision         bool   `json:"pendingVision,omitempty"`
+	Text                  bool   `json:"text"`
+	Vision                bool   `json:"vision"`
+	CheckedAt             string `json:"checkedAt"`
+	Error                 string `json:"error,omitempty"`
+	Fingerprint           string `json:"-"`
 }
 type AIConfig struct {
-	Primary string                       `json:"primary"`
-	Models  map[string]string            `json:"models"`
-	Efforts map[string]map[string]string `json:"efforts,omitempty"`
+	// Nil preserves legacy behavior; an explicit empty list disables every model.
+	APIEnabledModels []string                     `json:"apiEnabledModels,omitzero"`
+	Primary          string                       `json:"primary"`
+	Models           map[string]string            `json:"models"`
+	Efforts          map[string]map[string]string `json:"efforts,omitempty"`
 	// Translation choices are independent of chat. An empty model means
 	// Reader picks the fast tier from the live catalog.
 	TranslationModels  map[string]string            `json:"translationModels,omitempty"`
@@ -167,9 +174,13 @@ func atomicFile(path string, b []byte) error {
 func configPrint(c AIConfig, p string) string {
 	var value any
 	if p == "text-api" {
-		value = c.TextAPI
+		connection := c.TextAPI
+		connection.TextProbeTimeoutSeconds, connection.VisionProbeTimeoutSeconds = 0, 0
+		value = connection
 	} else if p == "image-api" {
-		value = c.ImageAPI
+		connection := c.ImageAPI
+		connection.TextProbeTimeoutSeconds, connection.VisionProbeTimeoutSeconds = 0, 0
+		value = connection
 	} else if model, ok := strings.CutPrefix(p, "api:"); ok {
 		value = []string{"api", c.API.URL, c.API.Key, c.API.Protocol, apiRulesVersion, model}
 	} else if p == "api" {
@@ -200,6 +211,9 @@ func publicConfig(c AIConfig) AIConfig {
 	return c
 }
 func validateAPI(c APIConnection) error {
+	if e := validateProbeTimeouts(c); e != nil {
+		return e
+	}
 	if e := validateAPIProtocol(c.Protocol); e != nil {
 		return e
 	}
@@ -217,6 +231,9 @@ func validateAPI(c APIConnection) error {
 
 // The API agent chooses models per task, so only the endpoint is required.
 func validateAgentAPI(c APIConnection) error {
+	if e := validateProbeTimeouts(c); e != nil {
+		return e
+	}
 	if e := validateAPIProtocol(c.Protocol); e != nil {
 		return e
 	}
@@ -306,6 +323,23 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 	if c.APIModels == nil {
 		c.APIModels = old.APIModels
 	}
+	if c.APIEnabledModels == nil {
+		c.APIEnabledModels = old.APIEnabledModels
+	}
+	if c.APIEnabledModels != nil {
+		enabled := []string{}
+		for _, id := range c.APIEnabledModels {
+			id = strings.TrimSpace(id)
+			if len(id) > 200 {
+				fail(w, 400, "模型名称过长")
+				return
+			}
+			if id != "" && !slices.Contains(enabled, id) {
+				enabled = append(enabled, id)
+			}
+		}
+		c.APIEnabledModels = enabled
+	}
 	added := []string{}
 	for _, id := range c.APIModels {
 		id = strings.TrimSpace(id)
@@ -386,43 +420,62 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	c := s.aiConfig()
 	fingerprint := configPrint(c, p)
+	previous := c.Capabilities[p]
 	cap := Capability{CheckedAt: now(), Fingerprint: fingerprint}
-	if previous := c.Capabilities[p]; previous.Fingerprint == fingerprint {
-		cap.Tools, cap.ToolError = previous.Tools, previous.ToolError
-		cap.ToolSchemaVersion = previous.ToolSchemaVersion
+	if previous.Fingerprint == fingerprint {
+		cap = previous
+		cap.CheckedAt, cap.Error = now(), ""
+		if cap.Text && cap.TextLastSucceededAt == "" {
+			cap.TextLastSucceededAt = previous.CheckedAt
+		}
+		if cap.Vision && cap.VisionLastSucceededAt == "" {
+			cap.VisionLastSucceededAt = previous.CheckedAt
+		}
 	}
+	// CLI checks retain their existing reset-and-check behavior.
+	apiProbe := strings.HasPrefix(p, "api:") || p == "text-api" || p == "image-api"
+	if !apiProbe {
+		cap.Text, cap.Vision = false, false
+	}
+	textPassed := false
 	if mode == "vision" {
 		if !capable(c, p, false) {
 			fail(w, 409, "请先完成文本检测")
 			return
 		}
 		cap.Text = true
+		textPassed = true
 	} else {
-		// A completed, nonempty model response establishes text availability.
-		// Formatting and CLI subscription-login metadata are not capability gates.
-		answer, err := s.probeConnection(r.Context(), c, p, AIInput{Prompt: "Reply with exactly READER_OK. Do not use any tools."}, 45*time.Second)
+		answer, err := s.probeConnection(r.Context(), c, p, AIInput{Prompt: "Reply with exactly READER_OK. Do not use any tools."}, connectionProbeTimeout(c, p, false))
 		if err != nil {
 			cap.Error = err.Error()
+			if !apiProbe || !transientProbeFailure(err) {
+				cap.Text, cap.Vision = false, false
+			}
 		} else if strings.TrimSpace(answer) == "" {
-			cap.Error = "测试未返回文字"
+			cap.Text, cap.Vision, cap.Error = false, false, "测试未返回文字"
 		} else {
-			cap.Text = true
+			cap.Text, textPassed = true, true
+			cap.TextLastSucceededAt = cap.CheckedAt
 		}
 	}
-	cap.PendingVision = mode == "text" && cap.Text && p != "text-api"
-	if cap.Text && p != "text-api" && mode != "text" {
-		// The challenge still requires evidence from pixels; tolerate prose/formatting.
+	cap.PendingVision = mode == "text" && cap.Text && !cap.Vision && p != "text-api"
+	if textPassed && p != "text-api" && mode != "text" {
 		data, expected, probeErr := visionProbe()
 		if probeErr != nil {
 			cap.Error = "无法生成图片测试"
 		} else {
-			answer, err := s.probeConnection(r.Context(), c, p, AIInput{Prompt: visionPrompt, Image: data}, 90*time.Second)
+			answer, err := s.probeConnection(r.Context(), c, p, AIInput{Prompt: visionPrompt, Image: data}, connectionProbeTimeout(c, p, true))
 			if err != nil {
 				cap.Error = "文字可用；识图测试失败：" + err.Error()
+				if !apiProbe || !transientProbeFailure(err) {
+					cap.Vision = false
+				}
 			} else if !matchesVisionProbe(answer, expected) {
-				cap.Error = "文字可用；识图测试未通过"
+				cap.Vision, cap.Error = false, "文字可用；识图测试未通过"
 			} else {
 				cap.Vision = true
+				cap.VisionLastSucceededAt = cap.CheckedAt
 			}
 		}
 	}
@@ -485,7 +538,11 @@ func (s *Server) probeConnection(parent context.Context, c AIConfig, p string, i
 	}
 	result, err := adapter.Stream(ctx, GenerateRequest{Input: in}, nil)
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", errors.New("检测超时，请检查网络或模型后重试")
+		stage := "文本"
+		if len(in.images()) > 0 {
+			stage = "图片"
+		}
+		return "", generationError(ErrorTimeout, stage+"检测超时，请调整检测时限或检查网络后重试")
 	}
 	return result.Text, err
 }
@@ -546,4 +603,45 @@ func visionProbe() ([]byte, string, error) {
 		return nil, "", err
 	}
 	return data.Bytes(), strings.Join(answer, " "), nil
+}
+
+func validateProbeTimeouts(c APIConnection) error {
+	for _, value := range []int{c.TextProbeTimeoutSeconds, c.VisionProbeTimeoutSeconds} {
+		if value < 0 || value > 600 {
+			return errors.New("检测时限须为 1 至 600 秒，0 使用默认值")
+		}
+	}
+	return nil
+}
+func probeTimeout(c APIConnection, vision bool) time.Duration {
+	seconds, fallback := c.TextProbeTimeoutSeconds, 45
+	if vision {
+		seconds, fallback = c.VisionProbeTimeoutSeconds, 90
+	}
+	if seconds <= 0 {
+		seconds = fallback
+	}
+	return time.Duration(seconds) * time.Second
+}
+func connectionProbeTimeout(c AIConfig, p string, vision bool) time.Duration {
+	connection := APIConnection{}
+	switch {
+	case strings.HasPrefix(p, "api:"):
+		connection = c.API
+	case p == "text-api":
+		connection = c.TextAPI
+	case p == "image-api":
+		connection = c.ImageAPI
+	}
+	return probeTimeout(connection, vision)
+}
+func transientProbeFailure(err error) bool {
+	switch errorKind(err) {
+	case ErrorTimeout, ErrorNetwork, ErrorLimit:
+		return true
+	case ErrorUpstream:
+		var providerError *apiFailure
+		return errors.As(err, &providerError) && providerError.Status >= 500 && providerError.Status <= 599
+	}
+	return false
 }

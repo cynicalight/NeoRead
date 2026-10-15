@@ -36,10 +36,28 @@ export function APIAgentForm({
     () => setProtocol(connection.protocol ?? "auto"),
     [connection.protocol],
   );
+  const [textTimeout, setTextTimeout] = useState(
+    String(connection.textProbeTimeoutSeconds || 45),
+  );
+  const [visionTimeout, setVisionTimeout] = useState(
+    String(connection.visionProbeTimeoutSeconds || 90),
+  );
+  useEffect(() => {
+    setTextTimeout(String(connection.textProbeTimeoutSeconds || 45));
+    setVisionTimeout(String(connection.visionProbeTimeoutSeconds || 90));
+  }, [
+    connection.textProbeTimeoutSeconds,
+    connection.visionProbeTimeoutSeconds,
+  ]);
+  const validTimeout = (value: string) =>
+    /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 600;
+  const valid = validTimeout(textTimeout) && validTimeout(visionTimeout);
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => setURL(connection.url || DEFAULT_API_URL), [connection.url]);
   const changed =
+    Number(textTimeout) !== (connection.textProbeTimeoutSeconds || 45) ||
+    Number(visionTimeout) !== (connection.visionProbeTimeoutSeconds || 90) ||
     url.trim() !== connection.url ||
     key.trim() !== "" ||
     protocol !== (connection.protocol ?? "auto");
@@ -51,6 +69,14 @@ export function APIAgentForm({
       await onSave(
         endpoint
           ? {
+              ...(Number(textTimeout) !== 45 ||
+              connection.textProbeTimeoutSeconds
+                ? { textProbeTimeoutSeconds: Number(textTimeout) }
+                : {}),
+              ...(Number(visionTimeout) !== 90 ||
+              connection.visionProbeTimeoutSeconds
+                ? { visionProbeTimeoutSeconds: Number(visionTimeout) }
+                : {}),
               url: endpoint,
               protocol,
               model: "",
@@ -60,6 +86,8 @@ export function APIAgentForm({
           : { url: "", model: "", key: "", hasKey: false },
       );
       setKey("");
+    } catch {
+      // The settings owner reports the error; keep the unsaved fields for retry.
     } finally {
       setSaving(false);
     }
@@ -69,7 +97,7 @@ export function APIAgentForm({
       className="mt-3 flex flex-col gap-2"
       onSubmit={(event) => {
         event.preventDefault();
-        if (changed) void save();
+        if (changed && valid) void save();
       }}
     >
       <Input
@@ -96,6 +124,31 @@ export function APIAgentForm({
           ))}
         </SelectContent>
       </Select>
+      <div className="grid grid-cols-2 gap-2">
+        {(
+          [
+            ["文本检测时限（秒）", textTimeout, setTextTimeout],
+            ["图片检测时限（秒）", visionTimeout, setVisionTimeout],
+          ] as const
+        ).map(([label, value, setValue]) => (
+          <label
+            key={label}
+            className="space-y-1 text-xs text-muted-foreground"
+          >
+            {label}
+            <Input
+              aria-label={label}
+              type="number"
+              min={1}
+              max={600}
+              step={1}
+              value={value}
+              disabled={disabled || saving}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </label>
+        ))}
+      </div>
       <div className="flex gap-2">
         <Input
           aria-label="API Key"
@@ -109,7 +162,7 @@ export function APIAgentForm({
         <Button
           type="submit"
           variant="outline"
-          disabled={disabled || saving || !changed}
+          disabled={disabled || saving || !changed || !valid}
         >
           保存
         </Button>
@@ -138,6 +191,7 @@ export function APIModelForm({
         setSaving(true);
         void onAdd(model)
           .then(() => setID(""))
+          .catch(() => {})
           .finally(() => setSaving(false));
       }}
     >

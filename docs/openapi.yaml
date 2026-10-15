@@ -4867,6 +4867,9 @@
                     },
                   "vision": { "type": "boolean" },
                   "checkedAt": { "type": "string" },
+                  "textLastSucceededAt": { "type": "string" },
+                  "visionLastSucceededAt": { "type": "string" },
+                  "toolsLastSucceededAt": { "type": "string" },
                   "error": { "type": "string" },
                   "tools":
                     {
@@ -4888,6 +4891,20 @@
               "type": "object",
               "properties":
                 {
+                  "textProbeTimeoutSeconds":
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 600,
+                      "description": "0 or omitted uses 45 seconds; tools share this timeout",
+                    },
+                  "visionProbeTimeoutSeconds":
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 600,
+                      "description": "0 or omitted uses 90 seconds",
+                    },
                   "protocol":
                     {
                       "type": "string",
@@ -4907,6 +4924,11 @@
               "required": ["id", "name", "description", "isDefault"],
               "properties":
                 {
+                  "enabled":
+                    {
+                      "type": "boolean",
+                      "description": "API candidate enabled for routing and selection",
+                    },
                   "contextWindow":
                     {
                       "type": "integer",
@@ -5016,6 +5038,12 @@
                           "additionalProperties":
                             { "$ref": "#/components/schemas/ReasoningEffort" },
                         },
+                    },
+                  "apiEnabledModels":
+                    {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "Omitted preserves legacy enabled models; empty array disables all models",
                     },
                   "apiModels":
                     {

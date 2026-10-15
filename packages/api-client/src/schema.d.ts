@@ -3746,6 +3746,9 @@ export interface components {
             pendingVision?: boolean;
             vision: boolean;
             checkedAt: string;
+            textLastSucceededAt?: string;
+            visionLastSucceededAt?: string;
+            toolsLastSucceededAt?: string;
             error?: string;
             /**
              * @description Independent structured tool-call capability; missing means not checked.
@@ -3757,6 +3760,10 @@ export interface components {
             toolSchemaVersion?: string;
         };
         APIConnection: {
+            /** @description 0 or omitted uses 45 seconds; tools share this timeout */
+            textProbeTimeoutSeconds?: number;
+            /** @description 0 or omitted uses 90 seconds */
+            visionProbeTimeoutSeconds?: number;
             /**
              * @default auto
              * @enum {string}
@@ -3768,6 +3775,8 @@ export interface components {
             hasKey: boolean;
         };
         AgentModel: {
+            /** @description API candidate enabled for routing and selection */
+            enabled?: boolean;
             /** @description Provider-reported context capacity; omitted when unavailable */
             contextWindow?: number;
             maxOutputTokens?: number;
@@ -3823,6 +3832,8 @@ export interface components {
                     [key: string]: components["schemas"]["ReasoningEffort"];
                 };
             };
+            /** @description Omitted preserves legacy enabled models; empty array disables all models */
+            apiEnabledModels?: string[];
             /** @description Model IDs the user added beside the api endpoint's /models list. */
             apiModels?: string[];
             /** @description OpenAI-compatible endpoint of the api agent. Its models are chosen in models and translationModels; model here is unused. */
