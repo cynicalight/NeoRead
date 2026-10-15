@@ -98,6 +98,20 @@ beforeEach(() => {
       ...next,
       api: { ...rest, hasKey: !!key || next.api.hasKey },
       capabilities: changed ? {} : next.capabilities,
+      ...(next.apiProviders
+        ? {
+            apiProviders: next.apiProviders.map((provider) => {
+              const { key, ...connection } = provider.connection;
+              return {
+                ...provider,
+                connection: {
+                  ...connection,
+                  hasKey: !!key || connection.hasKey,
+                },
+              };
+            }),
+          }
+        : {}),
     };
     return config;
   });
@@ -187,18 +201,25 @@ it("saves the API endpoint and key without starting paid probes", async () => {
   expect(input("API 地址")).toBeNull();
   expect(api.testAI).not.toHaveBeenCalled();
   await openAPI();
-  expect(input("API 地址").value).toBe("https://api.deepseek.com");
+  expect(input("API 地址")).toBeNull();
+  await clickButton("添加 API 提供商");
+  expect(input("API 地址").value).toBe("");
+  await type("API 地址", "https://api.deepseek.com");
   await type("API Key", "sk-test");
   await submit();
   expect(api.saveAIConfig).toHaveBeenLastCalledWith(
     expect.objectContaining({
-      api: {
-        url: "https://api.deepseek.com",
-        protocol: "auto",
-        model: "",
-        key: "sk-test",
-        hasKey: false,
-      },
+      apiProviders: [
+        expect.objectContaining({
+          connection: {
+            url: "https://api.deepseek.com",
+            protocol: "auto",
+            model: "",
+            key: "sk-test",
+            hasKey: false,
+          },
+        }),
+      ],
     }),
   );
   expect(api.testAI).not.toHaveBeenCalled();
@@ -273,8 +294,8 @@ it("runs vision probes only after an explicit vision action", async () => {
     ).click(),
   );
   const card = host.querySelector('[aria-label="配置 API Key"]')!;
-  expect(card.querySelector('[aria-label="文本推理：已通过"]')).not.toBeNull();
-  expect(card.querySelector('[aria-label="图片理解：未通过"]')).not.toBeNull();
+  expect(card.textContent).toContain("1 个文本可用模型");
+  expect(card.textContent).not.toContain("未通过");
 });
 it("adds and removes a model ID by hand without checking it automatically", async () => {
   config.api = { url: "https://api.example.com", model: "", hasKey: true };
@@ -286,11 +307,9 @@ it("adds and removes a model ID by hand without checking it automatically", asyn
   await openAPI();
   expect(api.testAI).not.toHaveBeenCalled();
   await type("添加模型 ID", "my-model");
-  await act(async () =>
-    input("添加模型 ID").form!.dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    ),
-  );
+  await clickButton("添加模型");
+  expect(api.saveAIConfig).not.toHaveBeenCalled();
+  await submit();
   expect(config.apiModels).toEqual(["my-model"]);
   expect(api.testAI).not.toHaveBeenCalled();
   await act(async () =>
@@ -298,6 +317,7 @@ it("adds and removes a model ID by hand without checking it automatically", asyn
       host.querySelector('[aria-label="移除 my-model"]') as HTMLButtonElement
     ).click(),
   );
+  await submit();
   expect(config.apiModels).toEqual([]);
   expect(host.textContent).not.toContain("my-model");
 });
@@ -397,6 +417,7 @@ it("first enable edit retains legacy task choices and manual IDs then allows dis
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   await openAPI();
   await clickButton("启用 a");
+  await submit();
   expect(config.apiEnabledModels).toEqual(
     expect.arrayContaining([
       "legacy-chat",
@@ -407,6 +428,7 @@ it("first enable edit retains legacy task choices and manual IDs then allows dis
   );
   expect(config.apiEnabledModels).not.toContain("a");
   await clickButton("停用全部模型");
+  await submit();
   expect(config.apiEnabledModels).toEqual([]);
   expect(api.testAI).not.toHaveBeenCalled();
 });
@@ -436,8 +458,10 @@ it("removes an enabled manual ID atomically while retaining its missing task cho
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   await openAPI();
   await clickButton("启用 manual");
+  await submit();
   expect(config.apiEnabledModels).toEqual(["manual"]);
   await clickButton("移除 manual");
+  await submit();
   expect(config.apiModels).toEqual([]);
   expect(config.apiEnabledModels).toEqual([]);
   expect(config.models.api).toBe("manual");
@@ -456,26 +480,46 @@ it("removes an enabled manual ID atomically while retaining its missing task cho
 
 it("creates and renames a stable provider, saves its endpoint and deletes it without rerouting tasks", async () => {
   config.api = { url: "https://default.example", model: "", hasKey: true };
-  config = { ...config, apiProviders: [{ id: "default", name: "Original", connection: config.api, models: [] }] } as AIConfig;
+  config = {
+    ...config,
+    apiProviders: [
+      { id: "default", name: "Original", connection: config.api, models: [] },
+    ],
+  } as AIConfig;
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   await openAPI();
-  const add = host.querySelector('[aria-label="添加 API 提供商"]') as HTMLButtonElement;
+  const add = host.querySelector(
+    '[aria-label="添加 API 提供商"]',
+  ) as HTMLButtonElement;
   expect(add).not.toBeNull();
   await act(async () => add.click());
   await type("提供商名称", "Second");
-  await act(async () => (host.querySelector('[aria-label="保存提供商名称"]') as HTMLButtonElement).click());
   await type("API 地址", "https://second.example");
   await type("API Key", "second-key");
   await type("首个输出时限（秒）", "75");
   await submit();
-  const state = config as AIConfig & { apiProviders: { id: string; name: string; connection: Record<string, unknown> }[] };
+  const state = config as AIConfig & {
+    apiProviders: {
+      id: string;
+      name: string;
+      connection: Record<string, unknown>;
+    }[];
+  };
   const second = state.apiProviders.find((p) => p.name === "Second")!;
   expect(second.connection.url).toBe("https://second.example");
   expect(second.connection.firstOutputTimeoutSeconds).toBe(75);
-  expect(state.apiProviders.find((p) => p.id === "default")!.connection.url).toBe("https://default.example");
+  expect(
+    state.apiProviders.find((p) => p.id === "default")!.connection.url,
+  ).toBe("https://default.example");
   config.models.api = `${second.id}::same`;
-  await act(async () => (host.querySelector('[aria-label="删除 API 提供商"]') as HTMLButtonElement).click());
-  expect((config as typeof state).apiProviders.some((p) => p.id === second.id)).toBe(false);
+  await act(async () =>
+    (
+      host.querySelector('[aria-label="删除 API 提供商"]') as HTMLButtonElement
+    ).click(),
+  );
+  expect(
+    (config as typeof state).apiProviders.some((p) => p.id === second.id),
+  ).toBe(false);
   expect(config.models.api).toBe(`${second.id}::same`);
   expect(api.testAI).not.toHaveBeenCalled();
 });
@@ -483,15 +527,34 @@ it("creates and renames a stable provider, saves its endpoint and deletes it wit
 const setupModelPricing = () => {
   config.api = { url: "https://pricing.example", model: "", hasKey: false };
   config.apiProviders = [
-    { id: "default", name: "First", connection: config.api, models: ["a", "b"] },
-    { id: "second", name: "Second", connection: { ...config.api, url: "https://second.example" }, models: ["a"] },
+    {
+      id: "default",
+      name: "First",
+      connection: config.api,
+      models: ["a", "b"],
+    },
+    {
+      id: "second",
+      name: "Second",
+      connection: { ...config.api, url: "https://second.example" },
+      models: ["a"],
+    },
   ];
   vi.mocked(api.agentModels).mockImplementation(async () =>
-    ["a", "b", "second::a"].map((id): AgentModel => ({ id, name: id, description: "", isDefault: false })),
+    ["a", "b", "second::a"].map((id): AgentModel => ({
+      id,
+      name: id,
+      description: "",
+      isDefault: false,
+    })),
   );
 };
 const saveModelPrice = async (model: string) =>
-  act(async () => input(`${model} 输入价格`).form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  act(async () =>
+    input(`${model} 输入价格`).form!.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    ),
+  );
 
 it("keeps model settings prices independent across models, refreshes and timeout edits", async () => {
   setupModelPricing();
@@ -499,7 +562,9 @@ it("keeps model settings prices independent across models, refreshes and timeout
   await openAPI();
   expect(input("提供商 输入价格")).toBeNull();
   await clickButton("a 模型设置");
-  const panel = host.querySelector('[aria-label="a 模型设置"]')!.closest("details")!;
+  const panel = host
+    .querySelector('[aria-label="a 模型设置"]')!
+    .closest("details")!;
   expect(panel.contains(input("a 输入价格"))).toBe(true);
   expect(panel.contains(input("a 首个输出时限（秒）"))).toBe(true);
   await type("a 输入价格", "2");
@@ -508,8 +573,15 @@ it("keeps model settings prices independent across models, refreshes and timeout
   await type("b 输入价格", "9");
   await saveModelPrice("b");
   await type("a 首个输出时限（秒）", "25");
-  await act(async () => input("a 首个输出时限（秒）").form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-  expect(config.apiProviders?.[0].modelOverrides?.a).toMatchObject({ firstOutputTimeoutSeconds: 25, pricing: { currency: "CNY", input: 2, output: 0 } });
+  await act(async () =>
+    input("a 首个输出时限（秒）").form!.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(config.apiProviders?.[0].modelOverrides?.a).toMatchObject({
+    firstOutputTimeoutSeconds: 25,
+    pricing: { currency: "CNY", input: 2, output: 0 },
+  });
   await clickButton("刷新模型列表");
   expect(input("a 输入价格").value).toBe("2");
   expect(input("b 输入价格").value).toBe("9");
@@ -519,12 +591,10 @@ it("keeps model settings prices independent across models, refreshes and timeout
 
 it("keeps prices for the same model ID independent across providers", async () => {
   setupModelPricing();
-  config.apiProviders![0].modelOverrides = { a: { pricing: { currency: "CNY", input: 2, output: 0 } } };
-  const selectProvider = async (name: string) => {
-    await clickButton("API 提供商");
-    const option = Array.from(document.querySelectorAll('[role="option"]')).find((item) => item.textContent === name) as HTMLElement;
-    await act(async () => { option.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })); option.click(); });
+  config.apiProviders![0].modelOverrides = {
+    a: { pricing: { currency: "CNY", input: 2, output: 0 } },
   };
+  const selectProvider = async (name: string) => clickButton(`展开 ${name}`);
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   await openAPI();
   await selectProvider("Second");
@@ -535,7 +605,11 @@ it("keeps prices for the same model ID independent across providers", async () =
   await selectProvider("First");
   expect(input("a 输入价格").value).toBe("2");
   expect(input("a 输出价格").value).toBe("0");
-  expect(config.apiProviders?.[0].modelOverrides?.a.pricing).toEqual({ currency: "CNY", input: 2, output: 0 });
+  expect(config.apiProviders?.[0].modelOverrides?.a.pricing).toEqual({
+    currency: "CNY",
+    input: 2,
+    output: 0,
+  });
   expect(config.apiProviders?.[1].modelOverrides?.a.pricing?.input).toBe(7);
   expect(api.testAI).not.toHaveBeenCalled();
 });
@@ -546,7 +620,9 @@ it("keeps cleared model prices unknown after saving and refreshing", async () =>
     a: { pricing: { currency: "CNY", input: 2, output: 0 } },
     b: { pricing: { currency: "CNY", input: 9 } },
   };
-  config.apiProviders![1].modelOverrides = { a: { pricing: { currency: "CNY", input: 7 } } };
+  config.apiProviders![1].modelOverrides = {
+    a: { pricing: { currency: "CNY", input: 7 } },
+  };
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   await openAPI();
   await clickButton("a 模型设置");
@@ -556,7 +632,11 @@ it("keeps cleared model prices unknown after saving and refreshing", async () =>
   await clickButton("刷新模型列表");
   expect(input("a 输入价格").value).toBe("");
   expect(input("a 输入价格").placeholder).toBe("未知");
-  expect(config.apiProviders?.[0].modelOverrides?.a.pricing).toEqual({ currency: "CNY", input: undefined, output: undefined });
+  expect(config.apiProviders?.[0].modelOverrides?.a.pricing).toEqual({
+    currency: "CNY",
+    input: undefined,
+    output: undefined,
+  });
   expect(config.apiProviders?.[0].modelOverrides?.b.pricing?.input).toBe(9);
   expect(config.apiProviders?.[1].modelOverrides?.a.pricing?.input).toBe(7);
   expect(api.testAI).not.toHaveBeenCalled();
@@ -631,20 +711,175 @@ it("new providers require explicit model selection before bulk probes while lega
   );
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   await openAPI();
-  expect(host.querySelector('[aria-label="启用 a"]')?.getAttribute("aria-checked")).toBe("true");
-  expect(host.querySelector('[aria-label="启用 b"]')?.getAttribute("aria-checked")).toBe("true");
+  expect(
+    host.querySelector('[aria-label="启用 a"]')?.getAttribute("aria-checked"),
+  ).toBe("true");
+  expect(
+    host.querySelector('[aria-label="启用 b"]')?.getAttribute("aria-checked"),
+  ).toBe("true");
   await clickButton("添加 API 提供商");
   await type("API 地址", "https://new.example");
   await submit();
   const provider = config.apiProviders!.find((item) => item.id !== "default")!;
   for (const model of ["a", "b"]) {
-    expect(host.querySelector(`[aria-label="启用 ${provider.id}::${model}"]`)?.getAttribute("aria-checked")).toBe("false");
+    expect(
+      host
+        .querySelector(`[aria-label="启用 ${provider.id}::${model}"]`)
+        ?.getAttribute("aria-checked"),
+    ).toBe("false");
   }
-  expect((host.querySelector('[aria-label="检测已启用模型的文本"]') as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (
+      host.querySelector(
+        '[aria-label="检测已启用模型的文本"]',
+      ) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
   expect(api.testAI).not.toHaveBeenCalled();
   await clickButton(`启用 ${provider.id}::a`);
-  expect(config.apiProviders!.find((item) => item.id === provider.id)!.enabledModels).toEqual(["a"]);
+  await submit();
+  expect(
+    config.apiProviders!.find((item) => item.id === provider.id)!.enabledModels,
+  ).toEqual(["a"]);
   await clickButton("检测已启用模型的文本");
-  expect(vi.mocked(api.testAI).mock.calls).toEqual([["api", "text", `${provider.id}::a`]]);
-  expect(config.apiProviders!.find((item) => item.id === "default")!.enabledModels).toBeUndefined();
+  expect(vi.mocked(api.testAI).mock.calls).toEqual([
+    ["api", "text", `${provider.id}::a`],
+  ]);
+  expect(
+    config.apiProviders!.find((item) => item.id === "default")!.enabledModels,
+  ).toBeUndefined();
+});
+
+it("keeps provider drafts private until one explicit save, including after a failed save", async () => {
+  setupModelPricing();
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  await type("API 地址", "https://edited.example");
+  await type("API Key", "draft-only-key");
+  await type("a 输入价格", "4");
+  await type("a 首个输出时限（秒）", "72");
+  await clickButton("启用 b");
+  await clickButton("展开 Second");
+  expect(
+    host.querySelectorAll('[data-provider-card][data-open="true"]'),
+  ).toHaveLength(1);
+  await clickButton("展开 First");
+  expect(input("API 地址").value).toBe("https://edited.example");
+  expect(input("API Key").value).toBe("draft-only-key");
+  expect(input("a 输入价格").value).toBe("4");
+  expect(input("a 首个输出时限（秒）").value).toBe("72");
+  expect(api.saveAIConfig).not.toHaveBeenCalled();
+  expect(
+    (
+      host.querySelector(
+        '[aria-label="检测已启用模型的文本"]',
+      ) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  vi.mocked(api.saveAIConfig).mockRejectedValueOnce(new Error("连接失败"));
+  await submit();
+  expect(input("API Key").value).toBe("draft-only-key");
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+    "连接失败",
+  );
+  config = {
+    ...config,
+    primary: "claude",
+    apiProviders: config.apiProviders!.map((p) =>
+      p.id === "second" ? { ...p, name: "Updated elsewhere" } : p,
+    ),
+  };
+  await submit();
+  expect(config.primary).toBe("claude");
+  expect(config.apiProviders?.[1].name).toBe("Updated elsewhere");
+  expect(config.apiProviders?.[0].connection.url).toBe(
+    "https://edited.example",
+  );
+  expect(config.apiProviders?.[0].enabledModels).toEqual(["a"]);
+  expect(config.apiProviders?.[0].modelOverrides?.a).toMatchObject({
+    pricing: { currency: "CNY", input: 4 },
+    firstOutputTimeoutSeconds: 72,
+  });
+  expect(input("API Key").value).toBe("");
+  expect(api.testAI).not.toHaveBeenCalled();
+});
+
+it("hides an empty default provider and keeps new cards local until saved", async () => {
+  config.apiProviders = [
+    { id: "default", name: "默认提供商", connection: config.api, models: [] },
+  ];
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  expect(host.textContent).not.toContain("默认提供商");
+  expect(input("API 地址")).toBeNull();
+  await clickButton("添加 API 提供商");
+  expect(input("API 地址").value).toBe("");
+  await type("提供商名称", "Draft one");
+  await type("API Key", "retained-key");
+  await clickButton("添加 API 提供商");
+  expect(
+    host.querySelectorAll('[data-provider-card][data-open="true"]'),
+  ).toHaveLength(1);
+  await clickButton("展开 Draft one");
+  expect(input("API Key").value).toBe("retained-key");
+  expect(api.saveAIConfig).not.toHaveBeenCalled();
+});
+
+it("summarizes usable API models across providers without treating untested images as a global failure", async () => {
+  setupModelPricing();
+  config.apiProviders![0].enabledModels = [];
+  config.apiProviders![1].enabledModels = ["a"];
+  config.capabilities = {
+    "api:second::a": { text: true, vision: false, checkedAt: "saved" },
+  };
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  const card = host.querySelector('[aria-label="配置 API Key"]')!;
+  expect(card.textContent).toContain("1 个文本可用模型");
+  expect(card.textContent).not.toContain("未通过");
+});
+
+it("migrates a legacy connection when saving model pricing and timeout overrides", async () => {
+  config.api = { url: "https://legacy.example", model: "", hasKey: true };
+  config.models.api = "deepseek-flash";
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  await type("deepseek-flash 输入价格", "3");
+  await type("deepseek-flash 总时限（秒）", "240");
+  await submit();
+  expect(config.apiProviders?.[0]).toMatchObject({
+    id: "default",
+    connection: { url: "https://legacy.example", hasKey: true },
+    modelOverrides: {
+      "deepseek-flash": {
+        pricing: { currency: "CNY", input: 3 },
+        totalTimeoutSeconds: 240,
+      },
+    },
+  });
+  expect(config.models.api).toBe("deepseek-flash");
+});
+
+it("filters a long model list without losing a model's pending price", async () => {
+  setupModelPricing();
+  vi.mocked(api.agentModels).mockResolvedValue(
+    Array.from({ length: 12 }, (_, index) => ({
+      id: `model-${index}`,
+      name: `model-${index}`,
+      description: "",
+      isDefault: false,
+    })),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  expect(input("搜索模型")).not.toBeNull();
+  await type("model-1 输入价格", "6");
+  await type("搜索模型", "model-9");
+  expect(input("model-1 输入价格")).toBeNull();
+  expect(input("model-9 输入价格")).not.toBeNull();
+  await type("搜索模型", "");
+  expect(input("model-1 输入价格").value).toBe("6");
+  await submit();
+  expect(
+    config.apiProviders?.[0].modelOverrides?.["model-1"].pricing?.input,
+  ).toBe(6);
 });

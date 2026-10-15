@@ -12,26 +12,17 @@ import {
   Monitor,
   RefreshCw,
   TriangleAlert,
-  X,
 } from "lucide-react";
 import { DiagnosticExport } from "./DiagnosticExport";
 import { CommandLineSettings } from "./CommandLineSettings";
 import { ProviderIdentity } from "./ProviderIdentity";
 import { TaskModels } from "./TaskModels";
-import {
-  APIProviderSettings,
-  splitModelRef,
-  modelRef,
-} from "./APIProviderSettings";
-import { APIPricingForm } from "./APIPricingForm";
-import { ModelTimeoutForm } from "./APITimeouts";
-import { APIAgentForm, APIModelForm } from "./APIAgentForm";
+import { APIProviderSettings, splitModelRef } from "./APIProviderSettings";
 import { api } from "@reader/api";
 import type {
   AICapability,
   AIConfig,
   AgentModel,
-  APIConnection,
   LibraryMode,
   JournalRankConfig,
   Provider,
@@ -97,59 +88,11 @@ export function Settings({
   const checked = useRef(new Set<string>());
   const refreshing = useRef(false);
   const [saving, setSaving] = useState(false);
+  const [toolTesting, setToolTesting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [apiModels, setAPIModels] = useState<AgentModel[]>([]);
   const [apiModelsError, setAPIModelsError] = useState("");
   const [apiDetails, setAPIDetails] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState("default");
-  const providerRecord = config?.apiProviders?.find(
-    (p) => p.id === selectedProvider,
-  );
-  useEffect(() => {
-    if (
-      config?.apiProviders?.length &&
-      !config.apiProviders.some((p) => p.id === selectedProvider)
-    )
-      setSelectedProvider(config.apiProviders[0]!.id);
-  }, [config?.apiProviders, selectedProvider]);
-  const visibleAPIModels = apiModels.filter(
-    (m) => !config?.apiProviders || splitModelRef(m.id)[0] === selectedProvider,
-  );
-  const connection = providerRecord?.connection ?? config?.api;
-  const providerView = (latest: AIConfig): AIConfig => {
-    if (!latest.apiProviders) return latest;
-    const p = latest.apiProviders.find((p) => p.id === selectedProvider);
-    return {
-      ...latest,
-      api: p?.connection ?? { url: "", model: "", hasKey: false },
-      apiModels: (p?.models ?? []).map((id) => modelRef(selectedProvider, id)),
-      apiEnabledModels: p?.enabledModels?.map((id) =>
-        modelRef(selectedProvider, id),
-      ),
-    };
-  };
-  const changeProvider = (
-    latest: AIConfig,
-    change: (view: AIConfig) => AIConfig,
-  ): AIConfig => {
-    if (!latest.apiProviders) return change(latest);
-    const next = change(providerView(latest));
-    return {
-      ...latest,
-      apiProviders: latest.apiProviders.map((p) =>
-        p.id === selectedProvider
-          ? {
-              ...p,
-              connection: next.api,
-              models: (next.apiModels ?? []).map((id) => splitModelRef(id)[1]),
-              enabledModels: next.apiEnabledModels?.map(
-                (id) => splitModelRef(id)[1],
-              ),
-            }
-          : p,
-      ),
-    };
-  };
   const [connector, setConnector] = useState<Awaited<
     ReturnType<typeof api.connectorStatus>
   > | null>(null);
@@ -334,20 +277,21 @@ export function Settings({
   useEffect(() => {
     if (open) void refresh();
   }, [open]);
-  const modelEnabled = (model: AgentModel, value = config) =>
-    value
-      ? (providerView(value).apiEnabledModels?.includes(model.id) ?? true)
-      : true;
-  const checkModels = async (stage: "text" | "vision", model?: AgentModel) => {
+  const modelEnabled = (model: AgentModel) => {
+    const [provider, raw] = splitModelRef(model.id);
+    const enabled =
+      config?.apiProviders?.find((p) => p.id === provider)?.enabledModels ??
+      (!config?.apiProviders ? config?.apiEnabledModels : undefined);
+    return enabled?.includes(config?.apiProviders ? raw : model.id) ?? true;
+  };
+  const checkModels = async (
+    stage: "text" | "vision",
+    models: AgentModel[],
+  ) => {
     const snapshot = useReaderStore.getState().aiConfig;
-    if (!snapshot || testing.size || saving) return;
-    const selected = (model ? [model] : visibleAPIModels).filter(
-      (item) =>
-        modelEnabled(item, snapshot) &&
-        (stage === "text" || snapshot.capabilities[`api:${item.id}`]?.text),
-    );
+    if (!snapshot || saving) return;
     await checkAll(
-      selected.map((item) => `api:${item.id}`),
+      models.map((model) => `api:${model.id}`),
       () => stage,
       snapshot,
     );
@@ -355,7 +299,7 @@ export function Settings({
   const checkTools = async (model: AgentModel) => {
     const snapshot = useReaderStore.getState().aiConfig;
     if (!snapshot) return;
-    setSaving(true);
+    setToolTesting(true);
     try {
       const capability = await api.testAI("api", "tools", model.id);
       const current = useReaderStore.getState().aiConfig;
@@ -378,78 +322,9 @@ export function Settings({
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
-      setSaving(false);
+      setToolTesting(false);
     }
   };
-  const saveConfig = async (change: (latest: AIConfig) => AIConfig) => {
-    setSaving(true);
-    try {
-      setAIConfig(await api.saveAIConfig(change(await api.aiConfig())));
-    } catch (e) {
-      toast.error((e as Error).message);
-      return false;
-    } finally {
-      setSaving(false);
-    }
-    await refresh();
-    return true;
-  };
-  const saveAPI = async (connection: APIConnection) => {
-    if (
-      !(await saveConfig((latest) =>
-        changeProvider(latest, (view) => ({ ...view, api: connection })),
-      ))
-    )
-      throw new Error("保存失败");
-  };
-  const saveAPIModels = async (change: (models: string[]) => string[]) => {
-    if (
-      !(await saveConfig((latest) =>
-        changeProvider(latest, (view) => ({
-          ...view,
-          apiModels: change(view.apiModels ?? []),
-        })),
-      ))
-    )
-      throw new Error("保存失败");
-  };
-  const enabledModelIDs = (latest: AIConfig) =>
-    latest.apiEnabledModels ?? [
-      ...new Set(
-        [
-          ...visibleAPIModels.map((model) => model.id),
-          ...(latest.apiModels ?? []),
-          latest.models.api,
-          latest.translationModels?.api,
-          latest.visionModels?.api,
-        ].filter(
-          (value): value is string =>
-            !!value &&
-            (!latest.apiProviders ||
-              splitModelRef(value)[0] === selectedProvider),
-        ),
-      ),
-    ];
-  const setModelEnabled = (id: string, enabled: boolean) =>
-    saveConfig((latest) =>
-      changeProvider(latest, (view) => {
-        const current = enabledModelIDs(view);
-        return {
-          ...view,
-          apiEnabledModels: enabled
-            ? [...new Set([...current, id])]
-            : current.filter((value) => value !== id),
-        };
-      }),
-    );
-  const removeAPIModel = (id: string) =>
-    saveConfig((latest) =>
-      changeProvider(latest, (view) => ({
-        ...view,
-        apiModels: (view.apiModels ?? []).filter((value) => value !== id),
-        apiEnabledModels: enabledModelIDs(view).filter((value) => value !== id),
-      })),
-    );
   const checkStatus = (id: string, capability?: AICapability) => (
     <div className="flex flex-wrap gap-x-5">
       {(
@@ -515,48 +390,17 @@ export function Settings({
       })}
     </div>
   );
-  const apiCardStatus = () => (
-    <span className="flex flex-wrap gap-x-5">
-      {(["text", "vision"] as const).map((kind) => {
-        const label = kind === "text" ? "文本推理" : "图片理解";
-        // The API agent uses a separate model for each task. One passing model
-        // is enough for the corresponding capability on this summary card.
-        const ready = apiModels.some((model) => {
-          const id = `api:${model.id}`;
-          return (
-            modelEnabled(model) &&
-            !errors[`${id}:text`] &&
-            !errors[`${id}:${kind}`] &&
-            config?.capabilities[id]?.[kind]
-          );
-        });
-        const pending =
-          !ready &&
-          (loading || [...testing.keys()].some((id) => id.startsWith("api:")));
-        const state = pending ? "pending" : ready ? "passed" : "failed";
-        return (
-          <span
-            key={kind}
-            className="agent-check-status"
-            role="status"
-            aria-live="polite"
-            aria-label={`${label}：${pending ? "检测中" : ready ? "已通过" : "未通过"}`}
-          >
-            <span className="agent-check-icon" data-state={state}>
-              {pending ? (
-                <LoaderCircle className="animate-spin" />
-              ) : ready ? (
-                <CircleCheck />
-              ) : (
-                <TriangleAlert />
-              )}
-            </span>
-            <span>{label}</span>
-          </span>
-        );
-      })}
-    </span>
-  );
+  const apiCardStatus = () => {
+    const usable = apiModels.filter(
+      (model) =>
+        modelEnabled(model) && config?.capabilities[`api:${model.id}`]?.text,
+    ).length;
+    return (
+      <span className="mt-3 text-xs text-muted-foreground">
+        {usable ? `${usable} 个文本可用模型` : "管理提供商和模型"}
+      </span>
+    );
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="settings-dialog p-6 sm:max-w-3xl">
@@ -580,318 +424,28 @@ export function Settings({
             Agent 连接、显示、阅读、诊断与论文库
           </DialogDescription>
         </DialogHeader>
-        {apiDetails && (
+        {apiDetails && config && (
           <div className="settings-panel">
-            <section>
-              {config?.apiProviders && (
-                <APIProviderSettings
-                  providers={config.apiProviders}
-                  selected={selectedProvider}
-                  disabled={saving || testing.size > 0}
-                  onSelect={setSelectedProvider}
-                  onAdd={() => {
-                    const id = crypto.randomUUID();
-                    void saveConfig((latest) => ({
-                      ...latest,
-                      apiProviders: [
-                        ...(latest.apiProviders ?? []),
-                        {
-                          id,
-                          name: "新提供商",
-                          connection: { url: "", model: "", hasKey: false },
-                          models: [],
-                          enabledModels: [],
-                        },
-                      ],
-                    })).then((ok) => {
-                      if (ok) setSelectedProvider(id);
-                    });
-                  }}
-                  onRename={(name) => {
-                    void saveConfig((latest) => ({
-                      ...latest,
-                      apiProviders: latest.apiProviders?.map((p) =>
-                        p.id === selectedProvider ? { ...p, name } : p,
-                      ),
-                    }));
-                  }}
-                  onDelete={() => {
-                    void saveConfig((latest) => ({
-                      ...latest,
-                      apiProviders: latest.apiProviders?.filter(
-                        (p) => p.id !== selectedProvider,
-                      ),
-                    }));
-                  }}
-                />
-              )}
-              {config &&
-                connection &&
-                (!config.apiProviders || providerRecord) && (
-                  <APIAgentForm
-                    key={selectedProvider}
-                    connection={connection}
-                    disabled={saving || testing.size > 0}
-                    onSave={saveAPI}
-                  />
-                )}
-              {config && connection?.url && (
-                <div className="mt-6">
-                  <h3 className="mb-1 text-sm font-medium">启用模型</h3>
-                  <div className="mb-2 flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label="刷新模型列表"
-                      disabled={loading || saving || testing.size > 0}
-                      onClick={() => void refresh()}
-                    >
-                      刷新列表
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label="检测已启用模型的文本"
-                      disabled={
-                        saving ||
-                        testing.size > 0 ||
-                        !visibleAPIModels.some((model) => modelEnabled(model))
-                      }
-                      onClick={() => void checkModels("text")}
-                    >
-                      检测文本
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label="检测已启用模型的图片"
-                      disabled={
-                        saving ||
-                        testing.size > 0 ||
-                        !visibleAPIModels.some(
-                          (model) =>
-                            modelEnabled(model) &&
-                            config.capabilities[`api:${model.id}`]?.text,
-                        )
-                      }
-                      onClick={() => void checkModels("vision")}
-                    >
-                      检测图片
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label="停用全部模型"
-                      disabled={saving || testing.size > 0}
-                      onClick={() =>
-                        void saveConfig((latest) =>
-                          changeProvider(latest, (view) => ({
-                            ...view,
-                            apiEnabledModels: [],
-                          })),
-                        )
-                      }
-                    >
-                      全部停用
-                    </Button>
-                  </div>
-                  <ul className="api-model-list">
-                    {visibleAPIModels.map((model) => {
-                      const id = `api:${model.id}`;
-                      const result = config.capabilities[id];
-                      return (
-                        <li
-                          key={model.id}
-                          className="flex min-h-9 flex-wrap items-center gap-3"
-                        >
-                          <Checkbox
-                            aria-label={`启用 ${model.id}`}
-                            checked={modelEnabled(model)}
-                            disabled={saving || testing.size > 0}
-                            onCheckedChange={(value) =>
-                              void setModelEnabled(model.id, !!value)
-                            }
-                          />
-                          <span
-                            className="min-w-24 flex-1 truncate text-sm"
-                            title={model.id}
-                          >
-                            {model.name}
-                          </span>
-                          {(testing.has(id) ||
-                            result ||
-                            errors[`${id}:text`]) &&
-                            checkStatus(id, result)}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            aria-label={`检测 ${model.id} 文本`}
-                            disabled={
-                              saving || testing.size > 0 || !modelEnabled(model)
-                            }
-                            onClick={() => void checkModels("text", model)}
-                          >
-                            文本
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            aria-label={`检测 ${model.id} 图片`}
-                            disabled={
-                              saving ||
-                              testing.size > 0 ||
-                              !modelEnabled(model) ||
-                              !result?.text
-                            }
-                            onClick={() => void checkModels("vision", model)}
-                          >
-                            图片
-                          </Button>
-                          {result?.error && (
-                            <span
-                              className="w-full break-words text-xs text-muted-foreground"
-                              title={result.error}
-                            >
-                              {result.error}
-                            </span>
-                          )}
-                          {(result?.textLastSucceededAt ||
-                            result?.visionLastSucceededAt) && (
-                            <span className="w-full text-xs text-muted-foreground">
-                              最近成功{" "}
-                              {result.textLastSucceededAt &&
-                                `文本 ${result.textLastSucceededAt}`}{" "}
-                              {result.visionLastSucceededAt &&
-                                `图片 ${result.visionLastSucceededAt}`}
-                            </span>
-                          )}
-                          {result?.text && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={
-                                saving ||
-                                testing.size > 0 ||
-                                !modelEnabled(model)
-                              }
-                              onClick={() => void checkTools(model)}
-                              title={result.toolError}
-                            >
-                              {result.tools === "passed"
-                                ? "检索工具已通过"
-                                : "检测检索工具"}
-                            </Button>
-                          )}
-                          {model.custom && (
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`移除 ${model.name}`}
-                              title="移除"
-                              disabled={saving || testing.size > 0}
-                              onClick={() => void removeAPIModel(model.id)}
-                            >
-                              <X />
-                            </Button>
-                          )}
-                          {providerRecord && (
-                            <details className="w-full text-xs text-muted-foreground motion-safe:animate-in motion-safe:fade-in">
-                              <summary
-                                aria-label={`${model.id} 模型设置`}
-                                className="cursor-pointer py-2"
-                              >
-                                {model.name} 设置
-                              </summary>
-                              <APIPricingForm
-                                model={model.id}
-                                value={
-                                  providerRecord.modelOverrides?.[
-                                    splitModelRef(model.id)[1]
-                                  ]?.pricing
-                                }
-                                disabled={saving || testing.size > 0}
-                                onSave={(pricing) =>
-                                  saveConfig((latest) => ({
-                                    ...latest,
-                                    apiProviders: latest.apiProviders?.map(
-                                      (p) =>
-                                        p.id === selectedProvider
-                                          ? {
-                                              ...p,
-                                              modelOverrides: {
-                                                ...p.modelOverrides,
-                                                [splitModelRef(model.id)[1]]: {
-                                                  ...p.modelOverrides?.[
-                                                    splitModelRef(model.id)[1]
-                                                  ],
-                                                  pricing,
-                                                },
-                                              },
-                                            }
-                                          : p,
-                                    ),
-                                  }))
-                                }
-                              />
-                              <ModelTimeoutForm
-                                model={model.id}
-                                value={
-                                  providerRecord.modelOverrides?.[
-                                    splitModelRef(model.id)[1]
-                                  ]
-                                }
-                                inherited={providerRecord.connection}
-                                disabled={saving || testing.size > 0}
-                                onSave={(value) =>
-                                  saveConfig((latest) => ({
-                                    ...latest,
-                                    apiProviders: latest.apiProviders?.map(
-                                      (p) =>
-                                        p.id === selectedProvider
-                                          ? {
-                                              ...p,
-                                              modelOverrides: {
-                                                ...p.modelOverrides,
-                                                [splitModelRef(model.id)[1]]: {
-                                                  ...value,
-                                                  pricing:
-                                                    p.modelOverrides?.[
-                                                      splitModelRef(model.id)[1]
-                                                    ]?.pricing,
-                                                },
-                                              },
-                                            }
-                                          : p,
-                                    ),
-                                  }))
-                                }
-                              />
-                            </details>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  {apiModelsError && (
-                    <p
-                      className="mt-1 text-xs text-muted-foreground"
-                      role="alert"
-                    >
-                      {apiModelsError}
-                    </p>
-                  )}
-                  <APIModelForm
-                    disabled={saving}
-                    onAdd={(id) =>
-                      saveAPIModels((models) => [
-                        ...models,
-                        modelRef(selectedProvider, id),
-                      ])
-                    }
-                  />
-                </div>
-              )}
-            </section>
+            <APIProviderSettings
+              config={config}
+              models={apiModels}
+              disabled={saving || aiModelSaving}
+              loading={loading}
+              testing={testing.size > 0 || toolTesting}
+              modelsError={apiModelsError}
+              onConfig={setAIConfig}
+              onSaving={setSaving}
+              onRefresh={refresh}
+              onCheck={(stage, models) => void checkModels(stage, models)}
+              onCheckTools={(model) => void checkTools(model)}
+              renderStatus={(id) =>
+                testing.has(id) ||
+                config.capabilities[id] ||
+                errors[`${id}:text`]
+                  ? checkStatus(id, config.capabilities[id])
+                  : null
+              }
+            />
           </div>
         )}
         <Tabs
@@ -1295,7 +849,7 @@ export function Settings({
                   </label>
                   <Select
                     value={config.primary || null}
-                    disabled={saving || aiModelSaving || testing.size > 0}
+                    disabled={saving || aiModelSaving}
                     onValueChange={async (value) => {
                       if (!value) return;
                       setSaving(true);
@@ -1338,7 +892,7 @@ export function Settings({
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  <TaskModels disabled={saving || testing.size > 0} />
+                  <TaskModels disabled={saving} />
                   <p className="text-xs leading-5 text-muted-foreground">
                     {config.primary === "api"
                       ? "只列出通过检测的模型：问答与翻译需通过文本推理，图片需通过图片理解。公式转换与主动图片提问使用图片模型。"

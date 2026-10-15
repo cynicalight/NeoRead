@@ -1,13 +1,11 @@
-import { useEffect, useState } from "react";
 import type { APIModelOverride, APIConnection } from "@reader/core";
-import { Button } from "@reader/ui/components/button";
 import { Input } from "@reader/ui/components/input";
 export const runtimeTimeoutFields = [
   ["firstOutputTimeoutSeconds", "首个输出时限（秒）", 3600],
   ["idleTimeoutSeconds", "空闲时限（秒）", 3600],
   ["totalTimeoutSeconds", "总时限（秒）", 7200],
 ] as const;
-const modelTimeoutFields = [
+export const modelTimeoutFields = [
   ["textProbeTimeoutSeconds", "文本检测时限（秒）", 600],
   ["visionProbeTimeoutSeconds", "图片检测时限（秒）", 600],
   ...runtimeTimeoutFields,
@@ -87,50 +85,29 @@ export function ModelTimeoutForm({
   value,
   inherited,
   disabled,
-  onSave,
+  onChange,
 }: {
   model: string;
   value?: APIModelOverride;
   inherited: APIConnection;
   disabled: boolean;
-  onSave: (value: APIModelOverride) => Promise<unknown>;
+  onChange: (value: APIModelOverride) => void;
 }) {
-  const [draft, setDraft] = useState<APIModelOverride>(value ?? {});
-  useEffect(() => setDraft(value ?? {}), [value]);
-  const valid = modelTimeoutFields.every(
-    ([field, , max]) =>
-      Number.isInteger(draft[field] || 0) &&
-      (draft[field] || 0) >= 0 &&
-      (draft[field] || 0) <= max,
-  );
+  const draft = value ?? {};
   return (
     <details className="w-full text-xs text-muted-foreground">
       <summary className="cursor-pointer py-1">检测与生成时限</summary>
-      <form
-        className="space-y-2 pb-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) void onSave(draft);
-        }}
-      >
+      <div className="space-y-2 pb-2">
         <TimeoutFields
           fields={modelTimeoutFields}
           value={draft}
-          onChange={setDraft}
+          onChange={onChange}
           disabled={disabled}
           inherited={inherited}
           prefix={`${model} `}
         />
         <p>留空或 0 继承提供商设置</p>
-        <Button
-          type="submit"
-          variant="outline"
-          size="sm"
-          disabled={disabled || !valid}
-        >
-          保存模型时限
-        </Button>
-      </form>
+      </div>
     </details>
   );
 }

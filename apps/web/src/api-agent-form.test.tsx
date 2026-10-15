@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { APIAgentForm } from "./APIAgentForm";
 
-it("persists a relay protocol override while retaining its saved key", async () => {
+it("drafts a relay protocol override while retaining its saved key", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("PointerEvent", MouseEvent);
   const host = document.createElement("div");
@@ -21,7 +21,7 @@ it("persists a relay protocol override while retaining its saved key", async () 
             model: "",
             hasKey: true,
           }}
-          onSave={save}
+          onChange={save}
         />,
       ),
     );
@@ -38,17 +38,11 @@ it("persists a relay protocol override while retaining its saved key", async () 
       option.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
       option.click();
     });
-    const submit = host.querySelector(
-      'button[type="submit"]',
-    ) as HTMLButtonElement;
-    expect(submit.disabled).toBe(false);
-    await act(async () => submit.click());
     expect(save).toHaveBeenCalledExactlyOnceWith({
       url: "https://relay.example/v1",
       model: "",
       hasKey: true,
       protocol: "anthropic",
-      key: undefined,
     });
   } finally {
     await act(async () => root.unmount());

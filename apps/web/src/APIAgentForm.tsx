@@ -1,8 +1,5 @@
-import { useEffect, useState } from "react";
-import type { APIConnection, APIModelOverride } from "@reader/core";
-import { Button } from "@reader/ui/components/button";
+import type { APIConnection } from "@reader/core";
 import { Input } from "@reader/ui/components/input";
-
 import {
   Select,
   SelectTrigger,
@@ -12,240 +9,114 @@ import {
 } from "@reader/ui/components/select";
 import { TimeoutFields, runtimeTimeoutFields } from "./APITimeouts";
 const protocols = {
-  auto: "中转站的非官方api默认使用openai协议",
+  auto: "自动识别",
   openai: "OpenAI Chat Completions",
   anthropic: "Anthropic Messages",
 } as const;
-const DEFAULT_API_URL = "https://api.deepseek.com";
 
-/** Endpoint, protocol and key of the "api" agent. A saved key is
- * never sent back; leaving the field empty keeps it. */
+/** Controlled fields share the provider card's draft and save boundary. */
 export function APIAgentForm({
   connection,
   disabled,
-  onSave,
+  onChange,
 }: {
   connection: APIConnection;
   disabled: boolean;
-  onSave: (connection: APIConnection) => Promise<void>;
+  onChange: (connection: APIConnection) => void;
 }) {
-  const [url, setURL] = useState(connection.url || DEFAULT_API_URL);
-  const [protocol, setProtocol] = useState<
-    NonNullable<APIConnection["protocol"]>
-  >(connection.protocol ?? "auto");
-  useEffect(
-    () => setProtocol(connection.protocol ?? "auto"),
-    [connection.protocol],
-  );
-  const [textTimeout, setTextTimeout] = useState(
-    String(connection.textProbeTimeoutSeconds || 45),
-  );
-  const [visionTimeout, setVisionTimeout] = useState(
-    String(connection.visionProbeTimeoutSeconds || 90),
-  );
-  useEffect(() => {
-    setTextTimeout(String(connection.textProbeTimeoutSeconds || 45));
-    setVisionTimeout(String(connection.visionProbeTimeoutSeconds || 90));
-  }, [
-    connection.textProbeTimeoutSeconds,
-    connection.visionProbeTimeoutSeconds,
-  ]);
-  const validTimeout = (value: string) =>
-    /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 600;
-  const valid = validTimeout(textTimeout) && validTimeout(visionTimeout);
-  const [timeouts, setTimeouts] = useState<APIModelOverride>({});
-  useEffect(
-    () =>
-      setTimeouts({
-        firstOutputTimeoutSeconds: connection.firstOutputTimeoutSeconds,
-        idleTimeoutSeconds: connection.idleTimeoutSeconds,
-        totalTimeoutSeconds: connection.totalTimeoutSeconds,
-      }),
-    [connection],
-  );
-  const timeoutsChanged = runtimeTimeoutFields.some(
-    ([field]) => (timeouts[field] || 0) !== (connection[field] || 0),
-  );
-  const runtimeValid = runtimeTimeoutFields.every(
-    ([field, , max]) =>
-      Number.isInteger(timeouts[field] || 0) &&
-      (timeouts[field] || 0) >= 0 &&
-      (timeouts[field] || 0) <= max,
-  );
-  const [key, setKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  useEffect(() => setURL(connection.url || DEFAULT_API_URL), [connection.url]);
-  const changed =
-    timeoutsChanged ||
-    Number(textTimeout) !== (connection.textProbeTimeoutSeconds || 45) ||
-    Number(visionTimeout) !== (connection.visionProbeTimeoutSeconds || 90) ||
-    url.trim() !== connection.url ||
-    key.trim() !== "" ||
-    protocol !== (connection.protocol ?? "auto");
-  const save = async () => {
-    setSaving(true);
-    try {
-      const endpoint = url.trim();
-      // Clearing the address also removes the saved key.
-      await onSave(
-        endpoint
-          ? {
-              ...(Number(textTimeout) !== 45 ||
-              connection.textProbeTimeoutSeconds
-                ? { textProbeTimeoutSeconds: Number(textTimeout) }
-                : {}),
-              ...(Number(visionTimeout) !== 90 ||
-              connection.visionProbeTimeoutSeconds
-                ? { visionProbeTimeoutSeconds: Number(visionTimeout) }
-                : {}),
-              ...timeouts,
-              url: endpoint,
-              protocol,
-              model: "",
-              key: key.trim() || undefined,
-              hasKey: key.trim() ? false : connection.hasKey,
-            }
-          : { url: "", model: "", key: "", hasKey: false },
-      );
-      setKey("");
-    } catch {
-      // The settings owner reports the error; keep the unsaved fields for retry.
-    } finally {
-      setSaving(false);
-    }
-  };
+  const protocol = connection.protocol ?? "auto";
   return (
-    <form
-      className="mt-3 flex flex-col gap-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (changed && valid && runtimeValid) void save();
-      }}
-    >
-      <Input
-        aria-label="API 地址"
-        autoComplete="off"
-        spellCheck={false}
-        value={url}
-        disabled={disabled || saving}
-        onChange={(event) => setURL(event.target.value)}
-      />
-      <Select
-        value={protocol}
-        disabled={disabled || saving}
-        onValueChange={(value) => value && setProtocol(value)}
-      >
-        <SelectTrigger aria-label="API 协议">
-          <SelectValue>{protocols[protocol]}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {Object.entries(protocols).map(([value, label]) => (
-            <SelectItem key={value} value={value}>
-              {label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <div className="grid grid-cols-2 gap-2">
-        {(
-          [
-            ["文本检测时限（秒）", textTimeout, setTextTimeout],
-            ["图片检测时限（秒）", visionTimeout, setVisionTimeout],
-          ] as const
-        ).map(([label, value, setValue]) => (
-          <label
-            key={label}
-            className="space-y-1 text-xs text-muted-foreground"
-          >
-            {label}
-            <Input
-              aria-label={label}
-              type="number"
-              min={1}
-              max={600}
-              step={1}
-              value={value}
-              disabled={disabled || saving}
-              onChange={(event) => setValue(event.target.value)}
-            />
-          </label>
-        ))}
-      </div>
-      <details className="text-xs text-muted-foreground">
-        <summary className="cursor-pointer py-2">高级请求时限</summary>
-        <TimeoutFields
-          fields={runtimeTimeoutFields}
-          value={timeouts}
-          onChange={setTimeouts}
-          disabled={disabled || saving}
+    <div className="api-connection-fields">
+      <label>
+        API 地址
+        <Input
+          aria-label="API 地址"
+          placeholder="https://api.example.com/v1"
+          autoComplete="off"
+          spellCheck={false}
+          value={connection.url}
+          disabled={disabled}
+          onChange={(e) => onChange({ ...connection, url: e.target.value })}
         />
-        <p className="py-1">
-          留空或 0 使用默认值 首个输出和空闲不限 总时限通常 180 秒 文档对话 600
-          秒
-        </p>
-      </details>
-      <div className="flex gap-2">
+      </label>
+      <label>
+        API Key
         <Input
           aria-label="API Key"
           type="password"
           autoComplete="off"
-          placeholder={connection.hasKey ? "已保存，留空保持不变" : "API Key"}
-          value={key}
-          disabled={disabled || saving}
-          onChange={(event) => setKey(event.target.value)}
+          placeholder={
+            connection.hasKey ? "已保存，留空保持不变" : "输入 API Key"
+          }
+          value={connection.key ?? ""}
+          disabled={disabled}
+          onChange={(e) => onChange({ ...connection, key: e.target.value })}
         />
-        <Button
-          type="submit"
-          variant="outline"
-          disabled={disabled || saving || !changed || !valid || !runtimeValid}
+      </label>
+      <label>
+        接口协议
+        <Select
+          value={protocol}
+          disabled={disabled}
+          onValueChange={(value) =>
+            value && onChange({ ...connection, protocol: value })
+          }
         >
-          保存
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-/** Adds a model ID that the endpoint's /models list does not include. */
-export function APIModelForm({
-  disabled,
-  onAdd,
-}: {
-  disabled: boolean;
-  onAdd: (id: string) => Promise<void>;
-}) {
-  const [id, setID] = useState("");
-  const [saving, setSaving] = useState(false);
-  return (
-    <form
-      className="mt-2 flex gap-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const model = id.trim();
-        if (!model) return;
-        setSaving(true);
-        void onAdd(model)
-          .then(() => setID(""))
-          .catch(() => {})
-          .finally(() => setSaving(false));
-      }}
-    >
-      <Input
-        aria-label="添加模型 ID"
-        placeholder="手动添加模型 ID"
-        autoComplete="off"
-        spellCheck={false}
-        value={id}
-        disabled={disabled || saving}
-        onChange={(event) => setID(event.target.value)}
-      />
-      <Button
-        type="submit"
-        variant="outline"
-        disabled={disabled || saving || !id.trim()}
-      >
-        添加
-      </Button>
-    </form>
+          <SelectTrigger aria-label="API 协议">
+            <SelectValue>{protocols[protocol]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(protocols).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="api-field-help">
+          自动识别官方地址 中转接口默认使用 OpenAI 协议
+        </span>
+      </label>
+      <details className="api-advanced">
+        <summary>高级连接设置</summary>
+        <div className="grid grid-cols-2 gap-3">
+          {(
+            [
+              ["textProbeTimeoutSeconds", "文本检测时限（秒）", 45],
+              ["visionProbeTimeoutSeconds", "图片检测时限（秒）", 90],
+            ] as const
+          ).map(([field, label, fallback]) => (
+            <label key={field}>
+              {label}
+              <Input
+                aria-label={label}
+                type="number"
+                min={1}
+                max={600}
+                step={1}
+                value={connection[field] ?? fallback}
+                disabled={disabled}
+                onChange={(e) =>
+                  onChange({
+                    ...connection,
+                    [field]: e.target.value === "" ? 0 : Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+          ))}
+        </div>
+        <TimeoutFields
+          fields={runtimeTimeoutFields}
+          value={connection}
+          onChange={(value) => onChange({ ...connection, ...value })}
+          disabled={disabled}
+        />
+        <p className="api-field-help">
+          请求时限留空或 0 使用默认值 首个输出和空闲不限 总时限通常 180 秒
+          文档对话 600 秒
+        </p>
+      </details>
+    </div>
   );
 }

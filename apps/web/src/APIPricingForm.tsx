@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
 import type { APIPricing } from "@reader/core";
-import { Button } from "@reader/ui/components/button";
 import { Input } from "@reader/ui/components/input";
 import {
   Select,
@@ -19,35 +17,22 @@ export function APIPricingForm({
   value,
   model,
   disabled,
-  onSave,
+  onChange,
 }: {
   value?: APIPricing;
   model: string;
   disabled: boolean;
-  onSave: (value: APIPricing) => Promise<unknown>;
+  onChange: (value: APIPricing) => void;
 }) {
-  const [draft, setDraft] = useState<APIPricing>(value ?? { currency: "CNY" });
-  useEffect(() => setDraft(value ?? { currency: "CNY" }), [value, model]);
-  const valid =
-    (draft.currency === "CNY" || draft.currency === "USD") &&
-    fields.every(
-      ([field]) =>
-        draft[field] === undefined ||
-        (Number.isFinite(draft[field]) && draft[field]! >= 0),
-    );
+  const draft = value ?? { currency: "CNY" };
+  const setDraft = onChange;
   return (
     <section
       className="space-y-2 text-xs text-muted-foreground"
       aria-label={`${model} 价格`}
     >
       <h4 className="font-medium">模型价格</h4>
-      <form
-        className="space-y-2 pb-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) void onSave(draft);
-        }}
-      >
+      <div className="space-y-2 pb-2">
         <Select
           value={draft.currency}
           disabled={disabled}
@@ -91,15 +76,7 @@ export function APIPricingForm({
         </div>
         <p>每 100 万 token · 留空表示未知 · 0 表示免费</p>
         <p>切换币种会清空此模型的价格</p>
-        <Button
-          type="submit"
-          variant="outline"
-          size="sm"
-          disabled={disabled || !valid}
-        >
-          保存模型价格
-        </Button>
-      </form>
+      </div>
     </section>
   );
 }
