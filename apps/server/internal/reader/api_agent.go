@@ -25,6 +25,7 @@ type apiAgentAdapter struct {
 	task         modelTask
 	// catalog lists the endpoint's models with this snapshot's check results.
 	catalog       func(context.Context) ([]AgentModel, error)
+	config        *AIConfig
 	enabledModels []string
 }
 
@@ -34,7 +35,8 @@ type apiModelChoice struct{ model, level string }
 func apiCapabilityKey(model string) string { return "api:" + model }
 
 func apiModelEnabled(c AIConfig, model string) bool {
-	return c.APIEnabledModels == nil || slices.Contains(c.APIEnabledModels, model)
+	p, raw, ok := resolveAPIProvider(c, model)
+	return ok && providerModelEnabled(p, raw)
 }
 
 // apiTaskModel is the user's choice for a task; empty means automatic.
@@ -72,6 +74,8 @@ func primaryCapable(c AIConfig, task modelTask) bool {
 }
 
 func (s *Server) apiAgentAdapter(c AIConfig, task modelTask) apiAgentAdapter {
+	// Copy maps/slices as well as connections: all routing data belongs to this generation.
+	c = snapshotAIConfig(c)
 	models, efforts := c.Models, c.Efforts
 	if task == taskTranslation {
 		models, efforts = c.TranslationModels, c.TranslationEfforts
@@ -84,25 +88,28 @@ func (s *Server) apiAgentAdapter(c AIConfig, task modelTask) apiAgentAdapter {
 		}
 		return apiModelChoice{model, level}
 	}
-	return apiAgentAdapter{c.API, choice(models, efforts), choice(c.VisionModels, c.VisionEfforts), task, func(ctx context.Context) ([]AgentModel, error) {
-		return s.apiAgentModels(ctx, c)
-	}, c.APIEnabledModels}
+	return apiAgentAdapter{conn: c.API, text: choice(models, efforts), vision: choice(c.VisionModels, c.VisionEfforts), task: task, config: &c, catalog: func(ctx context.Context) ([]AgentModel, error) { return s.apiAgentModels(ctx, c) }}
 }
 
 // resolve fixes the model and requested effort for one request. Wire mapping
 // is applied by the endpoint/model profile, even when the catalog is unavailable.
 func (a apiAgentAdapter) resolve(ctx context.Context, vision bool) (completionRequest, error) {
-	if e := validateAgentAPI(a.conn); e != nil {
-		return completionRequest{}, generationError(ErrorConfiguration, e.Error())
-	}
-	if a.conn.URL == "" {
-		return completionRequest{}, generationError(ErrorConfiguration, "请在设置中填写 API 地址")
+	if a.config == nil {
+		if e := validateAgentAPI(a.conn); e != nil {
+			return completionRequest{}, generationError(ErrorConfiguration, e.Error())
+		}
+		if a.conn.URL == "" {
+			return completionRequest{}, generationError(ErrorConfiguration, "请在设置中填写 API 地址")
+		}
 	}
 	choice, task := a.text, a.task
 	if vision {
 		choice, task = a.vision, taskVision
 	}
 	req := completionRequest{Model: choice.model, Effort: choice.level}
+	if a.config != nil && req.Model != "" && !apiModelEnabled(*a.config, req.Model) {
+		return req, generationError(ErrorCapability, "所选 API 提供商或模型已停用或移除，请重新选择")
+	}
 	if req.Model != "" && a.enabledModels != nil && !slices.Contains(a.enabledModels, req.Model) {
 		return req, generationError(ErrorCapability, "所选 API 模型已停用或移除，请在设置中重新选择")
 	}
@@ -111,7 +118,7 @@ func (a apiAgentAdapter) resolve(ctx context.Context, vision bool) (completionRe
 		if req.Model == "" {
 			return req, err
 		}
-		return req, nil
+		return a.resolvedRequest(req)
 	}
 	for _, m := range models {
 		if req.Model == "" && (m.Enabled == nil || *m.Enabled) && slices.Contains(m.RecommendedFor, string(task)) {
@@ -132,6 +139,27 @@ func (a apiAgentAdapter) resolve(ctx context.Context, vision bool) (completionRe
 			req.ContextWindow = m.ContextWindow
 			req.SupportedEfforts = m.SupportedEfforts
 		}
+	}
+	return a.resolvedRequest(req)
+}
+func (a apiAgentAdapter) resolvedRequest(req completionRequest) (completionRequest, error) {
+	req.Connection = a.conn
+	req.ModelRef = req.Model
+	if a.config != nil {
+		p, raw, ok := resolveAPIProvider(*a.config, req.Model)
+		if !ok {
+			return req, generationError(ErrorConfiguration, "所选 API 提供商已移除，请重新选择")
+		}
+		req.Connection = p.Connection
+		req.ProviderID = p.ID
+		req.ProviderName = p.Name
+		req.Model = raw
+	}
+	if e := validateAgentAPI(req.Connection); e != nil {
+		return req, e
+	}
+	if req.Connection.URL == "" {
+		return req, generationError(ErrorConfiguration, "请在设置中填写 API 地址")
 	}
 	return req, nil
 }
@@ -174,17 +202,24 @@ func (a apiAgentAdapter) Stream(ctx context.Context, req GenerateRequest, emit f
 	if err != nil {
 		return GenerateResult{}, err
 	}
-	if req.Input.Chat != nil && req.Input.Chat.Agent != nil && a.task == taskChat && len(req.Input.images()) == 0 {
-		agent := req.Input.Chat.Agent
-		capability, err := agent.server.ensureDocumentTools(ctx, a.conn, completion.Model, agent.activity)
-		if err != nil {
-			return GenerateResult{}, err
+	return withAPIRequestTimeouts(ctx, completion.Connection, emit, func(ctx context.Context, emit func(ProviderEvent) error) (GenerateResult, error) {
+		if emit != nil {
+			if err := emit(ProviderEvent{ProviderID: completion.ProviderID, ProviderName: completion.ProviderName, Metrics: []ModelTokens{{Model: completion.Model}}}); err != nil {
+				return GenerateResult{}, err
+			}
 		}
-		completion.Tools = capability.Tools == "passed"
-		completion.Vision = capability.Vision
-		return streamAPIDocumentChat(ctx, a.conn, completion, req.Input, emit)
-	}
-	return streamCompletion(ctx, a.conn, completion, req.Input, emit)
+		if req.Input.Chat != nil && req.Input.Chat.Agent != nil && a.task == taskChat && len(req.Input.images()) == 0 {
+			agent := req.Input.Chat.Agent
+			capability, err := agent.server.ensureDocumentTools(ctx, completion.Connection, completion.ModelRef, agent.activity)
+			if err != nil {
+				return GenerateResult{}, err
+			}
+			completion.Tools = capability.Tools == "passed"
+			completion.Vision = capability.Vision
+			return streamAPIDocumentChat(ctx, completion.Connection, completion, req.Input, emit)
+		}
+		return streamCompletion(ctx, completion.Connection, completion, req.Input, emit)
+	})
 }
 
 // History beyond this size is trimmed from the oldest turns, down to half of
@@ -209,10 +244,10 @@ func (s *apiTranslationSession) Stream(ctx context.Context, req GenerateRequest,
 	}
 	completion.History = s.history
 	var reasoning strings.Builder
-	if reasoningRule(resolveAPIEndpoint(s.conn), completion.Model, completion.SupportedEfforts).Preserve {
+	if reasoningRule(resolveAPIEndpoint(completion.Connection), completion.Model, completion.SupportedEfforts).Preserve {
 		completion.ReasoningSink = func(part string) { reasoning.WriteString(part) }
 	}
-	result, err := streamCompletion(ctx, s.conn, completion, req.Input, emit)
+	result, err := streamCompletion(ctx, completion.Connection, completion, req.Input, emit)
 	if err != nil {
 		return result, err
 	}
@@ -259,6 +294,49 @@ func (s *Server) apiCatalog(c APIConnection) func(context.Context) ([]AgentModel
 // with its current check result. Recommendations consider only models that
 // passed what the task needs. Added IDs still list when /models fails.
 func (s *Server) apiAgentModels(ctx context.Context, c AIConfig) ([]AgentModel, error) {
+	all := []AgentModel{}
+	var lastErr error
+	for _, p := range apiProviders(c) {
+		local := c
+		local.APIProviders = nil
+		local.API = p.Connection
+		local.APIModels = p.Models
+		local.APIEnabledModels = p.EnabledModels
+		local.Models = map[string]string{}
+		local.TranslationModels = map[string]string{}
+		local.VisionModels = map[string]string{}
+		local.Capabilities = map[string]Capability{}
+		for _, pair := range [][2]map[string]string{{c.Models, local.Models}, {c.TranslationModels, local.TranslationModels}, {c.VisionModels, local.VisionModels}} {
+			pid, raw := splitAPIModelRef(pair[0]["api"])
+			if pid == p.ID {
+				pair[1]["api"] = raw
+			}
+		}
+		for key, cap := range c.Capabilities {
+			if ref, ok := strings.CutPrefix(key, "api:"); ok {
+				pid, raw := splitAPIModelRef(ref)
+				if pid == p.ID {
+					local.Capabilities[apiCapabilityKey(raw)] = cap
+				}
+			}
+		}
+		models, err := s.singleAPIModels(ctx, local)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		for _, m := range models {
+			m.ID = apiModelRef(p.ID, m.ID)
+			m.Name = p.Name + " / " + m.Name
+			all = append(all, m)
+		}
+	}
+	if len(all) == 0 {
+		return all, lastErr
+	}
+	return all, nil
+}
+func (s *Server) singleAPIModels(ctx context.Context, c AIConfig) ([]AgentModel, error) {
 	listed, err := s.apiCatalog(c.API)(ctx)
 	models := append([]AgentModel{}, listed...)
 	ids := append([]string{}, c.APIModels...)

@@ -85,3 +85,48 @@ it("combines processing and chat totals without counting cache subsets twice", (
   expect(combined.total.cachedInputTokens).toBe(14);
   expect(combined.elapsedMs).toBe(21000);
 });
+
+it("keeps same-model provider successes and failures separate", () => {
+  const twoProviders = {
+    ...report,
+    calls: [
+      {
+        ...report.calls[0],
+        provider: "api",
+        providerId: "one",
+        providerName: "First",
+        status: "complete",
+      },
+      {
+        ...report.calls[0],
+        id: "two",
+        provider: "api",
+        providerId: "two",
+        providerName: "Second",
+        status: "failed",
+      },
+    ],
+    groups: [
+      {
+        ...report.groups[0],
+        provider: "api",
+        providerId: "one",
+        providerName: "First",
+      },
+      {
+        ...report.groups[0],
+        provider: "api",
+        providerId: "two",
+        providerName: "Second",
+      },
+    ],
+  };
+  const host = document.createElement("div");
+  host.innerHTML = renderToStaticMarkup(<UsageDetails report={twoProviders} />);
+  const rows = host.querySelectorAll(".usage-model");
+  expect(rows).toHaveLength(2);
+  expect(rows[0].textContent).toContain("First");
+  expect(rows[1].textContent).toContain("Second");
+  expect(rows[0].textContent).toContain("未成功0");
+  expect(rows[1].textContent).toContain("成功0");
+});

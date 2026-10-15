@@ -553,7 +553,25 @@ export interface AICapability {
   checkedAt: string;
   error?: string;
 }
+export interface APIModelOverride {
+  textProbeTimeoutSeconds?: number;
+  visionProbeTimeoutSeconds?: number;
+  firstOutputTimeoutSeconds?: number;
+  idleTimeoutSeconds?: number;
+  totalTimeoutSeconds?: number;
+}
+export interface APIProvider {
+  id: string;
+  name: string;
+  connection: APIConnection;
+  models: string[];
+  enabledModels?: string[];
+  modelOverrides?: Record<string, APIModelOverride>;
+}
 export interface APIConnection {
+  firstOutputTimeoutSeconds?: number;
+  idleTimeoutSeconds?: number;
+  totalTimeoutSeconds?: number;
   textProbeTimeoutSeconds?: number;
   visionProbeTimeoutSeconds?: number;
   /** Auto detects official endpoints; other addresses use OpenAI Chat Completions. */
@@ -566,6 +584,7 @@ export interface APIConnection {
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export interface AIConfig {
+  apiProviders?: APIProvider[];
   /** Omitted uses legacy models; [] disables every API model. */
   apiEnabledModels?: string[];
   primary: string;
@@ -624,6 +643,8 @@ export interface ModelTokens {
   tokens: TokenCounts | null;
 }
 export interface UsageCall {
+  providerId?: string;
+  providerName?: string;
   id: string;
   stage: string;
   target: string;
@@ -634,6 +655,8 @@ export interface UsageCall {
   models: ModelTokens[];
 }
 export interface UsageGroup {
+  providerId?: string;
+  providerName?: string;
   stage: string;
   provider: string;
   model: string;

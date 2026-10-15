@@ -106,7 +106,7 @@ func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document D
 		return
 	}
 	defer s.aiMu.Unlock()
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), apiOuterTimeout(config, 10*time.Minute))
 	defer cancel()
 	ctx, finish, taskErr := s.beginDocumentTask(ctx, documentID)
 	if taskErr != nil {

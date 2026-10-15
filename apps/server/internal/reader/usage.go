@@ -142,16 +142,20 @@ func reportClaudeMetrics(raw []byte, callbacks []func([]ModelTokens)) {
 }
 
 type UsageCall struct {
-	ID         string        `json:"id"`
-	Stage      string        `json:"stage"`
-	Target     string        `json:"target"`
-	Provider   string        `json:"provider"`
-	StartedAt  string        `json:"startedAt"`
-	FinishedAt string        `json:"finishedAt,omitempty"`
-	Status     string        `json:"status"`
-	Models     []ModelTokens `json:"models"`
+	ProviderID   string        `json:"providerId,omitempty"`
+	ProviderName string        `json:"providerName,omitempty"`
+	ID           string        `json:"id"`
+	Stage        string        `json:"stage"`
+	Target       string        `json:"target"`
+	Provider     string        `json:"provider"`
+	StartedAt    string        `json:"startedAt"`
+	FinishedAt   string        `json:"finishedAt,omitempty"`
+	Status       string        `json:"status"`
+	Models       []ModelTokens `json:"models"`
 }
 type UsageGroup struct {
+	ProviderID   string      `json:"providerId,omitempty"`
+	ProviderName string      `json:"providerName,omitempty"`
 	Stage        string      `json:"stage"`
 	Provider     string      `json:"provider"`
 	Model        string      `json:"model"`
@@ -302,13 +306,13 @@ func (s *Store) scopedUsageReport(documentID string, chat bool) (UsageReport, er
 			i := 0
 			for i < len(report.Groups) {
 				g := report.Groups[i]
-				if g.Stage == call.Stage && g.Provider == call.Provider && g.Model == model.Model {
+				if g.Stage == call.Stage && g.Provider == call.Provider && g.ProviderID == call.ProviderID && g.Model == model.Model {
 					break
 				}
 				i++
 			}
 			if i == len(report.Groups) {
-				report.Groups = append(report.Groups, UsageGroup{Stage: call.Stage, Provider: call.Provider, Model: model.Model})
+				report.Groups = append(report.Groups, UsageGroup{Stage: call.Stage, Provider: call.Provider, ProviderID: call.ProviderID, ProviderName: call.ProviderName, Model: model.Model})
 			}
 			report.Groups[i].Calls++
 			if model.Tokens == nil {
@@ -453,8 +457,12 @@ func trackModelUsage(call UsageCall, sink func(UsageCall) error, emit func(Provi
 	}
 	var mu sync.Mutex
 	result, err := run(func(event ProviderEvent) error {
-		if len(event.Metrics) > 0 {
+		if len(event.Metrics) > 0 || event.ProviderID != "" {
 			mu.Lock()
+			if event.ProviderID != "" {
+				call.ProviderID = event.ProviderID
+				call.ProviderName = event.ProviderName
+			}
 			call.Models = mergeModelTokens(call.Models, event.Metrics)
 			saveErr := save()
 			mu.Unlock()

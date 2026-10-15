@@ -3759,7 +3759,27 @@ export interface components {
             /** @description Server-owned fingerprint of the checked tool protocol and schemas. */
             toolSchemaVersion?: string;
         };
+        APIModelOverride: {
+            textProbeTimeoutSeconds?: number;
+            visionProbeTimeoutSeconds?: number;
+            firstOutputTimeoutSeconds?: number;
+            idleTimeoutSeconds?: number;
+            totalTimeoutSeconds?: number;
+        };
+        APIProvider: {
+            id: string;
+            name: string;
+            connection: components["schemas"]["APIConnection"];
+            models: string[];
+            enabledModels?: string[];
+            modelOverrides?: {
+                [key: string]: components["schemas"]["APIModelOverride"];
+            };
+        };
         APIConnection: {
+            firstOutputTimeoutSeconds?: number;
+            idleTimeoutSeconds?: number;
+            totalTimeoutSeconds?: number;
             /** @description 0 or omitted uses 45 seconds; tools share this timeout */
             textProbeTimeoutSeconds?: number;
             /** @description 0 or omitted uses 90 seconds */
@@ -3803,6 +3823,7 @@ export interface components {
         /** @enum {string} */
         ReasoningEffort: "low" | "medium" | "high" | "max";
         AIConfig: {
+            apiProviders?: components["schemas"]["APIProvider"][];
             primary: string;
             models: {
                 [key: string]: string;
@@ -3890,6 +3911,8 @@ export interface components {
             tokens: components["schemas"]["TokenCounts"] | null;
         };
         UsageCall: {
+            providerId?: string;
+            providerName?: string;
             id: string;
             stage: string;
             target: string;
@@ -3900,6 +3923,8 @@ export interface components {
             models: components["schemas"]["ModelTokens"][];
         };
         UsageGroup: {
+            providerId?: string;
+            providerName?: string;
             stage: string;
             provider: string;
             model: string;

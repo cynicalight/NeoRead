@@ -54,12 +54,14 @@ func errorKind(err error) ErrorKind {
 }
 
 type ProviderEvent struct {
-	Reasoning  string
-	Draft      string
-	ResetDraft bool
-	Text       string
-	Fallback   string
-	Metrics    []ModelTokens
+	ProviderID, ProviderName string
+	ToolProgress             bool
+	Reasoning                string
+	Draft                    string
+	ResetDraft               bool
+	Text                     string
+	Fallback                 string
+	Metrics                  []ModelTokens
 }
 type GenerateRequest struct{ Input AIInput }
 type GenerateResult struct {
@@ -78,6 +80,7 @@ type generationConnection struct {
 	Incremental                  bool
 }
 type GenerationService struct {
+	config        *AIConfig
 	timeout       time.Duration // Zero keeps the normal three-minute request limit.
 	primary       string
 	connections   map[string]generationConnection
@@ -90,7 +93,8 @@ func (s *Server) generationService(config AIConfig) *GenerationService {
 }
 
 func (s *Server) taskGenerationService(config AIConfig, task modelTask) *GenerationService {
-	g := &GenerationService{primary: config.Primary, connections: map[string]generationConnection{}}
+	config = snapshotAIConfig(config)
+	g := &GenerationService{primary: config.Primary, connections: map[string]generationConnection{}, config: &config}
 	models, efforts := config.Models, config.Efforts
 	if task == taskTranslation {
 		models, efforts = config.TranslationModels, config.TranslationEfforts
@@ -329,6 +333,10 @@ func (g *GenerationService) generate(ctx context.Context, in AIInput, interactiv
 	}
 	if in.Chat != nil && in.Chat.Agent != nil {
 		timeout = 10 * time.Minute
+	}
+	ctx = context.WithValue(ctx, apiDefaultTimeoutKey{}, timeout)
+	if g.config != nil {
+		timeout = apiOuterTimeout(*g.config, timeout)
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

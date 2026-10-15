@@ -94,7 +94,7 @@ func TestAnthropicDocumentRetrievalConversation(t *testing.T) {
 	defer upstream.Close()
 	configureDocumentAPI(t, s, upstream.URL)
 	c := s.aiConfig()
-	c.API.Protocol = "anthropic"
+	c.APIProviders[0].Connection.Protocol = "anthropic"
 	passModels(&c, map[string]bool{"test": false})
 	if err := s.writeAIConfig(c); err != nil {
 		t.Fatal(err)

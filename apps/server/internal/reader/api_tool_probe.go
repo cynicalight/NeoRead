@@ -44,7 +44,7 @@ func (s *Server) testDocumentToolConnection(w http.ResponseWriter, r *http.Reque
 		fail(w, 409, "请先完成文本检测")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), probeTimeout(c.API, false))
+	ctx, cancel := context.WithTimeout(r.Context(), connectionProbeTimeout(c, key, false))
 	defer cancel()
 	cap, e := s.checkDocumentTools(ctx, c, key)
 	if e != nil {
@@ -63,7 +63,8 @@ func (s *Server) testDocumentToolConnection(w http.ResponseWriter, r *http.Reque
 func (s *Server) ensureDocumentTools(ctx context.Context, connection APIConnection, model string, activity func(string, string, string) error) (Capability, error) {
 	c := s.aiConfig()
 	key := apiCapabilityKey(model)
-	if c.API.URL != connection.URL || c.API.Key != connection.Key || c.API.Protocol != connection.Protocol || !capable(c, key, false) {
+	p, _, ok := resolveAPIProvider(c, model)
+	if !ok || p.Connection.URL != connection.URL || p.Connection.Key != connection.Key || p.Connection.Protocol != connection.Protocol || !capable(c, key, false) {
 		return Capability{}, generationError(ErrorConfiguration, "模型配置已改变，请重新提问")
 	}
 	cap := c.Capabilities[key]
@@ -75,14 +76,18 @@ func (s *Server) ensureDocumentTools(ctx context.Context, connection APIConnecti
 			return Capability{}, err
 		}
 	}
-	child, cancel := context.WithTimeout(ctx, probeTimeout(c.API, false))
+	child, cancel := context.WithTimeout(ctx, connectionProbeTimeout(c, key, false))
 	defer cancel()
 	return s.checkDocumentTools(child, c, key)
 }
 
 func (s *Server) checkDocumentTools(ctx context.Context, c AIConfig, key string) (Capability, error) {
 	model := strings.TrimPrefix(key, "api:")
-	status, e := probeAPIDocumentTools(ctx, c.API, model)
+	p, raw, ok := resolveAPIProvider(c, model)
+	if !ok {
+		return Capability{}, generationError(ErrorConfiguration, "所选提供商已移除")
+	}
+	status, e := probeAPIDocumentTools(ctx, p.Connection, raw)
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return Capability{}, ctx.Err()
 	}

@@ -237,6 +237,7 @@ function StageRows({
                 const linked = calls.filter(
                   (call) =>
                     call.provider === group.provider &&
+                    call.providerId === group.providerId &&
                     call.models.some((model) => model.model === group.model),
                 );
                 const complete = linked.filter(
@@ -269,12 +270,16 @@ function StageRows({
                 return (
                   <section
                     className="usage-model"
-                    key={`${group.provider}:${group.model}`}
+                    key={`${group.provider}:${group.providerId ?? ""}:${group.model}`}
                     aria-label={`${group.model || "模型未返回"} 调用统计`}
                   >
                     <div className="usage-model-heading">
                       <strong>{group.model || "模型未返回"}</strong>
-                      <span>{providers[group.provider] || group.provider}</span>
+                      <span>
+                        {group.providerName ||
+                          providers[group.provider] ||
+                          group.provider}
+                      </span>
                     </div>
                     <dl className="usage-model-metrics">
                       <div>

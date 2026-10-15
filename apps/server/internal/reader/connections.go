@@ -23,6 +23,9 @@ import (
 )
 
 type APIConnection struct {
+	FirstOutputTimeoutSeconds int    `json:"firstOutputTimeoutSeconds,omitempty"`
+	IdleTimeoutSeconds        int    `json:"idleTimeoutSeconds,omitempty"`
+	TotalTimeoutSeconds       int    `json:"totalTimeoutSeconds,omitempty"`
 	TextProbeTimeoutSeconds   int    `json:"textProbeTimeoutSeconds,omitempty"`
 	VisionProbeTimeoutSeconds int    `json:"visionProbeTimeoutSeconds,omitempty"`
 	Protocol                  string `json:"protocol,omitempty"`
@@ -46,6 +49,7 @@ type Capability struct {
 	Fingerprint           string `json:"-"`
 }
 type AIConfig struct {
+	APIProviders []APIProvider `json:"apiProviders,omitzero"`
 	// Nil preserves legacy behavior; an explicit empty list disables every model.
 	APIEnabledModels []string                     `json:"apiEnabledModels,omitzero"`
 	Primary          string                       `json:"primary"`
@@ -135,6 +139,7 @@ func (s *Server) readAIConfig() AIConfig {
 		}
 		c.Capabilities[k] = v
 	}
+	migrateAPIProviders(&c)
 	return c
 }
 func (s *Server) writeAIConfig(c AIConfig) error {
@@ -182,7 +187,11 @@ func configPrint(c AIConfig, p string) string {
 		connection.TextProbeTimeoutSeconds, connection.VisionProbeTimeoutSeconds = 0, 0
 		value = connection
 	} else if model, ok := strings.CutPrefix(p, "api:"); ok {
-		value = []string{"api", c.API.URL, c.API.Key, c.API.Protocol, apiRulesVersion, model}
+		provider, raw, ok := resolveAPIProvider(c, model)
+		if !ok {
+			return "missing-provider"
+		}
+		value = []string{"api", provider.Connection.URL, provider.Connection.Key, provider.Connection.Protocol, apiRulesVersion, raw}
 	} else if p == "api" {
 		// Checked per model, never as a whole.
 		return ""
@@ -202,6 +211,11 @@ func capable(c AIConfig, p string, vision bool) bool {
 	return v.Fingerprint == configPrint(c, p) && v.Text && (!vision || v.Vision)
 }
 func publicConfig(c AIConfig) AIConfig {
+	c.APIProviders = append([]APIProvider{}, apiProviders(c)...)
+	for i := range c.APIProviders {
+		c.APIProviders[i].Connection.HasKey = c.APIProviders[i].Connection.Key != ""
+		c.APIProviders[i].Connection.Key = ""
+	}
 	c.API.HasKey = c.API.Key != ""
 	c.API.Key = ""
 	c.TextAPI.HasKey = c.TextAPI.Key != ""
@@ -378,6 +392,10 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := prepareAPIProviders(&c, old); err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
 	c.Capabilities = old.Capabilities
 	if c.Models == nil {
 		c.Models = map[string]string{}
@@ -403,7 +421,7 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 	if p == "api" {
 		// The API agent is checked one model at a time.
 		model := strings.TrimSpace(r.URL.Query().Get("model"))
-		if model == "" || len(model) > 200 {
+		if model == "" || len(model) > 285 {
 			fail(w, 400, "请选择要检测的 API 模型")
 			return
 		}
@@ -528,7 +546,16 @@ func (s *Server) probeConnection(parent context.Context, c AIConfig, p string, i
 			effort = "medium"
 		}
 		choice := apiModelChoice{model, effort}
-		adapter = apiAgentAdapter{c.API, choice, choice, taskChat, s.apiCatalog(c.API), nil}
+		provider, raw, ok := resolveAPIProvider(c, model)
+		if !ok {
+			return "", generationError(ErrorConfiguration, "所选 API 提供商已移除")
+		}
+		// Probe deadlines are independent of generation first-output/idle/total limits.
+		provider.Connection.FirstOutputTimeoutSeconds = 0
+		provider.Connection.IdleTimeoutSeconds = 0
+		provider.Connection.TotalTimeoutSeconds = 0
+		choice.model = raw
+		adapter = apiAgentAdapter{conn: provider.Connection, text: choice, vision: choice, task: taskChat, catalog: s.apiCatalog(provider.Connection)}
 	}
 	if p == "text-api" {
 		adapter = apiAdapter{c.TextAPI}
@@ -606,6 +633,14 @@ func visionProbe() ([]byte, string, error) {
 }
 
 func validateProbeTimeouts(c APIConnection) error {
+	for _, v := range []int{c.FirstOutputTimeoutSeconds, c.IdleTimeoutSeconds} {
+		if v < 0 || v > 3600 {
+			return errors.New("请求时限须为 1 至 3600 秒，0 使用默认值")
+		}
+	}
+	if c.TotalTimeoutSeconds < 0 || c.TotalTimeoutSeconds > 7200 {
+		return errors.New("总时限须为 1 至 7200 秒，0 使用默认值")
+	}
 	for _, value := range []int{c.TextProbeTimeoutSeconds, c.VisionProbeTimeoutSeconds} {
 		if value < 0 || value > 600 {
 			return errors.New("检测时限须为 1 至 600 秒，0 使用默认值")
@@ -627,7 +662,8 @@ func connectionProbeTimeout(c AIConfig, p string, vision bool) time.Duration {
 	connection := APIConnection{}
 	switch {
 	case strings.HasPrefix(p, "api:"):
-		connection = c.API
+		provider, _, _ := resolveAPIProvider(c, strings.TrimPrefix(p, "api:"))
+		connection = provider.Connection
 	case p == "text-api":
 		connection = c.TextAPI
 	case p == "image-api":

@@ -68,9 +68,10 @@ func (s *Server) convertFormulas(ctx context.Context, documentID string, m layou
 		}
 		image, callErr := os.ReadFile(filepath.Join(s.analysisDir(documentID), b.Image))
 		if callErr == nil {
-			service := s.generationService(s.aiConfig())
+			config := s.aiConfig()
+			service := s.generationService(config)
 			service.usageSink = s.processingUsageSink(documentID, "translating", b.ID)
-			call, stop := context.WithTimeout(ctx, 3*time.Minute)
+			call, stop := context.WithTimeout(ctx, apiOuterTimeout(config, 3*time.Minute))
 			result, generateErr := service.Generate(call, AIInput{Prompt: formulaPrompt + b.Text, Image: image}, false, nil)
 			stop()
 			callErr = generateErr

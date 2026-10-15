@@ -49,6 +49,7 @@ func documentAPITools(vision ...bool) []any {
 // commits assistant text before stop: prospective text streams as a draft,
 // discarded when a tool call follows, committed only after the terminal frame.
 type toolStreamCallbacks struct {
+	Progress  func() error
 	Draft     func(string, bool) error
 	Reasoning func(string) error
 }
@@ -167,6 +168,11 @@ func readToolCompletionWithConnection(ctx context.Context, r io.Reader, c APICon
 				}
 			}
 			for _, part := range choice.Delta.Calls {
+				if (part.ID != "" || part.Function.Name != "" || part.Function.Arguments != "") && len(callbacks) > 0 && callbacks[0].Progress != nil {
+					if err := callbacks[0].Progress(); err != nil {
+						return false, err
+					}
+				}
 				if part.Index == nil || *part.Index < 0 || *part.Index >= 16 {
 					return false, generationError(ErrorProtocol, "API 工具编号无效")
 				}
@@ -265,6 +271,12 @@ func toolCompletion(ctx context.Context, c APIConnection, req completionRequest,
 	return readToolCompletionWithConnection(ctx, response.Body, c, callbacks...)
 }
 func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionRequest, in AIInput, emit func(ProviderEvent) error) (GenerateResult, error) {
+	req.Progress = func() error {
+		if emit != nil {
+			return emit(ProviderEvent{ToolProgress: true})
+		}
+		return nil
+	}
 	a := in.Chat.Agent
 	provider := in.UsageProvider
 	if provider == "" {
@@ -345,9 +357,14 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 		}
 		var response toolCompletionResult
 		roundReasoning := false
-		_, err = trackModelUsage(UsageCall{Provider: provider}, in.UsageSink, nil, func(send func(ProviderEvent) error) (GenerateResult, error) {
+		_, err = trackModelUsage(UsageCall{Provider: provider, ProviderID: req.ProviderID, ProviderName: req.ProviderName}, in.UsageSink, nil, func(send func(ProviderEvent) error) (GenerateResult, error) {
 			var e error
-			response, e = toolCompletion(ctx, c, req, messages, tools, toolStreamCallbacks{Draft: func(text string, reset bool) error {
+			response, e = toolCompletion(ctx, c, req, messages, tools, toolStreamCallbacks{Progress: func() error {
+				if emit != nil {
+					return emit(ProviderEvent{ToolProgress: true})
+				}
+				return nil
+			}, Draft: func(text string, reset bool) error {
 				if emit == nil {
 					return nil
 				}
@@ -393,6 +410,11 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 		}
 		var pageImages []documentPageImage
 		for callIndex, call := range response.Calls {
+			if emit != nil {
+				if err := emit(ProviderEvent{ToolProgress: true}); err != nil {
+					return GenerateResult{}, err
+				}
+			}
 			if seen[call.ID] {
 				return GenerateResult{}, generationError(ErrorProtocol, "API 重复使用工具调用 ID")
 			}

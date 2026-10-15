@@ -50,14 +50,17 @@ type completionMessage struct {
 // History holds earlier completed turns of the same conversation; the new user
 // turn is appended after it. Effort is resolved by the calling adapter.
 type completionRequest struct {
-	Vision           bool
-	PageImageData    func(documentPageImage) ([]byte, error)
-	ContextWindow    int
-	Tools            bool
-	Model, Effort    string
-	SupportedEfforts []string
-	ReasoningSink    func(string)
-	History          []completionMessage
+	Progress                           func() error
+	Connection                         APIConnection
+	ModelRef, ProviderID, ProviderName string
+	Vision                             bool
+	PageImageData                      func(documentPageImage) ([]byte, error)
+	ContextWindow                      int
+	Tools                              bool
+	Model, Effort                      string
+	SupportedEfforts                   []string
+	ReasoningSink                      func(string)
+	History                            []completionMessage
 }
 
 func completionContent(in AIInput) any {
@@ -119,7 +122,17 @@ func apiRequest(ctx context.Context, c APIConnection, method, path string, body 
 	return response, nil
 }
 
-func streamCompletion(ctx context.Context, c APIConnection, req completionRequest, in AIInput, emit func(ProviderEvent) error) (result GenerateResult, err error) {
+func streamCompletion(ctx context.Context, c APIConnection, req completionRequest, in AIInput, emit func(ProviderEvent) error) (GenerateResult, error) {
+	return withAPIRequestTimeouts(ctx, c, emit, func(ctx context.Context, emit func(ProviderEvent) error) (GenerateResult, error) {
+		if emit != nil && req.ProviderID != "" {
+			if err := emit(ProviderEvent{ProviderID: req.ProviderID, ProviderName: req.ProviderName, Metrics: []ModelTokens{{Model: req.Model}}}); err != nil {
+				return GenerateResult{}, err
+			}
+		}
+		return streamCompletionRequest(ctx, c, req, in, emit)
+	})
+}
+func streamCompletionRequest(ctx context.Context, c APIConnection, req completionRequest, in AIInput, emit func(ProviderEvent) error) (result GenerateResult, err error) {
 	started := time.Now()
 	ctx, trace := traceAPI(ctx, c, req.Model)
 	endpoint := resolveAPIEndpoint(c)
@@ -157,7 +170,11 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 	// Respect the request-specific generation deadline (longer for batches).
 	if _, bounded := ctx.Deadline(); !bounded {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 3*time.Minute)
+		limit := 3 * time.Minute
+		if c.TotalTimeoutSeconds > 0 {
+			limit = time.Duration(c.TotalTimeoutSeconds)*time.Second + time.Second
+		}
+		ctx, cancel = context.WithTimeout(ctx, limit)
 		defer cancel()
 	}
 	messages := append([]completionMessage{{Role: "system", Content: readerSystemPrompt}}, req.History...)

@@ -4886,11 +4886,56 @@
                 },
               "required": ["text", "vision", "checkedAt"],
             },
+          "APIModelOverride":
+            {
+              "type": "object",
+              "properties":
+                {
+                  "textProbeTimeoutSeconds":
+                    { "type": "integer", "minimum": 0, "maximum": 600 },
+                  "visionProbeTimeoutSeconds":
+                    { "type": "integer", "minimum": 0, "maximum": 600 },
+                  "firstOutputTimeoutSeconds":
+                    { "type": "integer", "minimum": 0, "maximum": 3600 },
+                  "idleTimeoutSeconds":
+                    { "type": "integer", "minimum": 0, "maximum": 3600 },
+                  "totalTimeoutSeconds":
+                    { "type": "integer", "minimum": 0, "maximum": 7200 },
+                },
+            },
+          "APIProvider":
+            {
+              "type": "object",
+              "required": ["id", "name", "connection", "models"],
+              "properties":
+                {
+                  "id":
+                    { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,80}$" },
+                  "name": { "type": "string" },
+                  "connection":
+                    { "$ref": "#/components/schemas/APIConnection" },
+                  "models": { "type": "array", "items": { "type": "string" } },
+                  "enabledModels":
+                    { "type": "array", "items": { "type": "string" } },
+                  "modelOverrides":
+                    {
+                      "type": "object",
+                      "additionalProperties":
+                        { "$ref": "#/components/schemas/APIModelOverride" },
+                    },
+                },
+            },
           "APIConnection":
             {
               "type": "object",
               "properties":
                 {
+                  "firstOutputTimeoutSeconds":
+                    { "type": "integer", "minimum": 0, "maximum": 3600 },
+                  "idleTimeoutSeconds":
+                    { "type": "integer", "minimum": 0, "maximum": 3600 },
+                  "totalTimeoutSeconds":
+                    { "type": "integer", "minimum": 0, "maximum": 7200 },
                   "textProbeTimeoutSeconds":
                     {
                       "type": "integer",
@@ -4989,6 +5034,11 @@
               "type": "object",
               "properties":
                 {
+                  "apiProviders":
+                    {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/APIProvider" },
+                    },
                   "primary": { "type": "string" },
                   "models":
                     {
@@ -5206,6 +5256,8 @@
               "type": "object",
               "properties":
                 {
+                  "providerId": { "type": "string" },
+                  "providerName": { "type": "string" },
                   "id": { "type": "string" },
                   "stage": { "type": "string" },
                   "target": { "type": "string" },
@@ -5235,6 +5287,8 @@
               "type": "object",
               "properties":
                 {
+                  "providerId": { "type": "string" },
+                  "providerName": { "type": "string" },
                   "stage": { "type": "string" },
                   "provider": { "type": "string" },
                   "model": { "type": "string" },

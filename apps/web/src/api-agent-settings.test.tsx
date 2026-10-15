@@ -453,3 +453,29 @@ it("removes an enabled manual ID atomically while retaining its missing task cho
   );
   expect(api.testAI).not.toHaveBeenCalled();
 });
+
+it("creates and renames a stable provider, saves its endpoint and deletes it without rerouting tasks", async () => {
+  config.api = { url: "https://default.example", model: "", hasKey: true };
+  config = { ...config, apiProviders: [{ id: "default", name: "Original", connection: config.api, models: [] }] } as AIConfig;
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  const add = host.querySelector('[aria-label="添加 API 提供商"]') as HTMLButtonElement;
+  expect(add).not.toBeNull();
+  await act(async () => add.click());
+  await type("提供商名称", "Second");
+  await act(async () => (host.querySelector('[aria-label="保存提供商名称"]') as HTMLButtonElement).click());
+  await type("API 地址", "https://second.example");
+  await type("API Key", "second-key");
+  await type("首个输出时限（秒）", "75");
+  await submit();
+  const state = config as AIConfig & { apiProviders: { id: string; name: string; connection: Record<string, unknown> }[] };
+  const second = state.apiProviders.find((p) => p.name === "Second")!;
+  expect(second.connection.url).toBe("https://second.example");
+  expect(second.connection.firstOutputTimeoutSeconds).toBe(75);
+  expect(state.apiProviders.find((p) => p.id === "default")!.connection.url).toBe("https://default.example");
+  config.models.api = `${second.id}::same`;
+  await act(async () => (host.querySelector('[aria-label="删除 API 提供商"]') as HTMLButtonElement).click());
+  expect((config as typeof state).apiProviders.some((p) => p.id === second.id)).toBe(false);
+  expect(config.models.api).toBe(`${second.id}::same`);
+  expect(api.testAI).not.toHaveBeenCalled();
+});

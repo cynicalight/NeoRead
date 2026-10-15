@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { APIConnection } from "@reader/core";
+import type { APIConnection, APIModelOverride } from "@reader/core";
 import { Button } from "@reader/ui/components/button";
 import { Input } from "@reader/ui/components/input";
 
@@ -10,6 +10,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@reader/ui/components/select";
+import { TimeoutFields, runtimeTimeoutFields } from "./APITimeouts";
 const protocols = {
   auto: "中转站的非官方api默认使用openai协议",
   openai: "OpenAI Chat Completions",
@@ -52,10 +53,30 @@ export function APIAgentForm({
   const validTimeout = (value: string) =>
     /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 600;
   const valid = validTimeout(textTimeout) && validTimeout(visionTimeout);
+  const [timeouts, setTimeouts] = useState<APIModelOverride>({});
+  useEffect(
+    () =>
+      setTimeouts({
+        firstOutputTimeoutSeconds: connection.firstOutputTimeoutSeconds,
+        idleTimeoutSeconds: connection.idleTimeoutSeconds,
+        totalTimeoutSeconds: connection.totalTimeoutSeconds,
+      }),
+    [connection],
+  );
+  const timeoutsChanged = runtimeTimeoutFields.some(
+    ([field]) => (timeouts[field] || 0) !== (connection[field] || 0),
+  );
+  const runtimeValid = runtimeTimeoutFields.every(
+    ([field, , max]) =>
+      Number.isInteger(timeouts[field] || 0) &&
+      (timeouts[field] || 0) >= 0 &&
+      (timeouts[field] || 0) <= max,
+  );
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => setURL(connection.url || DEFAULT_API_URL), [connection.url]);
   const changed =
+    timeoutsChanged ||
     Number(textTimeout) !== (connection.textProbeTimeoutSeconds || 45) ||
     Number(visionTimeout) !== (connection.visionProbeTimeoutSeconds || 90) ||
     url.trim() !== connection.url ||
@@ -77,6 +98,7 @@ export function APIAgentForm({
               connection.visionProbeTimeoutSeconds
                 ? { visionProbeTimeoutSeconds: Number(visionTimeout) }
                 : {}),
+              ...timeouts,
               url: endpoint,
               protocol,
               model: "",
@@ -97,7 +119,7 @@ export function APIAgentForm({
       className="mt-3 flex flex-col gap-2"
       onSubmit={(event) => {
         event.preventDefault();
-        if (changed && valid) void save();
+        if (changed && valid && runtimeValid) void save();
       }}
     >
       <Input
@@ -149,6 +171,19 @@ export function APIAgentForm({
           </label>
         ))}
       </div>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer py-2">高级请求时限</summary>
+        <TimeoutFields
+          fields={runtimeTimeoutFields}
+          value={timeouts}
+          onChange={setTimeouts}
+          disabled={disabled || saving}
+        />
+        <p className="py-1">
+          留空或 0 使用默认值 首个输出和空闲不限 总时限通常 180 秒 文档对话 600
+          秒
+        </p>
+      </details>
       <div className="flex gap-2">
         <Input
           aria-label="API Key"
@@ -162,7 +197,7 @@ export function APIAgentForm({
         <Button
           type="submit"
           variant="outline"
-          disabled={disabled || saving || !changed || !valid}
+          disabled={disabled || saving || !changed || !valid || !runtimeValid}
         >
           保存
         </Button>

@@ -65,7 +65,17 @@ func (s *Server) providers(w http.ResponseWriter, r *http.Request) {
 			out = append(out, providerStatus(r.Context(), name))
 		}
 	}
-	respond(w, 200, append(out, apiProvider(s.aiConfig().API)))
+	status := apiProvider(APIConnection{})
+	for _, p := range apiProviders(s.aiConfig()) {
+		candidate := apiProvider(p.Connection)
+		if candidate.Installed {
+			status = candidate
+			if candidate.Authenticated {
+				break
+			}
+		}
+	}
+	respond(w, 200, append(out, status))
 }
 
 // The API agent has nothing to install; a saved endpoint counts as installed
