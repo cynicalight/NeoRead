@@ -129,7 +129,14 @@ function apiCost(
           amount: cost!.amount!,
         });
     }
-    if (models.some((model) => model.cost!.status === "partial"))
+    const relevant = call.models.filter(
+      (model) => modelName === undefined || model.model === modelName,
+    );
+    if (
+      models.length > 0 &&
+      (models.length < relevant.length ||
+        models.some((model) => model.cost!.status === "partial"))
+    )
       summary.partialCalls++;
   }
   return summary;

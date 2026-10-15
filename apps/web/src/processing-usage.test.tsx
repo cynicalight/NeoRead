@@ -240,3 +240,24 @@ it("sums only priced API snapshots across mixed histories and separates currenci
   expect(host.textContent).toContain("75 tokens");
   expect(JSON.stringify(combined.calls)).toBe(snapshots);
 });
+
+it("marks a mixed-price API call partial without marking its fully priced model partial", () => {
+  const value = pricedReport();
+  value.calls[0]!.status = "complete";
+  value.calls[0]!.models[0]!.cost!.status = "complete";
+  value.calls[0]!.models.push({
+    model: "unpriced",
+    tokens: total,
+    cost: { amount: null, status: "unknown" },
+  });
+  value.groups.push({ ...value.groups[0]!, model: "unpriced" });
+  const host = renderUsage(value);
+  const summary = host.querySelector(".usage-totals")!.nextElementSibling!;
+  expect(summary.textContent).toContain("CNY 0.0026");
+  expect(summary.textContent).toContain("部分估算 1 次");
+  const priced = host.querySelector('[aria-label="actual 调用统计"]')!;
+  expect(priced.textContent).toContain("CNY 0.0026");
+  expect(priced.textContent).not.toContain("部分估算");
+  const unpriced = host.querySelector('[aria-label="unpriced 调用统计"]')!;
+  expect(unpriced.textContent).not.toMatch(/估算费用|费用未知|价格来源/);
+});
