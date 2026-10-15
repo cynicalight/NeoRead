@@ -61,7 +61,7 @@ Pseudo-interface intent (choose exact representation matching repository pattern
 
 ### Task 3: 自定义价格和历史费用
 
-**Files:** new focused pricing.go/tests; connections.go provider/model validation, usage.go/usage_test.go, API adapter usage integration; provider/model settings UI; ProcessingUsageDialog.tsx and processing-usage.test.tsx; reader-core, OpenAPI and generated types; docs/processing-usage.md.
+**Files:** new focused pricing.go/tests; connections.go provider/model validation, usage.go/usage_test.go, API adapter usage integration; provider/model settings UI; ProcessingUsage.tsx and processing-usage.test.tsx; reader-core, OpenAPI and generated types; docs/processing-usage.md.
 
 **Interfaces:** Consume Task 2 provider/model identity and override records. Pricing has currency (CNY or USD), optional nonnegative finite input/output/cacheRead/cacheWrite values per million tokens. Model overrides inherit omitted fields from provider defaults; zero is explicit free. No currency mixing or automatic exchange rates. UsageCall or model usage saves effective price snapshot before first request and stores estimated cost/status, so editing prices never rewrites history.
 
