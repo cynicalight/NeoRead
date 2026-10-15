@@ -160,7 +160,7 @@ func compactAPIConversation(ctx context.Context, c APIConnection, req completion
 			{Role: "user", Content: fmt.Sprintf("已有检查点：\n%s\n需要并入的旧对话：\n%s", summary, part)},
 		}
 		var response toolCompletionResult
-		_, err = trackModelUsage(UsageCall{Provider: a.provider, Target: "compact", ProviderID: req.ProviderID, ProviderName: req.ProviderName}, a.usageSink, nil, func(send func(ProviderEvent) error) (GenerateResult, error) {
+		_, err = trackModelUsage(UsageCall{Provider: a.provider, Target: "compact", ProviderID: req.ProviderID, ProviderName: req.ProviderName, Price: req.Price}, a.usageSink, nil, func(send func(ProviderEvent) error) (GenerateResult, error) {
 			var e error
 			response, e = toolCompletion(ctx, c, req, input, nil, toolStreamCallbacks{Progress: req.Progress, Draft: func(text string, _ bool) error {
 				if text != "" && req.Progress != nil {

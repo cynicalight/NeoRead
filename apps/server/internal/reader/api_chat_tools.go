@@ -357,7 +357,7 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 		}
 		var response toolCompletionResult
 		roundReasoning := false
-		_, err = trackModelUsage(UsageCall{Provider: provider, ProviderID: req.ProviderID, ProviderName: req.ProviderName}, in.UsageSink, nil, func(send func(ProviderEvent) error) (GenerateResult, error) {
+		_, err = trackModelUsage(UsageCall{Provider: provider, ProviderID: req.ProviderID, ProviderName: req.ProviderName, Price: req.Price}, in.UsageSink, nil, func(send func(ProviderEvent) error) (GenerateResult, error) {
 			var e error
 			response, e = toolCompletion(ctx, c, req, messages, tools, toolStreamCallbacks{Progress: func() error {
 				if emit != nil {

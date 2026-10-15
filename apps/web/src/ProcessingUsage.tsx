@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  CostSummary,
   Document,
   Processing,
   ProcessingUsage,
@@ -66,11 +67,55 @@ const zero: TokenCounts = {
   cacheWriteInputTokens: null,
   reasoningOutputTokens: null,
 };
+function combineCosts(a?: CostSummary, b?: CostSummary): CostSummary {
+  const currencies: CostSummary["currencies"] = [];
+  for (const entry of [...(a?.currencies ?? []), ...(b?.currencies ?? [])]) {
+    const found = currencies.find((item) => item.currency === entry.currency);
+    if (found) found.amount += entry.amount;
+    else currencies.push({ ...entry });
+  }
+  return {
+    currencies,
+    unknownCalls: (a?.unknownCalls ?? 0) + (b?.unknownCalls ?? 0),
+    partialCalls: (a?.partialCalls ?? 0) + (b?.partialCalls ?? 0),
+  };
+}
+function historicalCost(report: ProcessingUsage): CostSummary {
+  return (
+    report.cost ?? {
+      currencies: [],
+      unknownCalls: report.calls.length,
+      partialCalls: 0,
+    }
+  );
+}
+function CostDetails({ cost }: { cost?: CostSummary }) {
+  return (
+    <div className="usage-note">
+      <span>估算费用 </span>
+      {cost?.currencies?.length ? (
+        cost.currencies.map((entry) => (
+          <span key={entry.currency}>
+            {entry.currency}{" "}
+            {entry.amount.toLocaleString("en-US", {
+              maximumFractionDigits: 10,
+            })}{" "}
+          </span>
+        ))
+      ) : (
+        <span>费用未知 </span>
+      )}
+      {!!cost?.partialCalls && <span>部分估算 {cost.partialCalls} 次 </span>}
+      {!!cost?.unknownCalls && <span>费用未知 {cost.unknownCalls} 次</span>}
+    </div>
+  );
+}
 export function combineUsageReports(
   processing: ProcessingUsage,
   chat: ProcessingUsage,
 ): ProcessingUsage {
   return {
+    cost: combineCosts(historicalCost(processing), historicalCost(chat)),
     historyComplete: processing.historyComplete && chat.historyComplete,
     total: add(processing.total, chat.total),
     calls: [...processing.calls, ...chat.calls],
@@ -116,6 +161,7 @@ export function UsageDetails({ report }: { report: ProcessingUsage }) {
           </dd>
         </div>
       </dl>
+      <CostDetails cost={historicalCost(report)} />
       {!report.historyComplete && (
         <p className="usage-note">历史用量未记录；仅统计启用功能后的调用。</p>
       )}
@@ -339,6 +385,24 @@ function StageRows({
                         <dd>{group.unknownCalls} 次</dd>
                       </div>
                     </dl>
+                    <CostDetails cost={group.cost} />
+                    <p className="usage-note">
+                      价格来源{" "}
+                      {Array.from(
+                        new Set(
+                          linked.map((call) =>
+                            !call.price
+                              ? "未记录"
+                              : Object.values(call.price.sources).includes(
+                                    "model",
+                                  )
+                                ? "模型覆盖"
+                                : "提供商默认",
+                          ),
+                        ),
+                      ).join(" / ")}{" "}
+                      · 按调用时价格保存
+                    </p>
                     {!!partial && (
                       <p className="usage-note">
                         {partial} 次调用的用量可能不完整。

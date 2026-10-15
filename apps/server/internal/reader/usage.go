@@ -21,6 +21,7 @@ type TokenCounts struct {
 	ReasoningOutputTokens *int64 `json:"reasoningOutputTokens"`
 }
 type ModelTokens struct {
+	Cost   *UsageCost   `json:"cost,omitempty"`
 	Model  string       `json:"model"`
 	Tokens *TokenCounts `json:"tokens"`
 }
@@ -142,18 +143,20 @@ func reportClaudeMetrics(raw []byte, callbacks []func([]ModelTokens)) {
 }
 
 type UsageCall struct {
-	ProviderID   string        `json:"providerId,omitempty"`
-	ProviderName string        `json:"providerName,omitempty"`
-	ID           string        `json:"id"`
-	Stage        string        `json:"stage"`
-	Target       string        `json:"target"`
-	Provider     string        `json:"provider"`
-	StartedAt    string        `json:"startedAt"`
-	FinishedAt   string        `json:"finishedAt,omitempty"`
-	Status       string        `json:"status"`
-	Models       []ModelTokens `json:"models"`
+	Price        *PriceSnapshot `json:"price,omitempty"`
+	ProviderID   string         `json:"providerId,omitempty"`
+	ProviderName string         `json:"providerName,omitempty"`
+	ID           string         `json:"id"`
+	Stage        string         `json:"stage"`
+	Target       string         `json:"target"`
+	Provider     string         `json:"provider"`
+	StartedAt    string         `json:"startedAt"`
+	FinishedAt   string         `json:"finishedAt,omitempty"`
+	Status       string         `json:"status"`
+	Models       []ModelTokens  `json:"models"`
 }
 type UsageGroup struct {
+	Cost         CostSummary `json:"cost"`
 	ProviderID   string      `json:"providerId,omitempty"`
 	ProviderName string      `json:"providerName,omitempty"`
 	Stage        string      `json:"stage"`
@@ -168,6 +171,7 @@ type StageUsage struct {
 	DurationMs int64  `json:"durationMs"`
 }
 type UsageReport struct {
+	Cost            CostSummary  `json:"cost"`
 	HistoryComplete bool         `json:"historyComplete"`
 	Total           TokenCounts  `json:"total"`
 	Calls           []UsageCall  `json:"calls"`
@@ -242,7 +246,7 @@ func (s *Store) usageReport(documentID string) (UsageReport, error) {
 	return s.scopedUsageReport(documentID, false)
 }
 func (s *Store) scopedUsageReport(documentID string, chat bool) (UsageReport, error) {
-	report := UsageReport{Calls: []UsageCall{}, Groups: []UsageGroup{}, Stages: []StageUsage{{Stage: "learning"}, {Stage: "settling"}, {Stage: "translating"}}}
+	report := UsageReport{Cost: CostSummary{Currencies: []CurrencyCost{}}, Calls: []UsageCall{}, Groups: []UsageGroup{}, Stages: []StageUsage{{Stage: "learning"}, {Stage: "settling"}, {Stage: "translating"}}}
 	if chat {
 		report.Stages = []StageUsage{{Stage: "chat"}}
 		report.HistoryComplete = true
@@ -297,6 +301,7 @@ func (s *Store) scopedUsageReport(documentID string, chat bool) (UsageReport, er
 		return report, err
 	}
 	for _, call := range report.Calls {
+		callCost := CostSummary{}
 		unknown := false
 		if call.Status != "complete" && call.Status != "running" {
 			report.FailedCalls++
@@ -315,6 +320,8 @@ func (s *Store) scopedUsageReport(documentID string, chat bool) (UsageReport, er
 				report.Groups = append(report.Groups, UsageGroup{Stage: call.Stage, Provider: call.Provider, ProviderID: call.ProviderID, ProviderName: call.ProviderName, Model: model.Model})
 			}
 			report.Groups[i].Calls++
+			addCost(&report.Groups[i].Cost, model.Cost)
+			addCost(&callCost, model.Cost)
 			if model.Tokens == nil {
 				unknown = true
 				report.Groups[i].UnknownCalls++
@@ -324,6 +331,7 @@ func (s *Store) scopedUsageReport(documentID string, chat bool) (UsageReport, er
 				addTokens(&report.Total, *model.Tokens)
 			}
 		}
+		addCallCost(&report.Cost, callCost, len(call.Models))
 		if unknown || len(call.Models) == 0 {
 			report.UnknownCalls++
 		}
@@ -445,8 +453,10 @@ func trackModelUsage(call UsageCall, sink func(UsageCall) error, emit func(Provi
 	}
 	call.StartedAt = now()
 	call.Status = "running"
-	call.Models = []ModelTokens{{Model: ""}}
+	call.Price = clonePrice(call.Price)
+	call.Models = []ModelTokens{{Model: priceModel(call.Price)}}
 	save := func() error {
+		priceUsageCall(&call)
 		if sink != nil {
 			return sink(call)
 		}
@@ -459,9 +469,17 @@ func trackModelUsage(call UsageCall, sink func(UsageCall) error, emit func(Provi
 	result, err := run(func(event ProviderEvent) error {
 		if len(event.Metrics) > 0 || event.ProviderID != "" {
 			mu.Lock()
+			if call.Price == nil && event.Price != nil {
+				call.Price = clonePrice(event.Price)
+			}
 			if event.ProviderID != "" {
 				call.ProviderID = event.ProviderID
 				call.ProviderName = event.ProviderName
+			}
+			// One API request may report an alias before its later usage frame.
+			// Only replace that request placeholder; CLI multi-model metadata stays intact.
+			if call.ProviderID != "" && len(call.Models) == 1 && call.Models[0].Tokens == nil && len(event.Metrics) == 1 && event.Metrics[0].Model != "" {
+				call.Models = nil
 			}
 			call.Models = mergeModelTokens(call.Models, event.Metrics)
 			saveErr := save()

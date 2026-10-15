@@ -23,6 +23,7 @@ import {
   splitModelRef,
   modelRef,
 } from "./APIProviderSettings";
+import { APIPricingForm } from "./APIPricingForm";
 import { ModelTimeoutForm } from "./APITimeouts";
 import { APIAgentForm, APIModelForm } from "./APIAgentForm";
 import { api } from "@reader/api";
@@ -633,6 +634,21 @@ export function Settings({
                     onSave={saveAPI}
                   />
                 )}
+              {providerRecord && (
+                <APIPricingForm
+                  key={`pricing:${selectedProvider}`}
+                  value={providerRecord.pricing}
+                  disabled={saving || testing.size > 0}
+                  onSave={(pricing) =>
+                    saveConfig((latest) => ({
+                      ...latest,
+                      apiProviders: latest.apiProviders?.map((p) =>
+                        p.id === selectedProvider ? { ...p, pricing } : p,
+                      ),
+                    }))
+                  }
+                />
+              )}
               {config && connection?.url && (
                 <div className="mt-6">
                   <h3 className="mb-1 text-sm font-medium">启用模型</h3>
@@ -793,32 +809,68 @@ export function Settings({
                             </Button>
                           )}
                           {providerRecord && (
-                            <ModelTimeoutForm
-                              model={model.id}
-                              value={
-                                providerRecord.modelOverrides?.[
-                                  splitModelRef(model.id)[1]
-                                ]
-                              }
-                              inherited={providerRecord.connection}
-                              disabled={saving || testing.size > 0}
-                              onSave={(value) =>
-                                saveConfig((latest) => ({
-                                  ...latest,
-                                  apiProviders: latest.apiProviders?.map((p) =>
-                                    p.id === selectedProvider
-                                      ? {
-                                          ...p,
-                                          modelOverrides: {
-                                            ...p.modelOverrides,
-                                            [splitModelRef(model.id)[1]]: value,
-                                          },
-                                        }
-                                      : p,
-                                  ),
-                                }))
-                              }
-                            />
+                            <>
+                              <APIPricingForm
+                                model={model.id}
+                                value={
+                                  providerRecord.modelOverrides?.[
+                                    splitModelRef(model.id)[1]
+                                  ]?.pricing
+                                }
+                                inherited={providerRecord.pricing}
+                                disabled={saving || testing.size > 0}
+                                onSave={(pricing) =>
+                                  saveConfig((latest) => ({
+                                    ...latest,
+                                    apiProviders: latest.apiProviders?.map(
+                                      (p) =>
+                                        p.id === selectedProvider
+                                          ? {
+                                              ...p,
+                                              modelOverrides: {
+                                                ...p.modelOverrides,
+                                                [splitModelRef(model.id)[1]]: {
+                                                  ...p.modelOverrides?.[
+                                                    splitModelRef(model.id)[1]
+                                                  ],
+                                                  pricing,
+                                                },
+                                              },
+                                            }
+                                          : p,
+                                    ),
+                                  }))
+                                }
+                              />
+                              <ModelTimeoutForm
+                                model={model.id}
+                                value={
+                                  providerRecord.modelOverrides?.[
+                                    splitModelRef(model.id)[1]
+                                  ]
+                                }
+                                inherited={providerRecord.connection}
+                                disabled={saving || testing.size > 0}
+                                onSave={(value) =>
+                                  saveConfig((latest) => ({
+                                    ...latest,
+                                    apiProviders: latest.apiProviders?.map(
+                                      (p) =>
+                                        p.id === selectedProvider
+                                          ? {
+                                              ...p,
+                                              modelOverrides: {
+                                                ...p.modelOverrides,
+                                                [splitModelRef(model.id)[1]]:
+                                                  value,
+                                              },
+                                            }
+                                          : p,
+                                    ),
+                                  }))
+                                }
+                              />
+                            </>
                           )}
                         </li>
                       );

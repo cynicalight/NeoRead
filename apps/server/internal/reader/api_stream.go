@@ -50,6 +50,7 @@ type completionMessage struct {
 // History holds earlier completed turns of the same conversation; the new user
 // turn is appended after it. Effort is resolved by the calling adapter.
 type completionRequest struct {
+	Price                              *PriceSnapshot
 	Progress                           func() error
 	Connection                         APIConnection
 	ModelRef, ProviderID, ProviderName string
@@ -125,7 +126,7 @@ func apiRequest(ctx context.Context, c APIConnection, method, path string, body 
 func streamCompletion(ctx context.Context, c APIConnection, req completionRequest, in AIInput, emit func(ProviderEvent) error) (GenerateResult, error) {
 	return withAPIRequestTimeouts(ctx, c, emit, func(ctx context.Context, emit func(ProviderEvent) error) (GenerateResult, error) {
 		if emit != nil && req.ProviderID != "" {
-			if err := emit(ProviderEvent{ProviderID: req.ProviderID, ProviderName: req.ProviderName, Metrics: []ModelTokens{{Model: req.Model}}}); err != nil {
+			if err := emit(ProviderEvent{Price: req.Price, ProviderID: req.ProviderID, ProviderName: req.ProviderName, Metrics: []ModelTokens{{Model: req.Model}}}); err != nil {
 				return GenerateResult{}, err
 			}
 		}

@@ -12,13 +12,15 @@ import (
 const defaultAPIProviderID = "default"
 
 type APIModelOverride struct {
-	TextProbeTimeoutSeconds   int `json:"textProbeTimeoutSeconds,omitempty"`
-	VisionProbeTimeoutSeconds int `json:"visionProbeTimeoutSeconds,omitempty"`
-	FirstOutputTimeoutSeconds int `json:"firstOutputTimeoutSeconds,omitempty"`
-	IdleTimeoutSeconds        int `json:"idleTimeoutSeconds,omitempty"`
-	TotalTimeoutSeconds       int `json:"totalTimeoutSeconds,omitempty"`
+	Pricing                   *APIPricing `json:"pricing,omitempty"`
+	TextProbeTimeoutSeconds   int         `json:"textProbeTimeoutSeconds,omitempty"`
+	VisionProbeTimeoutSeconds int         `json:"visionProbeTimeoutSeconds,omitempty"`
+	FirstOutputTimeoutSeconds int         `json:"firstOutputTimeoutSeconds,omitempty"`
+	IdleTimeoutSeconds        int         `json:"idleTimeoutSeconds,omitempty"`
+	TotalTimeoutSeconds       int         `json:"totalTimeoutSeconds,omitempty"`
 }
 type APIProvider struct {
+	Pricing        *APIPricing                 `json:"pricing,omitempty"`
 	ID             string                      `json:"id"`
 	Name           string                      `json:"name"`
 	Connection     APIConnection               `json:"connection"`
@@ -176,7 +178,13 @@ func prepareAPIProviders(c *AIConfig, old AIConfig) error {
 		if len(p.Models) > 50 {
 			return errors.New("手动添加的模型过多")
 		}
+		if err := validatePricing(p.Pricing, false); err != nil {
+			return err
+		}
 		for model, o := range p.ModelOverrides {
+			if err := validatePricing(o.Pricing, true); err != nil {
+				return err
+			}
 			if model == "" || len(model) > 200 {
 				return errors.New("模型 ID 无效")
 			}

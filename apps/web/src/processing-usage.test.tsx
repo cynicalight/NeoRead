@@ -130,3 +130,42 @@ it("keeps same-model provider successes and failures separate", () => {
   expect(rows[0].textContent).toContain("未成功0");
   expect(rows[1].textContent).toContain("成功0");
 });
+
+it("combines stored estimates per currency and keeps unknown historical prices visible", () => {
+  const processing = {
+    ...report,
+    cost: {
+      currencies: [{ currency: "CNY", amount: 0.0026 }],
+      unknownCalls: 1,
+      partialCalls: 1,
+    },
+  } as ProcessingUsage;
+  const chat = {
+    ...report,
+    cost: {
+      currencies: [
+        { currency: "CNY", amount: 0.001 },
+        { currency: "USD", amount: 0.01 },
+      ],
+      unknownCalls: 2,
+      partialCalls: 0,
+    },
+  } as ProcessingUsage;
+  const combined = combineUsageReports(processing, chat);
+  expect(combined.cost).toEqual({
+    currencies: [
+      { currency: "CNY", amount: 0.0036 },
+      { currency: "USD", amount: 0.01 },
+    ],
+    unknownCalls: 3,
+    partialCalls: 1,
+  });
+  const text = renderToStaticMarkup(<UsageDetails report={combined} />);
+  expect(text).toContain("CNY 0.0036");
+  expect(text).toContain("USD 0.01");
+  expect(text).toContain("费用未知 3 次");
+  expect(text).toContain("部分估算 1 次");
+  expect(renderToStaticMarkup(<UsageDetails report={report} />)).toContain(
+    "费用未知",
+  );
+});

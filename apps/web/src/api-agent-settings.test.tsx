@@ -479,3 +479,101 @@ it("creates and renames a stable provider, saves its endpoint and deletes it wit
   expect(config.models.api).toBe(`${second.id}::same`);
   expect(api.testAI).not.toHaveBeenCalled();
 });
+
+it("saves provider pricing and model overrides without turning cleared fields into zero", async () => {
+  config.api = { url: "https://pricing.example", model: "", hasKey: false };
+  config.apiProviders = [
+    {
+      id: "default",
+      name: "P",
+      connection: config.api,
+      models: ["deepseek-flash"],
+    },
+  ];
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  expect(input("提供商 输入价格")).not.toBeNull();
+  await type("提供商 输入价格", "2");
+  await type("提供商 输出价格", "8");
+  await act(async () =>
+    input("提供商 输入价格").form!.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(config.apiProviders?.[0].pricing).toMatchObject({
+    currency: "CNY",
+    input: 2,
+    output: 8,
+  });
+  await type("deepseek-flash 输出价格", "0");
+  await act(async () =>
+    input("deepseek-flash 输出价格").form!.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(
+    config.apiProviders?.[0].modelOverrides?.["deepseek-flash"].pricing?.output,
+  ).toBe(0);
+  await type("deepseek-flash 输出价格", "");
+  await act(async () =>
+    input("deepseek-flash 输出价格").form!.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(
+    config.apiProviders?.[0].modelOverrides?.["deepseek-flash"].pricing?.output,
+  ).toBeUndefined();
+  expect(input("deepseek-flash 输出价格").placeholder).toContain("8");
+  expect(api.testAI).not.toHaveBeenCalled();
+});
+
+it("switching a model currency clears amounts and prevents incompatible inherited placeholders", async () => {
+  config.api = { url: "https://pricing.example", model: "", hasKey: false };
+  config.apiProviders = [
+    {
+      id: "default",
+      name: "P",
+      connection: config.api,
+      models: ["deepseek-flash"],
+      pricing: { currency: "CNY", input: 2, output: 8 },
+      modelOverrides: {
+        "deepseek-flash": { pricing: { currency: "CNY", output: 0 } },
+      },
+    },
+  ];
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  expect(input("deepseek-flash 输入价格").placeholder).toBe("继承 2");
+  await act(async () =>
+    (
+      host.querySelector(
+        '[aria-label="deepseek-flash 价格币种"]',
+      ) as HTMLButtonElement
+    ).click(),
+  );
+  const usd = Array.from(document.querySelectorAll('[role="option"]')).find(
+    (item) => item.textContent === "USD",
+  ) as HTMLElement;
+  await act(async () => {
+    usd.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    usd.click();
+  });
+  expect(input("deepseek-flash 输出价格").value).toBe("");
+  expect(input("deepseek-flash 输入价格").placeholder).toBe("未知");
+  await type("deepseek-flash 输出价格", "-1");
+  await act(async () =>
+    input("deepseek-flash 输出价格").form!.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(api.saveAIConfig).not.toHaveBeenCalled();
+  await type("deepseek-flash 输出价格", "3");
+  await act(async () =>
+    input("deepseek-flash 输出价格").form!.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(
+    config.apiProviders?.[0].modelOverrides?.["deepseek-flash"].pricing,
+  ).toEqual({ currency: "USD", output: 3 });
+});

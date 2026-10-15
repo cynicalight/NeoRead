@@ -3853,6 +3853,82 @@
       "securitySchemes": { "session": { "type": "http", "scheme": "bearer" } },
       "schemas":
         {
+          "APIPricing":
+            {
+              "type": "object",
+              "properties":
+                {
+                  "currency": { "type": "string", "enum": ["CNY", "USD"] },
+                  "input": { "type": "number", "minimum": 0 },
+                  "output": { "type": "number", "minimum": 0 },
+                  "cacheRead": { "type": "number", "minimum": 0 },
+                  "cacheWrite": { "type": "number", "minimum": 0 },
+                },
+            },
+          "PriceSnapshot":
+            {
+              "allOf":
+                [
+                  { "$ref": "#/components/schemas/APIPricing" },
+                  {
+                    "type": "object",
+                    "required": ["model", "sources"],
+                    "properties":
+                      {
+                        "model": { "type": "string" },
+                        "sources":
+                          {
+                            "type": "object",
+                            "additionalProperties":
+                              {
+                                "type": "string",
+                                "enum": ["provider", "model"],
+                              },
+                          },
+                      },
+                  },
+                ],
+            },
+          "UsageCost":
+            {
+              "type": "object",
+              "required": ["amount", "status"],
+              "properties":
+                {
+                  "currency": { "type": "string", "enum": ["CNY", "USD"] },
+                  "amount": { "type": ["number", "null"] },
+                  "status":
+                    {
+                      "type": "string",
+                      "enum": ["complete", "partial", "unknown"],
+                    },
+                },
+            },
+          "CostSummary":
+            {
+              "type": "object",
+              "required": ["currencies", "unknownCalls", "partialCalls"],
+              "properties":
+                {
+                  "currencies":
+                    {
+                      "type": "array",
+                      "items":
+                        {
+                          "type": "object",
+                          "required": ["currency", "amount"],
+                          "properties":
+                            {
+                              "currency":
+                                { "type": "string", "enum": ["CNY", "USD"] },
+                              "amount": { "type": "number" },
+                            },
+                        },
+                    },
+                  "unknownCalls": { "type": "integer" },
+                  "partialCalls": { "type": "integer" },
+                },
+            },
           "OverviewContent":
             {
               "type": "object",
@@ -4891,6 +4967,7 @@
               "type": "object",
               "properties":
                 {
+                  "pricing": { "$ref": "#/components/schemas/APIPricing" },
                   "textProbeTimeoutSeconds":
                     { "type": "integer", "minimum": 0, "maximum": 600 },
                   "visionProbeTimeoutSeconds":
@@ -4909,6 +4986,7 @@
               "required": ["id", "name", "connection", "models"],
               "properties":
                 {
+                  "pricing": { "$ref": "#/components/schemas/APIPricing" },
                   "id":
                     { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,80}$" },
                   "name": { "type": "string" },
@@ -5239,6 +5317,7 @@
               "type": "object",
               "properties":
                 {
+                  "cost": { "$ref": "#/components/schemas/UsageCost" },
                   "model": { "type": "string" },
                   "tokens":
                     {
@@ -5256,6 +5335,7 @@
               "type": "object",
               "properties":
                 {
+                  "price": { "$ref": "#/components/schemas/PriceSnapshot" },
                   "providerId": { "type": "string" },
                   "providerName": { "type": "string" },
                   "id": { "type": "string" },
@@ -5287,6 +5367,7 @@
               "type": "object",
               "properties":
                 {
+                  "cost": { "$ref": "#/components/schemas/CostSummary" },
                   "providerId": { "type": "string" },
                   "providerName": { "type": "string" },
                   "stage": { "type": "string" },
@@ -5321,6 +5402,7 @@
               "type": "object",
               "properties":
                 {
+                  "cost": { "$ref": "#/components/schemas/CostSummary" },
                   "historyComplete": { "type": "boolean" },
                   "total": { "$ref": "#/components/schemas/TokenCounts" },
                   "calls":

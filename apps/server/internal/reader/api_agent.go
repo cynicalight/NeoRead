@@ -174,6 +174,7 @@ func (a apiAgentAdapter) resolvedRequest(req completionRequest) (completionReque
 		req.ProviderID = p.ID
 		req.ProviderName = p.Name
 		req.Model = raw
+		req.Price = effectiveAPIPrice(p, raw)
 	}
 	if e := validateAgentAPI(req.Connection); e != nil {
 		return req, e
@@ -224,7 +225,7 @@ func (a apiAgentAdapter) Stream(ctx context.Context, req GenerateRequest, emit f
 	}
 	return withAPIRequestTimeouts(ctx, completion.Connection, emit, func(ctx context.Context, emit func(ProviderEvent) error) (GenerateResult, error) {
 		if emit != nil {
-			if err := emit(ProviderEvent{ProviderID: completion.ProviderID, ProviderName: completion.ProviderName, Metrics: []ModelTokens{{Model: completion.Model}}}); err != nil {
+			if err := emit(ProviderEvent{Price: completion.Price, ProviderID: completion.ProviderID, ProviderName: completion.ProviderName, Metrics: []ModelTokens{{Model: completion.Model}}}); err != nil {
 				return GenerateResult{}, err
 			}
 		}

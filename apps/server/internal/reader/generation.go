@@ -54,6 +54,7 @@ func errorKind(err error) ErrorKind {
 }
 
 type ProviderEvent struct {
+	Price                    *PriceSnapshot
 	ProviderID, ProviderName string
 	ToolProgress             bool
 	Reasoning                string

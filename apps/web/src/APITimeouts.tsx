@@ -20,7 +20,11 @@ export function TimeoutFields({
   inherited,
   prefix = "",
 }: {
-  fields: readonly (readonly [keyof APIModelOverride, string, number])[];
+  fields: readonly (readonly [
+    keyof Omit<APIModelOverride, "pricing">,
+    string,
+    number,
+  ])[];
   value: APIModelOverride;
   onChange: (value: APIModelOverride) => void;
   disabled: boolean;

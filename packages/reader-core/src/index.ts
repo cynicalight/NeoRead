@@ -553,7 +553,29 @@ export interface AICapability {
   checkedAt: string;
   error?: string;
 }
+export interface APIPricing {
+  currency?: "CNY" | "USD";
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+export interface PriceSnapshot extends APIPricing {
+  model: string;
+  sources: Record<string, "provider" | "model">;
+}
+export interface UsageCost {
+  currency?: "CNY" | "USD";
+  amount: number | null;
+  status: "complete" | "partial" | "unknown";
+}
+export interface CostSummary {
+  currencies: { currency: "CNY" | "USD"; amount: number }[];
+  unknownCalls: number;
+  partialCalls: number;
+}
 export interface APIModelOverride {
+  pricing?: APIPricing;
   textProbeTimeoutSeconds?: number;
   visionProbeTimeoutSeconds?: number;
   firstOutputTimeoutSeconds?: number;
@@ -561,6 +583,7 @@ export interface APIModelOverride {
   totalTimeoutSeconds?: number;
 }
 export interface APIProvider {
+  pricing?: APIPricing;
   id: string;
   name: string;
   connection: APIConnection;
@@ -639,10 +662,12 @@ export interface TokenCounts {
   reasoningOutputTokens: number | null;
 }
 export interface ModelTokens {
+  cost?: UsageCost;
   model: string;
   tokens: TokenCounts | null;
 }
 export interface UsageCall {
+  price?: PriceSnapshot;
   providerId?: string;
   providerName?: string;
   id: string;
@@ -655,6 +680,7 @@ export interface UsageCall {
   models: ModelTokens[];
 }
 export interface UsageGroup {
+  cost?: CostSummary;
   providerId?: string;
   providerName?: string;
   stage: string;
@@ -665,6 +691,7 @@ export interface UsageGroup {
   tokens: TokenCounts;
 }
 export interface ProcessingUsage {
+  cost?: CostSummary;
   historyComplete: boolean;
   total: TokenCounts;
   calls: UsageCall[];

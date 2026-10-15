@@ -3365,6 +3365,36 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        APIPricing: {
+            /** @enum {string} */
+            currency?: "CNY" | "USD";
+            input?: number;
+            output?: number;
+            cacheRead?: number;
+            cacheWrite?: number;
+        };
+        PriceSnapshot: components["schemas"]["APIPricing"] & {
+            model: string;
+            sources: {
+                [key: string]: "provider" | "model";
+            };
+        };
+        UsageCost: {
+            /** @enum {string} */
+            currency?: "CNY" | "USD";
+            amount: number | null;
+            /** @enum {string} */
+            status: "complete" | "partial" | "unknown";
+        };
+        CostSummary: {
+            currencies: {
+                /** @enum {string} */
+                currency: "CNY" | "USD";
+                amount: number;
+            }[];
+            unknownCalls: number;
+            partialCalls: number;
+        };
         OverviewContent: {
             summary: string;
             findings: {
@@ -3760,6 +3790,7 @@ export interface components {
             toolSchemaVersion?: string;
         };
         APIModelOverride: {
+            pricing?: components["schemas"]["APIPricing"];
             textProbeTimeoutSeconds?: number;
             visionProbeTimeoutSeconds?: number;
             firstOutputTimeoutSeconds?: number;
@@ -3767,6 +3798,7 @@ export interface components {
             totalTimeoutSeconds?: number;
         };
         APIProvider: {
+            pricing?: components["schemas"]["APIPricing"];
             id: string;
             name: string;
             connection: components["schemas"]["APIConnection"];
@@ -3907,10 +3939,12 @@ export interface components {
             reasoningOutputTokens: number | null;
         };
         ModelTokens: {
+            cost?: components["schemas"]["UsageCost"];
             model: string;
             tokens: components["schemas"]["TokenCounts"] | null;
         };
         UsageCall: {
+            price?: components["schemas"]["PriceSnapshot"];
             providerId?: string;
             providerName?: string;
             id: string;
@@ -3923,6 +3957,7 @@ export interface components {
             models: components["schemas"]["ModelTokens"][];
         };
         UsageGroup: {
+            cost?: components["schemas"]["CostSummary"];
             providerId?: string;
             providerName?: string;
             stage: string;
@@ -3937,6 +3972,7 @@ export interface components {
             durationMs: number;
         };
         ProcessingUsage: {
+            cost?: components["schemas"]["CostSummary"];
             historyComplete: boolean;
             total: components["schemas"]["TokenCounts"];
             calls: components["schemas"]["UsageCall"][];
