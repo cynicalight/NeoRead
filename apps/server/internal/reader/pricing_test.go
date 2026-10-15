@@ -87,7 +87,7 @@ func TestPricingIndependentSnapshotAndHistory(t *testing.T) {
 }
 
 func TestPricingValidation(t *testing.T) {
-	for _, pricing := range []string{`{"currency":"EUR","input":1}`, `{"currency":"CNY","input":-1}`, `{"input":2}`} {
+	for _, pricing := range []string{`{"currency":"EUR","input":1}`, `{"currency":"CNY","input":-1}`, `{"input":2}`, `{}`} {
 		t.Run(pricing, func(t *testing.T) {
 			s := testServer(t)
 			payload := fmt.Sprintf(`{"apiProviders":[{"id":"p","name":"P","connection":{},"models":["same"],"modelOverrides":{"same":{"pricing":%s}}}]}`, pricing)
@@ -96,6 +96,34 @@ func TestPricingValidation(t *testing.T) {
 				t.Fatalf("invalid price accepted: %d %s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestLegacyEmptyModelPricingCanSaveUnrelatedSettings(t *testing.T) {
+	s := testServer(t)
+	var legacy AIConfig
+	if err := json.Unmarshal([]byte(`{"apiProviders":[{"id":"p","name":"P","connection":{},"models":["m"],"modelOverrides":{"m":{"pricing":{},"firstOutputTimeoutSeconds":42}}}]}`), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeAIConfig(legacy); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, s, "GET", "/api/ai/config", nil)
+	if w.Code != 200 {
+		t.Fatalf("GET: %d %s", w.Code, w.Body.String())
+	}
+	var config AIConfig
+	if err := json.Unmarshal(w.Body.Bytes(), &config); err != nil {
+		t.Fatal(err)
+	}
+	config.APIProviders[0].Name = "Renamed"
+	w = request(t, s, "PUT", "/api/ai/config", jsonReader(config))
+	if w.Code != 200 {
+		t.Fatalf("unrelated edit rejected for legacy unknown price: %d %s", w.Code, w.Body.String())
+	}
+	saved := s.aiConfig().APIProviders[0]
+	if saved.Name != "Renamed" || saved.ModelOverrides["m"].FirstOutputTimeoutSeconds != 42 || saved.ModelOverrides["m"].Pricing != nil || effectiveAPIPrice(saved, "m") != nil {
+		t.Fatalf("legacy unknown price or settings changed: %+v", saved)
 	}
 }
 

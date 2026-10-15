@@ -141,6 +141,16 @@ func (s *Server) readAIConfig() AIConfig {
 	}
 	migrateAPIProviders(&c)
 	migrateAPIModelPricing(&c)
+	// The experimental UI could save an empty price with no provider default.
+	// Normalize only disk reads; new API writes still require an explicit currency.
+	for _, provider := range c.APIProviders {
+		for model, setting := range provider.ModelOverrides {
+			if price := setting.Pricing; price != nil && *price == (APIPricing{}) {
+				setting.Pricing = nil
+				provider.ModelOverrides[model] = setting
+			}
+		}
+	}
 	return c
 }
 func (s *Server) writeAIConfig(c AIConfig) error {

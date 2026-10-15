@@ -480,7 +480,7 @@ it("creates and renames a stable provider, saves its endpoint and deletes it wit
   expect(api.testAI).not.toHaveBeenCalled();
 });
 
-it("keeps model settings prices independent across models, providers, refreshes and timeout edits", async () => {
+const setupModelPricing = () => {
   config.api = { url: "https://pricing.example", model: "", hasKey: false };
   config.apiProviders = [
     { id: "default", name: "First", connection: config.api, models: ["a", "b"] },
@@ -489,12 +489,12 @@ it("keeps model settings prices independent across models, providers, refreshes 
   vi.mocked(api.agentModels).mockImplementation(async () =>
     ["a", "b", "second::a"].map((id): AgentModel => ({ id, name: id, description: "", isDefault: false })),
   );
-  const savePrice = async (model: string) => act(async () => input(`${model} 输入价格`).form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-  const selectProvider = async (name: string) => {
-    await clickButton("API 提供商");
-    const option = Array.from(document.querySelectorAll('[role="option"]')).find((item) => item.textContent === name) as HTMLElement;
-    await act(async () => { option.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })); option.click(); });
-  };
+};
+const saveModelPrice = async (model: string) =>
+  act(async () => input(`${model} 输入价格`).form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+
+it("keeps model settings prices independent across models, refreshes and timeout edits", async () => {
+  setupModelPricing();
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   await openAPI();
   expect(input("提供商 输入价格")).toBeNull();
@@ -504,25 +504,55 @@ it("keeps model settings prices independent across models, providers, refreshes 
   expect(panel.contains(input("a 首个输出时限（秒）"))).toBe(true);
   await type("a 输入价格", "2");
   await type("a 输出价格", "0");
-  await savePrice("a");
+  await saveModelPrice("a");
   await type("b 输入价格", "9");
-  await savePrice("b");
+  await saveModelPrice("b");
   await type("a 首个输出时限（秒）", "25");
   await act(async () => input("a 首个输出时限（秒）").form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
   expect(config.apiProviders?.[0].modelOverrides?.a).toMatchObject({ firstOutputTimeoutSeconds: 25, pricing: { currency: "CNY", input: 2, output: 0 } });
   await clickButton("刷新模型列表");
   expect(input("a 输入价格").value).toBe("2");
   expect(input("b 输入价格").value).toBe("9");
+  expect(config.apiProviders?.[0].modelOverrides?.b.pricing?.input).toBe(9);
+  expect(api.testAI).not.toHaveBeenCalled();
+});
+
+it("keeps prices for the same model ID independent across providers", async () => {
+  setupModelPricing();
+  config.apiProviders![0].modelOverrides = { a: { pricing: { currency: "CNY", input: 2, output: 0 } } };
+  const selectProvider = async (name: string) => {
+    await clickButton("API 提供商");
+    const option = Array.from(document.querySelectorAll('[role="option"]')).find((item) => item.textContent === name) as HTMLElement;
+    await act(async () => { option.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })); option.click(); });
+  };
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
   await selectProvider("Second");
   await clickButton("second::a 模型设置");
   expect(input("second::a 输入价格").value).toBe("");
   await type("second::a 输入价格", "7");
-  await savePrice("second::a");
+  await saveModelPrice("second::a");
   await selectProvider("First");
   expect(input("a 输入价格").value).toBe("2");
+  expect(input("a 输出价格").value).toBe("0");
+  expect(config.apiProviders?.[0].modelOverrides?.a.pricing).toEqual({ currency: "CNY", input: 2, output: 0 });
+  expect(config.apiProviders?.[1].modelOverrides?.a.pricing?.input).toBe(7);
+  expect(api.testAI).not.toHaveBeenCalled();
+});
+
+it("keeps cleared model prices unknown after saving and refreshing", async () => {
+  setupModelPricing();
+  config.apiProviders![0].modelOverrides = {
+    a: { pricing: { currency: "CNY", input: 2, output: 0 } },
+    b: { pricing: { currency: "CNY", input: 9 } },
+  };
+  config.apiProviders![1].modelOverrides = { a: { pricing: { currency: "CNY", input: 7 } } };
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  await clickButton("a 模型设置");
   await type("a 输入价格", "");
   await type("a 输出价格", "");
-  await savePrice("a");
+  await saveModelPrice("a");
   await clickButton("刷新模型列表");
   expect(input("a 输入价格").value).toBe("");
   expect(input("a 输入价格").placeholder).toBe("未知");
