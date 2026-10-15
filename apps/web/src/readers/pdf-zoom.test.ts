@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   scale: 1,
   scaleValue: "page-width",
   update: vi.fn(),
+  pageNode: undefined as HTMLDivElement | undefined,
   resize: undefined as (() => void) | undefined,
 }));
 vi.mock("pdfjs-dist", () => ({
@@ -36,6 +37,10 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
     ) {}
     setDocument(doc: unknown) {
       if (doc) this.options.eventBus.listeners.get("pagesinit")?.();
+    }
+    currentPageNumber = 1;
+    getPageView() {
+      return state.pageNode ? { div: state.pageNode } : undefined;
     }
     get currentScale() {
       return state.scale;
@@ -83,6 +88,7 @@ function wheel(extra: WheelEventInit = {}, target: EventTarget = host) {
 beforeEach(async () => {
   vi.clearAllMocks();
   state.scale = 1;
+  state.pageNode = undefined;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -152,12 +158,68 @@ it("leaves ordinary scrolling and gestures outside the PDF untouched", () => {
   expect(state.update).not.toHaveBeenCalled();
 });
 it("accumulates small pinch deltas and handles line-based wheel input", () => {
-  for (let i = 0; i < 20; i++) wheel({ deltaY: -0.1 });
+  for (let i = 0; i < 100; i++) wheel({ deltaY: -0.1 });
   expect(state.scale).toBeGreaterThan(1);
   const previous = state.scale;
   wheel({ deltaY: -1, deltaMode: 1 });
   expect(state.scale).toBeGreaterThan(previous);
 });
+it.each([100, 120, 100000])(
+  "limits a large wheel delta %s to a gentle step and reverses without drift",
+  (delta) => {
+    for (let i = 0; i < 10; i++) {
+      wheel({ deltaY: -delta });
+      expect(state.scale).toBeCloseTo(1.2, 2);
+      wheel({ deltaY: delta });
+      expect(state.scale).toBeCloseTo(1, 2);
+    }
+    wheel({ deltaY: delta });
+    expect(state.scale).toBeCloseTo(1 / 1.2, 2);
+  },
+);
+it("keeps small deltas proportional instead of applying a full wheel step", () => {
+  wheel({ deltaY: -20 });
+  expect(state.scale).toBeCloseTo(1.04, 2);
+  wheel({ deltaY: 20 });
+  expect(state.scale).toBeCloseTo(1, 2);
+});
+it.each([false, true])(
+  "zooms from the visible scale after block focus (interrupted: %s)",
+  async (interrupt) => {
+    vi.useFakeTimers();
+    try {
+      Object.defineProperties(host, {
+        clientWidth: { value: 600 },
+        clientHeight: { value: 600 },
+      });
+      state.pageNode = document.createElement("div");
+      state.pageNode.getBoundingClientRect = () =>
+        new DOMRect(0, 0, 1000 * state.scale, 1200 * state.scale);
+      adapter.setBlocks([
+        {
+          id: "focus-target",
+          page: 1,
+          label: "text",
+          text: "Target",
+          bounds: { x: 0.1, y: 0.2, width: 0.4, height: 0.2 },
+        },
+      ]);
+      wheel({ deltaY: 100 });
+      expect(state.scale).toBeCloseTo(0.83, 2);
+      const pending = adapter.focusBlock("focus-target", "source");
+      await vi.advanceTimersByTimeAsync(interrupt ? 96 : 500);
+      const focused = state.scale;
+      expect(focused).toBeGreaterThan(1);
+      wheel({ deltaY: 100 });
+      expect(state.scale).toBeCloseTo(focused / 1.2, 2);
+      await vi.advanceTimersByTimeAsync(500);
+      await pending;
+      expect(state.scale).toBeCloseTo(focused / 1.2, 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
 it("ignores plain keys, composing input and alternate modifier chords", () => {
   expect(key("+", document, { metaKey: false }).defaultPrevented).toBe(false);
   expect(key("+", document, { altKey: true }).defaultPrevented).toBe(false);
@@ -188,9 +250,9 @@ it("keeps manual zoom across theme changes and resizing, then permits fit width"
   expect(state.scaleValue).toBe("page-width");
 });
 it("bounds gesture zoom and removes event handlers on disposal", async () => {
-  for (let i = 0; i < 10; i++) wheel({ deltaY: -100000 });
+  for (let i = 0; i < 40; i++) wheel({ deltaY: -100000 });
   expect(state.scale).toBe(5);
-  for (let i = 0; i < 10; i++) wheel({ deltaY: 100000 });
+  for (let i = 0; i < 40; i++) wheel({ deltaY: 100000 });
   expect(state.scale).toBe(0.25);
   await adapter.destroy();
   state.update.mockClear();

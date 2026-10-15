@@ -858,7 +858,9 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, out)
 }
 func (s *Store) saveMessage(m Message) error {
-	m.ID = id()
+	if m.ID == "" {
+		m.ID = id()
+	}
 	m.CreatedAt = now()
 	b, err := json.Marshal(m)
 	if err != nil {

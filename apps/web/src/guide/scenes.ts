@@ -1043,7 +1043,7 @@ const assistant = scene({
     tabs(
       f,
       { x: side.x + 10, y: side.y + 10, w: 130, h: 26 },
-      ["AI 助读", "批注"],
+      ["Agent", "批注"],
       0,
     );
     if (!f.after("ask"))

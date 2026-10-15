@@ -168,3 +168,73 @@ describe("daily scheduling", () => {
     expect(state).toEqual({ lastAttempt: day });
   });
 });
+
+describe("update check failures", () => {
+  it.each([
+    [
+      403,
+      { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "86520" },
+      "",
+      /限流.*2 分钟/,
+    ],
+    [403, { "retry-after": "120" }, "", /限流.*2 分钟/],
+    [
+      403,
+      {
+        "retry-after": "invalid",
+        "x-ratelimit-remaining": "0",
+        "x-ratelimit-reset": "86520",
+      },
+      "",
+      /限流.*2 分钟/,
+    ],
+    [
+      403,
+      { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "86399" },
+      "",
+      /限流.*稍后/,
+    ],
+    [
+      429,
+      { "retry-after": "Thu, 02 Jan 1970 00:02:00 GMT" },
+      "",
+      /限流.*2 分钟/,
+    ],
+    [
+      403,
+      {},
+      JSON.stringify({ message: "You have exceeded a secondary rate limit." }),
+      /限流/,
+    ],
+    [
+      429,
+      { "retry-after": "invalid", "x-ratelimit-reset": "Infinity" },
+      "<html>private proxy details</html>",
+      /限流.*稍后/,
+    ],
+    [403, { "x-ratelimit-remaining": "12" }, "Forbidden", /拒绝访问/],
+    [503, {}, "<html>upstream error</html>", /服务暂时不可用/],
+  ] as const)(
+    "explains HTTP %s using response metadata",
+    async (status, headers, body, expected) => {
+      const state = {};
+      const checker = new DailyUpdateChecker({
+        version: "0.1.0",
+        platform: "darwin",
+        arch: "arm64",
+        state,
+        save: async () => {},
+        now: () => day,
+        fetch: async () => new Response(body, { status, headers }),
+      });
+      const error = await checker.check().catch((error: Error) => error);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toMatch(expected);
+      expect((error as Error).message).toContain(String(status));
+      expect((error as Error).message).not.toMatch(
+        /<html>|Infinity|NaN|private proxy/,
+      );
+      expect(state).toEqual({ lastAttempt: day });
+    },
+  );
+});

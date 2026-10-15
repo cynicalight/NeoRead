@@ -227,13 +227,33 @@ export async function startUpdateService(window: BrowserWindow) {
         // Clear the progress before the error dialog so it does not linger.
         report(null);
         if (alive()) {
-          if (wantsFeedback || downloading)
-            await dialog.showMessageBox(window, {
+          if (wantsFeedback || downloading) {
+            const selected = await dialog.showMessageBox(window, {
               type: "error",
               message: "无法完成更新",
               detail: error instanceof Error ? error.message : String(error),
+              ...(!downloading && {
+                buttons: ["打开发布页", "关闭"],
+                defaultId: 1,
+                cancelId: 1,
+              }),
             });
-          else
+            if (!downloading && selected.response === 0 && alive()) {
+              try {
+                await shell.openExternal(
+                  "https://github.com/cynicalight/reader/releases/latest",
+                );
+              } catch {
+                if (alive())
+                  await dialog.showMessageBox(window, {
+                    type: "error",
+                    message: "无法打开发布页",
+                    detail:
+                      "请在浏览器中访问 https://github.com/cynicalight/reader/releases/latest",
+                  });
+              }
+            }
+          } else
             console.warn(
               "Reader update:",
               error instanceof Error ? error.message : String(error),

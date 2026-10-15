@@ -33,13 +33,14 @@ export function useResolvedTheme(theme: ReaderTheme) {
   return useMemo(() => resolveTheme(theme, dark), [theme, dark]);
 }
 
-/** Translated text size, 80–160% in 5% steps. */
-export function stepTranslationSize(size: number, by: -1 | 1) {
+/** Reading text size, 80–160% in 5% steps. */
+export function stepReadingTextSize(size: number, by: -1 | 1) {
   return Math.min(
     1.6,
     Math.max(0.8, Math.round((size + by * 0.05) * 100) / 100),
   );
 }
+export const stepTranslationSize = stepReadingTextSize;
 
 const serifStack =
   '"Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", ui-serif, serif';

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -87,8 +88,12 @@ func apiProvider(c APIConnection) Provider {
 	}
 	return p
 }
+
+var chatMessageIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
 func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		UserMessageID   string          `json:"userMessageId"`
 		Provider        string          `json:"provider"`
 		Prompt          string          `json:"prompt"`
 		Context         *string         `json:"context"`
@@ -105,6 +110,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validAgent(req.Provider) {
 		fail(w, 400, "未知 AI 服务")
+		return
+	}
+	if req.UserMessageID != "" && !chatMessageIDPattern.MatchString(req.UserMessageID) {
+		fail(w, 400, "问题消息编号无效")
 		return
 	}
 	// Bound explicit source attachments independently of the model context window.
@@ -128,5 +137,5 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer finish()
 	r = r.WithContext(ctx)
-	s.chatDocument(w, r, d, req.Provider, req.Prompt, *req.Context, req.References, req.Attachments, req.ReadingLocation)
+	s.chatDocument(w, r, d, req.Provider, req.Prompt, *req.Context, req.References, req.Attachments, req.ReadingLocation, req.UserMessageID)
 }

@@ -107,8 +107,8 @@ export const guideTopics: GuideTopic[] = [
       },
       {
         id: "assistant",
-        title: "侧栏 AI 助读",
-        body: "选中文字后，在浮动工具栏点「问 AI」，回答会出现在右侧 AI 助读栏。也可以把多段文字引用到对话，或直接在底部输入框提问。",
+        title: "侧栏 Agent",
+        body: "选中文字后，在浮动工具栏点「问 AI」，回答会出现在右侧 Agent 栏。也可以把多段文字引用到对话，或直接在底部输入框提问。",
         scene: "assistant",
       },
     ],

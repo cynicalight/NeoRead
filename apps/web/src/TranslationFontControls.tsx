@@ -49,62 +49,61 @@ export function TranslationFontControls({
     }
   };
   return (
-    <>
-      <div className="setting-row">
-        <span>译文字体</span>
-        <Select
-          value={family}
-          onValueChange={(value) =>
-            value && setTheme({ translationFontFamily: value as string })
-          }
+    <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-3 gap-y-4">
+      <span className="text-sm">译文字体</span>
+      <Select
+        value={family}
+        onValueChange={(value) =>
+          value && setTheme({ translationFontFamily: value as string })
+        }
+      >
+        <SelectTrigger
+          size="sm"
+          className="w-full min-w-0"
+          aria-label="译文字体"
         >
-          <SelectTrigger
-            size="sm"
-            className="min-w-0 flex-1"
-            aria-label="译文字体"
-          >
-            <SelectValue>
-              <span
-                className="truncate"
-                style={{ fontFamily: translationFont(family) }}
-              >
-                {translationFontLabel(family)}
-              </span>
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent className="max-h-72">
-            <SelectItem value="sans-serif">黑体 / 无衬线</SelectItem>
-            <SelectItem
-              value="serif"
-              style={{ fontFamily: translationFont("serif") }}
+          <SelectValue>
+            <span
+              className="truncate"
+              style={{ fontFamily: translationFont(family) }}
             >
-              宋体 / 衬线
-            </SelectItem>
-            {fonts.length > 0 && (
-              <>
-                <SelectSeparator />
-                <SelectGroup>
-                  <SelectLabel>本机字体</SelectLabel>
-                  {fonts.map((name) => (
-                    <SelectItem
-                      key={name}
-                      value={name}
-                      style={{ fontFamily: translationFont(name) }}
-                    >
-                      {name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </>
-            )}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex gap-2">
+              {translationFontLabel(family)}
+            </span>
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent className="max-h-72">
+          <SelectItem value="sans-serif">黑体 / 无衬线</SelectItem>
+          <SelectItem
+            value="serif"
+            style={{ fontFamily: translationFont("serif") }}
+          >
+            宋体 / 衬线
+          </SelectItem>
+          {fonts.length > 0 && (
+            <>
+              <SelectSeparator />
+              <SelectGroup>
+                <SelectLabel>本机字体</SelectLabel>
+                {fonts.map((name) => (
+                  <SelectItem
+                    key={name}
+                    value={name}
+                    style={{ fontFamily: translationFont(name) }}
+                  >
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </>
+          )}
+        </SelectContent>
+      </Select>
+      <div className="col-start-2 flex justify-end gap-2">
         {canQueryLocalFonts() && !installed.length && (
           <Button
             size="sm"
             variant="outline"
+            className="min-w-0 flex-1"
             disabled={loading}
             onClick={() => void load()}
           >
@@ -115,6 +114,7 @@ export function TranslationFontControls({
         <Toggle
           size="sm"
           variant="outline"
+          className="shrink-0"
           aria-label="译文加粗"
           pressed={
             (theme.translationFontWeight ??
@@ -128,6 +128,6 @@ export function TranslationFontControls({
           加粗
         </Toggle>
       </div>
-    </>
+    </div>
   );
 }

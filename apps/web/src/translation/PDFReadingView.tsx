@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useTranslations } from "./useTranslations";
 import { createPortal } from "react-dom";
+import { Crosshair } from "lucide-react";
 import type {
   Annotation,
   Document as ReaderDocument,
@@ -31,6 +32,11 @@ import {
 import { api } from "@reader/api";
 import { Button } from "@reader/ui/components/button";
 import { Tabs, TabsList, TabsTrigger } from "@reader/ui/components/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@reader/ui/components/tooltip";
 import { Popover, PopoverContent } from "@reader/ui/components/popover";
 import { toast } from "sonner";
 import { ReaderView } from "../ReaderView";
@@ -62,6 +68,7 @@ export function PDFReadingView({
   blocks,
   processing,
   toolbarHost,
+  autoCenterHost,
   pageNavigation,
   searchResults = [],
   searchQuery = "",
@@ -74,6 +81,7 @@ export function PDFReadingView({
   blocks: PDFBlock[];
   processing?: Processing;
   toolbarHost?: HTMLElement | null;
+  autoCenterHost?: HTMLElement | null;
   pageNavigation?: ReactNode;
   searchResults?: SearchResult[];
   searchQuery?: string;
@@ -81,7 +89,8 @@ export function PDFReadingView({
   events: ReaderEvents;
 }) {
   const [mode, setMode] = useState<Mode>("source"),
-    [swapped, setSwapped] = useState(false);
+    [swapped, setSwapped] = useState(false),
+    [syncEnabled, setSyncEnabled] = useState(true);
   const { translations, error } = useTranslations(doc.id);
   const [popup, setPopup] = useState<{ block: PDFBlock; rect: DOMRect }>(),
     [linked, setLinked] = useState<Record<string, number[]>>();
@@ -100,6 +109,8 @@ export function PDFReadingView({
     );
   };
   const previousMode = useRef<Mode>("source");
+  const syncEnabledRef = useRef(syncEnabled);
+  syncEnabledRef.current = syncEnabled;
   const enteringParallel = useRef<string | undefined>(undefined);
   const explicitFocus = useRef({
     operation: 0,
@@ -584,7 +595,12 @@ export function PDFReadingView({
       }
     }
     const restore = async () => {
-      if (previous !== mode && mode !== "translation" && reading.current)
+      if (
+        previous !== mode &&
+        mode !== "translation" &&
+        reading.current &&
+        syncEnabledRef.current
+      )
         await engine.followBlock?.(reading.current);
       if (cancelled) return;
       if (!cancelled && mode !== "source" && reading.current)
@@ -751,7 +767,7 @@ export function PDFReadingView({
             (engine?.getPageCount?.() ||
               Math.max(1, ...blocks.map((b) => b.page))),
         );
-      if (mode === "parallel") {
+      if (mode === "parallel" && syncEnabledRef.current) {
         control.current.following("source");
         void engine?.followBlock?.(anchor);
       }
@@ -813,8 +829,45 @@ export function PDFReadingView({
     setMode(value);
   };
   const activePopup = popup && byId.get(popup.block.id);
+  const toggleSync = () => {
+    const enabled = !syncEnabledRef.current;
+    syncEnabledRef.current = enabled;
+    setSyncEnabled(enabled);
+    // Stop pending follow animations before changing the synchronization policy.
+    input(side.current);
+    engine?.cancelBlockFocus?.();
+    const anchor = reading.current;
+    if (!enabled || mode !== "parallel" || !anchor) return;
+    if (side.current === "source") {
+      void followTranslation(anchor, undefined, { smooth: true });
+    } else {
+      control.current.following("source");
+      void engine?.followBlock?.(anchor).catch((e) => toast.error(e.message));
+    }
+  };
+  const autoCenterButton = (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant={syncEnabled ? "default" : "outline"}
+            size="icon-sm"
+            aria-label={syncEnabled ? "取消同步效果" : "开启同步效果"}
+            aria-pressed={syncEnabled}
+            onClick={toggleSync}
+          />
+        }
+      >
+        <Crosshair />
+      </TooltipTrigger>
+      <TooltipContent>
+        {syncEnabled ? "取消同步效果" : "开启同步效果"}
+      </TooltipContent>
+    </Tooltip>
+  );
   const toolbar = (
     <div className="translation-toolbar">
+      {!autoCenterHost && autoCenterButton}
       <AssistanceControls
         documentId={doc.id}
         processing={processing}
@@ -841,7 +894,13 @@ export function PDFReadingView({
     </div>
   );
   return (
-    <div className="pdf-reading" ref={root} data-theme={theme.mode}>
+    <div
+      className="pdf-reading"
+      ref={root}
+      data-theme={theme.mode}
+      data-dark-contrast={theme.pdfDarkContrast ?? "soft"}
+    >
+      {autoCenterHost && createPortal(autoCenterButton, autoCenterHost)}
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       {mode === "translation" && (
         <div className="pdf-reading-controls">
@@ -887,7 +946,10 @@ export function PDFReadingView({
                   )
                     return;
                   recordReading(anchor);
-                  if (state.current.mode === "parallel")
+                  if (
+                    state.current.mode === "parallel" &&
+                    syncEnabledRef.current
+                  )
                     followTranslation(anchor);
                 },
                 blockHover: (block) => {

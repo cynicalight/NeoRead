@@ -1,5 +1,15 @@
 import type * as pdfjs from "pdfjs-dist";
-import type { LinkPreview, PDFLocation } from "@reader/core";
+import {
+  defaultTheme,
+  type LinkPreview,
+  type PDFLocation,
+  type ReaderTheme,
+} from "@reader/core";
+import {
+  imageRegions,
+  processPDFPagePixels,
+  type PDFDarkRegion,
+} from "./pdf-dark-mode";
 
 /** PDF.js writes internal targets as `#<escaped name or JSON array>` or `#page=N`. */
 export function parseDestinationHash(hash: string): {
@@ -57,6 +67,8 @@ export class PDFLinkPreview {
     private pdf: () => pdfjs.PDFDocumentProxy | undefined,
     private show: (preview: LinkPreview | null) => void,
     private follow: () => void,
+    private theme: () => ReaderTheme = () => defaultTheme,
+    private figureRegions: (page: number) => PDFDarkRegion[] = () => [],
   ) {
     container.addEventListener("pointerover", this.over);
     container.addEventListener("focusin", this.over);
@@ -131,7 +143,38 @@ export class PDFLinkPreview {
           canvasContext: canvas.getContext("2d")!,
           viewport,
           background: "white",
+          recordImages: true,
         }).promise;
+        const theme = this.theme();
+        if (theme.mode === "dark") {
+          const context = canvas.getContext("2d")!;
+          const pixels = context.getImageData(
+            0,
+            0,
+            canvas.width,
+            canvas.height,
+          );
+          const transformed = processPDFPagePixels(
+            pixels.data,
+            canvas.width,
+            canvas.height,
+            imageRegions({
+              coordinates: proxy.imageCoordinates,
+            }),
+            this.figureRegions(pageIndex + 1),
+            theme.pdfDarkImageMode ?? "adaptive",
+            theme.pdfDarkContrast ?? "soft",
+          );
+          const output = new Uint8ClampedArray(
+            canvas.width * canvas.height * 4,
+          );
+          output.set(transformed);
+          context.putImageData(
+            new ImageData(output, canvas.width, canvas.height),
+            0,
+            0,
+          );
+        }
         return canvas;
       })();
       this.pages.set(pageIndex, page);
@@ -141,6 +184,17 @@ export class PDFLinkPreview {
       page.catch(() => this.pages.delete(pageIndex));
     }
     return page;
+  }
+  invalidate() {
+    this.request++;
+    for (const page of this.pages.values())
+      void page
+        .then((canvas) => {
+          canvas.width = 0;
+          canvas.height = 0;
+        })
+        .catch(() => {});
+    this.pages.clear();
   }
   private async preview(link: HTMLAnchorElement) {
     const request = ++this.request;
@@ -222,6 +276,7 @@ export class PDFLinkPreview {
   }
   destroy() {
     this.hide();
+    this.invalidate();
     this.container.removeEventListener("pointerover", this.over);
     this.container.removeEventListener("focusin", this.over);
     this.container.removeEventListener("focusout", this.out);

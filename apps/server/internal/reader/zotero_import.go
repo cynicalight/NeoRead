@@ -258,9 +258,9 @@ func (s *Server) importZoteroEntry(ctx context.Context, e *zoteroEntry) (zoteroI
 	tags, _ := json.Marshal(d.Tags)
 	folders, _ := json.Marshal(d.Folders)
 	if fresh {
-		_, err = tx.ExecContext(ctx, `INSERT INTO documents(id,type,title,author,size,created_at,last_opened_at,category,category_source,classification_status,library,metadata,tags,folders) VALUES(?,'pdf',?,?,?,?,?,'paper','manual','done','papers',?,?,?)`, docID, d.Title, d.Author, size, d.CreatedAt, d.LastOpenedAt, meta, tags, folders)
+		_, err = tx.ExecContext(ctx, `INSERT INTO documents(id,type,title,author,size,created_at,last_opened_at,category,category_source,classification_status,library,metadata,tags,folders) VALUES(?,'pdf',?,?,?,?,?,'paper','manual','done','papers',?,?,?)`, docID, d.Title, d.Author, size, d.CreatedAt, d.LastOpenedAt, string(meta), string(tags), string(folders))
 	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE documents SET metadata=?,author=?,tags=?,folders=? WHERE id=?`, meta, d.Author, tags, folders, docID)
+		_, err = tx.ExecContext(ctx, `UPDATE documents SET metadata=?,author=?,tags=?,folders=? WHERE id=?`, string(meta), d.Author, string(tags), string(folders), docID)
 	}
 	if err != nil {
 		return result, err

@@ -684,8 +684,18 @@ kbd {
   inset: 0;
   background: #f6f5f2;
 }
+.reader-stage[data-theme="dark"],
+.pdf-reading[data-theme="dark"] {
+  --pdf-dark-paper: #242424;
+  --pdf-dark-ink: #dedede;
+}
+.reader-stage[data-theme="dark"][data-dark-contrast="high"],
+.pdf-reading[data-theme="dark"][data-dark-contrast="high"] {
+  --pdf-dark-paper: #000;
+  --pdf-dark-ink: #fff;
+}
 .reader-stage[data-theme="dark"] {
-  background: #252525;
+  background: var(--pdf-dark-paper);
 }
 .reader-stage[data-theme="sepia"] {
   background: #eeede7;
@@ -709,6 +719,9 @@ kbd {
   border: 0;
 }
 .reader-engine.pdf-container {
+  /* PDF.js assigns increasing z-index values to native annotations. Keep
+     those layers inside the reader, below app dialogs and popovers. */
+  isolation: isolate;
   overflow: auto;
   scrollbar-width: none;
   scrollbar-gutter: auto;
@@ -722,6 +735,23 @@ kbd {
   margin: 20px auto !important;
   border: 0 !important;
   box-shadow: 0 1px 8px #0000000f;
+}
+.pdf-container[data-theme="dark"] .pdfViewer .page {
+  background: var(--pdf-dark-paper, #242424);
+  box-shadow: 0 1px 8px #00000050;
+}
+/* PDF.js may show partially rendered white canvases before the dark worker finishes. */
+.pdf-container[data-theme="dark"]
+  .canvasWrapper
+  > canvas:not([data-pdf-dark-ready]) {
+  visibility: hidden;
+}
+.pdf-container .canvasWrapper > .pdf-dark-preview {
+  pointer-events: none;
+}
+/* Detail results must remain above the temporary full-page preview. */
+.pdf-container .canvasWrapper > canvas[data-pdf-dark-detail] {
+  z-index: 1;
 }
 .pdfViewer {
   --page-margin: 20px auto;
@@ -741,6 +771,9 @@ kbd {
   /* Keep annotation feedback above both local and linked block hover. */
   z-index: 7;
   mix-blend-mode: multiply;
+}
+.reader-stage[data-theme="dark"] [class~="reader-annotation"] {
+  mix-blend-mode: screen;
 }
 .reader-highlight {
   position: absolute;
@@ -865,7 +898,7 @@ kbd {
   margin-top: 25px;
 }
 .chat-message {
-  font-size: 12px;
+  font-size: calc(12px * var(--assistant-font-scale, 1));
   line-height: 1.9;
   padding: 13px 0;
   white-space: pre-wrap;
@@ -994,7 +1027,7 @@ kbd {
   box-shadow: none !important;
   resize: none;
   min-height: 77px;
-  font-size: 11px;
+  font-size: calc(11px * var(--assistant-font-scale, 1));
   padding: 7px;
   outline: none;
 }
@@ -3506,4 +3539,10 @@ textarea.paper-note-input {
 }
 .api-provider-card[data-dirty="true"] .api-provider-summary-meta {
   color: var(--api-accent);
+}
+.reading-appearance-slider [data-slot="slider-track"] {
+  background: color-mix(in oklch, var(--foreground) 28%, var(--popover));
+}
+.reading-appearance-slider [data-slot="slider-range"] {
+  background: var(--foreground);
 }

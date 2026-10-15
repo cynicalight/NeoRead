@@ -520,6 +520,7 @@ export async function chat(
   onFallback?: (message: string) => void,
   onEvent?: (event: ChatStreamEvent) => void,
   readingLocation?: DocumentLocation,
+  userMessageId?: string,
 ) {
   const response = await diagnosticFetch(`/api/documents/${id}/chat`, {
     method: "POST",
@@ -534,6 +535,7 @@ export async function chat(
       references,
       readingLocation,
       attachments,
+      userMessageId,
     }),
     signal,
   });

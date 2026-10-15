@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
 } from "react";
 import {
   ChartColumn,
@@ -116,7 +117,7 @@ import { EPUBReadingView } from "./translation/EPUBReadingView";
 import { PDFReadingView } from "./translation/PDFReadingView";
 import { useReaderStore } from "./store";
 import { scheduleProgress, flushProgress } from "./progress";
-import { stepTranslationSize } from "./appearance";
+import { Slider } from "@reader/ui/components/slider";
 import { TranslationFontControls } from "./TranslationFontControls";
 function IconButton({
   label,
@@ -218,6 +219,7 @@ export function Workspace({
 }) {
   const { setTheme, aiConfig, setAIConfig, aiModelSaving } = useReaderStore();
   const translationSize = theme.translationFontSize ?? 1;
+  const assistantSize = theme.assistantFontScale ?? 1;
   const linkTarget = useReaderStore((s) => s.linkTarget);
   const [annotationsLoaded, setAnnotationsLoaded] = useState(false);
   const [blocks, setBlocks] = useState<PDFBlock[]>([]);
@@ -225,6 +227,8 @@ export function Workspace({
   const [readingToolbar, setReadingToolbar] = useState<HTMLDivElement | null>(
     null,
   );
+  const [sourceAutoCenterToolbar, setSourceAutoCenterToolbar] =
+    useState<HTMLDivElement | null>(null);
   const renderBlockImage = useMemo(
     () => adapter?.renderBlockImage?.bind(adapter),
     [adapter],
@@ -694,7 +698,7 @@ export function Workspace({
       question = "请解释附件中的图表或公式。";
     if (!question.trim()) return;
     if (!session.getSnapshot().loaded) {
-      toast.error("对话记录尚未加载，请重试同步。");
+      toast.error("对话记录尚未加载，请重新加载。");
       return;
     }
     setSending(true);
@@ -746,6 +750,24 @@ export function Workspace({
         setSending(false);
         abort.current = null;
       }
+    }
+  };
+  const regenerate = async () => {
+    const current = useReaderStore.getState();
+    if (abort.current || session.getSnapshot().busy || current.aiModelSaving)
+      return;
+    if (!current.aiConfig?.primary) {
+      onSettings();
+      return;
+    }
+    const serial = ++sendSerial.current;
+    setSending(true);
+    try {
+      await session.regenerate(current.aiConfig.primary);
+    } catch (error) {
+      if (serial === sendSerial.current) toast.error((error as Error).message);
+    } finally {
+      if (serial === sendSerial.current) setSending(false);
     }
   };
   const blockAction = (block: PDFBlock, action: PDFBlockAction) => {
@@ -926,6 +948,7 @@ export function Workspace({
           </IconButton>
           <div ref={setReadingToolbar} />
           <span className="toolbar-divider" />
+          <div ref={setSourceAutoCenterToolbar} />
           <IconButton
             label="添加书签"
             onClick={() => void annotate("bookmark")}
@@ -941,19 +964,59 @@ export function Workspace({
               <Type />
             </PopoverTrigger>
             <PopoverContent className="w-72">
-              <h3 className="mb-4 text-sm font-medium">阅读外观</h3>
+              <h3 className="text-sm font-medium">阅读外观</h3>
               <div className="space-y-4">
-                <div className="flex gap-2">
-                  {(["light", "sepia", "dark"] as const).map((mode, i) => (
-                    <Button
-                      key={mode}
-                      size="sm"
-                      variant={theme.mode === mode ? "default" : "outline"}
-                      onClick={() => setTheme({ mode, appearance: mode })}
-                    >
-                      {["浅色", "纸张", "深色"][i]}
-                    </Button>
-                  ))}
+                <Tabs
+                  value={
+                    theme.mode === "dark"
+                      ? theme.pdfDarkContrast === "high"
+                        ? "dark"
+                        : "gray"
+                      : theme.mode
+                  }
+                  onValueChange={(value) => {
+                    if (!value) return;
+                    const mode =
+                      value === "gray"
+                        ? "dark"
+                        : (value as "light" | "sepia" | "dark");
+                    setTheme({
+                      mode,
+                      appearance: mode,
+                      ...(mode === "dark"
+                        ? {
+                            pdfDarkContrast: value === "gray" ? "soft" : "high",
+                          }
+                        : {}),
+                    });
+                  }}
+                >
+                  <TabsList className="w-full" aria-label="阅读配色">
+                    <TabsTrigger value="light">浅色</TabsTrigger>
+                    <TabsTrigger value="dark">深色</TabsTrigger>
+                    <TabsTrigger value="sepia">纸张</TabsTrigger>
+                    <TabsTrigger value="gray">灰色</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                <div className="flex items-center gap-3">
+                  <span className="shrink-0 text-sm">Agent 字号</span>
+                  <Slider
+                    className="reading-appearance-slider min-w-0 flex-1"
+                    thumbLabel="Agent 字号"
+                    min={80}
+                    max={160}
+                    step={5}
+                    value={[Math.round(assistantSize * 100)]}
+                    onValueChange={(value) =>
+                      setTheme({
+                        assistantFontScale:
+                          (Array.isArray(value) ? value[0] : value) / 100,
+                      })
+                    }
+                  />
+                  <span className="w-10 text-right text-xs tabular-nums">
+                    {Math.round(assistantSize * 100)}%
+                  </span>
                 </div>
                 {doc.type === "epub" ? (
                   <>
@@ -1034,52 +1097,66 @@ export function Workspace({
                   </>
                 ) : (
                   <>
-                    <div className="flex gap-2">
-                      {(["width", 1, 1.25, 1.5] as const).map((zoom) => (
-                        <Button
-                          key={zoom}
-                          size="sm"
-                          variant={theme.zoom === zoom ? "default" : "outline"}
-                          onClick={() => setTheme({ zoom })}
-                        >
-                          {zoom === "width" ? "适宽" : `${zoom * 100}%`}
-                        </Button>
-                      ))}
+                    <div className="flex items-center gap-3">
+                      <span className="shrink-0 text-sm">原文缩放</span>
+                      <Slider
+                        className="reading-appearance-slider min-w-0 flex-1"
+                        thumbLabel="原文缩放"
+                        min={50}
+                        max={300}
+                        step={5}
+                        value={[
+                          typeof theme.zoom === "number"
+                            ? Math.round(theme.zoom * 100)
+                            : 100,
+                        ]}
+                        onValueChange={(value) =>
+                          setTheme({
+                            zoom:
+                              (Array.isArray(value) ? value[0] : value) / 100,
+                          })
+                        }
+                      />
+                      <span className="w-10 text-right text-xs tabular-nums">
+                        {typeof theme.zoom === "number"
+                          ? `${Math.round(theme.zoom * 100)}%`
+                          : "自动"}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setTheme({ zoom: "width" })}
+                      >
+                        适宽
+                      </Button>
                     </div>
                   </>
                 )}
-                <div className="setting-row">
-                  <span>译文字号</span>
-                  <Button
-                    size="icon-xs"
-                    variant="outline"
-                    aria-label="减小译文字号"
-                    onClick={() =>
+                <div className="flex items-center gap-3">
+                  <span className="shrink-0 text-sm">译文字号</span>
+                  <Slider
+                    className="reading-appearance-slider min-w-0 flex-1"
+                    thumbLabel="译文字号"
+                    min={80}
+                    max={160}
+                    step={5}
+                    value={[Math.round(translationSize * 100)]}
+                    onValueChange={(value) =>
                       setTheme({
-                        translationFontSize: stepTranslationSize(
-                          translationSize,
-                          -1,
-                        ),
+                        translationFontSize:
+                          (Array.isArray(value) ? value[0] : value) / 100,
                       })
                     }
-                  >
-                    −
-                  </Button>
-                  <span>{Math.round(translationSize * 100)}%</span>
+                  />
+                  <span className="w-10 text-right text-xs tabular-nums">
+                    {Math.round(translationSize * 100)}%
+                  </span>
                   <Button
-                    size="icon-xs"
+                    size="sm"
                     variant="outline"
-                    aria-label="增大译文字号"
-                    onClick={() =>
-                      setTheme({
-                        translationFontSize: stepTranslationSize(
-                          translationSize,
-                          1,
-                        ),
-                      })
-                    }
+                    onClick={() => setTheme({ translationFontSize: 1 })}
                   >
-                    +
+                    恢复
                   </Button>
                 </div>
                 <TranslationFontControls theme={theme} setTheme={setTheme} />
@@ -1087,7 +1164,7 @@ export function Workspace({
             </PopoverContent>
           </Popover>
           <IconButton
-            label="AI 与批注"
+            label="Agent 与批注"
             active={right}
             expanded={right}
             onClick={() => setRight(!right)}
@@ -1226,6 +1303,7 @@ export function Workspace({
                   blocks={blocks}
                   processing={processing}
                   toolbarHost={readingToolbar}
+                  autoCenterHost={sourceAutoCenterToolbar}
                   pageNavigation={pageNavigation}
                   searchResults={results}
                   searchQuery={searchedQuery}
@@ -1352,7 +1430,7 @@ export function Workspace({
               <TabsList className="panel-tabs">
                 <TabsTrigger value="ai">
                   <Sparkles className="size-3.5" />
-                  AI 助读
+                  Agent
                 </TabsTrigger>
                 <TabsTrigger value="notes">
                   <StickyNote className="size-3.5" />
@@ -1368,10 +1446,18 @@ export function Workspace({
                   <ChartColumn />
                 </Button>
               </TabsList>
-              <TabsContent value="ai" className="ai-panel">
+              <TabsContent
+                value="ai"
+                className="ai-panel"
+                style={
+                  { "--assistant-font-scale": assistantSize } as CSSProperties
+                }
+              >
                 <AssistantPanel
                   key={doc.id}
                   session={session}
+                  onRegenerate={() => void regenerate()}
+                  regenerateDisabled={aiModelSaving || sending}
                   empty={
                     <div className="chat-empty">
                       <p>

@@ -47,6 +47,7 @@ export function EPUBReadingView({
   processing,
 }: ComponentProps<typeof ReaderView> & {
   toolbarHost?: HTMLElement | null;
+  autoCenterHost?: HTMLElement | null;
   processing?: Processing;
   pageNavigation?: ReactNode;
 }) {

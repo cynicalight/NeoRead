@@ -593,6 +593,52 @@ export function Settings({
                 )}
               </div>
             </section>
+            <section className="mt-6">
+              <label
+                className="mb-2 block text-sm font-medium"
+                htmlFor="pdf-dark-image-mode"
+              >
+                PDF 深色图像处理
+              </label>
+              <Select
+                value={theme.pdfDarkImageMode ?? "adaptive"}
+                onValueChange={(value) => {
+                  if (
+                    value === "preserve" ||
+                    value === "invert" ||
+                    value === "adaptive"
+                  )
+                    setTheme({ pdfDarkImageMode: value });
+                }}
+              >
+                <SelectTrigger
+                  id="pdf-dark-image-mode"
+                  className="w-full max-w-sm"
+                >
+                  <SelectValue>
+                    {
+                      {
+                        preserve: "保持原色（透明底补白）",
+                        invert: "图片全部反色",
+                        adaptive: "矢量图适配深色，位图保留原色",
+                      }[theme.pdfDarkImageMode ?? "adaptive"]
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="adaptive">
+                    矢量图适配深色，位图保留原色
+                  </SelectItem>
+                  <SelectItem value="preserve">
+                    保持原色（透明底补白）
+                  </SelectItem>
+                  <SelectItem value="invert">图片全部反色</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="mt-2 text-xs text-muted-foreground">
+                扫描版页面也按此选项处理；文字颜色会保留色相并调整亮度。
+              </p>
+            </section>
           </TabsContent>
           <TabsContent value="reading" className="settings-panel" keepMounted>
             <section className="mb-6 space-y-4">

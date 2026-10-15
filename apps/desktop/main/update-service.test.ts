@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   download: vi.fn(),
   open: vi.fn(),
+  external: vi.fn(),
   rm: vi.fn(),
   inPlace: vi.fn(),
   stage: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock("electron", () => ({
   autoUpdater: { quitAndInstall: mocks.quitAndInstall },
   dialog: { showMessageBox: mocks.dialog },
   net: { fetch: mocks.fetch },
-  shell: { openPath: mocks.open },
+  shell: { openPath: mocks.open, openExternal: mocks.external },
 }));
 vi.mock("node:fs/promises", () => ({
   readFile: mocks.read,
@@ -349,4 +350,74 @@ it("does not contact GitHub in development mode", async () => {
     window,
     expect.objectContaining({ message: "开发模式不检查更新" }),
   );
+});
+
+it.each([0, 1])(
+  "offers the official release page after a manual check fails (choice %s)",
+  async (response) => {
+    mocks.fetch.mockResolvedValue(
+      new Response("", {
+        status: 403,
+        headers: { "x-ratelimit-remaining": "0" },
+      }),
+    );
+    mocks.dialog.mockResolvedValue({ response });
+    mocks.external.mockResolvedValue(undefined);
+    const service = await startUpdateService(window);
+    stop = service.stop;
+    await service.check();
+    expect(mocks.dialog).toHaveBeenCalledWith(
+      window,
+      expect.objectContaining({
+        detail: expect.stringContaining("限流"),
+        buttons: ["打开发布页", "关闭"],
+        cancelId: 1,
+      }),
+    );
+    if (response === 0)
+      expect(mocks.external).toHaveBeenCalledWith(
+        "https://github.com/cynicalight/reader/releases/latest",
+      );
+    else expect(mocks.external).not.toHaveBeenCalled();
+    expect(mocks.download).not.toHaveBeenCalled();
+  },
+);
+
+it("keeps a background rate limit failure silent", async () => {
+  mocks.fetch.mockResolvedValue(new Response("", { status: 429 }));
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const service = await startUpdateService(window);
+    stop = service.stop;
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(mocks.dialog).not.toHaveBeenCalled();
+    expect(mocks.external).not.toHaveBeenCalled();
+  } finally {
+    warning.mockRestore();
+  }
+});
+
+it("reports a browser launch failure without rejecting the update check", async () => {
+  mocks.fetch.mockResolvedValue(new Response("", { status: 403 }));
+  mocks.dialog.mockResolvedValue({ response: 0 });
+  mocks.external.mockRejectedValueOnce(new Error("browser unavailable"));
+  const service = await startUpdateService(window);
+  stop = service.stop;
+  await expect(service.check()).resolves.toBeUndefined();
+  expect(mocks.dialog).toHaveBeenLastCalledWith(
+    window,
+    expect.objectContaining({ message: "无法打开发布页" }),
+  );
+});
+
+it("does not open the release page after the service stops while showing an error", async () => {
+  mocks.fetch.mockResolvedValue(new Response("", { status: 429 }));
+  const service = await startUpdateService(window);
+  stop = service.stop;
+  mocks.dialog.mockImplementationOnce(async () => {
+    service.stop();
+    return { response: 0 };
+  });
+  await service.check();
+  expect(mocks.external).not.toHaveBeenCalled();
 });

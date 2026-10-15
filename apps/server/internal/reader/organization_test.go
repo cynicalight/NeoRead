@@ -7,9 +7,76 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestOrganizationMigrationNormalizesLegacyZoteroJSON(t *testing.T) {
+	s := testServer(t)
+	ids := uploadPapers(t, s, 5)
+	metadata := `{ "doi": "10.1000/example", "sources": { "doi": "manual" } }`
+	tags := `[ "研究", "ML" ]`
+	folders := `[ "AI/Security" ]`
+	before := make([]Document, len(ids))
+	for i, id := range ids {
+		// Include already-correct TEXT, mixed storage types, and a trashed row.
+		var metaValue, tagsValue, foldersValue any = metadata, tags, folders
+		if i == 1 || i == 4 {
+			metaValue = []byte(metadata)
+		}
+		if i == 2 || i == 4 {
+			tagsValue = []byte(tags)
+		}
+		if i == 3 || i == 4 {
+			foldersValue = []byte(folders)
+		}
+		deletedAt := ""
+		if i == 4 {
+			deletedAt = now()
+		}
+		if _, err := s.Store.DB.Exec(`UPDATE documents SET metadata=?,tags=?,folders=?,deleted_at=?,favorite=1,reading_status='reading',percentage=0.5,progress='{"type":"pdf","page":1}' WHERE id=?`, metaValue, tagsValue, foldersValue, deletedAt, id); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		before[i], err = s.Store.Document(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	root := s.Store.Root
+	s.Close()
+	if err := s.Store.DB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Reopening twice checks that the repair is idempotent.
+	for range 2 {
+		store, err := OpenStore(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { store.DB.Close() })
+		for i, id := range ids {
+			var metaType, tagsType, foldersType, gotMeta, gotTags, gotFolders string
+			if err := store.DB.QueryRow(`SELECT typeof(metadata),typeof(tags),typeof(folders),metadata,tags,folders FROM documents WHERE id=?`, id).Scan(&metaType, &tagsType, &foldersType, &gotMeta, &gotTags, &gotFolders); err != nil {
+				t.Fatal(err)
+			}
+			if metaType != "text" || tagsType != "text" || foldersType != "text" {
+				t.Fatalf("document %d storage types: %s/%s/%s", i, metaType, tagsType, foldersType)
+			}
+			if gotMeta != metadata || gotTags != tags || gotFolders != folders {
+				t.Fatalf("document %d JSON changed during migration", i)
+			}
+			after, err := store.Document(id)
+			if err != nil || !reflect.DeepEqual(before[i], after) {
+				t.Fatalf("document %d changed during migration: %+v %v", i, after, err)
+			}
+		}
+		if err := store.DB.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 func organizationDoc(t *testing.T, s *Server) Document {
 	t.Helper()

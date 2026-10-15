@@ -113,6 +113,53 @@ export function installerChecksum(text: string, filename: string): string {
   return matches[0];
 }
 
+// Keep response bodies out of user-facing errors: proxies may return HTML,
+// and GitHub's rate-limit message can contain the user's public IP address.
+async function updateCheckError(
+  response: Response,
+  now: number,
+): Promise<Error> {
+  const status = response.status;
+  const retryAfter = response.headers.get("retry-after")?.trim();
+  const remaining = response.headers.get("x-ratelimit-remaining");
+  let retryAt = retryAfter
+    ? /^\d+$/.test(retryAfter)
+      ? now + Number(retryAfter) * 1000
+      : Date.parse(retryAfter)
+    : NaN;
+  if (!Number.isFinite(retryAt) && remaining === "0") {
+    const reset = response.headers.get("x-ratelimit-reset")?.trim();
+    retryAt = reset && /^\d+$/.test(reset) ? Number(reset) * 1000 : NaN;
+  }
+  let limited = status === 429;
+  if (status === 403) {
+    limited = remaining === "0" || Number.isFinite(retryAt);
+    if (!limited) {
+      const body = await response.json().catch(() => null);
+      limited =
+        typeof body?.message === "string" && /rate limit/i.test(body.message);
+    }
+  }
+  if (limited) {
+    const wait =
+      Number.isFinite(retryAt) && retryAt > now
+        ? `请等待约 ${Math.ceil((retryAt - now) / 60_000)} 分钟后重试。`
+        : "请稍后重试，避免连续检查。";
+    return new Error(
+      `GitHub 更新检查已被限流 (${status})。${wait}也可打开发布页手动下载安装包。`,
+    );
+  }
+  if (status === 403)
+    return new Error(
+      "GitHub 拒绝访问更新信息 (403)。请检查网络或代理的访问限制，也可打开发布页手动下载。",
+    );
+  if (status >= 500)
+    return new Error(
+      `GitHub 服务暂时不可用 (${status})。请稍后重试，也可打开发布页查看。`,
+    );
+  return new Error(`GitHub 更新检查失败 (${status})`);
+}
+
 export class DailyUpdateChecker {
   private running?: Promise<UpdateResult>;
   constructor(
@@ -154,7 +201,10 @@ export class DailyUpdateChecker {
     if (response.status === 404) result = { status: "current" };
     else {
       if (!response.ok)
-        throw new Error(`GitHub 更新检查失败 (${response.status})`);
+        throw await updateCheckError(
+          response,
+          this.options.now?.() ?? Date.now(),
+        );
       result = selectRelease(
         await response.json(),
         this.options.version,

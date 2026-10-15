@@ -8,7 +8,6 @@ it("keeps local user/answer row identity during persistence replacement and the 
     phase: "syncing",
     notice: "",
     fallback: "",
-    before: new Set(),
     input: {
       provider: "codex",
       prompt: "question",
@@ -59,7 +58,7 @@ it("keeps local user/answer row identity during persistence replacement and the 
     "request-1-user",
     "request-1",
   ]);
-  state.pending = { ...pending, key: "request-2", before: new Set(["u", "a"]) };
+  state.pending = { ...pending, key: "request-2" };
   expect(chatRows(state).map((row) => row.key)).toEqual([
     "request-1-user",
     "request-1",

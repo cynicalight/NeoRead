@@ -1678,6 +1678,12 @@
                                           "pattern": "^p[1-9][0-9]*-b[1-9][0-9]*$",
                                         },
                                     },
+                                  "userMessageId":
+                                    {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{32}$",
+                                      "description": "Stable client-generated user message ID. Reuse only for explicit regeneration of the same unanswered last question, with unchanged prompt, context, references, attachments and reading location. The server uses current model settings, does not insert a duplicate question, and returns 409 if the turn has an answer or later messages. Omit for legacy clients.",
+                                    },
                                   "prompt": { "type": "string" },
                                   "context": { "type": "string" },
                                   "readingLocation":

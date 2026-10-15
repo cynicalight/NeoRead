@@ -65,7 +65,7 @@ func (s *Server) blockImage(w http.ResponseWriter, r *http.Request, documentID, 
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	http.ServeContent(w, r, blockID+".png", time.Time{}, bytes.NewReader(data))
 }
-func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document Document, provider, question, textContext string, references json.RawMessage, ids []string, readingLocation json.RawMessage) {
+func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document Document, provider, question, textContext string, references json.RawMessage, ids []string, readingLocation json.RawMessage, userMessageID string) {
 	documentID := document.ID
 	if len(ids) > 4 {
 		fail(w, 400, "每次最多附加 4 张图片")
@@ -119,10 +119,74 @@ func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document D
 		fail(w, 500, "无法读取聊天历史")
 		return
 	}
-	chat := &chatInput{DocumentID: documentID, Title: document.Title, Summary: document.Metadata.Abstract, Question: question, CurrentText: textContext + descriptions.String(), History: messages, ReadingLocation: readingLocation}
-	if err := s.Store.saveMessage(Message{DocumentID: documentID, Role: "user", Content: question, Context: textContext, References: references, Attachments: attachments, ReadingLocation: readingLocation}); err != nil {
-		fail(w, 500, "无法保存对话")
+	user := Message{ID: userMessageID, DocumentID: documentID, Role: "user", Content: question, Context: textContext, References: references, Attachments: attachments, ReadingLocation: readingLocation}
+	history, status, err := s.Store.prepareChatQuestion(messages, user)
+	if err != nil {
+		fail(w, status, err.Error())
 		return
 	}
+	chat := &chatInput{DocumentID: documentID, Title: document.Title, Summary: document.Metadata.Abstract, Question: question, CurrentText: textContext + descriptions.String(), History: history, ReadingLocation: readingLocation}
 	s.streamChat(ctx, cancel, w, documentID, config, AIInput{Prompt: question, Images: images, Chat: chat})
+}
+
+// Called under aiMu: only the unanswered tail may be reused. Never delete a
+// saved answer or resend the failed question as both history and current input.
+func (s *Store) prepareChatQuestion(messages []Message, user Message) ([]Message, int, error) {
+	if user.ID != "" {
+		for i, m := range messages {
+			if m.ID != user.ID {
+				continue
+			}
+			if i != len(messages)-1 || m.Role != "user" {
+				return nil, 409, errors.New("这轮问题已有回答或后续对话，请同步记录")
+			}
+			if !sameChatQuestion(m, user) {
+				return nil, 409, errors.New("重新生成必须保留原问题、引用、附件和阅读位置")
+			}
+			return messages[:i], 0, nil
+		}
+		// IDs are global; a request must never reuse another document's message.
+		var exists int
+		if err := s.DB.QueryRow("SELECT count(*) FROM messages WHERE id=?", user.ID).Scan(&exists); err != nil {
+			return nil, 500, errors.New("无法核对问题消息")
+		}
+		if exists != 0 {
+			return nil, 409, errors.New("问题消息编号已被使用")
+		}
+	}
+	if err := s.saveMessage(user); err != nil {
+		return nil, 500, errors.New("无法保存对话")
+	}
+	return messages, 0, nil
+}
+
+func sameChatQuestion(a, b Message) bool {
+	if a.Content != b.Content || a.Context != b.Context || !sameChatJSON(a.References, b.References) || !sameChatJSON(a.ReadingLocation, b.ReadingLocation) || len(a.Attachments) != len(b.Attachments) {
+		return false
+	}
+	for i := range a.Attachments {
+		if a.Attachments[i].ID != b.Attachments[i].ID {
+			return false
+		}
+	}
+	return true
+}
+
+func sameChatJSON(a, b json.RawMessage) bool {
+	// Omitted and empty optional context are equivalent, including old records.
+	canonical := func(raw json.RawMessage) string {
+		if len(raw) == 0 {
+			return "null"
+		}
+		var value any
+		if json.Unmarshal(raw, &value) != nil {
+			return string(raw)
+		}
+		if list, ok := value.([]any); ok && len(list) == 0 {
+			return "null"
+		}
+		data, _ := json.Marshal(value)
+		return string(data)
+	}
+	return canonical(a) == canonical(b)
 }

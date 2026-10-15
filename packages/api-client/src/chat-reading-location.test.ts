@@ -31,10 +31,12 @@ it("sends a navigation snapshot separately from original text and citations", as
     undefined,
     undefined,
     { type: "pdf", page: 13 },
+    "11111111111111111111111111111111",
   );
   expect(body).toMatchObject({
     context: "",
     references: [],
     readingLocation: { type: "pdf", page: 13 },
+    userMessageId: "11111111111111111111111111111111",
   });
 });

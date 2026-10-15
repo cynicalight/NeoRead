@@ -1,11 +1,98 @@
 package reader
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 )
+
+func TestMergeKeepsZoteroImportedVersion(t *testing.T) {
+	for _, scenario := range []string{"new import", "existing file", "legacy import"} {
+		t.Run(scenario, func(t *testing.T) {
+			dir, _ := zoteroFixture(t)
+			s := testServer(t)
+			if scenario == "existing file" {
+				w := uploadTo(t, s, "papers", "existing.pdf", testPDF(2))
+				if w.Code != 201 {
+					t.Fatal(w.Body.String())
+				}
+			}
+			imported, err := s.importZoteroEntry(context.Background(), mustScanZotero(t, dir).Entries[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "legacy import" {
+				// Older imports bound JSON bytes as BLOBs, even in TEXT columns.
+				if _, err := s.Store.DB.Exec(`UPDATE documents SET metadata=CAST(metadata AS BLOB),tags=CAST(tags AS BLOB),folders=CAST(folders AS BLOB) WHERE id=?`, imported.DocumentID); err != nil {
+					t.Fatal(err)
+				}
+				root := s.Store.Root
+				s.Close()
+				if err := s.Store.DB.Close(); err != nil {
+					t.Fatal(err)
+				}
+				store, err := OpenStore(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { store.DB.Close() })
+				s = NewServer(store, "test-secret", "")
+				t.Cleanup(s.Close)
+			}
+			var metaType, tagsType, foldersType string
+			if err := s.Store.DB.QueryRow(`SELECT typeof(metadata),typeof(tags),typeof(folders) FROM documents WHERE id=?`, imported.DocumentID).Scan(&metaType, &tagsType, &foldersType); err != nil {
+				t.Fatal(err)
+			}
+			if metaType != "text" || tagsType != "text" || foldersType != "text" {
+				t.Fatalf("imported JSON storage types: %s/%s/%s", metaType, tagsType, foldersType)
+			}
+			var annotationBefore string
+			if err := s.Store.DB.QueryRow(`SELECT body FROM annotations WHERE document_id=?`, imported.DocumentID).Scan(&annotationBefore); err != nil {
+				t.Fatal(err)
+			}
+			duplicate := uploadPapers(t, s, 1)[0]
+			if w := request(t, s, "PATCH", "/api/documents/"+duplicate, strings.NewReader(`{"tags":["extra"],"metadata":{"publisher":"Publisher"}}`)); w.Code != 200 {
+				t.Fatal(w.Body.String())
+			}
+			if w := request(t, s, "PUT", "/api/documents/"+duplicate+"/note", strings.NewReader(`{"body":"duplicate note"}`)); w.Code != 200 {
+				t.Fatal(w.Body.String())
+			}
+
+			w := request(t, s, "POST", "/api/documents/"+imported.DocumentID+"/merge", strings.NewReader(`{"from":["`+duplicate+`"]}`))
+			if w.Code != 200 {
+				t.Fatalf("merge unchanged Zotero document: %d %s", w.Code, w.Body.String())
+			}
+			var result mergeResult
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			d := result.Document
+			if d.ID != imported.DocumentID || d.Metadata.DOI != "10.1000/example" || d.Metadata.Publisher != "Publisher" || strings.Join(d.Tags, ",") != "research,extra" || strings.Join(d.Folders, ",") != "AI/Security" {
+				t.Fatalf("merged document: %+v", d)
+			}
+			if d.HighlightCount != 1 || len(result.Trashed) != 1 || result.Trashed[0] != duplicate {
+				t.Fatalf("merge lost annotations or did not trash duplicate: %+v", result)
+			}
+			var annotationAfter string
+			if err := s.Store.DB.QueryRow(`SELECT body FROM annotations WHERE document_id=?`, d.ID).Scan(&annotationAfter); err != nil {
+				t.Fatal(err)
+			}
+			if annotationBefore != annotationAfter {
+				t.Fatal("merge changed the kept version's annotation")
+			}
+			trash := listTrash(t, s, "papers")
+			if len(trash) != 1 || trash[0].ID != duplicate {
+				t.Fatalf("duplicate not in trash: %+v", trash)
+			}
+			note := request(t, s, "GET", "/api/documents/"+d.ID+"/note", nil).Body.String()
+			if !strings.Contains(note, "我的笔记") || !strings.Contains(note, "duplicate note") {
+				t.Fatal(note)
+			}
+		})
+	}
+}
 
 func uploadPapers(t *testing.T, s *Server, n int) []string {
 	t.Helper()

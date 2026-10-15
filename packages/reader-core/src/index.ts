@@ -278,6 +278,10 @@ export interface ReaderTheme {
   /** Opt in to copying text selections and selected annotations. */
   autoCopySelection?: boolean;
   autoTranslatePDF?: boolean;
+  /** How figures and embedded images are displayed when a PDF uses dark mode. */
+  pdfDarkImageMode?: "preserve" | "invert" | "adaptive";
+  /** Contrast used for PDF text and paper while the dark reading appearance is active. */
+  pdfDarkContrast?: "high" | "soft";
   autoGenerateOverview?: boolean;
   /** Estimated total document-agent context; output and history reserve is included. */
   documentContextTokens?: number;
@@ -291,6 +295,8 @@ export interface ReaderTheme {
   zoom: number | "width";
   /** Translated text size in rem; smaller than the source by default. */
   translationFontSize?: number;
+  /** AI conversation text scale; 1 keeps the existing size. */
+  assistantFontScale?: number;
   /** "sans-serif", "serif" or an installed font family name. */
   translationFontFamily?: string;
   linkTranslationAnnotations?: boolean;
@@ -308,6 +314,8 @@ export interface HighlightColor {
 export const defaultTheme: ReaderTheme = {
   autoCopySelection: false,
   autoTranslatePDF: true,
+  pdfDarkImageMode: "adaptive",
+  pdfDarkContrast: "soft",
   autoGenerateOverview: false,
   documentContextTokens: 0,
   appearance: "system",
@@ -319,6 +327,7 @@ export const defaultTheme: ReaderTheme = {
   scroll: false,
   zoom: "width",
   translationFontSize: 1,
+  assistantFontScale: 1,
   translationFontFamily: "serif",
   translationFontWeight: "bold",
   linkTranslationAnnotations: true,

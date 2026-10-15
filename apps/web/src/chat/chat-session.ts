@@ -7,6 +7,8 @@ import type {
 } from "@reader/core";
 import { refreshAIConfig } from "../store";
 export type ChatInput = {
+  /** Stable identity of the question across explicit regeneration attempts. */
+  userMessageId?: string;
   readingLocation?: DocumentLocation;
   provider: string;
   prompt: string;
@@ -29,9 +31,10 @@ export type PendingAnswer = {
   notice: string;
   activity?: Extract<ChatStreamEvent, { event: "activity" }>["data"];
   fallback: string;
-  before: Set<string>;
   input: ChatInput;
   savedId?: string;
+  error?: string;
+  regenerationBlocked?: boolean;
   controller: AbortController;
 };
 export type ChatSnapshot = {
@@ -68,6 +71,7 @@ const transport: ChatTransport = {
         undefined,
         emit,
         input.readingLocation,
+        input.userMessageId,
       );
     } finally {
       // The server records failed primary attempts even when a fallback succeeds.
@@ -88,6 +92,7 @@ export class ChatSession {
   private query?: AbortController;
   private listeners = new Set<() => void>();
   private serial = 0;
+  private regeneration?: number;
   private alive = true;
   private frame = 0;
   constructor(
@@ -129,8 +134,36 @@ export class ChatSession {
         this.documentId,
         this.querySignal(),
       );
-      if (this.alive && serial === this.serial)
-        this.publish({ messages, loaded: true, loadError: undefined });
+      if (this.alive && serial === this.serial) {
+        const last = messages.at(-1);
+        const messageKeys = { ...this.state.messageKeys };
+        if (!this.active && last?.role === "user") {
+          this.active = {
+            key: `question-${last.id}`,
+            content: "",
+            phase: "incomplete",
+            notice: "上一轮回答未完成，可重新生成。",
+            fallback: "",
+            input: {
+              userMessageId: last.id,
+              provider: "",
+              prompt: last.content,
+              context: last.context ?? "",
+              references: last.references ?? [],
+              attachments: last.attachments ?? [],
+              readingLocation: last.readingLocation,
+            },
+            controller: new AbortController(),
+          };
+          messageKeys[last.id] = `${this.active.key}-user`;
+        }
+        this.publish({
+          messages,
+          messageKeys,
+          loaded: true,
+          loadError: undefined,
+        });
+      }
     } catch (error) {
       if (this.alive && serial === this.serial)
         this.publish({ loaded: false, loadError: (error as Error).message });
@@ -150,16 +183,21 @@ export class ChatSession {
   async send(input: ChatInput) {
     if (!this.alive || this.state.busy) return;
     if (!this.state.loaded)
-      throw new Error("对话记录尚未加载，请重试同步后发送。");
+      throw new Error("对话记录尚未加载，请重新加载后发送。");
+    await this.generate({
+      ...structuredClone(input),
+      userMessageId: crypto.randomUUID().replaceAll("-", ""),
+    });
+  }
+  private async generate(input: ChatInput, replacing?: PendingAnswer) {
     const serial = ++this.serial;
     const controller = new AbortController();
     const pending: PendingAnswer = {
-      key: `request-${serial}`,
+      key: replacing?.key ?? `request-${serial}`,
       content: "",
       phase: "generating",
       notice: "正在阅读上下文…",
       fallback: "",
-      before: new Set(this.state.messages.map((message) => message.id)),
       input,
       controller,
     };
@@ -169,14 +207,16 @@ export class ChatSession {
       pending,
       busy: true,
       archived:
-        prior && !prior.savedId
+        prior && !prior.savedId && !replacing
           ? [...this.state.archived, prior]
           : this.state.archived,
     });
-    let terminal = false;
+    let terminal = false,
+      received = false;
     const emit = (event: ChatStreamEvent) => {
       if (!this.current(serial) || controller.signal.aborted || terminal)
         return;
+      received = true;
       if (event.event === "reasoning") {
         pending.reasoning = (pending.reasoning || "") + event.data.text;
         pending.notice = "";
@@ -219,6 +259,7 @@ export class ChatSession {
         pending.notice = event.data.message;
       }
       if (event.event === "error") {
+        pending.error = event.data.error;
         pending.activity = undefined;
         terminal = true;
         pending.phase = "incomplete";
@@ -243,10 +284,16 @@ export class ChatSession {
       if (!this.current(serial)) return;
       if (!terminal && !controller.signal.aborted) {
         pending.phase = "unconfirmed";
+        pending.error = (error as Error).message;
         pending.notice = `${(error as Error).message}；完成状态未确认`;
       }
     } finally {
       if (this.current(serial)) {
+        if (replacing && !received) {
+          pending.content = replacing.content;
+          pending.draft = replacing.draft;
+          pending.reasoning = replacing.reasoning;
+        }
         this.flush();
         // Keep the single-request lock until this reconciliation ends. No automatic re-POST.
         await this.reconcile(serial, pending);
@@ -256,13 +303,23 @@ export class ChatSession {
   }
   cancel() {
     const pending = this.active;
+    if (pending && this.regeneration === this.serial) {
+      this.serial++;
+      this.regeneration = undefined;
+      this.query?.abort();
+      pending.phase = "cancelled";
+      pending.notice = "已取消重新生成。";
+      this.publish({ busy: false });
+      return;
+    }
     if (!pending || pending.phase !== "generating") return;
     pending.phase = "cancelled";
     pending.notice = "已停止；正在核对保存状态";
     pending.controller.abort();
     this.flush();
   }
-  retry = async () => {
+  retrySync = async () => {
+    if (!this.alive || this.state.busy) return;
     if (!this.state.loaded) {
       await this.load();
       return;
@@ -274,56 +331,105 @@ export class ChatSession {
     await this.reconcile(serial, pending);
     if (this.current(serial)) this.publish({ busy: false });
   };
+  regenerate = async (provider: string) => {
+    const pending = this.active;
+    if (
+      !this.alive ||
+      this.state.busy ||
+      !this.state.loaded ||
+      !provider ||
+      !pending ||
+      ["generating", "syncing", "saved"].includes(pending.phase)
+    )
+      return;
+    const serial = ++this.serial;
+    this.regeneration = serial;
+    this.publish({ busy: true });
+    // A disconnect can race a successful save. Never replay until history is
+    // reachable, and let the server enforce the unanswered-tail boundary again.
+    const synced = await this.reconcile(serial, pending);
+    if (this.regeneration === serial) this.regeneration = undefined;
+    if (!this.current(serial)) return;
+    if (!synced || pending.savedId || pending.regenerationBlocked) {
+      this.publish({ busy: false });
+      return;
+    }
+    await this.generate({ ...pending.input, provider }, pending);
+  };
   private async reconcile(serial: number, pending: PendingAnswer) {
     try {
       const messages = await this.io.messages(
         this.documentId,
         this.querySignal(),
       );
-      if (!this.current(serial) || this.active !== pending) return;
-      const fresh = messages.filter(
-        (message) => !pending.before.has(message.id),
+      if (!this.current(serial) || this.active !== pending) return false;
+      const userIndex = messages.findIndex(
+        (message) =>
+          message.id === pending.input.userMessageId && message.role === "user",
       );
-      const users = fresh.filter((message) => message.role === "user");
-      const assistants = fresh.filter(
+      const turn = userIndex < 0 ? [] : messages.slice(userIndex + 1);
+      const nextUser = turn.findIndex((message) => message.role === "user");
+      const assistants = (nextUser < 0 ? turn : turn.slice(0, nextUser)).filter(
         (message) => message.role === "assistant",
       );
-      // IDs from the preflight snapshot and one-user/one-assistant ordering establish
-      // the only association available in v1. Content equality alone is insufficient.
-      const user = users[0],
+      const user = messages[userIndex],
         assistant = assistants[0];
       const associated =
-        users.length === 1 &&
+        !!user &&
         assistants.length === 1 &&
         user.content === pending.input.prompt &&
-        fresh.indexOf(assistant) > fresh.indexOf(user) &&
         messages.every((message) => message.documentId === this.documentId);
+      pending.regenerationBlocked =
+        userIndex >= 0 &&
+        !associated &&
+        (userIndex !== messages.length - 1 ||
+          user.content !== pending.input.prompt);
       const messageKeys = { ...this.state.messageKeys };
-      if (users.length === 1 && user.content === pending.input.prompt)
+      if (user && user.content === pending.input.prompt)
         messageKeys[user.id] = `${pending.key}-user`;
       if (associated) {
         messageKeys[assistant.id] = pending.key;
         pending.savedId = assistant.id;
         pending.content = assistant.content;
         pending.reasoning = assistant.reasoning;
+        pending.draft = "";
         pending.phase = "saved";
         pending.notice = "";
       } else {
-        pending.notice =
-          pending.phase === "syncing"
-            ? "回答已保存，记录待同步；请重试同步。"
-            : pending.phase === "incomplete"
-              ? pending.notice
-              : "完成状态未确认；已保留收到的文字，可重试同步。";
+        pending.notice = pending.regenerationBlocked
+          ? "这轮问题已有后续记录，无法重新生成。"
+          : pending.phase === "syncing"
+            ? "回答已保存，暂未读取到对应记录，请重试。"
+            : pending.phase === "cancelled"
+              ? "已停止，可重新生成。"
+              : pending.error
+                ? `${pending.error}（回答未完成，可重新生成）`
+                : "回答未完成，可重新生成。";
       }
       this.publish({ messages, messageKeys });
+      return true;
     } catch {
-      if (!this.current(serial)) return;
+      if (!this.current(serial)) return false;
       pending.notice =
         pending.phase === "syncing"
-          ? "回答已保存，同步失败；请重试同步。"
-          : "记录同步失败，完成状态未确认；已保留收到的文字。";
+          ? "回答已保存，暂时无法读取，请稍后重试。"
+          : "暂时无法读取对话记录，请稍后重试。";
       this.publish({ pending: { ...pending } });
+      return false;
     }
   }
+}
+
+export function chatRetryAction(
+  state: ChatSnapshot,
+): "reload" | "sync" | "regenerate" | undefined {
+  if (state.loadError) return "reload";
+  const pending = state.pending;
+  if (
+    !pending ||
+    pending.regenerationBlocked ||
+    ["generating", "saved"].includes(pending.phase)
+  )
+    return;
+  return pending.phase === "syncing" ? "sync" : "regenerate";
 }

@@ -72,6 +72,13 @@ func (s *Store) migrateOrganization() error {
 			return err
 		}
 	}
+	// Older Zotero imports bound JSON as []byte, which SQLite stores as BLOB.
+	// Preserve the JSON bytes but use TEXT so conditional writes compare equally.
+	for _, column := range []string{"metadata", "tags", "folders"} {
+		if _, err = tx.Exec("UPDATE documents SET " + column + "=CAST(" + column + " AS TEXT) WHERE typeof(" + column + ")='blob'"); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 func validReadingStatus(status string) bool {

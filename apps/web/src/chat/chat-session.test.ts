@@ -63,6 +63,56 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 describe("chat request lifecycle", () => {
+  it("regenerates a failed question with the current provider and replaces all partial output", async () => {
+    let history: Message[] = [];
+    const requests: ChatInput[] = [];
+    const stream = vi.fn<ChatTransport["stream"]>(
+      async (_, request, _signal, emit) => {
+        requests.push(request);
+        history = [message(request.userMessageId!, "user", request.prompt)];
+        if (requests.length === 1) {
+          emit({ event: "reasoning", data: { text: "old thinking" } });
+          emit({ event: "draft", data: { text: "old draft", reset: false } });
+          emit({ event: "error", data: { error: "failed" } });
+          return;
+        }
+        expect(session.getSnapshot().pending).toMatchObject({
+          content: "",
+          phase: "generating",
+        });
+        expect(session.getSnapshot().pending?.draft).toBeUndefined();
+        expect(session.getSnapshot().pending?.reasoning).toBeUndefined();
+        history.push(message("answer", "assistant", "new answer"));
+        emit({ event: "delta", data: { text: "new answer" } });
+        emit({ event: "done", data: { ok: true } });
+      },
+    );
+    const session = new ChatSession("doc", {
+      messages: async () => history,
+      stream,
+    });
+    await session.load();
+    const original: ChatInput = {
+      ...input,
+      context: "original selection",
+      readingLocation: { type: "pdf", page: 4 },
+      attachments: [
+        { id: "p4-b1", page: 4, label: "Figure", caption: "original" },
+      ],
+    };
+    await session.send(original);
+    await session.regenerate("api");
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(requests[0].userMessageId).toMatch(/^[a-f0-9]{32}$/);
+    expect(requests[1]).toEqual({ ...requests[0], provider: "api" });
+    expect(session.getSnapshot()).toMatchObject({
+      busy: false,
+      archived: [],
+      pending: { phase: "saved", content: "new answer" },
+    });
+    expect(session.getSnapshot().messages).toHaveLength(2);
+    session.dispose();
+  });
   it("keeps thinking separate through tool activity, final text and history synchronization", async () => {
     const h = setup();
     await h.session.load();
@@ -84,7 +134,14 @@ describe("chat request lifecycle", () => {
       ...message("a", "assistant", "答案"),
       reasoning: "先查看图片。\n\n再核对图例。",
     };
-    h.messages.mockResolvedValue([message("u", "user", "question"), saved]);
+    h.messages.mockResolvedValue([
+      message(
+        h.session.getSnapshot().pending!.input.userMessageId!,
+        "user",
+        "question",
+      ),
+      saved,
+    ]);
     h.wait.resolve();
     await send;
     expect(h.session.getSnapshot().pending).toMatchObject({
@@ -127,7 +184,11 @@ describe("chat request lifecycle", () => {
     h.emit({ event: "delta", data: { text: "正式答案" } });
     h.emit({ event: "done", data: { ok: true } });
     h.messages.mockResolvedValue([
-      message("u", "user", "question"),
+      message(
+        h.session.getSnapshot().pending!.input.userMessageId!,
+        "user",
+        "question",
+      ),
       message("a", "assistant", "正式答案"),
     ]);
     h.wait.resolve();
@@ -181,10 +242,14 @@ describe("chat request lifecycle", () => {
       notice: expect.stringContaining("已保存"),
     });
     h.messages.mockResolvedValue([
-      message("u", "user", "question"),
+      message(
+        h.session.getSnapshot().pending!.input.userMessageId!,
+        "user",
+        "question",
+      ),
       message("a", "assistant", "**answer**"),
     ]);
-    await h.session.retry();
+    await h.session.retrySync();
     expect(h.session.getSnapshot().pending).toMatchObject({
       content: "**answer**",
       phase: "saved",
@@ -215,7 +280,11 @@ describe("chat request lifecycle", () => {
     expect(h.session.getSnapshot().pending?.phase).toBe("cancelled");
     h.emit({ event: "delta", data: { text: "late" } });
     h.messages.mockResolvedValue([
-      message("u", "user", "question"),
+      message(
+        h.session.getSnapshot().pending!.input.userMessageId!,
+        "user",
+        "question",
+      ),
       message("a", "assistant", "tail"),
     ]);
     h.wait.reject(new Error("aborted"));
@@ -263,7 +332,11 @@ describe("chat request lifecycle", () => {
     const send = h.session.send(input);
     h.emit({ event: "delta", data: { text: "answer" } });
     h.messages.mockResolvedValue([
-      message("u", "user", "question"),
+      message(
+        h.session.getSnapshot().pending!.input.userMessageId!,
+        "user",
+        "question",
+      ),
       message("a", "assistant", "answer"),
       message("b", "assistant", "answer"),
     ]);
