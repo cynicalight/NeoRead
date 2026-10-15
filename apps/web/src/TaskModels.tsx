@@ -173,14 +173,10 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
                 {label}
               </span>
               <Select
-                value={current?.id ?? recommended?.id ?? AUTO}
+                value={current?.id ?? AUTO}
                 disabled={disabled || saving || (empty && !current)}
                 onValueChange={(value) =>
-                  value &&
-                  void chooseModel(
-                    task,
-                    value === recommended?.id ? AUTO : value,
-                  )
+                  value && void chooseModel(task, value)
                 }
               >
                 <SelectTrigger
@@ -197,9 +193,12 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {!recommended && !empty && (
-                    <SelectItem value={AUTO} label={defaultLabel}>
-                      {defaultLabel}
+                  {!empty && (
+                    <SelectItem
+                      value={AUTO}
+                      label={`自动选择（${defaultLabel}）`}
+                    >
+                      自动选择（{defaultLabel}）
                     </SelectItem>
                   )}
                   {options.map((m) => (
@@ -240,6 +239,11 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
                 </SelectContent>
               </Select>
             </div>
+            {task === "vision" && noVision && (
+              <p className="mt-1 text-xs text-muted-foreground" role="status">
+                图片用途需先在 API 设置中启用模型并通过图片测试
+              </p>
+            )}
             {effortInfo && (
               <p className="mt-1 text-xs text-muted-foreground">
                 {effortInfo.note}
@@ -253,11 +257,6 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
           </div>
         );
       })}
-      {noVision && (
-        <p className="text-xs text-muted-foreground" role="status">
-          此 API Key 没有通过图片理解检测的模型，公式转换与图片提问不可用。
-        </p>
-      )}
     </div>
   );
 }

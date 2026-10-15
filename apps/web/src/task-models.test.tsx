@@ -102,12 +102,12 @@ it("saves the translation effort without touching chat", async () => {
   expect(config.translationEfforts).toEqual({ claude: { fable: "low" } });
   expect(config.efforts).toEqual({ claude: { opus: "high" } });
 });
-it("returns translation to automatic selection", async () => {
+it("persists an explicitly selected recommended model", async () => {
   config.translationModels = { claude: "fable" };
   useReaderStore.setState({ aiConfig: config });
   await act(async () => root.render(<TaskModels disabled={false} />));
   await choose("翻译模型", "Sonnet");
-  expect(config.translationModels).toEqual({ claude: "" });
+  expect(config.translationModels).toEqual({ claude: "sonnet" });
 });
 const checked = { checkedAt: "2026-10-09" };
 const apiModels: AgentModel[] = [
@@ -151,9 +151,9 @@ it("offers API models only for the tasks whose checks they passed", async () => 
   expect(trigger("问答模型").textContent).toContain("Pro");
   expect(trigger("图片模型").textContent).toContain("Flash");
   await act(async () => trigger("问答模型").click());
-  expect(optionNames()).toEqual(["Flash", "Pro"]);
+  expect(optionNames()).toEqual(["自动选择（Pro）", "Flash", "Pro"]);
   await act(async () => trigger("图片模型").click());
-  expect(optionNames()).toEqual(["Flash"]);
+  expect(optionNames()).toEqual(["自动选择（Flash）", "Flash"]);
 });
 it("leaves the API image model empty when no model passed vision", async () => {
   config = { ...config, primary: "api", models: {}, efforts: {} };
@@ -167,7 +167,9 @@ it("leaves the API image model empty when no model passed vision", async () => {
   await act(async () => root.render(<TaskModels disabled={false} />));
   expect(trigger("图片模型").textContent).toContain("无可用模型");
   expect(trigger("图片模型").disabled).toBe(true);
-  expect(host.textContent).toContain("没有通过图片理解检测的模型");
+  expect(host.textContent).toContain(
+    "图片用途需先在 API 设置中启用模型并通过图片测试",
+  );
 });
 
 it("disables effort for fixed models and shows the actual mapping for tunable models", async () => {
@@ -202,4 +204,31 @@ it("disables effort for fixed models and shows the actual mapping for tunable mo
   expect(trigger("问答 Effort").textContent).toContain("固定／自动");
   expect(trigger("翻译 Effort").disabled).toBe(false);
   expect(host.textContent).toContain("medium → high");
+});
+
+it("persists the recommended API model despite unrelated failed or untested checks", async () => {
+  config = { ...config, primary: "api", models: {}, efforts: {} };
+  useReaderStore.setState({ aiConfig: config });
+  vi.mocked(api.agentModels).mockResolvedValue([
+    ...apiModels.map((model) => ({
+      ...model,
+      capability: { ...model.capability!, tools: "failed" as const },
+    })),
+    { id: "untested", name: "Untested", description: "", isDefault: false },
+    { ...apiModels[0]!, id: "disabled", name: "Disabled", enabled: false },
+  ]);
+  await act(async () => root.render(<TaskModels disabled={false} />));
+  expect(trigger("问答模型").disabled).toBe(false);
+  await choose("问答模型", "Pro");
+  expect(config.models.api).toBe("deepseek-v4-pro");
+  await act(async () => trigger("问答模型").click());
+  expect(optionNames()).toEqual(["自动选择（Pro）", "Flash", "Pro"]);
+});
+
+it("uses automatic selection only when explicitly chosen", async () => {
+  config.translationModels = { claude: "fable" };
+  useReaderStore.setState({ aiConfig: config });
+  await act(async () => root.render(<TaskModels disabled={false} />));
+  await choose("翻译模型", "自动选择（Sonnet）");
+  expect(config.translationModels).toEqual({ claude: "" });
 });

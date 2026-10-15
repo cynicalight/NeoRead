@@ -366,3 +366,34 @@ it("excludes disabled API candidates even when their checks passed", async () =>
     usableModels("api", models, "vision").map((model) => model.id),
   ).toEqual(["enabled"]);
 });
+
+it("pins the recommended API model without requiring other model or tool checks", async () => {
+  config = { ...config, primary: "api", models: {} };
+  useReaderStore.setState({ aiConfig: config });
+  vi.mocked(api.agentModels).mockResolvedValue([
+    {
+      ...models[1]!,
+      recommendedFor: ["chat"],
+      capability: {
+        text: true,
+        vision: false,
+        tools: "failed",
+        checkedAt: "now",
+      },
+    },
+    {
+      ...models[0]!,
+      capability: { text: false, vision: false, checkedAt: "now" },
+    },
+    { id: "unknown", name: "Unknown", description: "", isDefault: false },
+    { ...models[1]!, id: "disabled", name: "Disabled", enabled: false },
+  ]);
+  await render();
+  await chooseB();
+  expect(useReaderStore.getState().aiConfig?.models.api).toBe("model-b");
+  expect(
+    Array.from(document.querySelectorAll('[role="option"]')).map(
+      (option) => option.textContent,
+    ),
+  ).toEqual(["Model B"]);
+});

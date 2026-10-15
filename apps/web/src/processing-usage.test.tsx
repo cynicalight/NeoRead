@@ -131,41 +131,112 @@ it("keeps same-model provider successes and failures separate", () => {
   expect(rows[1].textContent).toContain("成功0");
 });
 
-it("combines stored estimates per currency and keeps unknown historical prices visible", () => {
-  const processing = {
+function renderUsage(value: ProcessingUsage) {
+  const host = document.createElement("div");
+  host.innerHTML = renderToStaticMarkup(<UsageDetails report={value} />);
+  return host;
+}
+function pricedReport(amount: number | null = 0.0026): ProcessingUsage {
+  return {
     ...report,
-    cost: {
-      currencies: [{ currency: "CNY", amount: 0.0026 }],
-      unknownCalls: 1,
-      partialCalls: 1,
-    },
-  } as ProcessingUsage;
-  const chat = {
-    ...report,
-    cost: {
-      currencies: [
-        { currency: "CNY", amount: 0.001 },
-        { currency: "USD", amount: 0.01 },
-      ],
-      unknownCalls: 2,
-      partialCalls: 0,
-    },
-  } as ProcessingUsage;
-  const combined = combineUsageReports(processing, chat);
-  expect(combined.cost).toEqual({
-    currencies: [
-      { currency: "CNY", amount: 0.0036 },
-      { currency: "USD", amount: 0.01 },
+    calls: [
+      {
+        ...report.calls[0]!,
+        provider: "api",
+        price: {
+          currency: "CNY",
+          input: 2,
+          model: "actual",
+          sources: { input: "model" },
+        },
+        models: [
+          {
+            model: "actual",
+            tokens: total,
+            cost: {
+              currency: "CNY",
+              amount,
+              status: amount === null ? "unknown" : "partial",
+            },
+          },
+        ],
+      },
     ],
-    unknownCalls: 3,
-    partialCalls: 1,
-  });
-  const text = renderToStaticMarkup(<UsageDetails report={combined} />);
-  expect(text).toContain("CNY 0.0036");
-  expect(text).toContain("USD 0.01");
-  expect(text).toContain("费用未知 3 次");
-  expect(text).toContain("部分估算 1 次");
-  expect(renderToStaticMarkup(<UsageDetails report={report} />)).toContain(
-    "费用未知",
+    groups: [{ ...report.groups[0]!, provider: "api" }],
+  };
+}
+it.each(["codex", "claude", "kimi"])(
+  "hides fee UI for %s calls even if old aggregates contain costs",
+  (provider) => {
+    const value = pricedReport();
+    value.calls[0]!.provider = provider;
+    value.groups[0]!.provider = provider;
+    value.cost = {
+      currencies: [{ currency: "USD", amount: 99 }],
+      unknownCalls: 1,
+      partialCalls: 0,
+    };
+    value.groups[0]!.cost = value.cost;
+    const host = renderUsage(value);
+    expect(host.textContent).toContain("15 tokens");
+    expect(host.textContent).not.toMatch(/估算费用|费用未知|价格来源|USD|CNY/);
+  },
+);
+it.each(["no price", "no rates", "no amount", "no usage"])(
+  "hides API fee UI with %s",
+  (missing) => {
+    const value = pricedReport(missing === "no amount" ? null : 0.0026);
+    if (missing === "no price") delete value.calls[0]!.price;
+    if (missing === "no rates") delete value.calls[0]!.price!.input;
+    if (missing === "no usage") value.calls[0]!.models[0]!.tokens = null;
+    const host = renderUsage(value);
+    expect(host.textContent).not.toMatch(/估算费用|费用未知|价格来源|CNY/);
+  },
+);
+it("shows the stored API amount and source even when report aggregates are absent", () => {
+  const value = pricedReport();
+  const host = renderUsage(value);
+  expect(host.textContent).toContain("CNY 0.0026");
+  expect(host.textContent).toContain("部分估算 1 次");
+  expect(host.querySelector(".usage-model")?.textContent).toContain(
+    "价格来源 模型价格",
   );
+  expect(host.textContent).not.toContain("费用未知");
+  expect(value.calls[0]!.models[0]!.cost!.amount).toBe(0.0026);
+});
+it("shows explicitly priced zero API usage as zero", () => {
+  const value = pricedReport(0);
+  value.calls[0]!.price!.input = 0;
+  const host = renderUsage(value);
+  expect(host.textContent).toContain("CNY 0");
+  expect(host.textContent).toContain("价格来源");
+});
+it("sums only priced API snapshots across mixed histories and separates currencies", () => {
+  const processing = pricedReport();
+  const second = pricedReport(0.001);
+  const usd = pricedReport(0.01);
+  usd.calls[0]!.price!.currency = "USD";
+  usd.calls[0]!.models[0]!.cost!.currency = "USD";
+  const cli = pricedReport(50);
+  cli.calls[0]!.provider = "codex";
+  cli.groups[0]!.provider = "codex";
+  const unknown = pricedReport();
+  delete unknown.calls[0]!.price;
+  const chat = [second, usd, cli, unknown].reduce(combineUsageReports);
+  const combined = combineUsageReports(processing, chat);
+  const snapshots = JSON.stringify(combined.calls);
+  const host = renderUsage(combined);
+  const summary = host.querySelector(".usage-totals")!.nextElementSibling!;
+  expect(summary.textContent).toContain("CNY 0.0036");
+  expect(summary.textContent).toContain("USD 0.01");
+  expect(summary.textContent).not.toContain("费用未知");
+  expect(
+    host.querySelector('[aria-label="actual 调用统计"]')?.textContent,
+  ).toContain("CNY 0.0036");
+  const cliGroup = Array.from(host.querySelectorAll(".usage-model")).find(
+    (group) => group.textContent?.includes("Codex"),
+  );
+  expect(cliGroup?.textContent).not.toMatch(/估算费用|价格来源/);
+  expect(host.textContent).toContain("75 tokens");
+  expect(JSON.stringify(combined.calls)).toBe(snapshots);
 });

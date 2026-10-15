@@ -140,7 +140,7 @@ export function ModelSelector({
   const choose = async (value: string | null) => {
     if (
       !value ||
-      value === current?.id ||
+      value === configuredModel ||
       useReaderStore.getState().aiModelSaving
     )
       return;
@@ -276,7 +276,7 @@ export function ModelSelector({
             <RotateCcw size={16} />
           </Button>
           <Select
-            value={current?.id ?? null}
+            value={configuredModel ? (current?.id ?? null) : null}
             disabled={disabled || saving}
             onValueChange={(value) => void choose(value)}
           >

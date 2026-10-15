@@ -80,33 +80,74 @@ function combineCosts(a?: CostSummary, b?: CostSummary): CostSummary {
     partialCalls: (a?.partialCalls ?? 0) + (b?.partialCalls ?? 0),
   };
 }
-function historicalCost(report: ProcessingUsage): CostSummary {
-  return (
-    report.cost ?? {
-      currencies: [],
-      unknownCalls: report.calls.length,
-      partialCalls: 0,
-    }
+// Display only captured API estimates; current settings and CLI totals do not
+// determine the price of an earlier call.
+function pricedModels(
+  call: ProcessingUsage["calls"][number],
+  modelName?: string,
+) {
+  if (
+    call.provider !== "api" ||
+    !call.price ||
+    ![
+      call.price.input,
+      call.price.output,
+      call.price.cacheRead,
+      call.price.cacheWrite,
+    ].some((rate) => typeof rate === "number" && Number.isFinite(rate))
+  )
+    return [];
+  return call.models.filter(
+    (model) =>
+      (modelName === undefined || model.model === modelName) &&
+      model.tokens !== null &&
+      model.cost?.status !== "unknown" &&
+      model.cost?.currency &&
+      typeof model.cost.amount === "number" &&
+      Number.isFinite(model.cost.amount),
   );
 }
-function CostDetails({ cost }: { cost?: CostSummary }) {
+function apiCost(
+  calls: ProcessingUsage["calls"],
+  modelName?: string,
+): CostSummary {
+  const summary: CostSummary = {
+    currencies: [],
+    unknownCalls: 0,
+    partialCalls: 0,
+  };
+  for (const call of calls) {
+    const models = pricedModels(call, modelName);
+    for (const { cost } of models) {
+      const found = summary.currencies.find(
+        (entry) => entry.currency === cost!.currency,
+      );
+      if (found) found.amount += cost!.amount!;
+      else
+        summary.currencies.push({
+          currency: cost!.currency!,
+          amount: cost!.amount!,
+        });
+    }
+    if (models.some((model) => model.cost!.status === "partial"))
+      summary.partialCalls++;
+  }
+  return summary;
+}
+function CostDetails({ cost }: { cost: CostSummary }) {
+  if (!cost.currencies.length) return null;
   return (
     <div className="usage-note">
       <span>估算费用 </span>
-      {cost?.currencies?.length ? (
-        cost.currencies.map((entry) => (
-          <span key={entry.currency}>
-            {entry.currency}{" "}
-            {entry.amount.toLocaleString("en-US", {
-              maximumFractionDigits: 10,
-            })}{" "}
-          </span>
-        ))
-      ) : (
-        <span>费用未知 </span>
-      )}
-      {!!cost?.partialCalls && <span>部分估算 {cost.partialCalls} 次 </span>}
-      {!!cost?.unknownCalls && <span>费用未知 {cost.unknownCalls} 次</span>}
+      {cost.currencies.map((entry) => (
+        <span key={entry.currency}>
+          {entry.currency}{" "}
+          {entry.amount.toLocaleString("en-US", {
+            maximumFractionDigits: 10,
+          })}{" "}
+        </span>
+      ))}
+      {!!cost.partialCalls && <span>部分估算 {cost.partialCalls} 次 </span>}
     </div>
   );
 }
@@ -115,7 +156,7 @@ export function combineUsageReports(
   chat: ProcessingUsage,
 ): ProcessingUsage {
   return {
-    cost: combineCosts(historicalCost(processing), historicalCost(chat)),
+    cost: combineCosts(apiCost(processing.calls), apiCost(chat.calls)),
     historyComplete: processing.historyComplete && chat.historyComplete,
     total: add(processing.total, chat.total),
     calls: [...processing.calls, ...chat.calls],
@@ -161,7 +202,7 @@ export function UsageDetails({ report }: { report: ProcessingUsage }) {
           </dd>
         </div>
       </dl>
-      <CostDetails cost={historicalCost(report)} />
+      <CostDetails cost={apiCost(report.calls)} />
       {!report.historyComplete && (
         <p className="usage-note">历史用量未记录；仅统计启用功能后的调用。</p>
       )}
@@ -313,6 +354,10 @@ function StageRows({
                     ),
                 ).length;
                 const known = group.calls > group.unknownCalls;
+                const cost = apiCost(linked, group.model);
+                const priced = linked.filter(
+                  (call) => pricedModels(call, group.model).length > 0,
+                );
                 return (
                   <section
                     className="usage-model"
@@ -385,24 +430,24 @@ function StageRows({
                         <dd>{group.unknownCalls} 次</dd>
                       </div>
                     </dl>
-                    <CostDetails cost={group.cost} />
-                    <p className="usage-note">
-                      价格来源{" "}
-                      {Array.from(
-                        new Set(
-                          linked.map((call) =>
-                            !call.price
-                              ? "未记录"
-                              : Object.values(call.price.sources).includes(
-                                    "model",
-                                  )
+                    <CostDetails cost={cost} />
+                    {cost.currencies.length > 0 && (
+                      <p className="usage-note">
+                        价格来源{" "}
+                        {Array.from(
+                          new Set(
+                            priced.map((call) =>
+                              Object.values(call.price!.sources).includes(
+                                "model",
+                              )
                                 ? "模型价格"
                                 : "历史价格",
+                            ),
                           ),
-                        ),
-                      ).join(" / ")}{" "}
-                      · 按调用时价格保存
-                    </p>
+                        ).join(" / ")}{" "}
+                        · 按调用时价格保存
+                      </p>
+                    )}
                     {!!partial && (
                       <p className="usage-note">
                         {partial} 次调用的用量可能不完整。
