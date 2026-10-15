@@ -577,3 +577,40 @@ it("switching a model currency clears amounts and prevents incompatible inherite
     config.apiProviders?.[0].modelOverrides?.["deepseek-flash"].pricing,
   ).toEqual({ currency: "USD", output: 3 });
 });
+
+it("new providers require explicit model selection before bulk probes while legacy providers keep their defaults", async () => {
+  config.api = { url: "https://legacy.example", model: "", hasKey: true };
+  config.apiProviders = [
+    { id: "default", name: "Legacy", connection: config.api, models: [] },
+  ];
+  vi.mocked(api.agentModels).mockImplementation(async () =>
+    (config.apiProviders ?? []).flatMap((provider) =>
+      provider.connection.url
+        ? ["a", "b"].map((model): AgentModel => ({
+            id: provider.id === "default" ? model : `${provider.id}::${model}`,
+            name: model,
+            description: "",
+            isDefault: false,
+          }))
+        : [],
+    ),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  expect(host.querySelector('[aria-label="启用 a"]')?.getAttribute("aria-checked")).toBe("true");
+  expect(host.querySelector('[aria-label="启用 b"]')?.getAttribute("aria-checked")).toBe("true");
+  await clickButton("添加 API 提供商");
+  await type("API 地址", "https://new.example");
+  await submit();
+  const provider = config.apiProviders!.find((item) => item.id !== "default")!;
+  for (const model of ["a", "b"]) {
+    expect(host.querySelector(`[aria-label="启用 ${provider.id}::${model}"]`)?.getAttribute("aria-checked")).toBe("false");
+  }
+  expect((host.querySelector('[aria-label="检测已启用模型的文本"]') as HTMLButtonElement).disabled).toBe(true);
+  expect(api.testAI).not.toHaveBeenCalled();
+  await clickButton(`启用 ${provider.id}::a`);
+  expect(config.apiProviders!.find((item) => item.id === provider.id)!.enabledModels).toEqual(["a"]);
+  await clickButton("检测已启用模型的文本");
+  expect(vi.mocked(api.testAI).mock.calls).toEqual([["api", "text", `${provider.id}::a`]]);
+  expect(config.apiProviders!.find((item) => item.id === "default")!.enabledModels).toBeUndefined();
+});

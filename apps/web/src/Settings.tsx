@@ -600,6 +600,7 @@ export function Settings({
                           name: "新提供商",
                           connection: { url: "", model: "", hasKey: false },
                           models: [],
+                          enabledModels: [],
                         },
                       ],
                     })).then((ok) => {
