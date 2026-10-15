@@ -883,3 +883,44 @@ it("filters a long model list without losing a model's pending price", async () 
     config.apiProviders?.[0].modelOverrides?.["model-1"].pricing?.input,
   ).toBe(6);
 });
+
+it("shows a recoverable API configuration error instead of a blank panel", async () => {
+  vi.mocked(api.aiConfig).mockRejectedValueOnce(
+    new Error("请使用启动时提供的 Reader 地址"),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  const panel = host.querySelector('[aria-label="API 配置加载状态"]')!;
+  expect(panel).not.toBeNull();
+  expect(panel.textContent).toContain("无法加载 API 配置");
+  expect(panel.querySelector('[role="alert"]')!.textContent).toContain(
+    "请使用启动时提供的 Reader 地址",
+  );
+  await act(async () =>
+    panel.querySelector<HTMLButtonElement>("button")!.click(),
+  );
+  expect(host.querySelector(".api-provider-settings")).not.toBeNull();
+  expect(host.querySelector('[aria-label="API 配置加载状态"]')).toBeNull();
+  expect(api.saveAIConfig).not.toHaveBeenCalled();
+  expect(api.testAI).not.toHaveBeenCalled();
+});
+
+it("shows loading feedback while API configuration is pending", async () => {
+  let resolveConfig!: (value: AIConfig) => void;
+  vi.mocked(api.aiConfig).mockImplementationOnce(
+    () =>
+      new Promise<AIConfig>((resolve) => {
+        resolveConfig = resolve;
+      }),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  const panel = host.querySelector('[aria-label="API 配置加载状态"]')!;
+  expect(panel).not.toBeNull();
+  expect(panel.querySelector('[role="status"]')!.textContent).toContain(
+    "正在加载 API 配置",
+  );
+  expect(panel.querySelector("button")!.disabled).toBe(true);
+  await act(async () => resolveConfig(config));
+  expect(host.querySelector(".api-provider-settings")).not.toBeNull();
+});

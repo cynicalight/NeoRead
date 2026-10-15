@@ -90,6 +90,7 @@ export function Settings({
   const [saving, setSaving] = useState(false);
   const [toolTesting, setToolTesting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [configError, setConfigError] = useState("");
   const [apiModels, setAPIModels] = useState<AgentModel[]>([]);
   const [apiModelsError, setAPIModelsError] = useState("");
   const [apiDetails, setAPIDetails] = useState(false);
@@ -228,6 +229,7 @@ export function Settings({
     if (refreshing.current) return;
     refreshing.current = true;
     setLoading(true);
+    setConfigError("");
     try {
       const [providers, config] = await Promise.all([
         api.providers(false),
@@ -268,6 +270,7 @@ export function Settings({
       setLoading(false);
       await checkAll(pending, firstStage, config);
     } catch (e) {
+      setConfigError(e instanceof Error ? e.message : String(e));
       toast.error(String(e));
     } finally {
       refreshing.current = false;
@@ -446,6 +449,33 @@ export function Settings({
                   : null
               }
             />
+          </div>
+        )}
+        {apiDetails && !config && (
+          <div
+            className="settings-panel space-y-3"
+            aria-label="API 配置加载状态"
+          >
+            {loading ? (
+              <p role="status" className="text-sm text-muted-foreground">
+                正在加载 API 配置…
+              </p>
+            ) : (
+              <div role="alert" className="space-y-2">
+                <p className="text-sm font-medium">无法加载 API 配置</p>
+                <p className="text-sm text-muted-foreground">
+                  {configError || "配置尚未加载，请重试"}
+                </p>
+              </div>
+            )}
+            <Button
+              variant="outline"
+              disabled={loading}
+              onClick={() => void refresh()}
+            >
+              <RefreshCw />
+              重新加载配置
+            </Button>
           </div>
         )}
         <Tabs
