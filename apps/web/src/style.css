@@ -709,6 +709,9 @@ kbd {
   border: 0;
 }
 .reader-engine.pdf-container {
+  /* PDF.js assigns increasing z-index values to native annotations. Keep
+     those layers inside the reader, below app dialogs and popovers. */
+  isolation: isolate;
   overflow: auto;
   scrollbar-width: none;
   scrollbar-gutter: auto;
