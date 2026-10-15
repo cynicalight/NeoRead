@@ -49,6 +49,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private fitWidth = true;
   private appliedZoom?: ReaderTheme["zoom"];
   private wheelScale?: number;
+  private wheelAppliedScale?: number;
   private disposed = false;
   private navigationRequest = 0;
   private blocks: PDFBlockOverlay;
@@ -402,6 +403,10 @@ export class PDFReaderAdapter implements ReaderAdapter {
       return;
     event.preventDefault();
     if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+    // Focus animations and other navigation can change scale outside this handler.
+    // Keep fractional wheel deltas only while the viewer still has our last scale.
+    if (this.viewer.currentScale !== this.wheelAppliedScale)
+      this.wheelScale = undefined;
     const unit =
       event.deltaMode === 1
         ? 16
@@ -418,6 +423,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
       Math.max(0.25, (this.wheelScale ?? this.viewer.currentScale) * factor),
     );
     this.zoomTo(this.wheelScale, [event.clientX, event.clientY]);
+    this.wheelAppliedScale = this.viewer.currentScale;
   };
   private onMouseUp = (event: MouseEvent) => {
     this.selecting = false;
