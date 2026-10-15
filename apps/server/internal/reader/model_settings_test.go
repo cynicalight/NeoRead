@@ -3,6 +3,7 @@ package reader
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -206,7 +207,7 @@ func TestEnabledManualModelWithoutCatalog(t *testing.T) {
 	c := AIConfig{API: APIConnection{URL: upstream.URL}, APIModels: []string{"manual"}, APIEnabledModels: []string{"manual"}, Models: map[string]string{"api": "legacy"}}
 	passModels(&c, map[string]bool{"manual": true, "legacy": true})
 	models, err := s.apiAgentModels(t.Context(), c)
-	if err != nil || len(models) != 2 {
+	if err != nil || len(models) != 1 {
 		t.Fatalf("models %v %v", models, err)
 	}
 	if _, err := s.apiAgentAdapter(c, taskChat).resolve(t.Context(), false); err == nil {
@@ -215,5 +216,39 @@ func TestEnabledManualModelWithoutCatalog(t *testing.T) {
 	c.Models["api"] = "manual"
 	if req, err := s.apiAgentAdapter(c, taskChat).resolve(t.Context(), false); err != nil || req.Model != "manual" {
 		t.Fatalf("manual model lost: %+v %v", req, err)
+	}
+}
+
+func TestRemovedSelectedManualModelStaysMissing(t *testing.T) {
+	for _, catalogFails := range []bool{false, true} {
+		t.Run(fmt.Sprint(catalogFails), func(t *testing.T) {
+			calls := 0
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "GET" {
+					if catalogFails {
+						http.Error(w, "no catalog", 503)
+					} else {
+						w.Write([]byte(`{"data":[{"id":"available"}]}`))
+					}
+					return
+				}
+				calls++
+				writeAPIReply(w, "unexpected")
+			}))
+			defer upstream.Close()
+			s := testServer(t)
+			c := AIConfig{API: APIConnection{URL: upstream.URL}, APIModels: []string{}, APIEnabledModels: []string{}, Models: map[string]string{"api": "removed"}}
+			passModels(&c, map[string]bool{"removed": true, "available": true})
+			models, _ := s.apiAgentModels(t.Context(), c)
+			for _, m := range models {
+				if m.ID == "removed" {
+					t.Fatal("deleted manual ID was resurrected in candidates")
+				}
+			}
+			_, err := s.apiAgentAdapter(c, taskChat).Stream(t.Context(), GenerateRequest{AIInput{Prompt: "hi"}}, nil)
+			if errorKind(err) != ErrorCapability || calls != 0 || apiCapable(c, taskChat, false) {
+				t.Fatalf("missing selection silently routed: %v calls=%d", err, calls)
+			}
+		})
 	}
 }

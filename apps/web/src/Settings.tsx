@@ -344,19 +344,21 @@ export function Settings({
     )
       throw new Error("保存失败");
   };
+  const enabledModelIDs = (latest: AIConfig) =>
+    latest.apiEnabledModels ?? [
+      ...new Set(
+        [
+          ...apiModels.map((model) => model.id),
+          ...(latest.apiModels ?? []),
+          latest.models.api,
+          latest.translationModels?.api,
+          latest.visionModels?.api,
+        ].filter((value): value is string => !!value),
+      ),
+    ];
   const setModelEnabled = (id: string, enabled: boolean) =>
     saveConfig((latest) => {
-      const current = latest.apiEnabledModels ?? [
-        ...new Set(
-          [
-            ...apiModels.map((model) => model.id),
-            ...(latest.apiModels ?? []),
-            latest.models.api,
-            latest.translationModels?.api,
-            latest.visionModels?.api,
-          ].filter((value): value is string => !!value),
-        ),
-      ];
+      const current = enabledModelIDs(latest);
       return {
         ...latest,
         apiEnabledModels: enabled
@@ -364,6 +366,13 @@ export function Settings({
           : current.filter((value) => value !== id),
       };
     });
+  const removeAPIModel = (id: string) =>
+    saveConfig((latest) => ({
+      ...latest,
+      apiModels: (latest.apiModels ?? []).filter((value) => value !== id),
+      apiEnabledModels: enabledModelIDs(latest).filter((value) => value !== id),
+      // Keep task choices so removal is visible as an unavailable selection.
+    }));
   const checkStatus = (id: string, capability?: AICapability) => (
     <div className="flex flex-wrap gap-x-5">
       {(
@@ -659,11 +668,7 @@ export function Settings({
                                 aria-label={`移除 ${model.name}`}
                                 title="移除"
                                 disabled={saving || testing.size > 0}
-                                onClick={() =>
-                                  void saveAPIModels((models) =>
-                                    models.filter((item) => item !== model.id),
-                                  ).catch(() => {})
-                                }
+                                onClick={() => void removeAPIModel(model.id)}
                               >
                                 <X />
                               </Button>

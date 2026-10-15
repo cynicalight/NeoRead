@@ -102,16 +102,20 @@ beforeEach(() => {
     return config;
   });
   vi.mocked(api.agentModels).mockImplementation(async () =>
-    [...Object.keys(listed), ...(config.apiModels ?? [])].map(
-      (id): AgentModel => ({
-        id,
-        name: id,
-        description: "",
-        isDefault: false,
-        custom: !(id in listed),
-        capability: config.capabilities[`api:${id}`],
-      }),
-    ),
+    [
+      ...new Set([
+        ...Object.keys(listed),
+        ...(config.apiModels ?? []),
+        ...(config.apiEnabledModels ?? []),
+      ]),
+    ].map((id): AgentModel => ({
+      id,
+      name: id,
+      description: "",
+      isDefault: false,
+      custom: !(id in listed),
+      capability: config.capabilities[`api:${id}`],
+    })),
   );
   vi.mocked(api.testAI).mockImplementation(async (_provider, stage, model) => {
     const capability = {
@@ -421,5 +425,31 @@ it("saves independent text and vision probe timeouts", async () => {
     visionProbeTimeoutSeconds: 240,
     hasKey: true,
   });
+  expect(api.testAI).not.toHaveBeenCalled();
+});
+
+it("removes an enabled manual ID atomically while retaining its missing task choice", async () => {
+  config.api = { url: "https://api.example.com", model: "", hasKey: true };
+  config.apiModels = ["manual"];
+  config.apiEnabledModels = [];
+  config.models = { api: "manual" };
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  await clickButton("启用 manual");
+  expect(config.apiEnabledModels).toEqual(["manual"]);
+  await clickButton("移除 manual");
+  expect(config.apiModels).toEqual([]);
+  expect(config.apiEnabledModels).toEqual([]);
+  expect(config.models.api).toBe("manual");
+  expect(
+    host.querySelector('.api-model-list [aria-label="启用 manual"]'),
+  ).toBeNull();
+  expect(api.saveAIConfig).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      apiModels: [],
+      apiEnabledModels: [],
+      models: { api: "manual" },
+    }),
+  );
   expect(api.testAI).not.toHaveBeenCalled();
 });

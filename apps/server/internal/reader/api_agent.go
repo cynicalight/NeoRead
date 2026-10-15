@@ -24,7 +24,8 @@ type apiAgentAdapter struct {
 	text, vision apiModelChoice
 	task         modelTask
 	// catalog lists the endpoint's models with this snapshot's check results.
-	catalog func(context.Context) ([]AgentModel, error)
+	catalog       func(context.Context) ([]AgentModel, error)
+	enabledModels []string
 }
 
 // An empty model picks the recommended model among those that passed.
@@ -85,7 +86,7 @@ func (s *Server) apiAgentAdapter(c AIConfig, task modelTask) apiAgentAdapter {
 	}
 	return apiAgentAdapter{c.API, choice(models, efforts), choice(c.VisionModels, c.VisionEfforts), task, func(ctx context.Context) ([]AgentModel, error) {
 		return s.apiAgentModels(ctx, c)
-	}}
+	}, c.APIEnabledModels}
 }
 
 // resolve fixes the model and requested effort for one request. Wire mapping
@@ -102,6 +103,9 @@ func (a apiAgentAdapter) resolve(ctx context.Context, vision bool) (completionRe
 		choice, task = a.vision, taskVision
 	}
 	req := completionRequest{Model: choice.model, Effort: choice.level}
+	if req.Model != "" && a.enabledModels != nil && !slices.Contains(a.enabledModels, req.Model) {
+		return req, generationError(ErrorCapability, "所选 API 模型已停用或移除，请在设置中重新选择")
+	}
 	models, err := a.catalog(ctx)
 	if err != nil {
 		if req.Model == "" {
@@ -259,7 +263,11 @@ func (s *Server) apiAgentModels(ctx context.Context, c AIConfig) ([]AgentModel, 
 	models := append([]AgentModel{}, listed...)
 	ids := append([]string{}, c.APIModels...)
 	ids = append(ids, c.APIEnabledModels...)
-	ids = append(ids, c.Models["api"], c.TranslationModels["api"], c.VisionModels["api"])
+	for _, selected := range []string{c.Models["api"], c.TranslationModels["api"], c.VisionModels["api"]} {
+		if apiModelEnabled(c, selected) {
+			ids = append(ids, selected)
+		}
+	}
 	for _, id := range ids {
 		if id == "" {
 			continue

@@ -528,7 +528,7 @@ func (s *Server) probeConnection(parent context.Context, c AIConfig, p string, i
 			effort = "medium"
 		}
 		choice := apiModelChoice{model, effort}
-		adapter = apiAgentAdapter{c.API, choice, choice, taskChat, s.apiCatalog(c.API)}
+		adapter = apiAgentAdapter{c.API, choice, choice, taskChat, s.apiCatalog(c.API), nil}
 	}
 	if p == "text-api" {
 		adapter = apiAdapter{c.TextAPI}
