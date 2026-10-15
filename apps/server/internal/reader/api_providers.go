@@ -20,7 +20,8 @@ type APIModelOverride struct {
 	TotalTimeoutSeconds       int         `json:"totalTimeoutSeconds,omitempty"`
 }
 type APIProvider struct {
-	Pricing        *APIPricing                 `json:"pricing,omitempty"`
+	// Deprecated: decoded only to freeze prices from the experimental default format.
+	LegacyPricing  *APIPricing                 `json:"pricing,omitempty"`
 	ID             string                      `json:"id"`
 	Name           string                      `json:"name"`
 	Connection     APIConnection               `json:"connection"`
@@ -140,6 +141,12 @@ func prepareAPIProviders(c *AIConfig, old AIConfig) error {
 			c.APIProviders = append(c.APIProviders, APIProvider{ID: defaultAPIProviderID, Name: "API", Connection: c.API, Models: c.APIModels, EnabledModels: c.APIEnabledModels})
 		}
 	}
+	for _, p := range c.APIProviders {
+		if err := validatePricing(p.LegacyPricing); err != nil {
+			return err
+		}
+	}
+	migrateAPIModelPricing(c)
 	seen := map[string]bool{}
 	for i := range c.APIProviders {
 		p := &c.APIProviders[i]
@@ -178,11 +185,8 @@ func prepareAPIProviders(c *AIConfig, old AIConfig) error {
 		if len(p.Models) > 50 {
 			return errors.New("手动添加的模型过多")
 		}
-		if err := validatePricing(p.Pricing, false); err != nil {
-			return err
-		}
 		for model, o := range p.ModelOverrides {
-			if err := validatePricing(o.Pricing, true); err != nil {
+			if err := validatePricing(o.Pricing); err != nil {
 				return err
 			}
 			if model == "" || len(model) > 200 {

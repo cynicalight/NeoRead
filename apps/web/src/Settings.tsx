@@ -635,21 +635,6 @@ export function Settings({
                     onSave={saveAPI}
                   />
                 )}
-              {providerRecord && (
-                <APIPricingForm
-                  key={`pricing:${selectedProvider}`}
-                  value={providerRecord.pricing}
-                  disabled={saving || testing.size > 0}
-                  onSave={(pricing) =>
-                    saveConfig((latest) => ({
-                      ...latest,
-                      apiProviders: latest.apiProviders?.map((p) =>
-                        p.id === selectedProvider ? { ...p, pricing } : p,
-                      ),
-                    }))
-                  }
-                />
-              )}
               {config && connection?.url && (
                 <div className="mt-6">
                   <h3 className="mb-1 text-sm font-medium">启用模型</h3>
@@ -810,7 +795,13 @@ export function Settings({
                             </Button>
                           )}
                           {providerRecord && (
-                            <>
+                            <details className="w-full text-xs text-muted-foreground motion-safe:animate-in motion-safe:fade-in">
+                              <summary
+                                aria-label={`${model.id} 模型设置`}
+                                className="cursor-pointer py-2"
+                              >
+                                {model.name} 设置
+                              </summary>
                               <APIPricingForm
                                 model={model.id}
                                 value={
@@ -818,7 +809,6 @@ export function Settings({
                                     splitModelRef(model.id)[1]
                                   ]?.pricing
                                 }
-                                inherited={providerRecord.pricing}
                                 disabled={saving || testing.size > 0}
                                 onSave={(pricing) =>
                                   saveConfig((latest) => ({
@@ -862,8 +852,13 @@ export function Settings({
                                               ...p,
                                               modelOverrides: {
                                                 ...p.modelOverrides,
-                                                [splitModelRef(model.id)[1]]:
-                                                  value,
+                                                [splitModelRef(model.id)[1]]: {
+                                                  ...value,
+                                                  pricing:
+                                                    p.modelOverrides?.[
+                                                      splitModelRef(model.id)[1]
+                                                    ]?.pricing,
+                                                },
                                               },
                                             }
                                           : p,
@@ -871,7 +866,7 @@ export function Settings({
                                   }))
                                 }
                               />
-                            </>
+                            </details>
                           )}
                         </li>
                       );

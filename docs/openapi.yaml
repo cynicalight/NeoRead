@@ -3856,6 +3856,7 @@
           "APIPricing":
             {
               "type": "object",
+              "required": ["currency"],
               "properties":
                 {
                   "currency": { "type": "string", "enum": ["CNY", "USD"] },
@@ -4986,7 +4987,6 @@
               "required": ["id", "name", "connection", "models"],
               "properties":
                 {
-                  "pricing": { "$ref": "#/components/schemas/APIPricing" },
                   "id":
                     { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,80}$" },
                   "name": { "type": "string" },

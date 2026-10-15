@@ -59,17 +59,20 @@ Pseudo-interface intent (choose exact representation matching repository pattern
 // provider default < model override; omitted fields inherit, not reset.
 ```
 
-### Task 3: 自定义价格和历史费用
+### Task 3: 模型独立价格和历史费用
+
+> 2026-10-15 用户更正：价格属于 API 提供者下的每个模型，取消之前的提供商默认价与价格覆盖设计。以下价格要求已按更正更新；时限仍沿用 Task 2 的默认值与模型调整。
 
 **Files:** new focused pricing.go/tests; connections.go provider/model validation, usage.go/usage_test.go, API adapter usage integration; provider/model settings UI; ProcessingUsage.tsx and processing-usage.test.tsx; reader-core, OpenAPI and generated types; docs/processing-usage.md.
 
-**Interfaces:** Consume Task 2 provider/model identity and override records. Pricing has currency (CNY or USD), optional nonnegative finite input/output/cacheRead/cacheWrite values per million tokens. Model overrides inherit omitted fields from provider defaults; zero is explicit free. No currency mixing or automatic exchange rates. UsageCall or model usage saves effective price snapshot before first request and stores estimated cost/status, so editing prices never rewrites history.
+**Interfaces:** Consume Task 2 provider/model identity and override records. Each provider/model record has independent pricing with an explicit currency (CNY or USD) and optional nonnegative finite input/output/cacheRead/cacheWrite values per million tokens. Omitted or cleared rates are unknown; zero is explicit free. There is no provider-price or other-model inheritance. No currency mixing or automatic exchange rates. UsageCall or model usage saves effective price snapshot before first request and stores estimated cost/status, so editing prices never rewrites history.
 
-- [ ] Write failing tests for default inheritance, partial model override, explicit zero vs unknown, invalid/negative prices, currency separation, price change mid-request, failed call with tokens, old records lacking price, incomplete usage and cache input counted exactly once.
-- [ ] Implement price form with provider defaults/model overrides and inherited source; empty field clears override, not zero. Currency switches cannot retain inherited amounts from a different currency without explicit handling.
+- [ ] Write failing tests for independent model/provider records, cleared rates staying unknown, explicit zero vs unknown, invalid/negative prices, currency separation, price change mid-request, failed call with tokens, old records lacking price, incomplete usage and cache input counted exactly once.
+- [ ] Give each model a clearly named settings entry containing independent prices and existing request/probe timeouts. Remove provider-price controls; empty fields are unknown, not zero. Changing currency clears that model’s current amounts. Fetching catalogs, switching providers and saving timeouts preserve stored prices without probing.
+- [ ] Freeze old experimental provider prices only for IDs already in manual/enabled/model-settings/task configuration, remove the old provider field, and never assign those prices to later discoveries or restore cleared rates. Preserve historical snapshots unchanged.
 - [ ] Capture immutable effective prices with each call. Compute ordinary input as total input minus known cache read/write and output as total output already including reasoning. Do not charge reasoning twice. Missing usage or necessary price reports unknown/partial; never silently show zero. Handle unknown cache breakdown honestly if differential rates prevent complete estimate.
 - [ ] Aggregate per currency into existing document/chat usage UI with estimated totals, partial/unknown counts, per-provider/model cost and price source. Preserve old history and existing duration/token counts, including combineUsageReports.
-- [ ] Regenerate contracts, focused tests/typecheck, inspect diff, commit feat(usage): estimate costs with provider and model pricing.
+- [ ] Regenerate contracts, focused tests/typecheck, inspect diff, commit a focused change for independent model pricing and preserved historical estimates.
 
 Example expected arithmetic:
 ```text

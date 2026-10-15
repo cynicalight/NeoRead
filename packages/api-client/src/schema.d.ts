@@ -3367,7 +3367,7 @@ export interface components {
     schemas: {
         APIPricing: {
             /** @enum {string} */
-            currency?: "CNY" | "USD";
+            currency: "CNY" | "USD";
             input?: number;
             output?: number;
             cacheRead?: number;
@@ -3798,7 +3798,6 @@ export interface components {
             totalTimeoutSeconds?: number;
         };
         APIProvider: {
-            pricing?: components["schemas"]["APIPricing"];
             id: string;
             name: string;
             connection: components["schemas"]["APIConnection"];

@@ -554,7 +554,7 @@ export interface AICapability {
   error?: string;
 }
 export interface APIPricing {
-  currency?: "CNY" | "USD";
+  currency: "CNY" | "USD";
   input?: number;
   output?: number;
   cacheRead?: number;
@@ -583,7 +583,6 @@ export interface APIModelOverride {
   totalTimeoutSeconds?: number;
 }
 export interface APIProvider {
-  pricing?: APIPricing;
   id: string;
   name: string;
   connection: APIConnection;

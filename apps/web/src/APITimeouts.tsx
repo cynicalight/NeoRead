@@ -105,7 +105,7 @@ export function ModelTimeoutForm({
   );
   return (
     <details className="w-full text-xs text-muted-foreground">
-      <summary className="cursor-pointer py-1">模型时限覆盖</summary>
+      <summary className="cursor-pointer py-1">检测与生成时限</summary>
       <form
         className="space-y-2 pb-2"
         onSubmit={(event) => {

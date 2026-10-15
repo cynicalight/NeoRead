@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestPricingSnapshotInheritanceAndHistory(t *testing.T) {
+func TestPricingIndependentSnapshotAndHistory(t *testing.T) {
 	s, _ := processingFixture(t)
 	var config AIConfig
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -19,7 +19,7 @@ func TestPricingSnapshotInheritanceAndHistory(t *testing.T) {
 			return
 		}
 		var changed AIConfig
-		json.Unmarshal([]byte(`{"apiProviders":[{"id":"p","name":"Renamed","connection":{},"models":[],"pricing":{"currency":"USD","input":999}}]}`), &changed)
+		json.Unmarshal([]byte(`{"apiProviders":[{"id":"p","name":"Renamed","connection":{},"models":[],"modelOverrides":{"same":{"pricing":{"currency":"USD","input":999}}}}]}`), &changed)
 		if err := s.writeAIConfig(changed); err != nil {
 			t.Error(err)
 		}
@@ -27,7 +27,7 @@ func TestPricingSnapshotInheritanceAndHistory(t *testing.T) {
 		fmt.Fprint(w, "data: {\"model\":\"returned-alias\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"}}],\"usage\":{\"prompt_tokens\":1000,\"completion_tokens\":100,\"total_tokens\":1100,\"prompt_tokens_details\":{\"cached_tokens\":200}}}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 	}))
 	defer upstream.Close()
-	json.Unmarshal([]byte(fmt.Sprintf(`{"primary":"api","models":{"api":"p::same"},"apiProviders":[{"id":"p","name":"P","connection":{"url":%q},"models":["same"],"pricing":{"currency":"CNY","input":2,"output":8,"cacheRead":0.5,"cacheWrite":2},"modelOverrides":{"same":{"pricing":{"output":0}}}}]}`, upstream.URL)), &config)
+	json.Unmarshal([]byte(fmt.Sprintf(`{"primary":"api","models":{"api":"p::same"},"apiProviders":[{"id":"p","name":"P","connection":{"url":%q},"models":["same"],"modelOverrides":{"same":{"pricing":{"currency":"CNY","input":2,"output":0,"cacheRead":0.5,"cacheWrite":2}}}}]}`, upstream.URL)), &config)
 	passModels(&config, map[string]bool{"p::same": true})
 	g := &GenerationService{primary: "api", usageSink: s.processingUsageSink("doc", "chat", "q"), connections: map[string]generationConnection{"api": {VerifiedText: true, Adapter: s.apiAgentAdapter(config, taskChat)}}}
 	if _, err := g.Generate(t.Context(), AIInput{Prompt: "price"}, false, nil); err != nil {
@@ -90,7 +90,7 @@ func TestPricingValidation(t *testing.T) {
 	for _, pricing := range []string{`{"currency":"EUR","input":1}`, `{"currency":"CNY","input":-1}`, `{"input":2}`} {
 		t.Run(pricing, func(t *testing.T) {
 			s := testServer(t)
-			payload := fmt.Sprintf(`{"apiProviders":[{"id":"p","name":"P","connection":{},"models":[],"pricing":%s}]}`, pricing)
+			payload := fmt.Sprintf(`{"apiProviders":[{"id":"p","name":"P","connection":{},"models":["same"],"modelOverrides":{"same":{"pricing":%s}}}]}`, pricing)
 			w := request(t, s, "PUT", "/api/ai/config", jsonReader(json.RawMessage(payload)))
 			if w.Code != 400 {
 				t.Fatalf("invalid price accepted: %d %s", w.Code, w.Body.String())
@@ -130,8 +130,8 @@ func TestPricingCacheAndUnknownBoundaries(t *testing.T) {
 	}
 }
 
-func TestPricingCurrencyInheritanceAndSnapshotOwnership(t *testing.T) {
-	p := APIProvider{Pricing: &APIPricing{Currency: "CNY", Input: priceNumber(2), Output: priceNumber(8)}, ModelOverrides: map[string]APIModelOverride{"m": {Pricing: &APIPricing{Currency: "USD", Output: priceNumber(0)}}}}
+func TestPricingCurrencyIsolationAndSnapshotOwnership(t *testing.T) {
+	p := APIProvider{LegacyPricing: &APIPricing{Currency: "CNY", Input: priceNumber(2), Output: priceNumber(8)}, ModelOverrides: map[string]APIModelOverride{"m": {Pricing: &APIPricing{Currency: "USD", Output: priceNumber(0)}}}}
 	got := effectiveAPIPrice(p, "m")
 	if got.Currency != "USD" || got.Input != nil || got.Output == nil || *got.Output != 0 || got.Sources["output"] != "model" {
 		t.Fatalf("mixed currencies: %+v", got)
@@ -147,7 +147,7 @@ func TestPricingCurrencyInheritanceAndSnapshotOwnership(t *testing.T) {
 		t.Fatal("snapshot retained mutable fields")
 	}
 	for _, rate := range []float64{-1, math.Inf(1), math.NaN()} {
-		if validatePricing(&APIPricing{Currency: "CNY", Input: &rate}, false) == nil {
+		if validatePricing(&APIPricing{Currency: "CNY", Input: &rate}) == nil {
 			t.Fatal("invalid finite price accepted")
 		}
 	}
@@ -193,7 +193,7 @@ func TestPricingStructuredRoundsAndCompaction(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
-	p := APIProvider{ID: "p", Name: "P", Pricing: &APIPricing{Currency: "USD", Input: priceNumber(2), Output: priceNumber(8), CacheRead: priceNumber(2), CacheWrite: priceNumber(2)}}
+	p := APIProvider{ID: "p", Name: "P", ModelOverrides: map[string]APIModelOverride{"same": {Pricing: &APIPricing{Currency: "USD", Input: priceNumber(2), Output: priceNumber(8), CacheRead: priceNumber(2), CacheWrite: priceNumber(2)}}}}
 	req := completionRequest{Model: "same", ProviderID: p.ID, ProviderName: p.Name, Tools: true, Price: effectiveAPIPrice(p, "same")}
 	sink := s.processingUsageSink("doc", "chat", "question")
 	a.provider = "api"
@@ -252,14 +252,14 @@ func TestPricingTranslationVisionAndFailedStreams(t *testing.T) {
 				}
 			}))
 			defer upstream.Close()
-			c := AIConfig{Primary: "api", Models: map[string]string{"api": "p::same"}, VisionModels: map[string]string{"api": "p::same"}, TranslationModels: map[string]string{"api": "p::same"}, APIProviders: []APIProvider{{ID: "p", Name: "P", Connection: APIConnection{URL: upstream.URL}, Models: []string{"same"}, Pricing: &APIPricing{Currency: "CNY", Input: priceNumber(2), Output: priceNumber(8), CacheRead: priceNumber(2), CacheWrite: priceNumber(2)}}}}
+			c := AIConfig{Primary: "api", Models: map[string]string{"api": "p::same"}, VisionModels: map[string]string{"api": "p::same"}, TranslationModels: map[string]string{"api": "p::same"}, APIProviders: []APIProvider{{ID: "p", Name: "P", Connection: APIConnection{URL: upstream.URL}, Models: []string{"same"}, ModelOverrides: map[string]APIModelOverride{"same": {Pricing: &APIPricing{Currency: "CNY", Input: priceNumber(2), Output: priceNumber(8), CacheRead: priceNumber(2), CacheWrite: priceNumber(2)}}}}}}
 			passModels(&c, map[string]bool{"p::same": true})
 			var adapter Adapter = s.apiAgentAdapter(c, taskChat)
 			if kind == "translation" {
 				adapter = &apiTranslationSession{apiAgentAdapter: s.apiAgentAdapter(c, taskTranslation)}
 			}
 			// Original config pointers must not reach the adapter snapshot.
-			*c.APIProviders[0].Pricing.Input = 999
+			*c.APIProviders[0].ModelOverrides["same"].Pricing.Input = 999
 			g := &GenerationService{primary: "api", usageSink: s.processingUsageSink("doc", "chat", kind), connections: map[string]generationConnection{"api": {VerifiedText: true, VerifiedVision: true, Adapter: adapter}}}
 			in := AIInput{Prompt: "hello"}
 			if kind == "vision" {
@@ -338,5 +338,110 @@ func TestPricingAliasDoesNotDiscardCLIUnknownModels(t *testing.T) {
 	}
 	if len(saved.Models) != 2 || saved.Models[0].Model != "one" || saved.Models[1].Model != "two" {
 		t.Fatalf("CLI unknown model discarded as API alias: %+v", saved.Models)
+	}
+}
+
+func TestModelPricingDoesNotInheritProviderOrOtherModels(t *testing.T) {
+	p := APIProvider{ID: "p", LegacyPricing: &APIPricing{Currency: "CNY", Input: priceNumber(99)}, ModelOverrides: map[string]APIModelOverride{
+		"a": {Pricing: &APIPricing{Currency: "CNY", Output: priceNumber(0)}},
+		"b": {Pricing: &APIPricing{Currency: "CNY", Input: priceNumber(7)}},
+	}}
+	a := effectiveAPIPrice(p, "a")
+	if a == nil || a.Input != nil || a.Output == nil || *a.Output != 0 {
+		t.Fatalf("model a inherited an unrelated price: %+v", a)
+	}
+	if effectiveAPIPrice(p, "new-model") != nil {
+		t.Fatal("new catalog model inherited provider pricing")
+	}
+	q := APIProvider{ID: "q", ModelOverrides: map[string]APIModelOverride{"a": {Pricing: &APIPricing{Currency: "USD", Input: priceNumber(3)}}}}
+	if other := effectiveAPIPrice(q, "a"); other.Currency != "USD" || *other.Input != 3 {
+		t.Fatal(other)
+	}
+	p.ModelOverrides["a"] = APIModelOverride{Pricing: &APIPricing{Currency: "CNY"}}
+	if cleared := effectiveAPIPrice(p, "a"); cleared.Input != nil || cleared.Output != nil {
+		t.Fatal("cleared price was restored from another source")
+	}
+}
+
+func TestLegacyProviderPricingFreezesOnlyConfiguredModels(t *testing.T) {
+	s := testServer(t)
+	if _, err := s.Store.DB.Exec("INSERT INTO documents(id,type,title,author,size,created_at,last_opened_at,library) VALUES('doc','pdf','test','',1,?,?,'papers')", now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	historical := UsageCall{ID: "historical", Provider: "api", ProviderID: "p", Status: "complete", Price: &PriceSnapshot{APIPricing: APIPricing{Currency: "CNY", Input: priceNumber(2)}, Model: "manual", Sources: map[string]string{"input": "provider"}}, Models: []ModelTokens{{Model: "manual", Tokens: &TokenCounts{InputTokens: 1000, TotalTokens: 1000}, Cost: &UsageCost{Currency: "CNY", Amount: priceNumber(.002), Status: "complete"}}}}
+	if err := s.processingUsageSink("doc", "chat", "old")(historical); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.Store.scopedUsageReport("doc", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeJSON, _ := json.Marshal(before)
+	var c AIConfig
+	if err := json.Unmarshal([]byte(`{"models":{"api":"p::selected"},"apiProviders":[{"id":"p","name":"P","connection":{},"models":["manual"],"enabledModels":["enabled"],"pricing":{"currency":"CNY","input":2,"output":8},"modelOverrides":{"partial":{"firstOutputTimeoutSeconds":42,"pricing":{"output":0}},"other-currency":{"pricing":{"currency":"USD","output":5}}}},{"id":"q","name":"Q","connection":{},"models":["manual"],"modelOverrides":{"manual":{"pricing":{"currency":"USD","input":7}}}}]}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeAIConfig(c); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, s, "GET", "/api/ai/config", nil)
+	var public struct {
+		Providers []struct {
+			ID        string                      `json:"id"`
+			Pricing   json.RawMessage             `json:"pricing"`
+			Overrides map[string]APIModelOverride `json:"modelOverrides"`
+		} `json:"apiProviders"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &public); err != nil {
+		t.Fatal(err)
+	}
+	if len(public.Providers) != 2 || len(public.Providers[0].Pricing) > 0 {
+		t.Fatalf("provider price still exposed: %s", w.Body.String())
+	}
+	p := public.Providers[0]
+	for _, model := range []string{"manual", "enabled", "selected", "partial"} {
+		price := p.Overrides[model].Pricing
+		if price == nil || price.Currency != "CNY" || price.Input == nil || *price.Input != 2 {
+			t.Fatalf("configured model not frozen: %s %+v", model, price)
+		}
+	}
+	if *p.Overrides["partial"].Pricing.Output != 0 || p.Overrides["partial"].FirstOutputTimeoutSeconds != 42 {
+		t.Fatal("lost explicit zero or timeout")
+	}
+	if p.Overrides["other-currency"].Pricing.Input != nil || *p.Overrides["other-currency"].Pricing.Output != 5 {
+		t.Fatal("migration mixed currencies")
+	}
+	if *public.Providers[1].Overrides["manual"].Pricing.Input != 7 {
+		t.Fatal("same model in another provider changed")
+	}
+	var normalized AIConfig
+	json.Unmarshal(w.Body.Bytes(), &normalized)
+	normalized.APIProviders[0].Models = append(normalized.APIProviders[0].Models, "later-discovered")
+	setting := normalized.APIProviders[0].ModelOverrides["manual"]
+	setting.Pricing = &APIPricing{Currency: "CNY"}
+	normalized.APIProviders[0].ModelOverrides["manual"] = setting
+	w = request(t, s, "PUT", "/api/ai/config", jsonReader(normalized))
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	loaded := s.aiConfig()
+	if effectiveAPIPrice(loaded.APIProviders[0], "later-discovered") != nil {
+		t.Fatal("later catalog model inherited legacy pricing")
+	}
+	if cleared := effectiveAPIPrice(loaded.APIProviders[0], "manual"); cleared == nil || cleared.Input != nil || cleared.Output != nil {
+		t.Fatal("migration resurrected cleared model price")
+	}
+	w = request(t, s, "GET", "/api/ai/config", nil)
+	json.Unmarshal(w.Body.Bytes(), &public)
+	if len(public.Providers[0].Pricing) > 0 {
+		t.Fatal("legacy pricing survived configuration save")
+	}
+	after, err := s.Store.scopedUsageReport("doc", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterJSON, _ := json.Marshal(after)
+	if string(beforeJSON) != string(afterJSON) {
+		t.Fatal("configuration migration rewrote historical prices, sources or costs")
 	}
 }

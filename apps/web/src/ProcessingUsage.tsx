@@ -396,8 +396,8 @@ function StageRows({
                               : Object.values(call.price.sources).includes(
                                     "model",
                                   )
-                                ? "模型覆盖"
-                                : "提供商默认",
+                                ? "模型价格"
+                                : "历史价格",
                           ),
                         ),
                       ).join(" / ")}{" "}

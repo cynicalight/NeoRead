@@ -33,11 +33,11 @@ type CostSummary struct {
 	PartialCalls int            `json:"partialCalls"`
 }
 
-func validatePricing(p *APIPricing, override bool) error {
+func validatePricing(p *APIPricing) error {
 	if p == nil {
 		return nil
 	}
-	if p.Currency != "CNY" && p.Currency != "USD" && !(override && p.Currency == "") {
+	if p.Currency != "CNY" && p.Currency != "USD" {
 		return errors.New("价格币种必须为 CNY 或 USD")
 	}
 	for _, rate := range []*float64{p.Input, p.Output, p.CacheRead, p.CacheWrite} {
@@ -47,42 +47,70 @@ func validatePricing(p *APIPricing, override bool) error {
 	}
 	return nil
 }
+
+// Runtime pricing belongs exclusively to the selected provider/model record.
 func effectiveAPIPrice(p APIProvider, model string) *PriceSnapshot {
-	result := &PriceSnapshot{Model: model, Sources: map[string]string{}}
-	base, override := p.Pricing, p.ModelOverrides[model].Pricing
-	if base != nil {
-		result.Currency = base.Currency
-	}
-	if override != nil && override.Currency != "" {
-		result.Currency = override.Currency
-	}
-	if result.Currency == "" {
+	price := p.ModelOverrides[model].Pricing
+	if price == nil || price.Currency == "" {
 		return nil
 	}
-	for _, entry := range []struct {
-		name           string
-		target         **float64
-		base, override *float64
-	}{
-		{"input", &result.Input, nil, nil}, {"output", &result.Output, nil, nil}, {"cacheRead", &result.CacheRead, nil, nil}, {"cacheWrite", &result.CacheWrite, nil, nil},
-	} {
-		if base != nil && base.Currency == result.Currency {
-			entry.base = map[string]*float64{"input": base.Input, "output": base.Output, "cacheRead": base.CacheRead, "cacheWrite": base.CacheWrite}[entry.name]
-		}
-		if override != nil {
-			entry.override = map[string]*float64{"input": override.Input, "output": override.Output, "cacheRead": override.CacheRead, "cacheWrite": override.CacheWrite}[entry.name]
-		}
-		rate, source := entry.base, "provider"
-		if entry.override != nil {
-			rate, source = entry.override, "model"
-		}
+	result := clonePrice(&PriceSnapshot{APIPricing: *price, Model: model})
+	for field, rate := range map[string]*float64{"input": price.Input, "output": price.Output, "cacheRead": price.CacheRead, "cacheWrite": price.CacheWrite} {
 		if rate != nil {
-			value := *rate
-			*entry.target = &value
-			result.Sources[entry.name] = source
+			result.Sources[field] = "model"
 		}
 	}
 	return result
+}
+
+// Upgrade the short-lived provider-default format once. Only IDs already stored
+// in configuration are eligible; fetching a catalog never assigns prices.
+// The normalized config drops LegacyPricing and is persisted on the next save.
+func migrateAPIModelPricing(c *AIConfig) {
+	for i := range c.APIProviders {
+		p := &c.APIProviders[i]
+		if p.LegacyPricing == nil {
+			continue
+		}
+		known := map[string]bool{}
+		for _, ids := range [][]string{p.Models, p.EnabledModels} {
+			for _, model := range ids {
+				known[model] = true
+			}
+		}
+		settings := make(map[string]APIModelOverride, len(p.ModelOverrides))
+		for model, value := range p.ModelOverrides {
+			known[model] = true
+			settings[model] = value
+		}
+		for _, choices := range []map[string]string{c.Models, c.TranslationModels, c.VisionModels} {
+			if ref := choices["api"]; ref != "" {
+				provider, model := splitAPIModelRef(ref)
+				if provider == p.ID {
+					known[model] = true
+				}
+			}
+		}
+		for model := range known {
+			setting := settings[model]
+			price := *p.LegacyPricing
+			if prior := setting.Pricing; prior != nil {
+				if prior.Currency != "" && prior.Currency != price.Currency {
+					price = APIPricing{Currency: prior.Currency}
+				}
+				for _, pair := range [][2]**float64{{&price.Input, &prior.Input}, {&price.Output, &prior.Output}, {&price.CacheRead, &prior.CacheRead}, {&price.CacheWrite, &prior.CacheWrite}} {
+					if *pair[1] != nil {
+						*pair[0] = *pair[1]
+					}
+				}
+			}
+			frozen := clonePrice(&PriceSnapshot{APIPricing: price})
+			setting.Pricing = &frozen.APIPricing
+			settings[model] = setting
+		}
+		p.ModelOverrides = settings
+		p.LegacyPricing = nil
+	}
 }
 func clonePrice(p *PriceSnapshot) *PriceSnapshot {
 	if p == nil {

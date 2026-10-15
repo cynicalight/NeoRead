@@ -140,6 +140,7 @@ func (s *Server) readAIConfig() AIConfig {
 		c.Capabilities[k] = v
 	}
 	migrateAPIProviders(&c)
+	migrateAPIModelPricing(&c)
 	return c
 }
 func (s *Server) writeAIConfig(c AIConfig) error {
@@ -213,6 +214,7 @@ func capable(c AIConfig, p string, vision bool) bool {
 func publicConfig(c AIConfig) AIConfig {
 	c.APIProviders = append([]APIProvider{}, apiProviders(c)...)
 	for i := range c.APIProviders {
+		c.APIProviders[i].LegacyPricing = nil
 		c.APIProviders[i].Connection.HasKey = c.APIProviders[i].Connection.Key != ""
 		c.APIProviders[i].Connection.Key = ""
 	}
