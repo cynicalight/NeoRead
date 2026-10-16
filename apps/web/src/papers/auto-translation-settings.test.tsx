@@ -29,12 +29,12 @@ it("updates the highlighted threshold by tens with keyboard input and describes 
       '[data-slot="slider-thumb"]',
     )!;
     expect(thumb.style.visibility).not.toBe("hidden");
-    expect(thumb.style.insetInlineStart).toBe("50%");
+    expect(parseFloat(thumb.style.insetInlineStart)).toBeCloseTo(100 / 3);
     expect(thumb.style.clipPath).toBe("");
     const indicator = host.querySelector<HTMLElement>(
       '[data-slot="slider-range"]',
     )!;
-    expect(indicator.style.width).toBe("50%");
+    expect(parseFloat(indicator.style.width)).toBeCloseTo(100 / 3);
     await act(async () => {
       slider.dispatchEvent(
         new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
@@ -54,7 +54,7 @@ it("updates the highlighted threshold by tens with keyboard input and describes 
         new KeyboardEvent("keydown", { key: "End", bubbles: true }),
       );
     });
-    expect(host.querySelector("p span")?.textContent).toBe("100");
+    expect(host.querySelector("p span")?.textContent).toBe("150");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -62,7 +62,7 @@ it("updates the highlighted threshold by tens with keyboard input and describes 
   }
 });
 
-it.each([0, 50, 80, 100])(
+it.each([0, 50, 80, 100, 150])(
   "positions the thumb at saved value %s on first mount and reopening before layout measurement",
   async (limit) => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -83,12 +83,16 @@ it.each([0, 50, 80, 100])(
           '[data-slot="slider-thumb"]',
         )!;
         expect(thumb.style.visibility).not.toBe("hidden");
-        expect(thumb.style.insetInlineStart).toBe(`${limit}%`);
+        expect(parseFloat(thumb.style.insetInlineStart)).toBeCloseTo(
+          (limit / 150) * 100,
+        );
         const indicator = host.querySelector<HTMLElement>(
           '[data-slot="slider-range"]',
         )!;
         expect(indicator.style.visibility).not.toBe("hidden");
-        expect(indicator.style.width).toBe(`${limit}%`);
+        expect(parseFloat(indicator.style.width)).toBeCloseTo(
+          (limit / 150) * 100,
+        );
         await act(async () => root.render(null));
       }
     } finally {

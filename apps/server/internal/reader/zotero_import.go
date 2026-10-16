@@ -173,7 +173,7 @@ func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, librar
 		return result, errors.New("PDF 在扫描后发生变化，请重新扫描")
 	}
 	if !info.Mode().IsRegular() || info.Size() > maxImportBytes {
-		return result, errors.New("附件不是普通文件，或超过 1 GB")
+		return result, errors.New("附件不是普通文件，或超过 512 MB")
 	}
 	temp, err := os.CreateTemp(s.Store.Root, "zotero-*.pdf")
 	if err != nil {
@@ -200,7 +200,7 @@ func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, librar
 		return result, ctx.Err()
 	}
 	if size > maxImportBytes {
-		return result, errors.New("附件超过 1 GB")
+		return result, errors.New("附件超过 512 MB")
 	}
 	header, err := os.Open(temp.Name())
 	if err != nil {

@@ -217,7 +217,7 @@ func (s *Server) paperLabels() ([]string, []string, error) {
 	return folders, tags, nil
 }
 func (s *Server) connectorImport(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxImportBytes+(1<<20))
+	r.Body = http.MaxBytesReader(w, r.Body, maxImportBytes+(11<<20))
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		fail(w, 400, "上传超过限制或内容无效")
 		return

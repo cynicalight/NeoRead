@@ -30,11 +30,11 @@ async function save(
   }
   if (!pdf.ok) return { ok: false, error: `PDF 下载失败 (${pdf.status})` };
   const declared = Number(pdf.headers.get("content-length") || 0);
-  if (declared > 1024 * 1024 * 1024)
-    return { ok: false, error: "PDF 超过 Reader 的 1 GB 上传限制" };
+  if (declared > 512 * 1024 * 1024)
+    return { ok: false, error: "PDF 超过 Reader 的 512 MB 上传限制" };
   const blob = await pdf.blob();
-  if (blob.size > 1024 * 1024 * 1024)
-    return { ok: false, error: "PDF 超过 Reader 的 1 GB 上传限制" };
+  if (blob.size > 512 * 1024 * 1024)
+    return { ok: false, error: "PDF 超过 Reader 的 512 MB 上传限制" };
   const magic = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
   if (String.fromCharCode(...magic) !== "%PDF-")
     return { ok: false, error: "下载结果不是 PDF；可能需要在网站登录" };

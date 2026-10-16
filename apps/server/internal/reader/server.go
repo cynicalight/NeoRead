@@ -215,8 +215,8 @@ func (s *Server) Handler() http.Handler {
 		}
 		if value, exists := v["autoTranslateMaxPages"]; exists {
 			n, ok := value.(float64)
-			if !ok || n < 0 || n > 100 || n != float64(int(n)) || int(n)%10 != 0 {
-				fail(w, 400, "自动翻译页数须为 0—100 之间的 10 的整数倍")
+			if !ok || n < 0 || n > 150 || n != float64(int(n)) || int(n)%10 != 0 {
+				fail(w, 400, "自动翻译页数须为 0—150 之间的 10 的整数倍")
 				return
 			}
 		}
@@ -292,7 +292,7 @@ func webContentType(name string) string {
 func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxImportBytes+(1<<20))
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		fail(w, 400, "文件超过 1 GB 或上传无效")
+		fail(w, 400, "文件超过 512 MB 或上传无效")
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
@@ -371,6 +371,15 @@ func (s *Server) importFile(ctx context.Context, temp, filename, library string,
 	f, err := os.Open(temp)
 	if err != nil {
 		return failure(500, "无法验证文件")
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return failure(500, "无法验证文件大小")
+	}
+	if info.Size() > maxImportBytes {
+		f.Close()
+		return failure(400, "文件超过 512 MB")
 	}
 	hash := sha256.New()
 	size, err := io.Copy(hash, f)

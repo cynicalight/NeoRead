@@ -13,7 +13,7 @@ import (
 
 // Classification confirmation is independent of the transport safety bound.
 const (
-	maxImportBytes  = 1 << 30 // Transport/download safety bound, not a paper classification limit.
+	maxImportBytes  = 512 << 20 // Transport/download safety bound, not a paper classification limit.
 	largePaperBytes = 100 << 20
 	// Longer papers ask whether to import as a book, translated by chapter.
 	largePaperPages = 100

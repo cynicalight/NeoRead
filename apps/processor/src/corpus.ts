@@ -19,7 +19,7 @@ const require = createRequire(import.meta.url);
 const assets = dirname(require.resolve("pdfjs-dist/package.json"));
 const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
 const data = await readFile(values.input);
-if (data.byteLength > 1024 * 1024 * 1024) throw new Error("PDF exceeds 1 GB");
+if (data.byteLength > 512 * 1024 * 1024) throw new Error("PDF exceeds 512 MB");
 const task = getDocument({
   data: new Uint8Array(data),
   useSystemFonts: true,

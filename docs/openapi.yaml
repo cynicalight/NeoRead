@@ -4805,7 +4805,7 @@
                     {
                       "type": "integer",
                       "minimum": 0,
-                      "maximum": 100,
+                      "maximum": 150,
                       "multipleOf": 10,
                       "readOnly": true,
                     },

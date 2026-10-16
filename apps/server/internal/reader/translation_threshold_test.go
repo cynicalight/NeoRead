@@ -22,6 +22,8 @@ func TestPaperTranslationThreshold(t *testing.T) {
 		{`{"autoTranslateMaxPages":10}`, 11, true},
 		{`{"autoTranslateMaxPages":100}`, 100, false},
 		{`{"autoTranslateMaxPages":100}`, 101, true},
+		{`{"autoTranslateMaxPages":150}`, 150, false},
+		{`{"autoTranslateMaxPages":150}`, 151, true},
 		{`{"autoTranslatePDF":false}`, 1, true},
 		{`{"autoTranslatePDF":false,"autoTranslateMaxPages":50}`, 2, false},
 	} {
@@ -85,13 +87,13 @@ func TestPaperTranslationThreshold(t *testing.T) {
 
 func TestTranslationThresholdSettingsValidation(t *testing.T) {
 	s := testServer(t)
-	for _, value := range []string{"-10", "1", "15", "110", "10.5", `"50"`, "null", "true"} {
+	for _, value := range []string{"-10", "1", "15", "160", "10.5", `"50"`, "null", "true"} {
 		w := request(t, s, "PUT", "/api/settings", strings.NewReader(`{"autoTranslateMaxPages":`+value+`}`))
 		if w.Code != 400 {
 			t.Fatalf("accepted invalid threshold %s: %s", value, w.Body.String())
 		}
 	}
-	for value := 0; value <= 100; value += 10 {
+	for value := 0; value <= 150; value += 10 {
 		w := request(t, s, "PUT", "/api/settings", strings.NewReader(fmt.Sprintf(`{"autoTranslateMaxPages":%d}`, value)))
 		if w.Code != 200 {
 			t.Fatalf("rejected threshold %d: %s", value, w.Body.String())
@@ -163,5 +165,42 @@ func TestZoteroLargePaperConfirmation(t *testing.T) {
 				t.Fatalf("destination: %+v %v", d, err)
 			}
 		})
+	}
+}
+
+func TestSharedImportFileSizeLimit(t *testing.T) {
+	if maxImportBytes != 512<<20 {
+		t.Fatal("both libraries must use a 512 MB limit")
+	}
+	for _, library := range []string{"papers", "books"} {
+		for _, extra := range []int64{0, 1} {
+			t.Run(fmt.Sprintf("%s/extra=%d", library, extra), func(t *testing.T) {
+				s := testServer(t)
+				file, err := os.CreateTemp(s.Store.Root, "limit-*.pdf")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer os.Remove(file.Name())
+				if _, err = file.Write(testPDF(1)); err != nil {
+					t.Fatal(err)
+				}
+				if err = file.Truncate(maxImportBytes + extra); err != nil {
+					t.Fatal(err)
+				}
+				file.Close()
+				_, status, err := s.importFile(context.Background(), file.Name(), "large.pdf", library, true)
+				if extra == 0 && status != 201 {
+					t.Fatalf("exact limit rejected: %d %v", status, err)
+				}
+				if extra > 0 {
+					if status != 400 || err == nil || !strings.Contains(err.Error(), "512 MB") {
+						t.Fatalf("oversized file not rejected: %d %v", status, err)
+					}
+					if docs, _ := s.Store.Documents(); len(docs) != 0 {
+						t.Fatal("oversized import persisted")
+					}
+				}
+			})
+		}
 	}
 }

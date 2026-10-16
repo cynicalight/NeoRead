@@ -55,7 +55,7 @@ const session = await ort.InferenceSession.create(modelPath, {
   executionProviders: ["cpu"],
 });
 const file = await readFile(input);
-if (file.byteLength > 1024 * 1024 * 1024) throw new Error("PDF 超过 1 GB");
+if (file.byteLength > 512 * 1024 * 1024) throw new Error("PDF 超过 512 MB");
 const loading = getDocument({
   data: new Uint8Array(file),
   useSystemFonts: true,

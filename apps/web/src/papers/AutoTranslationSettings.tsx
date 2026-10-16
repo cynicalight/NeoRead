@@ -31,7 +31,7 @@ export function AutoTranslationSettings({
         // Position directly from the value before the settings panel has measurable dimensions.
         thumbAlignment="center"
         min={0}
-        max={100}
+        max={150}
         step={10}
         value={[limit]}
         getAriaValueText={(_, value) =>
