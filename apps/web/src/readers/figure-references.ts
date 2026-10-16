@@ -32,7 +32,9 @@ const isFigure = (block: PDFBlock) =>
 /** Only captions establish figure numbers; mentions in body text are not targets. */
 export function figureTarget(blocks: PDFBlock[], label: string) {
   const matches = (value: string) => {
-    const first = figureReferences(value.trim())[0];
+    // Strip only explicit title prefixes, not arbitrary text before a mention.
+    const title = value.trim().replace(/^supplement(?:ary|al)\s+/i, "");
+    const first = figureReferences(title)[0];
     return first?.index === 0 && first.label === normalize(label);
   };
   const direct = blocks.filter(
