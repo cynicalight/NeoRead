@@ -52,6 +52,12 @@ contextBridge.exposeInMainWorld("readerDesktop", {
   },
   setAppearance: (appearance: "light" | "sepia" | "dark" | "system") =>
     ipcRenderer.invoke("reader:appearance", appearance),
+  findEndNoteLibraries: (id: string) =>
+    ipcRenderer.invoke("reader:find-endnote", id),
+  cancelEndNoteSearch: (id: string) =>
+    ipcRenderer.invoke("reader:cancel-endnote-search", id),
+  chooseEndNoteLibrary: (directory = false) =>
+    ipcRenderer.invoke("reader:choose-endnote", directory),
   chooseZoteroDirectory: () =>
     ipcRenderer.invoke("reader:choose-zotero-directory"),
   importFiles: (library: "books" | "papers") =>

@@ -506,6 +506,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/import/endnote/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Read a saved, closed EndNote SQLite library. Accepts an enl file, enlp package or directory. PDF annotations are counted and converted at import time. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        directory: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description EndNote PDF preview */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ZoteroScan"];
+                    };
+                };
+                /** @description Invalid, locked or unsupported library */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/endnote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Copy one previewed PDF, convert supported embedded marks into Reader annotations and remove only those marks from the copy. Source files are unchanged. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        scanId: string;
+                        entryId: string;
+                        /** @enum {string} */
+                        library?: "papers" | "books";
+                        allowLarge?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Import result */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ZoteroImportResult"];
+                    };
+                };
+                /** @description Import failed or large-paper confirmation required */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/import/zotero": {
         parameters: {
             query?: never;

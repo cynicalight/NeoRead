@@ -501,6 +501,119 @@
                 },
             },
         },
+      "/api/import/endnote/scan":
+        {
+          "post":
+            {
+              "description": "Read a saved, closed EndNote SQLite library. Accepts an enl file, enlp package or directory. PDF annotations are counted and converted at import time.",
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "required": ["directory"],
+                              "properties":
+                                { "directory": { "type": "string" } },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "EndNote PDF preview",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/ZoteroScan" },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Invalid, locked or unsupported library",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+      "/api/import/endnote":
+        {
+          "post":
+            {
+              "description": "Copy one previewed PDF, convert supported embedded marks into Reader annotations and remove only those marks from the copy. Source files are unchanged.",
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "required": ["scanId", "entryId"],
+                              "properties":
+                                {
+                                  "scanId": { "type": "string" },
+                                  "entryId": { "type": "string" },
+                                  "library":
+                                    {
+                                      "type": "string",
+                                      "enum": ["papers", "books"],
+                                    },
+                                  "allowLarge": { "type": "boolean" },
+                                },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Import result",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "$ref": "#/components/schemas/ZoteroImportResult",
+                                },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Import failed or large-paper confirmation required",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
       "/api/import/zotero":
         {
           "get":

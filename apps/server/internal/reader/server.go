@@ -36,6 +36,7 @@ type Server struct {
 	connectorRevision      atomic.Int64
 	zoteroMu               sync.Mutex
 	zoteroScans            map[string]*zoteroScan
+	endnoteScans           map[string]*endnoteScan
 	annotationMu           sync.Mutex
 	annotationHistory      []annotationChange
 	codexChat              codexChatCache
@@ -118,6 +119,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/connector/revision", s.connectorRevisionStatus)
 	mux.HandleFunc("GET /api/documents/{id}/snapshot", s.connectorSnapshotStatus)
 	mux.HandleFunc("POST /api/import/zotero/scan", s.scanZotero)
+	mux.HandleFunc("POST /api/import/endnote/scan", s.scanEndNote)
+	mux.HandleFunc("POST /api/import/endnote", s.importEndNote)
 	mux.HandleFunc("POST /api/import/zotero", s.importZotero)
 	mux.HandleFunc("POST /api/documents", s.importDocument)
 	mux.HandleFunc("POST /api/documents/resolve", s.resolveDocument)

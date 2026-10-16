@@ -28,6 +28,7 @@ import {
 import { startUpdateService } from "./update-service";
 import { devIsolation } from "./dev-isolation";
 import { startDiagnosticService } from "./diagnostic-service";
+import { discoverEndNote } from "./endnote-discovery";
 import { commandLineStatus, setCommandLine } from "./command-line";
 const isolation = devIsolation({
   isPackaged: app.isPackaged,
@@ -531,6 +532,64 @@ app
         throw new Error("Invalid link");
       await shell.openExternal(new URL(url).toString());
     });
+    let endnoteSearch: { id: string; controller: AbortController } | undefined;
+    const checkEndnoteSender = (event: Electron.IpcMainInvokeEvent) => {
+      if (
+        event.sender !== window?.webContents ||
+        event.senderFrame !== window.webContents.mainFrame
+      )
+        throw new Error("Invalid sender");
+    };
+    ipcMain.handle("reader:find-endnote", async (event, id: unknown) => {
+      checkEndnoteSender(event);
+      if (typeof id !== "string" || id.length > 100)
+        throw new Error("Invalid search");
+      endnoteSearch?.controller.abort();
+      const search = { id, controller: new AbortController() };
+      endnoteSearch = search;
+      const roots = [
+        app.getPath("documents"),
+        app.getPath("desktop"),
+        app.getPath("downloads"),
+        join(homedir(), "Developer"),
+      ];
+      if (process.env.OneDrive)
+        roots.push(join(process.env.OneDrive, "Documents"));
+      try {
+        return await discoverEndNote(
+          roots,
+          process.platform,
+          search.controller.signal,
+        );
+      } finally {
+        if (endnoteSearch === search) endnoteSearch = undefined;
+      }
+    });
+    ipcMain.handle("reader:cancel-endnote-search", (event, id: unknown) => {
+      checkEndnoteSender(event);
+      if (endnoteSearch && endnoteSearch.id === id)
+        endnoteSearch.controller.abort();
+    });
+    ipcMain.handle(
+      "reader:choose-endnote",
+      async (event, directory: unknown) => {
+        checkEndnoteSender(event);
+        const selected = await dialog.showOpenDialog(window!, {
+          title: directory
+            ? "选择 EndNote 文献库所在目录"
+            : "选择 EndNote 文献库",
+          properties: directory ? ["openDirectory"] : ["openFile"],
+          ...(!directory
+            ? {
+                filters: [
+                  { name: "EndNote 文献库", extensions: ["enl", "enlp"] },
+                ],
+              }
+            : {}),
+        });
+        return selected.canceled ? null : selected.filePaths[0] || null;
+      },
+    );
     ipcMain.handle("reader:choose-zotero-directory", async (event) => {
       if (
         event.sender !== window?.webContents ||

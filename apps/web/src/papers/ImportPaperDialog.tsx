@@ -23,7 +23,7 @@ export function ImportPaperDialog({
   onOpenChange: (open: boolean) => void;
   onChooseFiles: () => void;
 }) {
-  const [zotero, setZotero] = useState(false);
+  const [migration, setMigration] = useState<"zotero" | "endnote" | null>(null);
   const [ref, setRef] = useState("");
   const [busy, setBusy] = useState(false);
   const submit = async () => {
@@ -44,12 +44,13 @@ export function ImportPaperDialog({
       setBusy(false);
     }
   };
-  if (zotero)
+  if (migration)
     return (
       <ZoteroImportDialog
+        source={migration}
         open={open}
         onOpenChange={(next) => {
-          if (!next) setZotero(false);
+          if (!next) setMigration(null);
           onOpenChange(next);
         }}
       />
@@ -98,9 +99,16 @@ export function ImportPaperDialog({
         <Button
           variant="outline"
           disabled={busy}
-          onClick={() => setZotero(true)}
+          onClick={() => setMigration("zotero")}
         >
           从 Zotero 导入
+        </Button>
+        <Button
+          variant="outline"
+          disabled={busy}
+          onClick={() => setMigration("endnote")}
+        >
+          从 EndNote 导入
         </Button>
       </DialogContent>
     </Dialog>

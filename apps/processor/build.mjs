@@ -37,6 +37,7 @@ await build({
     "src/model.ts",
     "src/corpus.ts",
     "src/render-pages.ts",
+    "src/endnote-pdf-cli.ts",
   ],
   bundle: true,
   platform: "node",

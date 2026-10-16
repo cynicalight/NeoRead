@@ -58,6 +58,10 @@ await cp(
   join(processor, "dist/render-pages.mjs"),
   join(processor, "render-pages.mjs"),
 );
+await cp(
+  join(processor, "dist/endnote-pdf-cli.mjs"),
+  join(processor, "endnote-pdf-cli.mjs"),
+);
 await cp(join(processor, "dist/model.mjs"), join(processor, "model.mjs"));
 await cp(join(processor, "dist/models"), join(processor, "models"), {
   recursive: true,

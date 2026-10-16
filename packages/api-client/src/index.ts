@@ -162,6 +162,20 @@ export const api = {
     request<{ available: boolean; sourceUrl?: string }>(
       `/api/documents/${encodeURIComponent(id)}/snapshot`,
     ),
+  scanEndNote: (directory: string) =>
+    request<ZoteroScan>("/api/import/endnote/scan", {
+      method: "POST",
+      body: JSON.stringify({ directory }),
+    }),
+  importEndNote: (
+    scanId: string,
+    entryId: string,
+    options?: { library: LibraryMode; allowLarge: boolean },
+  ) =>
+    request<ZoteroImportResult>("/api/import/endnote", {
+      method: "POST",
+      body: JSON.stringify({ scanId, entryId, ...options }),
+    }),
   zoteroDefaults: () => request<{ directory: string }>("/api/import/zotero"),
   scanZotero: (directory: string, linkedBase = "") =>
     request<ZoteroScan>("/api/import/zotero/scan", {
