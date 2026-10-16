@@ -4,6 +4,72 @@
   "security": [{ "session": [] }],
   "paths":
     {
+      "/api/translate-selection":
+        {
+          "post":
+            {
+              "summary": "Translate selected text using at most 30 nearby words on each side",
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "required": ["text"],
+                              "additionalProperties": false,
+                              "properties":
+                                {
+                                  "text":
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 12000,
+                                    },
+                                  "before": { "type": "string" },
+                                  "after": { "type": "string" },
+                                },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Completed translation; not persisted",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "required": ["text"],
+                                  "properties":
+                                    { "text": { "type": "string" } },
+                                },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Error",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
       "/api/overviews":
         {
           "get":

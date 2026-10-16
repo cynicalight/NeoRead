@@ -1,4 +1,5 @@
 import { useShortcut } from "./shortcuts/shortcuts";
+import { SelectionTranslation } from "./SelectionTranslation";
 import { AnnotationHoverCard } from "./AnnotationHoverCard";
 import { AnnotationQuote } from "./AnnotationQuote";
 import {
@@ -11,6 +12,7 @@ import {
   type CSSProperties,
 } from "react";
 import {
+  Languages,
   ChartColumn,
   ArrowLeft,
   BookOpen,
@@ -272,6 +274,8 @@ export function Workspace({
   const [location, setLocation] = useState<DocumentLocation | undefined>(
     doc.progress,
   );
+  const [translationSelection, setTranslationSelection] =
+    useState<ReaderSelection | null>(null);
   const [selection, setSelection] = useState<ReaderSelection | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const annotationSaving = useRef(false);
@@ -463,6 +467,7 @@ export function Workspace({
         .catch((e) => toast.error(e.message));
   }, [linkTarget, adapter, annotationsLoaded, annotations, doc.id, doc.type]);
   const saveLocation = (next: DocumentLocation, percent: number) => {
+    setTranslationSelection(null);
     setLocation(next);
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
     if (next.type === "pdf") setPageInput(String(next.page));
@@ -534,6 +539,7 @@ export function Workspace({
     ? activeAnnotation(annotations, annotationTarget.ids)
     : undefined;
   const selectAnnotation = (target: ReaderAnnotationTarget | null) => {
+    if (target) setTranslationSelection(null);
     setHoveredAnnotation(null);
     setAnnotationTarget(target);
     const annotation = target
@@ -542,7 +548,10 @@ export function Workspace({
     selectionClipboard.annotation(annotation);
   };
   const selectText = (next: ReaderSelection | null) => {
-    if (next) setHoveredAnnotation(null);
+    if (next) {
+      setHoveredAnnotation(null);
+      setTranslationSelection(null);
+    }
     setSelection(next);
     selectionClipboard.selection(next);
   };
@@ -1341,6 +1350,16 @@ export function Workspace({
 
             {selection?.anchor && (
               <SelectionToolbar anchor={selection.anchor} pane={readingPane}>
+                <IconButton
+                  label="直接翻译"
+                  onClick={() => {
+                    setTranslationSelection(selection);
+                    setSelection(null);
+                    adapter?.clearSelection();
+                  }}
+                >
+                  <Languages />
+                </IconButton>
                 <ColorSwatches
                   action="高亮"
                   onPick={(color) => {
@@ -1618,6 +1637,11 @@ export function Workspace({
         </ResizablePanel>
       </ResizablePanelGroup>
 
+      <SelectionTranslation
+        key={doc.id}
+        selection={translationSelection}
+        onClose={() => setTranslationSelection(null)}
+      />
       <AnnotationHoverCard
         target={!selection && !noteOpen ? hoveredAnnotation : null}
         annotations={annotations}

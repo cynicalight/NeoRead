@@ -125,6 +125,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/documents/{id}/note", s.saveDocumentNote)
 	mux.HandleFunc("POST /api/documents/{id}/metadata/lookup", s.lookupMetadata)
 	mux.HandleFunc("GET /api/processing", s.processingList)
+	mux.HandleFunc("POST /api/translate-selection", s.translateSelection)
 	mux.HandleFunc("GET /api/overviews", s.listOverviewStatuses)
 	mux.HandleFunc("GET /api/documents/{id}/overview", s.getDocumentOverview)
 	mux.HandleFunc("POST /api/documents/{id}/overview", s.requestDocumentOverview)

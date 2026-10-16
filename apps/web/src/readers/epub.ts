@@ -1,3 +1,4 @@
+import { selectionContext } from "./selection-context";
 import { forwardReaderShortcut } from "../shortcuts/shortcuts";
 import {
   installEPUBPaging,
@@ -567,6 +568,10 @@ export class EPUBReaderAdapter implements ReaderAdapter {
         const location = this.fromLocator(exact);
         this.selectedWindow = frame?.contentWindow ?? undefined;
         this.selection = {
+          context: selectionContext(
+            selected.getRangeAt(0),
+            frame.contentDocument!.body,
+          ),
           text: selection.text,
           location,
           anchor: selectionAnchor(

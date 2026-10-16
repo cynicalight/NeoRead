@@ -200,6 +200,15 @@ export const api = {
     request<void>(`/api/tag-boards/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
+  translateSelection: (
+    selection: { text: string; context?: { before: string; after: string } },
+    signal: AbortSignal,
+  ) =>
+    request<{ text: string }>("/api/translate-selection", {
+      method: "POST",
+      body: JSON.stringify({ text: selection.text, ...selection.context }),
+      signal,
+    }),
   translationStream: async (
     id: string,
     signal: AbortSignal,

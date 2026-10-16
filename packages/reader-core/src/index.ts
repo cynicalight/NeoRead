@@ -266,6 +266,8 @@ export interface SelectionAnchor {
   bottom: number;
 }
 export interface ReaderSelection {
+  /** Nearby source text, captured before the DOM selection is cleared. */
+  context?: { before: string; after: string };
   /** Transient renderer viewport position; never persist as a document anchor. */
   anchor?: SelectionAnchor;
   text: string;

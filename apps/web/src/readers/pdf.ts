@@ -1,4 +1,5 @@
 import { PDFFigureLinks } from "./pdf-figure-links";
+import { selectionContext } from "./selection-context";
 import { selectionAnchor, isSelectionToolbar } from "./selection-anchor";
 import { pdfQuotePoint } from "./pdf-reference-location";
 import { PDFBlockOverlay, referenceBlock } from "./pdf-blocks";
@@ -555,6 +556,10 @@ export class PDFReaderAdapter implements ReaderAdapter {
         height: r.height / bounds.height,
       }));
     this.selection = {
+      context: selectionContext(
+        range,
+        page.querySelector(".textLayer") ?? page,
+      ),
       text,
       anchor: selectionAnchor(sel, this.pointer),
       location: {

@@ -4,6 +4,61 @@
  */
 
 export interface paths {
+    "/api/translate-selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Translate selected text using at most 30 nearby words on each side */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        text: string;
+                        before?: string;
+                        after?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Completed translation; not persisted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            text: string;
+                        };
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/overviews": {
         parameters: {
             query?: never;
