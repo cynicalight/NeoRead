@@ -57,7 +57,7 @@ it("opening and changing pages do not authorize processing", async () => {
   await render(40);
   await act(async () => vi.advanceTimersByTime(1000));
   expect(api.setAssistance).not.toHaveBeenCalled();
-  expect(host.textContent).toContain("手动翻译");
+  expect(host.textContent).toContain("翻译");
   vi.mocked(api.setAssistance).mockResolvedValue({
     ...paused,
     enabled: true,
@@ -203,7 +203,7 @@ it("offers manual translation after local parsing instead of resuming a translat
     startedAt: "2026-10-16T00:00:00Z",
     manualTranslation: true,
   });
-  expect(host.textContent).toContain("手动翻译");
+  expect(host.textContent).toContain("翻译");
   await act(async () =>
     host.querySelector<HTMLButtonElement>("button")!.click(),
   );

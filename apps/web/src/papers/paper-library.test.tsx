@@ -633,9 +633,7 @@ it.each(["list", "table"] as const)(
       });
       root.render(<Harness />);
     });
-    expect(row("Attention Is All You Need").textContent).not.toContain(
-      "手动翻译",
-    );
+    expect(row("Attention Is All You Need").textContent).not.toContain("翻译");
     jobs.set("a", {
       ...job,
       enabled: false,
@@ -647,7 +645,7 @@ it.each(["list", "table"] as const)(
     await act(async () => root.render(<Harness />));
     const button = Array.from(
       row("Attention Is All You Need").querySelectorAll("button"),
-    ).find((button) => button.textContent === "手动翻译")!;
+    ).find((button) => button.textContent === "翻译")!;
     expect(button).toBeDefined();
     await act(async () => button.click());
     expect(api.setAssistance).toHaveBeenCalledWith("a", "start");

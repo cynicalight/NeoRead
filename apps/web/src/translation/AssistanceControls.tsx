@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Pause, RotateCcw, Sparkles } from "lucide-react";
+import { Pause, RotateCcw, Languages } from "lucide-react";
 import type { EPUBLocation, LibraryMode, Processing } from "@reader/core";
 import { api } from "@reader/api";
 import { Button } from "@reader/ui/components/button";
@@ -62,7 +62,7 @@ export function AssistanceControls({
             ? ["chapter", "翻译本章"]
             : job?.startedAt && !job.manualTranslation
               ? ["resume", "继续翻译"]
-              : ["start", "手动翻译"]
+              : ["start", "翻译"]
           : library === "books"
             ? ["chapter", "翻译本章"]
             : ["start", "翻译完成"];
@@ -124,7 +124,7 @@ export function AssistanceControls({
         ) : action === "resume" && job?.status === "failed" ? (
           <RotateCcw />
         ) : (
-          <Sparkles />
+          <Languages />
         )}
         {label}
       </Button>

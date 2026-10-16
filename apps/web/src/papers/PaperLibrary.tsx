@@ -18,6 +18,7 @@ import {
   FolderMinus,
   FolderPlus,
   Loader2,
+  Languages,
   Merge,
   MoreHorizontal,
   Tag,
@@ -1073,7 +1074,8 @@ function PaperProcessing({ job }: { job?: Processing }) {
           }
         }}
       >
-        手动翻译
+        <Languages className="size-3" />
+        翻译
       </Button>
     );
   }
