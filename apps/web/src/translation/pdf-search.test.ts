@@ -36,6 +36,7 @@ it("searches repaired originals and translations with block anchors", () => {
   expect(source[0].location).toMatchObject({
     type: "pdf",
     page: 2,
+    quote: "source",
     x: 0.5,
     y: 0.25,
   });

@@ -2,6 +2,7 @@ import { selectionAnchor, isSelectionToolbar } from "./selection-anchor";
 import { pdfQuotePoint } from "./pdf-reference-location";
 import { PDFBlockOverlay, referenceBlock } from "./pdf-blocks";
 import { PDFReadingNavigation } from "./pdf-navigation";
+import { PDFLocationHighlight } from "./pdf-location-highlight";
 import { PDFAnnotationLayer } from "./pdf-annotations";
 import { PDFLinkPreview } from "./pdf-link-preview";
 import * as pdfjs from "pdfjs-dist";
@@ -58,6 +59,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private location: PDFLocation = { type: "pdf", page: 1 };
   private selection: ReaderSelection | null = null;
   private annotationLayer: PDFAnnotationLayer;
+  private locationHighlight: PDFLocationHighlight;
   private linkPreview: PDFLinkPreview;
   private removeExternalLinks: () => void;
   private texts = new Map<number, string>();
@@ -89,6 +91,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   ) {
     container.classList.add("pdf-container");
     this.removeExternalLinks = installPDFExternalLinks(container);
+    this.locationHighlight = new PDFLocationHighlight(container);
     this.annotationLayer = new PDFAnnotationLayer(container, (target) =>
       this.events.annotation?.(target),
     );
@@ -176,10 +179,14 @@ export class PDFReaderAdapter implements ReaderAdapter {
     );
     this.bus.on("pagerendered", () => {
       this.paintHighlights();
+      this.locationHighlight.paint();
       this.navigation.repaint();
       this.blocks.repaint();
     });
-    this.bus.on("textlayerrendered", () => this.navigation.repaint());
+    this.bus.on("textlayerrendered", () => {
+      this.navigation.repaint();
+      this.locationHighlight.paint();
+    });
     document.addEventListener("mouseup", this.onMouseUp);
     document.addEventListener("pointerdown", this.onPointerDown);
     document.addEventListener("selectionchange", this.onSelectionChange);
@@ -308,6 +315,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   }
   async goTo(location: DocumentLocation) {
     if (location.type !== "pdf" || !this.pdf) return;
+    this.locationHighlight.clear();
     const request = ++this.navigationRequest;
     this.clearSelection();
     const page = Math.max(1, Math.min(this.pdf.numPages, location.page));
@@ -389,6 +397,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   };
   private onPointerDown = (event: PointerEvent) => {
     if (isSelectionToolbar(event.target)) return;
+    this.locationHighlight.clear();
     this.events.annotation?.(null);
     this.pointer = undefined;
     this.selecting =
@@ -830,8 +839,13 @@ export class PDFReaderAdapter implements ReaderAdapter {
   }
   flashReference(location: DocumentLocation, text: string) {
     if (location.type !== "pdf" || this.disposed) return;
+    if (location.rects?.length || location.quote) {
+      this.locationHighlight.show(location, text);
+      return;
+    }
     const block = referenceBlock(this.blockData, location, text);
     if (block) this.blocks.flashBlock(block.id);
+    else this.locationHighlight.show(location, text);
   }
   setSearchBlocks(blockIds: string[]) {
     this.blocks.setSearchBlocks(blockIds);
@@ -942,6 +956,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.navigation.destroy();
     this.blocks.destroy();
     this.annotationLayer.destroy();
+    this.locationHighlight.clear();
     this.linkPreview.destroy();
     this.removeExternalLinks();
     this.disposed = true;
