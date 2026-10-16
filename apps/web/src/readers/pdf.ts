@@ -1,3 +1,4 @@
+import { PDFFigureLinks } from "./pdf-figure-links";
 import { selectionAnchor, isSelectionToolbar } from "./selection-anchor";
 import { pdfQuotePoint } from "./pdf-reference-location";
 import { PDFBlockOverlay, referenceBlock } from "./pdf-blocks";
@@ -84,12 +85,23 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private darkRenderEpoch = 0;
   private queuedDarkPages = new Map<HTMLCanvasElement, DarkPage>();
   private activeDarkPage?: DarkPage & { id: number };
+  private figureLinks: PDFFigureLinks;
   constructor(
     private container: HTMLElement,
     private events: ReaderEvents,
   ) {
     container.classList.add("pdf-container");
     this.removeExternalLinks = installPDFExternalLinks(container);
+    this.figureLinks = new PDFFigureLinks(
+      container,
+      () => this.blockData,
+      (block) => {
+        this.linkPreview.hide();
+        this.events.internalLink?.(this.getLocation());
+        if (this.events.blockFocus) this.events.blockFocus(block);
+        else void this.focusBlock(block.id, "source");
+      },
+    );
     this.annotationLayer = new PDFAnnotationLayer(container, (target) =>
       this.events.annotation?.(target),
     );
@@ -180,7 +192,10 @@ export class PDFReaderAdapter implements ReaderAdapter {
       this.navigation.repaint();
       this.blocks.repaint();
     });
-    this.bus.on("textlayerrendered", () => this.navigation.repaint());
+    this.bus.on("textlayerrendered", () => {
+      this.navigation.repaint();
+      this.figureLinks.repaint();
+    });
     document.addEventListener("mouseup", this.onMouseUp);
     document.addEventListener("pointerdown", this.onPointerDown);
     document.addEventListener("selectionchange", this.onSelectionChange);
@@ -854,6 +869,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
       this.figureRegionSignature(blocks);
     this.blockData = blocks;
     this.blocks.setBlocks(blocks);
+    this.figureLinks.repaint();
     if (figuresChanged) this.linkPreview.invalidate();
     if (figuresChanged && this.theme.mode === "dark" && this.pdf)
       this.redrawDarkPages();
@@ -992,6 +1008,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.annotationLayer.destroy();
     this.linkPreview.destroy();
     this.removeExternalLinks();
+    this.figureLinks.destroy();
     this.disposed = true;
     this.resize.disconnect();
     clearTimeout(this.resizeTimer);

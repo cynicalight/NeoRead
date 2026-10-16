@@ -1,3 +1,4 @@
+import { figureTarget } from "../readers/figure-references";
 import {
   useEffect,
   useLayoutEffect,
@@ -402,9 +403,23 @@ export function PDFReadingView({
     if (!root.current || !engine) return;
     return installCitationHover(
       root.current,
-      async (blockId, label) =>
-        (await engine.resolveCitation?.(blockId, label)) ??
-        numberedReference(blocks, label),
+      async (blockId, label) => {
+        if (label.startsWith("figure:")) {
+          const block = figureTarget(blocks, label.slice(7));
+          return block
+            ? {
+                type: "pdf" as const,
+                page: block.page,
+                x: block.bounds.x,
+                y: block.bounds.y,
+              }
+            : undefined;
+        }
+        return (
+          (await engine.resolveCitation?.(blockId, label)) ??
+          numberedReference(blocks, label)
+        );
+      },
       async (location, anchor) => {
         await engine.previewCitation?.(location, anchor);
       },
@@ -413,6 +428,13 @@ export function PDFReadingView({
   }, [engine, blocks, mode]);
   const visitCitation = async (blockId: string, label: string) => {
     try {
+      if (label.startsWith("figure:")) {
+        const block = figureTarget(blocks, label.slice(7));
+        if (!block) throw new Error(`未找到图 ${label.slice(7)} 的图片位置`);
+        if (facade.current) events.internalLink?.(facade.current.getLocation());
+        focusBlock(block, "translation");
+        return;
+      }
       const target =
         (await engine?.resolveCitation?.(blockId, label)) ??
         numberedReference(blocks, label);

@@ -167,3 +167,45 @@ it("leaves the tree unchanged without a source block", () => {
   remarkReadingCitations({})(tree);
   expect(citations(tree)).toEqual([]);
 });
+
+it("keeps figure brackets distinct from bibliography citations", () => {
+  const value = "如图三，Figure 3、figure[3] 和 Fig. 3(a)，参考文献 [3]。";
+  const tree = run(paragraph({ type: "text", value }));
+  expect(plain(tree)).toBe(value);
+  expect(citations(tree)).toEqual([
+    "figure:3",
+    "figure:3",
+    "figure:3",
+    "figure:3",
+    "3",
+  ]);
+});
+
+it("renders bracketed figure references as one keyboard-accessible link", async () => {
+  const navigate = vi.fn();
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <ReadingLinkNavigation.Provider value={navigate}>
+          <MessageMarkdown
+            content="如图三，figure[3]，`Figure 4`，见 [3]。"
+            citationBlockId="body"
+          />
+        </ReadingLinkNavigation.Provider>,
+      ),
+    );
+    const links = host.querySelectorAll<HTMLAnchorElement>(
+      'a[href^="#reader-citation?"]',
+    );
+    expect(Array.from(links, (link) => link.textContent)).toEqual([
+      "图三",
+      "figure[3]",
+      "3",
+    ]);
+    links[1].click();
+    expect(navigate).toHaveBeenCalledWith("body", "figure:3");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
