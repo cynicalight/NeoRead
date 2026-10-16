@@ -71,6 +71,7 @@ export function PDFReadingView({
   toolbarHost,
   autoCenterHost,
   pageNavigation,
+  sidebarsOpen,
   searchResults = [],
   searchQuery = "",
   onReady,
@@ -84,6 +85,7 @@ export function PDFReadingView({
   toolbarHost?: HTMLElement | null;
   autoCenterHost?: HTMLElement | null;
   pageNavigation?: ReactNode;
+  sidebarsOpen?: { left: boolean; right: boolean };
   searchResults?: SearchResult[];
   searchQuery?: string;
   onReady: (adapter: ReaderAdapter, toc: TOCItem[]) => void;
@@ -644,6 +646,45 @@ export function PDFReadingView({
       engine.hoverBlock?.(null);
     };
   }, [mode, engine]);
+  const leftOpen = sidebarsOpen?.left ?? true;
+  const rightOpen = sidebarsOpen?.right ?? true;
+  const previousSidebars = useRef({ left: leftOpen, right: rightOpen });
+  useLayoutEffect(() => {
+    const previous = previousSidebars.current;
+    previousSidebars.current = { left: leftOpen, right: rightOpen };
+    if (
+      !engine ||
+      !((previous.left && !leftOpen) || (previous.right && !rightOpen))
+    )
+      return;
+    // Capture before Workspace's layout effect collapses the panels.
+    const origin =
+      mode === "translation"
+        ? "translation"
+        : mode === "source"
+          ? "source"
+          : side.current;
+    const id = centerBlock(origin);
+    const block = blocks.find((block) => block.id === id);
+    if (!block) return;
+    const motion = explicitFocus.current;
+    const operation = motion.operation;
+    motion.moving = true;
+    let settledFrames = 0;
+    let frame = requestAnimationFrame(function settle() {
+      if (operation !== motion.operation) return;
+      // Workspace owns the transition marker, including interrupted transitions.
+      // Allow ResizeObserver and PDF.js to commit the final width afterwards.
+      if (root.current?.closest("[data-toggling]")) settledFrames = 0;
+      else settledFrames++;
+      if (settledFrames < 2) frame = requestAnimationFrame(settle);
+      else void focusBlock(block, origin);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (operation === motion.operation) motion.moving = false;
+    };
+  }, [leftOpen, rightOpen, engine, mode, doc.id]);
   useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
   useEffect(() => {
     const release = () => {
@@ -803,56 +844,60 @@ export function PDFReadingView({
       }
     });
   };
-  const changeMode = (value: Mode) => {
-    if (value === "parallel" && mode !== "parallel") {
-      // Pick from the current viewport before the panels change width.
-      const host =
-        mode === "translation"
-          ? pane.current
-          : root.current?.querySelector<HTMLElement>(".pdf-container");
-      let nearest: string | undefined;
-      let distance = Infinity;
-      if (host) {
-        const view = host.getBoundingClientRect();
-        const x = view.left + view.width / 2,
-          y = view.top + view.height / 2;
-        for (const block of visibleBlocks) {
-          let rect: DOMRect | undefined;
-          if (mode === "translation")
-            rect = targetNode(block.id)?.getBoundingClientRect();
-          else {
-            const page = host
-              .querySelector<HTMLElement>(
-                `.page[data-page-number="${block.page}"]`,
-              )
-              ?.getBoundingClientRect();
-            if (page)
-              rect = new DOMRect(
-                page.left + block.bounds.x * page.width,
-                page.top + block.bounds.y * page.height,
-                block.bounds.width * page.width,
-                block.bounds.height * page.height,
-              );
-          }
-          if (
-            !rect?.height ||
-            !rect.width ||
-            rect.bottom <= view.top ||
-            rect.top >= view.bottom ||
-            rect.right <= view.left ||
-            rect.left >= view.right
-          )
-            continue;
-          const d =
-            Math.max(rect.left - x, x - rect.right, 0) * 2 +
-            Math.max(rect.top - y, y - rect.bottom, 0);
-          if (d < distance) {
-            distance = d;
-            nearest = block.id;
-          }
+  const centerBlock = (origin: "source" | "translation") => {
+    const host =
+      origin === "translation"
+        ? pane.current
+        : root.current?.querySelector<HTMLElement>(".pdf-container");
+    let nearest: string | undefined;
+    let distance = Infinity;
+    if (host) {
+      const view = host.getBoundingClientRect();
+      const x = view.left + view.width / 2,
+        y = view.top + view.height / 2;
+      for (const block of visibleBlocks) {
+        let rect: DOMRect | undefined;
+        if (origin === "translation")
+          rect = targetNode(block.id)?.getBoundingClientRect();
+        else {
+          const page = host
+            .querySelector<HTMLElement>(
+              `.page[data-page-number="${block.page}"]`,
+            )
+            ?.getBoundingClientRect();
+          if (page)
+            rect = new DOMRect(
+              page.left + block.bounds.x * page.width,
+              page.top + block.bounds.y * page.height,
+              block.bounds.width * page.width,
+              block.bounds.height * page.height,
+            );
+        }
+        if (
+          !rect?.height ||
+          !rect.width ||
+          rect.bottom <= view.top ||
+          rect.top >= view.bottom ||
+          rect.right <= view.left ||
+          rect.left >= view.right
+        )
+          continue;
+        const d =
+          Math.max(rect.left - x, x - rect.right, 0) * 2 +
+          Math.max(rect.top - y, y - rect.bottom, 0);
+        if (d < distance) {
+          distance = d;
+          nearest = block.id;
         }
       }
-      enteringParallel.current = nearest ?? reading.current?.blockId;
+    }
+    return nearest ?? reading.current?.blockId;
+  };
+  const changeMode = (value: Mode) => {
+    if (value === "parallel" && mode !== "parallel") {
+      enteringParallel.current = centerBlock(
+        mode === "translation" ? "translation" : "source",
+      );
     }
     input(value === "translation" ? "translation" : "source");
     setPopup(undefined);
