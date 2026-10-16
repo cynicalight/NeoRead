@@ -1404,7 +1404,7 @@ export function Workspace({
                   <Quote />
                 </IconButton>
                 <IconButton
-                  label="直接翻译"
+                  label="划词翻译"
                   onClick={() => {
                     setTranslationSelection(selection);
                     setSelection(null);
