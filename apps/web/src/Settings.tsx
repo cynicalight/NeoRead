@@ -27,6 +27,7 @@ import type {
   APIConnection,
   LibraryMode,
   JournalRankConfig,
+  PaperColumn,
   Provider,
 } from "@reader/core";
 import { Button } from "@reader/ui/components/button";
@@ -67,6 +68,8 @@ import {
 import { libraryModes } from "./LibraryModeSwitcher";
 import { Checkbox } from "@reader/ui/components/checkbox";
 import { toast } from "sonner";
+import { columnLabels, defaultColumns, toggleColumn } from "./papers/model";
+import { savePaperPreferences } from "./papers/actions";
 // Checks run automatically for this many API models; the rest on demand.
 const autoAPIChecks = 12;
 export function Settings({
@@ -876,6 +879,38 @@ export function Settings({
                 </span>
               </label>
             </section>
+            <fieldset className="mt-7 border-t pt-5">
+              <legend className="text-sm font-medium">表格显示列</legend>
+              <p className="mb-3 text-xs text-muted-foreground">
+                标题始终显示。以下选择应用于论文库的表格视图。
+              </p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                {(Object.keys(columnLabels) as PaperColumn[]).map((column) => (
+                  <label
+                    key={column}
+                    htmlFor={`paper-column-${column}`}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <Checkbox
+                      id={`paper-column-${column}`}
+                      checked={(
+                        paperPreferences.columns ?? defaultColumns
+                      ).includes(column)}
+                      onCheckedChange={() =>
+                        void savePaperPreferences((prefs) => ({
+                          ...prefs,
+                          columns: toggleColumn(
+                            prefs.columns ?? defaultColumns,
+                            column,
+                          ),
+                        }))
+                      }
+                    />
+                    {columnLabels[column]}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <section className="mt-7 border-t pt-5">
               <h3 className="mb-3 text-sm font-medium">期刊指标</h3>
               <label className="flex items-start gap-2 text-sm">
