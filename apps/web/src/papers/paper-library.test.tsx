@@ -12,7 +12,12 @@ import { paper } from "./fixtures";
 vi.mock("@reader/api", () => ({
   api: {
     snapshotStatus: vi.fn(async () => ({ available: false })),
-    journalRankConfig: vi.fn(async () => ({ enabled: true, hasKey: false, selected: [], available: [] })),
+    journalRankConfig: vi.fn(async () => ({
+      enabled: true,
+      hasKey: false,
+      selected: [],
+      available: [],
+    })),
     update: vi.fn(async () => ({})),
     documents: vi.fn(async () => []),
     trash: vi.fn(async () => []),
@@ -604,3 +609,84 @@ it.each(["list", "table"] as const)(
     expect(navButton("解析中")).toBeDefined();
   },
 );
+
+it("shows optional metadata columns and sorts publication dates without inventing missing precision", async () => {
+  await act(async () =>
+    useReaderStore.setState({
+      documents: [
+        paper({
+          id: "full",
+          title: "Full date",
+          tags: ["Security", "A long tag that should truncate"],
+          metadata: {
+            date: "2024-02-29",
+            doi: "10.1000/example",
+            arxiv: "2402.12345",
+          },
+          percentage: 0.42,
+          size: 1048576,
+        }),
+        paper({ id: "year", title: "Year only", metadata: { date: "2024" } }),
+        paper({ id: "empty", title: "Missing date", lastOpenedAt: "" }),
+      ],
+      libraryPreferences: {
+        mode: "papers",
+        papers: {
+          layout: "table",
+          sort: "published",
+          columns: [
+            "published",
+            "tags",
+            "progress",
+            "doi",
+            "arxiv",
+            "size",
+            "opened",
+          ],
+          columnWidths: { published: 144 },
+        },
+      },
+    }),
+  );
+  const full = row("Full date");
+  expect(full.querySelector('[data-column="published"]')?.textContent).toBe(
+    "2024-02-29",
+  );
+  expect(
+    row("Year only").querySelector('[data-column="published"]')?.textContent,
+  ).toBe("2024");
+  expect(full.querySelector('[data-column="progress"]')?.textContent).toBe(
+    "42%",
+  );
+  expect(full.querySelector('[data-column="size"]')?.textContent).toBe(
+    "1.0 MB",
+  );
+  expect(full.querySelector('[data-column="doi"]')?.textContent).toBe(
+    "10.1000/example",
+  );
+  expect(full.querySelector('[data-column="arxiv"]')?.textContent).toBe(
+    "2402.12345",
+  );
+  expect(
+    full.querySelector(".paper-table-tags")?.getAttribute("title"),
+  ).toContain("Security");
+  expect(
+    row("Missing date").querySelector('[data-column="opened"]')?.textContent,
+  ).toBe("未打开");
+  expect(
+    host.querySelector('th[data-column="published"]')?.getAttribute("style"),
+  ).toContain("144px");
+  expect(host.querySelector('th[data-column="tags"] button')).toBeNull();
+  await act(async () => button("发表日期").click());
+  expect(
+    [...host.querySelectorAll("tbody [data-paper-id]")].map((el) =>
+      el.getAttribute("data-paper-id"),
+    ),
+  ).toEqual(["year", "full", "empty"]);
+  expect(
+    host
+      .querySelector('th[data-column="published"]')
+      ?.getAttribute("aria-sort"),
+  ).toBe("ascending");
+  expect(api.saveLibraryPreferences).toHaveBeenCalled();
+});

@@ -97,9 +97,13 @@ export const formatCreators = (creators: Creator[]) =>
     )
     .join("\n");
 
-/** True once the document was opened after import. */
-export const wasOpened = (doc: Pick<Document, "createdAt" | "lastOpenedAt">) =>
-  Date.parse(doc.lastOpenedAt) - Date.parse(doc.createdAt) > 1000;
+/** Legacy imports stored an import timestamp here; progress is additional evidence of opening. */
+export const wasOpened = (
+  doc: Pick<Document, "createdAt" | "lastOpenedAt" | "progress">,
+) =>
+  !!doc.lastOpenedAt &&
+  (!!doc.progress ||
+    Date.parse(doc.lastOpenedAt) - Date.parse(doc.createdAt) > 1000);
 
 export function relativeTime(value: string, now = Date.now()) {
   const time = Date.parse(value);
@@ -112,4 +116,39 @@ export function relativeTime(value: string, now = Date.now()) {
   const days = Math.round(hours / 24);
   if (days < 30) return `${days} 天前`;
   return new Date(time).toLocaleDateString("zh-CN");
+}
+
+/** Preserve date precision; do not invent a month/day or parse in local time. */
+export function publicationDate(value = "") {
+  const match = /^(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/.exec(value.trim());
+  if (!match) return undefined;
+  const year = Number(match[1]),
+    month = Number(match[2] || 1),
+    day = Number(match[3] || 1);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > days[month - 1])
+    return undefined;
+  return {
+    label: [
+      match[1],
+      ...(match[2] ? [String(month).padStart(2, "0")] : []),
+      ...(match[3] ? [String(day).padStart(2, "0")] : []),
+    ].join("-"),
+    key: year * 10000 + (match[2] ? month * 100 : 0) + (match[3] ? day : 0),
+    year,
+  };
+}
+
+export const paperProgress = (percentage: number) =>
+  Math.round(
+    Math.min(1, Math.max(0, Number.isFinite(percentage) ? percentage : 0)) *
+      100,
+  );
+
+export function fileSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
 }

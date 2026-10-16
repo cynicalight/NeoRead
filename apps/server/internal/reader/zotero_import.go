@@ -232,7 +232,7 @@ func (s *Server) importZoteroEntry(ctx context.Context, e *zoteroEntry) (zoteroI
 		return result, err
 	}
 	if fresh {
-		d = Document{ID: docID, Type: "pdf", Library: "papers", Title: e.Title, Size: size, CreatedAt: zoteroDate(e.added), LastOpenedAt: now(), Tags: []string{}, Folders: []string{}}
+		d = Document{ID: docID, Type: "pdf", Library: "papers", Title: e.Title, Size: size, CreatedAt: zoteroDate(e.added), LastOpenedAt: "", Tags: []string{}, Folders: []string{}}
 		result.Status = "imported"
 	} else {
 		result.Status = "merged"

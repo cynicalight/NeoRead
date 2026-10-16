@@ -1,3 +1,4 @@
+import { Badge } from "@reader/ui/components/badge";
 import {
   useEffect,
   useMemo,
@@ -94,6 +95,9 @@ import {
   authorsShort,
   paperByline,
   paperYear,
+  publicationDate,
+  paperProgress,
+  fileSize,
   relativeTime,
   venueLabel,
   wasOpened,
@@ -103,6 +107,7 @@ import {
   columnLabels,
   columnSort,
   defaultColumns,
+  defaultColumnWidths,
   descendingSorts,
   duplicateGroups,
   filterPapers,
@@ -324,7 +329,11 @@ export function PaperLibrary({
   const [draftWidths, setDraftWidths] =
     useState<Partial<Record<PaperColumn, number>>>();
   const [draftDetail, setDraftDetail] = useState<number>();
-  const columnWidths = { ...prefs.columnWidths, ...draftWidths };
+  const columnWidths = {
+    ...defaultColumnWidths,
+    ...prefs.columnWidths,
+    ...draftWidths,
+  };
   const detailWidth = draftDetail ?? prefs.detailWidth;
   const saveColumnWidths = (next: Partial<Record<PaperColumn, number>>) =>
     void savePaperPreferences((p) => ({
@@ -877,19 +886,29 @@ export function PaperLibrary({
                 </div>
               ) : table ? (
                 <div className="paper-list paper-table" ref={listRef}>
-                  <Table>
+                  <Table
+                    style={{
+                      minWidth:
+                        240 +
+                        (picking ? 32 : 0) +
+                        columns.reduce((sum, c) => sum + columnWidths[c], 0),
+                    }}
+                  >
+                    <caption className="sr-only">论文库</caption>
                     <TableHeader>
                       <TableRow>
                         {picking && <TableHead className="w-8" />}
                         {(["title", ...columns] as const).map((c, i, order) => {
                           const next = order[i + 1] as PaperColumn | undefined;
-                          const active = sort === columnSort[c];
+                          const sortKey = columnSort[c];
+                          const active = sort === sortKey;
                           const descending =
                             descendingSorts.has(sort) !== reverse;
                           const Arrow = descending ? ArrowDown : ArrowUp;
                           return (
                             <TableHead
                               key={c}
+                              scope="col"
                               data-column={c}
                               style={
                                 c === "title"
@@ -904,15 +923,21 @@ export function PaperLibrary({
                                   : undefined
                               }
                             >
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                className="paper-table-sort"
-                                onClick={() => sortBy(columnSort[c])}
-                              >
-                                {c === "title" ? "标题" : columnLabels[c]}
-                                {active && <Arrow />}
-                              </Button>
+                              {sortKey ? (
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  className="paper-table-sort"
+                                  onClick={() => sortBy(sortKey)}
+                                >
+                                  {c === "title" ? "标题" : columnLabels[c]}
+                                  {active && <Arrow />}
+                                </Button>
+                              ) : (
+                                <span className="px-1.5">
+                                  {c === "title" ? "标题" : columnLabels[c]}
+                                </span>
+                              )}
                               {/* The last column borders the menu column; the title absorbs its changes. */}
                               {next && (
                                 <span
@@ -1149,7 +1174,7 @@ function PaperRow({
   moreMenu: React.ReactNode;
 }) {
   const byline = paperByline(doc);
-  const percent = Math.round(doc.percentage * 100);
+  const percent = paperProgress(doc.percentage);
   const check = picking && (
     <span className="paper-row-check" data-row-action>
       <Checkbox
@@ -1240,12 +1265,40 @@ function PaperRow({
         return authorsShort(doc, 2);
       case "year":
         return paperYear(doc.metadata);
+      case "published":
+        return (
+          publicationDate(doc.metadata.date)?.label || doc.metadata.date || "—"
+        );
+      case "progress":
+        return `${percent}%`;
+      case "size":
+        return fileSize(doc.size);
+      case "doi":
+        return doc.metadata.doi || "—";
+      case "arxiv":
+        return doc.metadata.arxiv || "—";
+      case "tags":
+        return doc.tags.length ? (
+          <div className="paper-table-tags" title={doc.tags.join("、")}>
+            {doc.tags.map((tag) => (
+              <Badge
+                key={tag}
+                variant="secondary"
+                className="max-w-28 shrink-0"
+              >
+                <span className="truncate">{tag}</span>
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          "—"
+        );
       case "venue":
         return venueLabel(doc.metadata);
       case "added":
         return new Date(doc.createdAt).toLocaleDateString("zh-CN");
       case "opened":
-        return wasOpened(doc) ? relativeTime(doc.lastOpenedAt) : "";
+        return wasOpened(doc) ? relativeTime(doc.lastOpenedAt) : "未打开";
       case "notes":
         return <span className="paper-row-meta">{counts}</span>;
       case "status":
@@ -1307,7 +1360,21 @@ function PaperRow({
               </div>
             </TableCell>
             {columns.map((column) => (
-              <TableCell key={column} data-column={column}>
+              <TableCell
+                key={column}
+                data-column={column}
+                title={
+                  column === "doi"
+                    ? doc.metadata.doi
+                    : column === "arxiv"
+                      ? doc.metadata.arxiv
+                      : column === "added"
+                        ? new Date(doc.createdAt).toLocaleString("zh-CN")
+                        : column === "opened" && wasOpened(doc)
+                          ? new Date(doc.lastOpenedAt).toLocaleString("zh-CN")
+                          : undefined
+                }
+              >
                 {cell(column)}
               </TableCell>
             ))}

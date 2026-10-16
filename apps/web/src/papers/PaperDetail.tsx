@@ -64,6 +64,7 @@ import {
   paperLink,
   parseCreators,
   relativeTime,
+  wasOpened,
 } from "./format";
 import {
   categoryLeaf,
@@ -382,8 +383,7 @@ export function PaperDetail({
           <dt>添加于</dt>
           <dd className="paper-field-static">
             {relativeTime(doc.createdAt)}
-            {Date.parse(doc.lastOpenedAt) - Date.parse(doc.createdAt) > 1000 &&
-              ` · 上次打开 ${relativeTime(doc.lastOpenedAt)}`}
+            {wasOpened(doc) && ` · 上次打开 ${relativeTime(doc.lastOpenedAt)}`}
           </dd>
         </dl>
         {(doc.noteCount > 0 ||

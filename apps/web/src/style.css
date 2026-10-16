@@ -2530,6 +2530,11 @@ kbd {
 .paper-row[data-picked] {
   background: color-mix(in oklch, var(--foreground) 7%, transparent);
 }
+.paper-table-tags {
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+}
 .paper-table table {
   table-layout: fixed;
 }

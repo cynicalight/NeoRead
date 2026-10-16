@@ -9,6 +9,8 @@ import {
   paperLink,
   parseCreators,
   shortTitle,
+  publicationDate,
+  wasOpened,
 } from "./format";
 import {
   categoryTree,
@@ -437,4 +439,85 @@ it("excludes paused and disabled work from the processing view", () => {
     expect(matches({ enabled: true, status })).toBe(true);
   for (const status of ["complete", "failed"] as const)
     expect(matches({ enabled: true, status })).toBe(false);
+});
+
+it("preserves partial publication dates and rejects invalid calendar dates", () => {
+  expect(publicationDate("2024")?.label).toBe("2024");
+  expect(publicationDate("2024-2")?.label).toBe("2024-02");
+  expect(publicationDate("2024-2-29")?.label).toBe("2024-02-29");
+  for (const value of [
+    "",
+    "unknown",
+    "2023-02-29",
+    "2024-04-31",
+    "2024-13",
+    "0000",
+    "2024-00-01",
+  ]) {
+    expect(publicationDate(value)).toBeUndefined();
+  }
+});
+
+it("sorts full and partial dates chronologically with unknown dates last in both directions", () => {
+  const docs = [
+    "2024-10-02",
+    "2024",
+    "2024-2",
+    "2024-02-29",
+    "",
+    "invalid",
+  ].map((date, i) =>
+    paper({ id: String(i), title: String(i), metadata: { date } }),
+  );
+  expect(sortPapers(docs, "published").map((d) => d.id)).toEqual([
+    "0",
+    "3",
+    "2",
+    "1",
+    "4",
+    "5",
+  ]);
+  expect(sortPapers(docs, "published", true).map((d) => d.id)).toEqual([
+    "1",
+    "2",
+    "3",
+    "0",
+    "4",
+    "5",
+  ]);
+  // Year sorting must not silently compare the month or day.
+  expect(sortPapers(docs, "year").map((d) => d.id)).toEqual([
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+  ]);
+  expect(sortPapers([...docs].reverse(), "published").map((d) => d.id)).toEqual(
+    ["0", "3", "2", "1", "4", "5"],
+  );
+});
+
+it("keeps never-opened imports after opened papers and uses real timestamps across offsets", () => {
+  const docs = [
+    paper({ id: "new", lastOpenedAt: "", createdAt: "2026-10-16T00:00:00Z" }),
+    paper({ id: "legacy", title: "Legacy" }),
+    paper({ id: "later", lastOpenedAt: "2026-10-15T00:00:00Z" }),
+    paper({ id: "earlier", lastOpenedAt: "2026-10-15T07:00:00+08:00" }),
+  ];
+  expect(sortPapers(docs, "opened").map((d) => d.id)).toEqual([
+    "later",
+    "earlier",
+    "new",
+    "legacy",
+  ]);
+  expect(sortPapers(docs, "opened", true).map((d) => d.id)).toEqual([
+    "earlier",
+    "later",
+    "new",
+    "legacy",
+  ]);
+  expect(recentPapers(docs, []).map((d) => d.id)).toEqual(["later", "earlier"]);
+  expect(wasOpened(paper({ progress: { type: "pdf", page: 1 } }))).toBe(true);
 });

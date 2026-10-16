@@ -71,6 +71,9 @@ func TestLibraryRoundTrip(t *testing.T) {
 			if e := json.Unmarshal(w.Body.Bytes(), &doc); e != nil {
 				t.Fatal(e)
 			}
+			if doc.LastOpenedAt != "" {
+				t.Fatalf("unopened import has last opened time: %s", doc.LastOpenedAt)
+			}
 			if duplicate := upload(t, s, name, data); duplicate.Code != 200 {
 				t.Fatalf("duplicate: %d", duplicate.Code)
 			}
@@ -83,7 +86,7 @@ func TestLibraryRoundTrip(t *testing.T) {
 				t.Fatal(w.Body.String())
 			}
 			updated, err := s.Store.Document(doc.ID)
-			if err != nil || !updated.Favorite || updated.Percentage != .5 || !bytes.Equal(updated.Progress, []byte(progress)) {
+			if err != nil || updated.LastOpenedAt == "" || !updated.Favorite || updated.Percentage != .5 || !bytes.Equal(updated.Progress, []byte(progress)) {
 				t.Fatalf("progress not persisted: %+v %v", updated, err)
 			}
 			ann := `{"kind":"note","location":` + progress + `,"quote":"evidence","note":"Check assumptions","color":"#ffff00"}`
@@ -444,5 +447,33 @@ func TestWebAssetsKeepModuleMIMETypes(t *testing.T) {
 		if response.Code != 200 || response.Header().Get("Content-Type") != want {
 			t.Errorf("%s: status %d, Content-Type %q, want %q", path, response.Code, response.Header().Get("Content-Type"), want)
 		}
+	}
+}
+
+func TestOpeningImportRecordsTimeWithoutChangingAddedTime(t *testing.T) {
+	s := testServer(t)
+	w := upload(t, s, "reading-notes.pdf", sample(t, "reading-notes.pdf"))
+	if w.Code != 201 {
+		t.Fatal(w.Body.String())
+	}
+	var doc Document
+	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	w = request(t, s, "PATCH", "/api/documents/"+doc.ID, strings.NewReader(`{"title":"Renamed"}`))
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	renamed, err := s.Store.Document(doc.ID)
+	if err != nil || renamed.LastOpenedAt != "" {
+		t.Fatalf("rename marked import as opened: %+v %v", renamed, err)
+	}
+	w = request(t, s, "PATCH", "/api/documents/"+doc.ID, strings.NewReader(`{}`))
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	opened, err := s.Store.Document(doc.ID)
+	if err != nil || opened.LastOpenedAt == "" || opened.CreatedAt != doc.CreatedAt {
+		t.Fatalf("incorrect open dates: %+v %v", opened, err)
 	}
 }

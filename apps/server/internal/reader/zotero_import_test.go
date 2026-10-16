@@ -91,7 +91,7 @@ func TestZoteroMigrationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Title != "迁移论文" || doc.Metadata.DOI != "10.1000/example" || doc.Metadata.Sources["doi"] != "manual" || doc.CreatedAt != "2024-01-02T03:04:05Z" || doc.Author != "Ada Lovelace, 研究小组" || len(doc.Tags) != 1 || len(doc.Folders) != 1 {
+	if doc.LastOpenedAt != "" || doc.Title != "迁移论文" || doc.Metadata.DOI != "10.1000/example" || doc.Metadata.Sources["doi"] != "manual" || doc.CreatedAt != "2024-01-02T03:04:05Z" || doc.Author != "Ada Lovelace, 研究小组" || len(doc.Tags) != 1 || len(doc.Folders) != 1 {
 		t.Fatalf("document: %+v", doc)
 	}
 	imported, err := os.ReadFile(s.Store.File(doc))
