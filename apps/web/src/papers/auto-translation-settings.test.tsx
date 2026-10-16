@@ -25,6 +25,16 @@ it("updates the highlighted threshold by tens with keyboard input and describes 
     await act(async () => root.render(<Harness />));
     const slider = host.querySelector<HTMLInputElement>('input[type="range"]')!;
     expect(slider.value).toBe("50");
+    const thumb = host.querySelector<HTMLElement>(
+      '[data-slot="slider-thumb"]',
+    )!;
+    expect(thumb.style.visibility).not.toBe("hidden");
+    expect(thumb.style.insetInlineStart).toBe("50%");
+    expect(thumb.style.clipPath).toBe("");
+    const indicator = host.querySelector<HTMLElement>(
+      '[data-slot="slider-range"]',
+    )!;
+    expect(indicator.style.width).toBe("50%");
     await act(async () => {
       slider.dispatchEvent(
         new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
@@ -51,3 +61,40 @@ it("updates the highlighted threshold by tens with keyboard input and describes 
     vi.unstubAllGlobals();
   }
 });
+
+it.each([0, 50, 80, 100])(
+  "positions the thumb at saved value %s on first mount and reopening before layout measurement",
+  async (limit) => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      for (let opening = 0; opening < 2; opening++) {
+        await act(async () =>
+          root.render(
+            <AutoTranslationSettings
+              theme={{ ...defaultTheme, autoTranslateMaxPages: limit }}
+              setTheme={() => {}}
+            />,
+          ),
+        );
+        const thumb = host.querySelector<HTMLElement>(
+          '[data-slot="slider-thumb"]',
+        )!;
+        expect(thumb.style.visibility).not.toBe("hidden");
+        expect(thumb.style.insetInlineStart).toBe(`${limit}%`);
+        const indicator = host.querySelector<HTMLElement>(
+          '[data-slot="slider-range"]',
+        )!;
+        expect(indicator.style.visibility).not.toBe("hidden");
+        expect(indicator.style.width).toBe(`${limit}%`);
+        await act(async () => root.render(null));
+      }
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.unstubAllGlobals();
+    }
+  },
+);

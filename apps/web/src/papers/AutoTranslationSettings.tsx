@@ -28,6 +28,8 @@ export function AutoTranslationSettings({
       </p>
       <Slider
         thumbLabel="自动翻译页数上限"
+        // Position directly from the value before the settings panel has measurable dimensions.
+        thumbAlignment="center"
         min={0}
         max={100}
         step={10}
