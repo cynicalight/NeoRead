@@ -23,6 +23,8 @@ export type PDFLocation = {
   x?: number;
   y?: number;
   quote?: string;
+  /** Search-only paragraph context and UTF-16 offset of the selected match. */
+  quoteContext?: { text: string; start: number };
   sentenceLink?: SentenceLink;
   translation?: TranslationLocation;
   rects?: { x: number; y: number; width: number; height: number }[];

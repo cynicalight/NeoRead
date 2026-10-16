@@ -3505,6 +3505,11 @@ export interface components {
             x?: number;
             y?: number;
             quote?: string;
+            /** @description Search paragraph context and UTF-16 offset of the selected match. */
+            quoteContext?: {
+                text: string;
+                start: number;
+            };
             rects?: {
                 x: number;
                 y: number;

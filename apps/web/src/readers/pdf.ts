@@ -839,11 +839,17 @@ export class PDFReaderAdapter implements ReaderAdapter {
   }
   flashReference(location: DocumentLocation, text: string) {
     if (location.type !== "pdf" || this.disposed) return;
+    const block =
+      referenceBlock(this.blockData, { ...location, quote: undefined }, "") ??
+      referenceBlock(this.blockData, location, text);
     if (location.rects?.length || location.quote) {
-      this.locationHighlight.show(location, text);
+      this.locationHighlight.show(
+        location,
+        text,
+        block ? [block.bounds] : undefined,
+      );
       return;
     }
-    const block = referenceBlock(this.blockData, location, text);
     if (block) this.blocks.flashBlock(block.id);
     else this.locationHighlight.show(location, text);
   }

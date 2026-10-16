@@ -4248,6 +4248,17 @@
                         "x": { "type": "number" },
                         "y": { "type": "number" },
                         "quote": { "type": "string" },
+                        "quoteContext":
+                          {
+                            "type": "object",
+                            "description": "Search paragraph context and UTF-16 offset of the selected match.",
+                            "properties":
+                              {
+                                "text": { "type": "string" },
+                                "start": { "type": "integer", "minimum": 0 },
+                              },
+                            "required": ["text", "start"],
+                          },
                         "rects":
                           {
                             "type": "array",

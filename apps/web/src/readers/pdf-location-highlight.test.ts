@@ -66,3 +66,43 @@ it("replaces old targets and clears pending feedback", () => {
   marks.paint();
   expect(page.querySelector(".reader-location-highlight")).toBeNull();
 });
+
+it("falls back to the paragraph when repaired text cannot match PDF text", () => {
+  page.innerHTML = '<div class="textLayer"><span>PDF glyphs</span></div>';
+  marks.show({ type: "pdf", page: 1, quote: "repaired OCR" }, "", [
+    { x: 0.2, y: 0.3, width: 0.4, height: 0.1 },
+  ]);
+  expect(
+    page.querySelector<HTMLElement>(".reader-location-highlight > div")!.style
+      .width,
+  ).toBe("40%");
+});
+
+it("distinguishes repeated words using the selected occurrence in its paragraph", () => {
+  const text = "target then target";
+  page.innerHTML = '<div class="textLayer"><span>' + text + "</span></div>";
+  const original = Range.prototype.getClientRects;
+  Range.prototype.getClientRects = function () {
+    return [
+      new DOMRect(this.startOffset * 10, 100, 60, 10),
+    ] as unknown as DOMRectList;
+  };
+  try {
+    for (const start of [0, 12]) {
+      marks.show({
+        type: "pdf",
+        page: 1,
+        quote: "target",
+        quoteContext: { text, start },
+        x: 0.5,
+        y: 0.5,
+      });
+      expect(
+        page.querySelector<HTMLElement>(".reader-location-highlight > div")!
+          .style.left,
+      ).toBe(start + "%");
+    }
+  } finally {
+    Range.prototype.getClientRects = original;
+  }
+});

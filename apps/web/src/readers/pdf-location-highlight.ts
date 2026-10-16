@@ -3,12 +3,14 @@ import type { PDFLocation } from "@reader/core";
 /** Transient navigation feedback, independent of selection and parsed blocks. */
 export class PDFLocationHighlight {
   private target?: PDFLocation;
+  private fallback?: PDFLocation["rects"];
   private timer?: ReturnType<typeof setTimeout>;
   private layer?: HTMLDivElement;
   constructor(private host: HTMLElement) {}
-  show(location: PDFLocation, quote = "") {
+  show(location: PDFLocation, quote = "", fallback?: PDFLocation["rects"]) {
     this.clear();
     this.target = { ...location, quote: location.quote || quote };
+    this.fallback = fallback;
     this.paint();
   }
   paint = () => {
@@ -22,9 +24,10 @@ export class PDFLocationHighlight {
     if (!page) return;
     const bounds = page.getBoundingClientRect();
     if (!bounds.width || !bounds.height) return;
-    const rects = target.rects?.length
+    let rects = target.rects?.length
       ? target.rects
       : this.quoteRects(page, target);
+    if (!rects.length) rects = this.fallback ?? [];
     if (!rects.length) return;
     const layer = document.createElement("div");
     layer.className = "reader-location-highlight";
@@ -67,11 +70,25 @@ export class PDFLocationHighlight {
     const candidates: Array<
       { x: number; y: number; width: number; height: number }[]
     > = [];
+    const context = target.quoteContext;
+    const paragraph = context ? normalize(context.text) : "";
+    const offset = context
+      ? normalize(context.text.slice(0, context.start)).length
+      : 0;
     for (
       let at = text.indexOf(needle);
       at >= 0;
       at = text.indexOf(needle, at + 1)
     ) {
+      // A search result carries its paragraph and exact occurrence, so repeated
+      // words cannot collapse onto whichever match happens to be nearest center.
+      if (
+        context &&
+        (at < offset ||
+          !paragraph ||
+          text.slice(at - offset, at - offset + paragraph.length) !== paragraph)
+      )
+        continue;
       const rects = [];
       // Separate text-node ranges avoid giant boxes across columns or <br> elements.
       for (let start = at; start < at + needle.length;) {
@@ -109,6 +126,7 @@ export class PDFLocationHighlight {
     clearTimeout(this.timer);
     this.timer = undefined;
     this.target = undefined;
+    this.fallback = undefined;
     this.layer?.remove();
     this.layer = undefined;
   };

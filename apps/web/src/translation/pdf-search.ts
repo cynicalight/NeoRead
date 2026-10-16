@@ -49,7 +49,9 @@ export function searchPDFBlocks(
           location: {
             type: "pdf",
             page: block.page,
-            ...(side === "source" ? { quote: query.trim() } : {}),
+            ...(side === "source"
+              ? { quote: query.trim(), quoteContext: { text, start: index } }
+              : {}),
             x: block.bounds.x + block.bounds.width / 2,
             y: block.bounds.y + block.bounds.height / 2,
           },
