@@ -96,11 +96,14 @@ export function adaptPDFColor(
 ) {
   const { h, s, l } = rgbToHsl(r, g, b);
   let nextL = contrast === "high" ? 1 - l : 0.14 + (0.87 - 0.14) * (1 - l);
-  // Give colored text enough brightness to remain legible on charcoal.
-  if (s > 0.08) return hslToRgb(h, s, Math.min(0.87, Math.max(0.64, nextL)));
+  // HSL saturation is unstable near white. Use absolute chroma and a smooth
+  // transition so barely tinted antialiasing pixels cannot become bright halos.
+  const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+  const weight = Math.max(0, Math.min(1, (chroma - 12) / 36));
+  nextL += weight * (Math.min(0.87, Math.max(0.64, nextL)) - nextL);
   return hslToRgb(
     h,
-    s,
+    s * weight,
     contrast === "high" ? nextL : Math.min(0.87, Math.max(0.14, nextL)),
   );
 }
@@ -128,6 +131,8 @@ export function imageRegions(data: PDFDarkImageCoordinates): PDFDarkRegion[] {
   for (let i = 0; i + 5 < coordinates.length; i += 6) {
     const xs = [coordinates[i], coordinates[i + 2], coordinates[i + 4]];
     const ys = [coordinates[i + 1], coordinates[i + 3], coordinates[i + 5]];
+    xs.push(coordinates[i + 2] + coordinates[i + 4] - coordinates[i]);
+    ys.push(coordinates[i + 3] + coordinates[i + 5] - coordinates[i + 1]);
     const x = Math.max(0, Math.min(...xs));
     const y = Math.max(0, Math.min(...ys));
     const right = Math.min(1, Math.max(...xs));
@@ -136,6 +141,76 @@ export function imageRegions(data: PDFDarkImageCoordinates): PDFDarkRegion[] {
       regions.push({ x, y, width: right - x, height: bottom - y });
   }
   return regions;
+}
+
+/** Adapt neutral background/ink connected to a near-white image border.
+ * Colored pixels and isolated neutral interiors keep their original colors.
+ * This is a document-background heuristic, not semantic photo segmentation.
+ */
+function bitmapPaperMask(
+  source: Uint8ClampedArray,
+  width: number,
+  height: number,
+  regions: PDFDarkRegion[],
+  bitmapMask: Uint8Array,
+) {
+  const neutral = new Uint8Array(width * height);
+  const paper = new Uint8Array(width * height);
+  const queue = new Uint32Array(width * height);
+  let end = 0;
+  const white = (pixel: number) => {
+    const i = pixel * 4,
+      alpha = source[i + 3] / 255;
+    const r = source[i] * alpha + 255 * (1 - alpha);
+    const g = source[i + 1] * alpha + 255 * (1 - alpha);
+    const b = source[i + 2] * alpha + 255 * (1 - alpha);
+    return Math.min(r, g, b) >= 235;
+  };
+  for (let pixel = 0; pixel < neutral.length; pixel++) {
+    if (!bitmapMask[pixel]) continue;
+    const i = pixel * 4;
+    const chroma =
+      ((Math.max(source[i], source[i + 1], source[i + 2]) -
+        Math.min(source[i], source[i + 1], source[i + 2])) *
+        source[i + 3]) /
+      255;
+    neutral[pixel] = chroma <= 16 ? 1 : 0;
+  }
+  const visit = (pixel: number) => {
+    if (!neutral[pixel] || paper[pixel]) return;
+    paper[pixel] = 1;
+    queue[end++] = pixel;
+  };
+  for (const region of regions) {
+    const left = Math.max(0, Math.floor(region.x * width));
+    const right = Math.min(width, Math.ceil((region.x + region.width) * width));
+    const top = Math.max(0, Math.floor(region.y * height));
+    const bottom = Math.min(
+      height,
+      Math.ceil((region.y + region.height) * height),
+    );
+    if (right <= left || bottom <= top) continue;
+    const seed = (pixel: number) => {
+      if (white(pixel)) visit(pixel);
+    };
+    for (let x = left; x < right; x++) {
+      seed(top * width + x);
+      seed((bottom - 1) * width + x);
+    }
+    for (let y = top; y < bottom; y++) {
+      seed(y * width + left);
+      seed(y * width + right - 1);
+    }
+  }
+  for (let start = 0; start < end; start++) {
+    const pixel = queue[start],
+      x = pixel % width;
+    if (x > 0) visit(pixel - 1);
+    if (x + 1 < width) visit(pixel + 1);
+    if (pixel >= width) visit(pixel - width);
+    if (pixel + width < paper.length) visit(pixel + width);
+  }
+  return paper;
 }
 
 /** Process a fresh ImageData buffer from PDF.js; never uses a processed canvas as input. */
@@ -151,6 +226,10 @@ export function processPDFPagePixels(
   const output = source;
   const bitmapMask = makeMask(width, height, bitmapRegions);
   const figureMask = makeMask(width, height, figureRegions);
+  const bitmapPaper =
+    mode === "adaptive" && bitmapRegions.length
+      ? bitmapPaperMask(source, width, height, bitmapRegions, bitmapMask)
+      : null;
   // Most paper and text pixels are neutral. Avoid HSL conversion and per-pixel
   // allocations for these, especially on Retina canvases during fast scrolling.
   const grayscale = Uint8Array.from({ length: 256 }, (_, value) =>
@@ -164,7 +243,7 @@ export function processPDFPagePixels(
     const originalR = Math.round(source[i] * alpha + 255 * (1 - alpha));
     const originalG = Math.round(source[i + 1] * alpha + 255 * (1 - alpha));
     const originalB = Math.round(source[i + 2] * alpha + 255 * (1 - alpha));
-    if (bitmapMask[pixel]) {
+    if (bitmapMask[pixel] && !bitmapPaper?.[pixel]) {
       if (mode !== "invert") {
         output[i] = originalR;
         output[i + 1] = originalG;

@@ -3,6 +3,7 @@ import { selectionAnchor, isSelectionToolbar } from "./selection-anchor";
 import { pdfQuotePoint } from "./pdf-reference-location";
 import { PDFBlockOverlay, referenceBlock } from "./pdf-blocks";
 import { PDFReadingNavigation } from "./pdf-navigation";
+import { PDFLocationHighlight } from "./pdf-location-highlight";
 import { PDFAnnotationLayer } from "./pdf-annotations";
 import { PDFLinkPreview } from "./pdf-link-preview";
 import * as pdfjs from "pdfjs-dist";
@@ -42,7 +43,6 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerURL;
 
 interface DarkPage {
   canvas: HTMLCanvasElement;
-  preview?: HTMLCanvasElement;
   width: number;
   height: number;
   bitmapRegions: PDFDarkRegion[];
@@ -60,6 +60,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private location: PDFLocation = { type: "pdf", page: 1 };
   private selection: ReaderSelection | null = null;
   private annotationLayer: PDFAnnotationLayer;
+  private locationHighlight: PDFLocationHighlight;
   private linkPreview: PDFLinkPreview;
   private removeExternalLinks: () => void;
   private texts = new Map<number, string>();
@@ -102,6 +103,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
         else void this.focusBlock(block.id, "source");
       },
     );
+    this.locationHighlight = new PDFLocationHighlight(container);
     this.annotationLayer = new PDFAnnotationLayer(container, (target) =>
       this.events.annotation?.(target),
     );
@@ -189,12 +191,14 @@ export class PDFReaderAdapter implements ReaderAdapter {
     );
     this.bus.on("pagerendered", () => {
       this.paintHighlights();
+      this.locationHighlight.paint();
       this.navigation.repaint();
       this.blocks.repaint();
     });
     this.bus.on("textlayerrendered", () => {
       this.navigation.repaint();
       this.figureLinks.repaint();
+      this.locationHighlight.paint();
     });
     document.addEventListener("mouseup", this.onMouseUp);
     document.addEventListener("pointerdown", this.onPointerDown);
@@ -324,6 +328,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   }
   async goTo(location: DocumentLocation) {
     if (location.type !== "pdf" || !this.pdf) return;
+    this.locationHighlight.clear();
     const request = ++this.navigationRequest;
     this.clearSelection();
     const page = Math.max(1, Math.min(this.pdf.numPages, location.page));
@@ -405,6 +410,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   };
   private onPointerDown = (event: PointerEvent) => {
     if (isSelectionToolbar(event.target)) return;
+    this.locationHighlight.clear();
     this.events.annotation?.(null);
     this.pointer = undefined;
     this.selecting =
@@ -642,7 +648,6 @@ export class PDFReaderAdapter implements ReaderAdapter {
     };
     if (isDetailView) canvas.dataset.pdfDarkDetail = "true";
     this.pruneDarkPages();
-    this.showDarkPreview(pending);
     this.queuedDarkPages.set(canvas, pending);
     this.processNextDarkPage();
   }
@@ -658,51 +663,11 @@ export class PDFReaderAdapter implements ReaderAdapter {
       pending.canvas.height === pending.height
     );
   }
-  private releaseDarkPreview(pending: DarkPage) {
-    if (!pending.preview) return;
-    pending.preview.remove();
-    pending.preview.width = pending.preview.height = 0;
-    pending.preview = undefined;
-  }
-  private showDarkPreview(pending: DarkPage) {
-    // A small, correctly colored canvas fills the worker wait without changing
-    // PDF.js's original pixels or flashing inverted photos. Bound the extra RAM
-    // and main-thread work independently of zoom and device pixel ratio.
-    const preview = document.createElement("canvas");
-    const scale = Math.min(1, 512 / Math.max(pending.width, pending.height));
-    preview.width = Math.max(1, Math.round(pending.width * scale));
-    preview.height = Math.max(1, Math.round(pending.height * scale));
-    const context = preview.getContext("2d", { alpha: false });
-    if (!context) return;
-    context.drawImage(pending.canvas, 0, 0, preview.width, preview.height);
-    const image = context.getImageData(0, 0, preview.width, preview.height);
-    processPDFPagePixels(
-      image.data,
-      preview.width,
-      preview.height,
-      pending.bitmapRegions,
-      pending.figureRegions,
-      this.theme.pdfDarkImageMode ?? "adaptive",
-      this.theme.pdfDarkContrast ?? "soft",
-    );
-    context.putImageData(image, 0, 0);
-    preview.className = `${pending.canvas.className} pdf-dark-preview`;
-    preview.style.cssText = pending.canvas.style.cssText;
-    preview.dataset.pdfDarkReady = "true";
-    if (pending.canvas.dataset.pdfDarkDetail)
-      preview.dataset.pdfDarkDetail = "true";
-    preview.setAttribute("aria-hidden", "true");
-    pending.canvas.after(preview);
-    pending.preview = preview;
-  }
   private pruneDarkPages() {
     for (const [canvas, pending] of this.queuedDarkPages) {
       if (this.isCurrentDarkPage(pending)) continue;
-      this.releaseDarkPreview(pending);
       this.queuedDarkPages.delete(canvas);
     }
-    if (this.activeDarkPage && !this.isCurrentDarkPage(this.activeDarkPage))
-      this.releaseDarkPreview(this.activeDarkPage);
   }
   private processNextDarkPage() {
     this.pruneDarkPages();
@@ -733,7 +698,6 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.queuedDarkPages.delete(pending.canvas);
     const context = pending.canvas.getContext("2d");
     if (!context) {
-      this.releaseDarkPreview(pending);
       this.processNextDarkPage();
       return;
     }
@@ -765,7 +729,6 @@ export class PDFReaderAdapter implements ReaderAdapter {
               active.canvas.dataset.pdfDarkReady = "true";
             }
           }
-          this.releaseDarkPreview(active);
           this.processNextDarkPage();
         };
         worker.onerror = () => {
@@ -791,7 +754,6 @@ export class PDFReaderAdapter implements ReaderAdapter {
       );
       context.putImageData(image, 0, 0);
       pending.canvas.dataset.pdfDarkReady = "true";
-      this.releaseDarkPreview(pending);
       this.processNextDarkPage();
       return;
     }
@@ -815,10 +777,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.darkRenderEpoch++;
     this.darkWorker?.terminate();
     this.darkWorker = undefined;
-    if (this.activeDarkPage) this.releaseDarkPreview(this.activeDarkPage);
     this.activeDarkPage = undefined;
-    for (const pending of this.queuedDarkPages.values())
-      this.releaseDarkPreview(pending);
     this.queuedDarkPages.clear();
   }
   private redrawDarkPages() {
@@ -894,8 +853,19 @@ export class PDFReaderAdapter implements ReaderAdapter {
   }
   flashReference(location: DocumentLocation, text: string) {
     if (location.type !== "pdf" || this.disposed) return;
-    const block = referenceBlock(this.blockData, location, text);
+    const block =
+      referenceBlock(this.blockData, { ...location, quote: undefined }, "") ??
+      referenceBlock(this.blockData, location, text);
+    if (location.rects?.length || location.quote) {
+      this.locationHighlight.show(
+        location,
+        text,
+        block ? [block.bounds] : undefined,
+      );
+      return;
+    }
     if (block) this.blocks.flashBlock(block.id);
+    else this.locationHighlight.show(location, text);
   }
   setSearchBlocks(blockIds: string[]) {
     this.blocks.setSearchBlocks(blockIds);
@@ -1006,6 +976,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.navigation.destroy();
     this.blocks.destroy();
     this.annotationLayer.destroy();
+    this.locationHighlight.clear();
     this.linkPreview.destroy();
     this.removeExternalLinks();
     this.figureLinks.destroy();

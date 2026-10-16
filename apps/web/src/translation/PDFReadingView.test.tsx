@@ -90,6 +90,7 @@ const adapter = {
   getContext: vi.fn(async () => ""),
   destroy: vi.fn(async () => {}),
   focusBlock: vi.fn(async () => {}),
+  flashReference: vi.fn(),
   cancelBlockFocus: vi.fn(),
   followBlock: vi.fn(async () => {}),
   focusSentences: vi.fn(async () => {}),
@@ -1018,4 +1019,32 @@ it("focuses the image from a translated figure reference even with sync disabled
     "parallel",
   );
   expect(adapter.goTo).not.toHaveBeenCalled();
+});
+
+it("paints search and annotation jump feedback after focusing the source", async () => {
+  const location = {
+    type: "pdf" as const,
+    page: 1,
+    x: 0.1,
+    y: 0.2,
+    quote: "target",
+  };
+  vi.mocked(adapter.flashReference!).mockClear();
+  await act(async () => {
+    await fixture.ready!.focusLocation?.(location);
+  });
+  expect(adapter.flashReference).toHaveBeenCalledWith(location, "target");
+});
+
+it("paints a jump target on an unparsed page after page navigation", async () => {
+  const location = { type: "pdf" as const, page: 2, quote: "unparsed target" };
+  vi.mocked(adapter.flashReference!).mockClear();
+  await act(async () => {
+    await fixture.ready!.focusLocation?.(location);
+  });
+  expect(adapter.goTo).toHaveBeenCalledWith(location);
+  expect(adapter.flashReference).toHaveBeenCalledWith(
+    location,
+    "unparsed target",
+  );
 });

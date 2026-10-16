@@ -746,12 +746,23 @@ kbd {
   > canvas:not([data-pdf-dark-ready]) {
   visibility: hidden;
 }
-.pdf-container .canvasWrapper > .pdf-dark-preview {
-  pointer-events: none;
+/* Keep every page canvas inside a single stacking context below the text,
+   search and Reader annotation layers. Native PDF.js selection lives inside it. */
+.pdf-container .canvasWrapper {
+  isolation: isolate;
 }
-/* Detail results must remain above the temporary full-page preview. */
 .pdf-container .canvasWrapper > canvas[data-pdf-dark-detail] {
+  z-index: 0;
+}
+.pdf-container .canvasWrapper > .selection,
+.pdf-container .canvasWrapper > svg.highlight,
+.pdf-container .canvasWrapper > svg.highlightOutline {
   z-index: 1;
+}
+/* Native PDF.js highlight blending must brighten dark paper rather than
+   multiply it toward black. Reader annotations use the same dark-mode rule. */
+.pdf-container[data-theme="dark"] .canvasWrapper > svg.highlight {
+  --blend-mode: screen;
 }
 .pdfViewer {
   --page-margin: 20px auto;
@@ -3204,4 +3215,20 @@ textarea.paper-note-input {
 }
 .reading-appearance-slider [data-slot="slider-range"] {
   background: var(--foreground);
+}
+
+/* Navigation feedback is independent of the native selection and remains above
+   page canvases and saved marks in every reading appearance. */
+.reader-location-highlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+}
+.reader-location-highlight > div {
+  background: rgb(0 90 255 / 24%);
+  border-radius: 2px;
+}
+.pdf-container[data-theme="dark"] .reader-location-highlight > div {
+  background: rgb(100 170 255 / 36%);
 }

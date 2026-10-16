@@ -306,7 +306,7 @@ export function PDFReadingView({
       mode !== "source"
         ? followTranslation(anchor, undefined, { smooth: true, center: true })
         : undefined;
-    void Promise.all([source, translated])
+    const completed = Promise.all([source, translated])
       .catch((e) => toast.error(e.message))
       .finally(() => {
         if (operation === motion.operation) {
@@ -320,9 +320,11 @@ export function PDFReadingView({
       block.page /
         (engine?.getPageCount?.() || Math.max(1, ...blocks.map((b) => b.page))),
     );
+    return completed;
   };
-  const focusTranslation = (block: PDFBlock) =>
-    focusBlock(block, "translation");
+  const focusTranslation = (block: PDFBlock) => {
+    void focusBlock(block, "translation");
+  };
   const locationBlock = (location: DocumentLocation) => {
     if (location.type !== "pdf") return;
     const readable = state.current.blocks.filter(
@@ -391,8 +393,14 @@ export function PDFReadingView({
   };
   const focus = async (location: DocumentLocation) => {
     const block = locationBlock(location);
-    if (!block) return go(location);
-    focusBlock(block, mode === "translation" ? "translation" : "source");
+    const completed = block
+      ? focusBlock(block, mode === "translation" ? "translation" : "source")
+      : go(location);
+    const operation = explicitFocus.current.operation;
+    await completed;
+    if (operation !== explicitFocus.current.operation) return;
+    if (location.type === "pdf" && mode !== "translation")
+      engine?.flashReference?.(location, location.quote ?? "");
   };
   // Keep the public adapter usable by TOC, notes and page navigation in all modes.
   const facade = useRef<ReaderAdapter | undefined>(undefined);
@@ -952,7 +960,9 @@ export function PDFReadingView({
               events={{
                 ...events,
                 selection: sourceSelection,
-                blockFocus: (block) => focusBlock(block, "source"),
+                blockFocus: (block) => {
+                  void focusBlock(block, "source");
+                },
                 location: (location, percentage) => {
                   if (
                     state.current.mode !== "translation" &&

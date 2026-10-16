@@ -32,10 +32,17 @@ const translations: TranslationBlock[] = [
 it("searches repaired originals and translations with block anchors", () => {
   const source = searchPDFBlocks("source", blocks, translations);
   expect(source).toHaveLength(2);
+  expect(
+    source.map(
+      (result) =>
+        result.location.type === "pdf" && result.location.quoteContext?.start,
+    ),
+  ).toEqual([9, 16]);
   expect(source.map((result) => result.blockId)).toEqual(["one", "one"]);
   expect(source[0].location).toMatchObject({
     type: "pdf",
     page: 2,
+    quote: "source",
     x: 0.5,
     y: 0.25,
   });
