@@ -112,7 +112,21 @@ func endnoteSource(ctx context.Context, input string) (*endnoteScan, error) {
 	root := strings.TrimSuffix(path, filepath.Ext(path)) + ".Data"
 	// The .enl is authoritative after EndNote is saved and closed. Do not silently
 	// fall back to the auxiliary sdb copy when the active library is locked.
-	rows, err := tx.QueryContext(ctx, `SELECT r.id,r.reference_type,r.title,r.author,r.year,r.secondary_title,r.volume,r.number,r.pages,r.publisher,r.electronic_resource_number,r.url,r.abstract,r.keywords,r.notes,r.research_notes,f.file_path,f.file_pos FROM refs r LEFT JOIN file_res f ON f.refs_id=r.id WHERE r.trash_state=0 ORDER BY r.id,f.file_pos LIMIT 20001`)
+	// Unfilled text metadata may be NULL or empty, depending on the source library.
+	rows, err := tx.QueryContext(ctx, `SELECT r.id,r.reference_type,COALESCE(r.title, ''),
+        COALESCE(r.author, ''),
+        COALESCE(r.year, ''),
+        COALESCE(r.secondary_title, ''),
+        COALESCE(r.volume, ''),
+        COALESCE(r.number, ''),
+        COALESCE(r.pages, ''),
+        COALESCE(r.publisher, ''),
+        COALESCE(r.electronic_resource_number, ''),
+        COALESCE(r.url, ''),
+        COALESCE(r.abstract, ''),
+        COALESCE(r.keywords, ''),
+        COALESCE(r.notes, ''),
+        COALESCE(r.research_notes, ''),f.file_path,f.file_pos FROM refs r LEFT JOIN file_res f ON f.refs_id=r.id WHERE r.trash_state=0 ORDER BY r.id,f.file_pos LIMIT 20001`)
 	if err != nil {
 		return nil, fmt.Errorf("无法读取 EndNote 文献库。请保存并完全退出 EndNote 后重试；若仍失败，当前库格式可能不受支持：%w", err)
 	}

@@ -209,3 +209,59 @@ func TestEndnoteMixedAttachmentLimitIsExplicit(t *testing.T) {
 		t.Fatalf("expected explicit limit, got %v", err)
 	}
 }
+
+func TestEndnoteNullableMetadataDoesNotBlockOtherPapers(t *testing.T) {
+	path, db := endnoteFixture(t)
+	_, err := db.Exec(`INSERT INTO refs (id,reference_type,trash_state) VALUES(2,0,0); INSERT INTO file_res VALUES(2,'123/nullable.pdf',0)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "Test.Data", "PDF", "123", "nullable.pdf"), testPDF(1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	scan, err := endnoteSource(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.Entries) != 2 {
+		t.Fatalf("expected two papers, got %d", len(scan.Entries))
+	}
+	regular, nullable := scan.Entries[0], scan.Entries[1]
+	if regular.metadata.DOI != "10.1000/test" || regular.Title != "论文" || regular.Notes != 1 {
+		t.Fatalf("populated metadata lost: %+v", regular)
+	}
+	if nullable.Title != "nullable" || nullable.Notes != 0 || nullable.note != "" || len(nullable.Tags) != 0 || len(nullable.metadata.Creators) != 0 {
+		t.Fatalf("unexpected NULL defaults: %+v", nullable)
+	}
+	if nullable.metadata.Date != "" || nullable.metadata.Venue != "" || nullable.metadata.Volume != "" || nullable.metadata.Issue != "" || nullable.metadata.Pages != "" || nullable.metadata.Publisher != "" || nullable.metadata.DOI != "" || nullable.metadata.URL != "" || nullable.metadata.Abstract != "" {
+		t.Fatalf("unexpected metadata: %+v", nullable.metadata)
+	}
+	s := testServer(t)
+	convert := func(ctx context.Context, input, work string) (string, endnotePDFResult, error) {
+		data, err := os.ReadFile(input)
+		if err != nil {
+			return "", endnotePDFResult{}, err
+		}
+		dest := filepath.Join(work, "cleaned.pdf")
+		return dest, endnotePDFResult{}, os.WriteFile(dest, data, 0600)
+	}
+	for _, e := range scan.Entries {
+		if e.Issue != "" {
+			t.Fatalf("unavailable PDF: %s", e.Issue)
+		}
+		result, err := s.importEndnoteEntry(context.Background(), e, "papers", true, convert)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != "imported" {
+			t.Fatalf("import failed: %+v", result)
+		}
+	}
+	var count int
+	if err := s.Store.DB.QueryRow("SELECT count(*) FROM documents").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("expected two imported documents, got %d", count)
+	}
+}
