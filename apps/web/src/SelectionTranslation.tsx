@@ -1,13 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReaderSelection } from "@reader/core";
 import { api } from "@reader/api";
-import { X } from "lucide-react";
-import { Button } from "@reader/ui/components/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTitle,
-} from "@reader/ui/components/popover";
+import { Popover, PopoverContent } from "@reader/ui/components/popover";
 
 export function SelectionTranslation({
   selection,
@@ -21,7 +15,6 @@ export function SelectionTranslation({
     text?: string;
     error?: string;
   }>();
-  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!selection) return;
     const controller = new AbortController();
@@ -39,7 +32,7 @@ export function SelectionTranslation({
       },
     );
     return () => controller.abort();
-  }, [selection, attempt]);
+  }, [selection]);
   useEffect(() => {
     if (!selection) return;
     const interrupt = (event: Event) => {
@@ -81,20 +74,10 @@ export function SelectionTranslation({
           align="start"
           sideOffset={12}
           finalFocus={false}
+          aria-label="翻译"
           data-selection-translation=""
           className="max-h-[min(24rem,70vh)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto"
         >
-          <div className="flex items-center justify-between gap-2">
-            <PopoverTitle>翻译</PopoverTitle>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="关闭翻译"
-              onClick={onClose}
-            >
-              <X />
-            </Button>
-          </div>
           <div
             role="status"
             aria-live="polite"
@@ -102,15 +85,6 @@ export function SelectionTranslation({
           >
             {current?.error || current?.text || "正在翻译…"}
           </div>
-          {current?.error && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setAttempt((n) => n + 1)}
-            >
-              重试
-            </Button>
-          )}
         </PopoverContent>
       )}
     </Popover>

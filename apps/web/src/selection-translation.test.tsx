@@ -59,18 +59,16 @@ it("cancels replaced and closed requests and ignores late results", async () => 
   await render(null);
   expect(vi.mocked(api.translateSelection).mock.calls[1][1].aborted).toBe(true);
 });
-it("shows failures and retries the same selection", async () => {
-  vi.mocked(api.translateSelection)
-    .mockRejectedValueOnce(new Error("模型不可用"))
-    .mockResolvedValueOnce({ text: "译文" });
+it("shows failures and closes on scroll without action buttons", async () => {
+  vi.mocked(api.translateSelection).mockRejectedValueOnce(
+    new Error("模型不可用"),
+  );
   await render(first);
   expect(document.body.textContent).toContain("模型不可用");
-  const retry = [...document.querySelectorAll("button")].find(
-    (button) => button.textContent === "重试",
-  )!;
-  await act(async () => retry.click());
-  expect(document.body.textContent).toContain("译文");
-  expect(api.translateSelection).toHaveBeenCalledTimes(2);
+  expect(
+    document.querySelector("[data-selection-translation] button"),
+  ).toBeNull();
+  expect(api.translateSelection).toHaveBeenCalledTimes(1);
   await act(async () => window.dispatchEvent(new Event("scroll")));
   expect(close).toHaveBeenCalledOnce();
 });

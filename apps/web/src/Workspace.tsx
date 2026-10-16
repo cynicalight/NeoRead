@@ -1350,16 +1350,6 @@ export function Workspace({
 
             {selection?.anchor && (
               <SelectionToolbar anchor={selection.anchor} pane={readingPane}>
-                <IconButton
-                  label="直接翻译"
-                  onClick={() => {
-                    setTranslationSelection(selection);
-                    setSelection(null);
-                    adapter?.clearSelection();
-                  }}
-                >
-                  <Languages />
-                </IconButton>
                 <ColorSwatches
                   action="高亮"
                   onPick={(color) => {
@@ -1412,6 +1402,16 @@ export function Workspace({
                 </IconButton>
                 <IconButton label="引用到对话" onClick={addQuote}>
                   <Quote />
+                </IconButton>
+                <IconButton
+                  label="直接翻译"
+                  onClick={() => {
+                    setTranslationSelection(selection);
+                    setSelection(null);
+                    adapter?.clearSelection();
+                  }}
+                >
+                  <Languages />
                 </IconButton>
               </SelectionToolbar>
             )}
