@@ -22,7 +22,11 @@ import {
 } from "lucide-react";
 import { version } from "../../desktop/package.json";
 import { api, RequestError } from "@reader/api";
-import { LargePaperDialog, type LargePaper } from "./LargePaperDialog";
+import {
+  LargePaperConfirmation,
+  LargePaperDialog,
+  type LargePaper,
+} from "./LargePaperDialog";
 import type { Document, LibraryMode } from "@reader/core";
 import { Button } from "@reader/ui/components/button";
 import { Input } from "@reader/ui/components/input";
@@ -786,6 +790,7 @@ export function App() {
             </div>
           </DialogContent>
         </Dialog>
+        <LargePaperConfirmation />
         <LargePaperDialog
           papers={largePapers}
           busy={busy}

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func paperDoc(t *testing.T, s *Server, data []byte) Document {
@@ -143,16 +142,8 @@ func TestImportWithAutoTranslationDisabledDoesNotStartBackgroundAI(t *testing.T)
 	}
 	d := paperDoc(t, s, sample(t, "reading-notes.pdf"))
 	p, e := s.Store.processing(d.ID)
-	if e != nil || p.Enabled || p.Status != "paused" {
-		t.Fatalf("import processing: %+v %v", p, e)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	stop := s.StartProcessing(ctx)
-	defer func() { cancel(); stop() }()
-	time.Sleep(1200 * time.Millisecond)
-	p, _ = s.Store.processing(d.ID)
-	if p.Enabled || p.Status != "paused" {
-		t.Fatalf("background claimed imported PDF: %+v", p)
+	if e != nil || !p.Enabled || p.Status != "queued" || p.AutoTranslateMaxPages == nil || *p.AutoTranslateMaxPages != 0 {
+		t.Fatalf("import must queue local parsing only: %+v %v", p, e)
 	}
 }
 
@@ -193,11 +184,11 @@ func TestImportAutoTranslationPreferenceOnlyAffectsNewDocuments(t *testing.T) {
 		content := append(sample(t, "reading-notes.pdf"), []byte("\n% preference "+string(body))...)
 		next := paperDoc(t, s, content)
 		p, err := s.Store.processing(next.ID)
-		if err != nil || p.Enabled != enabled || (enabled && p.Status != "queued") || (!enabled && p.Status != "paused") {
+		if err != nil || !p.Enabled || p.Status != "queued" || p.AutoTranslateMaxPages == nil || (*p.AutoTranslateMaxPages > 0) != enabled {
 			t.Fatalf("preference ignored: %+v %v", p, err)
 		}
 		original, _ := s.Store.processing(first.ID)
-		if original.Enabled || original.Status != "paused" {
+		if original.AutoTranslateMaxPages == nil || *original.AutoTranslateMaxPages != 0 {
 			t.Fatal("changing preference enabled an existing document")
 		}
 	}

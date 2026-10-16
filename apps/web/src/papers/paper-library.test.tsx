@@ -12,7 +12,12 @@ import { paper } from "./fixtures";
 vi.mock("@reader/api", () => ({
   api: {
     snapshotStatus: vi.fn(async () => ({ available: false })),
-    journalRankConfig: vi.fn(async () => ({ enabled: true, hasKey: false, selected: [], available: [] })),
+    journalRankConfig: vi.fn(async () => ({
+      enabled: true,
+      hasKey: false,
+      selected: [],
+      available: [],
+    })),
     update: vi.fn(async () => ({})),
     documents: vi.fn(async () => []),
     trash: vi.fn(async () => []),
@@ -25,6 +30,7 @@ vi.mock("@reader/api", () => ({
     relateDocuments: vi.fn(async () => ({})),
     unrelateDocuments: vi.fn(async () => ({})),
     process: vi.fn(async () => ({})),
+    setAssistance: vi.fn(async () => ({})),
   },
 }));
 vi.mock("sonner", () => ({
@@ -602,5 +608,50 @@ it.each(["list", "table"] as const)(
     await act(async () => root.render(<Harness />));
     expect(row("Attention Is All You Need").textContent).toContain("解析中");
     expect(navButton("解析中")).toBeDefined();
+  },
+);
+
+it.each(["list", "table"] as const)(
+  "shows manual translation after parsing in %s view",
+  async (layout) => {
+    const job: Processing = {
+      documentId: "a",
+      enabled: true,
+      phase: "learning",
+      status: "running",
+      pagesDone: 10,
+      pagesTotal: 60,
+      translationsDone: 0,
+      translationsTotal: 1,
+      detail: "解析中",
+      updatedAt: "2026-10-16T00:00:00Z",
+    };
+    jobs = new Map([["a", job]]);
+    await act(async () => {
+      useReaderStore.setState({
+        libraryPreferences: { mode: "papers", papers: { layout } },
+      });
+      root.render(<Harness />);
+    });
+    expect(row("Attention Is All You Need").textContent).not.toContain(
+      "手动翻译",
+    );
+    jobs.set("a", {
+      ...job,
+      enabled: false,
+      phase: "translating",
+      status: "paused",
+      pagesDone: 60,
+      manualTranslation: true,
+    });
+    await act(async () => root.render(<Harness />));
+    const button = Array.from(
+      row("Attention Is All You Need").querySelectorAll("button"),
+    ).find((button) => button.textContent === "手动翻译")!;
+    expect(button).toBeDefined();
+    await act(async () => button.click());
+    expect(api.setAssistance).toHaveBeenCalledWith("a", "start");
+    expect(open).not.toHaveBeenCalled();
+    expect(button.disabled).toBe(true);
   },
 );

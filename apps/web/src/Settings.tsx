@@ -1,3 +1,4 @@
+import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronLeft,
@@ -860,21 +861,7 @@ export function Settings({
                   </span>
                 </span>
               </label>
-              <label className="mt-4 flex items-start gap-2 text-sm">
-                <Checkbox
-                  className="mt-0.5"
-                  checked={theme.autoTranslatePDF ?? true}
-                  onCheckedChange={(checked) =>
-                    setTheme({ autoTranslatePDF: !!checked })
-                  }
-                />
-                <span>
-                  导入后自动翻译
-                  <span className="block text-xs text-muted-foreground">
-                    开启后，新导入的论文会自动翻译全文。
-                  </span>
-                </span>
-              </label>
+              <AutoTranslationSettings theme={theme} setTheme={setTheme} />
             </section>
             <section className="mt-7 border-t pt-5">
               <h3 className="mb-3 text-sm font-medium">期刊指标</h3>

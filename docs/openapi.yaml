@@ -554,6 +554,14 @@
                                 {
                                   "scanId": { "type": "string" },
                                   "entryId": { "type": "string" },
+                                  "library":
+                                    {
+                                      "type": "string",
+                                      "enum": ["papers", "books"],
+                                      "default": "papers",
+                                    },
+                                  "allowLarge":
+                                    { "type": "boolean", "default": false },
                                 },
                               "required": ["scanId", "entryId"],
                             },
@@ -762,12 +770,12 @@
                                   "library":
                                     {
                                       "enum": ["books", "papers"],
-                                      "description": "Target library. Papers accept PDFs up to 50 MB and 150 pages. Defaults to books.",
+                                      "description": "Target library. Papers accept PDFs; over 100 MB or 100 pages requires confirmation. Defaults to books.",
                                     },
                                   "allowLarge":
                                     {
                                       "enum": ["1"],
-                                      "description": "Confirms a paper over 50 pages. Without it such a paper fails with 409, code large-paper and its page count.",
+                                      "description": "Confirms a paper over 100 pages or 100 MB. Without it such a paper fails with 409, code large-paper and its page count.",
                                     },
                                 },
                               "required": ["file"],
@@ -3581,7 +3589,18 @@
                           "schema":
                             {
                               "type": "object",
-                              "properties": { "ref": { "type": "string" } },
+                              "properties":
+                                {
+                                  "ref": { "type": "string" },
+                                  "library":
+                                    {
+                                      "type": "string",
+                                      "enum": ["papers", "books"],
+                                      "default": "papers",
+                                    },
+                                  "allowLarge":
+                                    { "type": "boolean", "default": false },
+                                },
                               "required": ["ref"],
                             },
                         },
@@ -4781,6 +4800,15 @@
               "properties":
                 {
                   "enabled": { "type": "boolean" },
+                  "manualTranslation": { "type": "boolean", "readOnly": true },
+                  "autoTranslateMaxPages":
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "multipleOf": 10,
+                      "readOnly": true,
+                    },
                   "epubManual":
                     {
                       "type": "boolean",

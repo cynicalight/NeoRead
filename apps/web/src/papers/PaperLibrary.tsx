@@ -1052,6 +1052,31 @@ function PaperProcessing({ job }: { job?: Processing }) {
     retryLock.current = false;
     setRetrying(false);
   }, [job?.updatedAt]);
+  if (job?.manualTranslation && !job.enabled && job.phase !== "learning") {
+    return (
+      <Button
+        size="xs"
+        variant="ghost"
+        data-row-action
+        disabled={retrying}
+        onClick={async (event) => {
+          event.stopPropagation();
+          if (retryLock.current) return;
+          retryLock.current = true;
+          setRetrying(true);
+          try {
+            await api.setAssistance(job.documentId, "start");
+          } catch (error) {
+            retryLock.current = false;
+            setRetrying(false);
+            toast.error((error as Error).message);
+          }
+        }}
+      >
+        手动翻译
+      </Button>
+    );
+  }
   if (
     !job ||
     job.enabled === false ||

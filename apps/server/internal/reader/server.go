@@ -213,6 +213,13 @@ func (s *Server) Handler() http.Handler {
 				return
 			}
 		}
+		if value, exists := v["autoTranslateMaxPages"]; exists {
+			n, ok := value.(float64)
+			if !ok || n < 0 || n > 100 || n != float64(int(n)) || int(n)%10 != 0 {
+				fail(w, 400, "自动翻译页数须为 0—100 之间的 10 的整数倍")
+				return
+			}
+		}
 		b, _ := json.Marshal(v)
 		_, err := s.Store.DB.Exec("INSERT INTO settings VALUES('reader',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", string(b))
 		if err != nil {
@@ -283,9 +290,9 @@ func webContentType(name string) string {
 	return ""
 }
 func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxImportBytes+(1<<20))
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		fail(w, 400, "文件超过 100 MB 或上传无效")
+		fail(w, 400, "文件超过 1 GB 或上传无效")
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
@@ -398,8 +405,9 @@ func (s *Server) importFile(ctx context.Context, temp, filename, library string,
 		if reason := paperLimit(kind, size, temp); reason != "" {
 			return failure(400, reason)
 		}
-		if pages, e := pdfPageCount(temp); e == nil && pages > largePaperPages && !allowLarge {
-			return Document{}, 409, importError{409, fmt.Sprintf("这份 PDF 有 %d 页，篇幅较大", pages), "large-paper", pages}
+		pages, _ := pdfPageCount(temp)
+		if (pages > largePaperPages || size > largePaperBytes) && !allowLarge {
+			return Document{}, 409, importError{409, "检测到 PDF 过大，请确认是否是论文？如果是图书类，请导入图书库。", "large-paper", pages}
 		}
 	}
 	d := Document{ID: docID, Type: kind, Title: strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename)), Size: size, CreatedAt: now(), LastOpenedAt: now(), Library: library}

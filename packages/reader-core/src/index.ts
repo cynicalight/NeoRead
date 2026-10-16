@@ -59,7 +59,7 @@ export type EPUBLocation = {
 };
 export type DocumentLocation = PDFLocation | EPUBLocation;
 export type DocumentCategory = "book" | "article" | "paper";
-/** Books and papers are separate libraries; papers are PDFs up to 150 pages and 50 MB. */
+/** Books and papers are separate libraries; large PDFs require confirmation. */
 export type LibraryMode = "books" | "papers";
 export type PaperItemType =
   | "journal"
@@ -278,6 +278,8 @@ export interface ReaderTheme {
   /** Opt in to copying text selections and selected annotations. */
   autoCopySelection?: boolean;
   autoTranslatePDF?: boolean;
+  /** 0 means manual only; otherwise auto translate papers up to this many pages. */
+  autoTranslateMaxPages?: number;
   /** How figures and embedded images are displayed when a PDF uses dark mode. */
   pdfDarkImageMode?: "preserve" | "invert" | "adaptive";
   /** Contrast used for PDF text and paper while the dark reading appearance is active. */
@@ -496,6 +498,8 @@ export interface ProcessingStage {
   warning?: string;
 }
 export interface Processing {
+  autoTranslateMaxPages?: number;
+  manualTranslation?: boolean;
   enabled?: boolean;
   translating?: ProcessingStage;
   usageTracked?: boolean;

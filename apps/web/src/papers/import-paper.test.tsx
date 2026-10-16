@@ -8,7 +8,9 @@ import { ImportPaperDialog } from "./ImportPaperDialog";
 import { looksLikeReference } from "./actions";
 import { usePaperUI } from "./state";
 import { paper } from "./fixtures";
-vi.mock("@reader/api", () => ({
+vi.mock("@reader/api", async (importOriginal) => ({
+  RequestError: (await importOriginal<typeof import("@reader/api")>())
+    .RequestError,
   api: { resolveDocument: vi.fn(), documents: vi.fn(async () => []) },
 }));
 vi.mock("sonner", () => ({
@@ -92,3 +94,38 @@ it("keeps the dialog open and reports a failed lookup", async () => {
   expect(toast.error).toHaveBeenCalledWith("找到了《X》，但没有公开的 PDF");
   expect(close).not.toHaveBeenCalled();
 });
+
+it.each(["papers", "books"] as const)(
+  "asks before importing a large reference into %s",
+  async (library) => {
+    const { RequestError } = await import("@reader/api");
+    const { LargePaperConfirmation } = await import("../LargePaperDialog");
+    const { importReference } = await import("./actions");
+    await act(async () => root.render(<LargePaperConfirmation />));
+    vi.mocked(api.resolveDocument)
+      .mockRejectedValueOnce(new RequestError("too large", "large-paper", 120))
+      .mockResolvedValueOnce(paper({ library }));
+    let result: ReturnType<typeof importReference>;
+    await act(async () => {
+      result = importReference("1706.03762");
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain("检测到 PDF 过大");
+    expect(api.resolveDocument).toHaveBeenCalledTimes(1);
+    const label =
+      library === "papers"
+        ? "确认是论文，仍然导入论文库"
+        : "不是论文，导入图书库";
+    const choice = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === label,
+    )!;
+    await act(async () => {
+      choice.click();
+      await result;
+    });
+    expect(api.resolveDocument).toHaveBeenLastCalledWith("1706.03762", {
+      library,
+      allowLarge: true,
+    });
+  },
+);

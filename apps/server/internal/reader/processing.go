@@ -21,8 +21,10 @@ type ProcessingStage struct {
 	Warning string `json:"warning,omitempty"`
 }
 type Processing struct {
-	Enabled    bool `json:"enabled"`
-	EPUBManual bool `json:"epubManual,omitempty"`
+	AutoTranslateMaxPages *int `json:"autoTranslateMaxPages,omitempty"`
+	ManualTranslation     bool `json:"manualTranslation,omitempty"`
+	Enabled               bool `json:"enabled"`
+	EPUBManual            bool `json:"epubManual,omitempty"`
 	// Chapter is a book chapter waiting for its pages to be parsed.
 	Chapter           *PageRange       `json:"chapter,omitempty"`
 	Translating       *ProcessingStage `json:"translating,omitempty"`
@@ -117,7 +119,8 @@ func (s *Store) enableLegacyProcessing() error {
 func importedProcessing(id, library, value string) Processing {
 	p := initialProcessing(id)
 	var settings struct {
-		AutoTranslatePDF *bool `json:"autoTranslatePDF"`
+		AutoTranslatePDF      *bool `json:"autoTranslatePDF"`
+		AutoTranslateMaxPages *int  `json:"autoTranslateMaxPages"`
 	}
 	if library == "books" {
 		// Book chapters are parsed and translated when the reader asks.
@@ -126,9 +129,16 @@ func importedProcessing(id, library, value string) Processing {
 		aggregateProcessing(&p)
 		return p
 	}
-	if (value == "" || json.Unmarshal([]byte(value), &settings) == nil) && (settings.AutoTranslatePDF == nil || *settings.AutoTranslatePDF) {
-		p.Enabled, p.Status, p.Detail = true, "queued", "等待解析 PDF"
+	limit := 50
+	if value != "" && json.Unmarshal([]byte(value), &settings) != nil {
+		limit = 0
+	} else if settings.AutoTranslateMaxPages != nil {
+		limit = *settings.AutoTranslateMaxPages
+	} else if settings.AutoTranslatePDF != nil && !*settings.AutoTranslatePDF {
+		limit = 0
 	}
+	p.AutoTranslateMaxPages = &limit
+	p.Enabled, p.Status, p.Detail = true, "queued", "等待解析 PDF"
 	return p
 }
 
@@ -501,6 +511,14 @@ func (s *Server) learnPDF(ctx context.Context, p *Processing) error {
 		return e
 	}
 	p.TranslationsDone, p.TranslationsTotal = translationCounts(items)
+	if limit := p.AutoTranslateMaxPages; limit != nil && (*limit == 0 || m.Pages > *limit) {
+		p.Enabled = false
+		p.ManualTranslation = true
+		p.Phase, p.Status, p.Detail = "translating", "paused", "解析完成，等待手动翻译"
+		p.Translating = &ProcessingStage{Status: "paused", Detail: "等待手动翻译"}
+		return s.Store.saveProcessing(*p)
+	}
+	p.AutoTranslateMaxPages = nil
 	p.Translating = &ProcessingStage{Status: "queued", Detail: "等待翻译正文与公式"}
 	if p.TranslationsDone == p.TranslationsTotal {
 		p.Translating.Status = "complete"

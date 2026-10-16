@@ -557,6 +557,13 @@ export interface paths {
                     "application/json": {
                         scanId: string;
                         entryId: string;
+                        /**
+                         * @default papers
+                         * @enum {string}
+                         */
+                        library?: "papers" | "books";
+                        /** @default false */
+                        allowLarge?: boolean;
                     };
                 };
             };
@@ -701,12 +708,12 @@ export interface paths {
                         /** Format: binary */
                         file: string;
                         /**
-                         * @description Target library. Papers accept PDFs up to 50 MB and 150 pages. Defaults to books.
+                         * @description Target library. Papers accept PDFs; over 100 MB or 100 pages requires confirmation. Defaults to books.
                          * @enum {unknown}
                          */
                         library?: "books" | "papers";
                         /**
-                         * @description Confirms a paper over 50 pages. Without it such a paper fails with 409, code large-paper and its page count.
+                         * @description Confirms a paper over 100 pages or 100 MB. Without it such a paper fails with 409, code large-paper and its page count.
                          * @enum {unknown}
                          */
                         allowLarge?: "1";
@@ -3132,6 +3139,13 @@ export interface paths {
                 content: {
                     "application/json": {
                         ref: string;
+                        /**
+                         * @default papers
+                         * @enum {string}
+                         */
+                        library?: "papers" | "books";
+                        /** @default false */
+                        allowLarge?: boolean;
                     };
                 };
             };
@@ -3706,6 +3720,8 @@ export interface components {
         };
         Processing: {
             enabled?: boolean;
+            readonly manualTranslation?: boolean;
+            readonly autoTranslateMaxPages?: number;
             /** @description EPUB work uses explicit chapter requests; the legacy automatic queue has been migrated. */
             readonly epubManual?: boolean;
             translating?: components["schemas"]["ProcessingStage"];

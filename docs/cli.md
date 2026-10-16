@@ -24,7 +24,7 @@ reader read 阅读的结构 --chapters 2             # EPUB 按阅读顺序的�
 reader read 1a2b3c4d --side both               # source（默认）、translation 或 both
 reader annotations 1a2b3c4d --kind question    # 高亮、笔记、问题及其回答
 reader note 1a2b3c4d                           # 论文笔记
-reader import a.pdf b.pdf --library papers     # 导入；--allow-large 允许超过 50 页的 PDF 进入论文库
+reader import a.pdf b.pdf --library papers     # 导入；--allow-large 允许超过 100 页或 100 MB的 PDF 进入论文库
 ```
 
 `<文档>` 可以是完整 ID、至少 4 位的 ID 前缀（`list` 显示前 8 位），或标题（含译名）中的一段文字；对应多份时列出候选并要求改用 ID。选项可以写在参数前后，`--` 之后的内容一律当作参数。
@@ -33,7 +33,7 @@ reader import a.pdf b.pdf --library papers     # 导入；--allow-large 允许�
 
 ## 范围与限制
 
-- PDF 的正文来自版面解析结果（与翻译栏相同的段落、图题和公式），因此只有完成解析的 PDF 能 `read` 和 `search`。论文导入后自动解析；关闭“导入后自动翻译”的论文需要在阅读工具栏点“开始翻译”。图书库的 PDF 只解析已请求翻译的章节，`read` 会提示已解析页数。
+- PDF 的正文来自版面解析结果（与翻译栏相同的段落、图题和公式），因此只有完成解析的 PDF 能 `read` 和 `search`。论文导入后自动解析，自动翻译阈值不影响原文索引。图书库的 PDF 只解析已请求翻译的章节，`read` 会提示已解析页数。
 - 页眉、页脚和页码不输出；图片和表格输出图题；`--side translation` 只输出已完成的译文，并提示尚未翻译的段数。
 - 搜索在请求时逐份读取正文，书库很大时会慢一些；按 `--library` 或 `--doc` 缩小范围。
 - 第一版只读取与导入，不修改批注、笔记或元数据。

@@ -89,8 +89,10 @@ func (s *Server) scanZotero(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) importZotero(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ScanID  string `json:"scanId"`
-		EntryID string `json:"entryId"`
+		ScanID     string `json:"scanId"`
+		EntryID    string `json:"entryId"`
+		Library    string `json:"library"`
+		AllowLarge bool   `json:"allowLarge"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -116,7 +118,19 @@ func (s *Server) importZotero(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, entry.Issue)
 		return
 	}
-	result, err := s.importZoteroEntry(r.Context(), entry)
+	if body.Library == "" {
+		body.Library = "papers"
+	}
+	if !validLibrary(body.Library) {
+		fail(w, 400, "未知书库")
+		return
+	}
+	result, err := s.importZoteroEntryTo(r.Context(), entry, body.Library, body.AllowLarge)
+	var imp importError
+	if errors.As(err, &imp) && imp.code != "" {
+		respond(w, imp.status, map[string]any{"error": imp.message, "code": imp.code, "pages": imp.pages})
+		return
+	}
 	if err != nil {
 		fail(w, 400, err.Error())
 		return
@@ -125,6 +139,9 @@ func (s *Server) importZotero(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) importZoteroEntry(ctx context.Context, e *zoteroEntry) (zoteroImportResult, error) {
+	return s.importZoteroEntryTo(ctx, e, "papers", false)
+}
+func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, library string, allowLarge bool) (zoteroImportResult, error) {
 	result := zoteroImportResult{Warnings: append([]string{}, e.Warnings...)}
 	// Serializes file ownership with regular uploads; SQL protects metadata/notes.
 	s.importMu.Lock()
@@ -155,8 +172,8 @@ func (s *Server) importZoteroEntry(ctx context.Context, e *zoteroEntry) (zoteroI
 	if e.sourceInfo != nil && (!os.SameFile(info, e.sourceInfo) || info.Size() != e.sourceInfo.Size() || !info.ModTime().Equal(e.sourceInfo.ModTime())) {
 		return result, errors.New("PDF 在扫描后发生变化，请重新扫描")
 	}
-	if !info.Mode().IsRegular() || info.Size() > maxPaperBytes {
-		return result, errors.New("附件不是普通文件，或超过 50 MB")
+	if !info.Mode().IsRegular() || info.Size() > maxImportBytes {
+		return result, errors.New("附件不是普通文件，或超过 1 GB")
 	}
 	temp, err := os.CreateTemp(s.Store.Root, "zotero-*.pdf")
 	if err != nil {
@@ -165,7 +182,7 @@ func (s *Server) importZoteroEntry(ctx context.Context, e *zoteroEntry) (zoteroI
 	defer os.Remove(temp.Name())
 	defer temp.Close()
 	hash := sha256.New()
-	size, err := io.Copy(io.MultiWriter(temp, hash), io.LimitReader(file, maxPaperBytes+1))
+	size, err := io.Copy(io.MultiWriter(temp, hash), io.LimitReader(file, maxImportBytes+1))
 	if err != nil {
 		return result, err
 	}
@@ -182,8 +199,8 @@ func (s *Server) importZoteroEntry(ctx context.Context, e *zoteroEntry) (zoteroI
 	if ctx.Err() != nil {
 		return result, ctx.Err()
 	}
-	if size > maxPaperBytes {
-		return result, errors.New("附件超过 50 MB")
+	if size > maxImportBytes {
+		return result, errors.New("附件超过 1 GB")
 	}
 	header, err := os.Open(temp.Name())
 	if err != nil {
@@ -232,7 +249,11 @@ func (s *Server) importZoteroEntry(ctx context.Context, e *zoteroEntry) (zoteroI
 		return result, err
 	}
 	if fresh {
-		d = Document{ID: docID, Type: "pdf", Library: "papers", Title: e.Title, Size: size, CreatedAt: zoteroDate(e.added), LastOpenedAt: now(), Tags: []string{}, Folders: []string{}}
+		pages, _ := pdfPageCount(temp.Name())
+		if library == "papers" && !allowLarge && (pages > largePaperPages || size > largePaperBytes) {
+			return result, importError{409, "检测到 PDF 过大，请确认是否是论文？如果是图书类，请导入图书库。", "large-paper", pages}
+		}
+		d = Document{ID: docID, Type: "pdf", Library: library, Title: e.Title, Size: size, CreatedAt: zoteroDate(e.added), LastOpenedAt: now(), Tags: []string{}, Folders: []string{}}
 		result.Status = "imported"
 	} else {
 		result.Status = "merged"
@@ -258,7 +279,7 @@ func (s *Server) importZoteroEntry(ctx context.Context, e *zoteroEntry) (zoteroI
 	tags, _ := json.Marshal(d.Tags)
 	folders, _ := json.Marshal(d.Folders)
 	if fresh {
-		_, err = tx.ExecContext(ctx, `INSERT INTO documents(id,type,title,author,size,created_at,last_opened_at,category,category_source,classification_status,library,metadata,tags,folders) VALUES(?,'pdf',?,?,?,?,?,'paper','manual','done','papers',?,?,?)`, docID, d.Title, d.Author, size, d.CreatedAt, d.LastOpenedAt, string(meta), string(tags), string(folders))
+		_, err = tx.ExecContext(ctx, `INSERT INTO documents(id,type,title,author,size,created_at,last_opened_at,category,category_source,classification_status,library,metadata,tags,folders) VALUES(?,'pdf',?,?,?,?,?,'paper','manual','done',?,?,?,?)`, docID, d.Title, d.Author, size, d.CreatedAt, d.LastOpenedAt, d.Library, string(meta), string(tags), string(folders))
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE documents SET metadata=?,author=?,tags=?,folders=? WHERE id=?`, string(meta), d.Author, string(tags), string(folders), docID)
 	}
@@ -332,8 +353,10 @@ func (s *Server) importZoteroEntry(ctx context.Context, e *zoteroEntry) (zoteroI
 		result.Warnings = append(result.Warnings, "Zotero 富文本笔记转为纯文本；格式、嵌入图片和引用链接不转换，原始内容保存在迁移记录中")
 	}
 	if fresh {
-		// Migration does not enqueue an entire existing library for paid AI work.
-		p := initialDocumentProcessing(d, `{"autoTranslatePDF":false}`)
+		// Use the same import-time translation threshold as file and reference imports.
+		var settings string
+		_ = tx.QueryRowContext(ctx, "SELECT value FROM settings WHERE key='reader'").Scan(&settings)
+		p := initialDocumentProcessing(d, settings)
 		data, _ := json.Marshal(p)
 		if _, err = tx.ExecContext(ctx, `INSERT INTO document_processing(document_id,phase,status,body) VALUES(?,?,?,?)`, docID, p.Phase, p.Status, data); err != nil {
 			return result, err

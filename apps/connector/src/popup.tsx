@@ -28,6 +28,9 @@ function App() {
   >("neutral");
   const [outcomes, setOutcomes] = useState<{ ok: boolean; text: string }[]>([]);
   const [busy, setBusy] = useState(false);
+  const [largeConfirmation, setLargeConfirmation] = useState<{
+    resolve: (library: "papers" | "books") => void;
+  }>();
   useEffect(() => {
     void (async () => {
       try {
@@ -369,16 +372,17 @@ function App() {
             pages?: number;
             warnings?: string[];
           };
-          if (
-            result.code === "large-paper" &&
-            window.confirm(
-              `这份 PDF 有 ${result.pages} 页。仍要收录到论文库吗？`,
-            )
-          )
+          if (result.code === "large-paper") {
+            const library = await new Promise<"papers" | "books">((resolve) =>
+              setLargeConfirmation({ resolve }),
+            );
+            setLargeConfirmation(undefined);
             result = await chrome.runtime.sendMessage({
               ...request,
               allowLarge: true,
+              library,
             });
+          }
           if (result.ok) {
             success++;
             completed.push({ ok: true, text: `✓ ${item.title}` });
@@ -412,6 +416,24 @@ function App() {
     }
   }
   const tagPrefix = tags.match(/^.*[,，]\s*/)?.[0] || "";
+  if (largeConfirmation)
+    return (
+      <main>
+        <h1>检测到 PDF 过大</h1>
+        <p>请确认是否是论文？如果是图书类，请导入图书库。</p>
+        <div className="row">
+          <button onClick={() => largeConfirmation.resolve("books")}>
+            不是论文，导入图书库
+          </button>
+          <button
+            className="primary"
+            onClick={() => largeConfirmation.resolve("papers")}
+          >
+            确认是论文，仍然导入论文库
+          </button>
+        </div>
+      </main>
+    );
   return (
     <>
       <main>

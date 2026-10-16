@@ -60,9 +60,9 @@ export function AssistanceControls({
           ? epubChapter &&
             (!job?.startedAt || job.translating?.status === "complete")
             ? ["chapter", "翻译本章"]
-            : job?.startedAt
+            : job?.startedAt && !job.manualTranslation
               ? ["resume", "继续翻译"]
-              : ["start", "开始翻译"]
+              : ["start", "手动翻译"]
           : library === "books"
             ? ["chapter", "翻译本章"]
             : ["start", "翻译完成"];

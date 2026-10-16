@@ -57,7 +57,7 @@ it("opening and changing pages do not authorize processing", async () => {
   await render(40);
   await act(async () => vi.advanceTimersByTime(1000));
   expect(api.setAssistance).not.toHaveBeenCalled();
-  expect(host.textContent).toContain("开始翻译");
+  expect(host.textContent).toContain("手动翻译");
   vi.mocked(api.setAssistance).mockResolvedValue({
     ...paused,
     enabled: true,
@@ -192,4 +192,20 @@ it("EPUB legacy jobs request a chapter without restarting old whole-book work", 
   expect(api.translateEPUBChapter).toHaveBeenCalledWith("book", location);
   expect(api.setAssistance).not.toHaveBeenCalled();
   expect(api.translateRange).not.toHaveBeenCalled();
+});
+
+it("offers manual translation after local parsing instead of resuming a translation", async () => {
+  await render(1, {
+    ...paused,
+    phase: "translating",
+    pagesDone: 60,
+    pagesTotal: 60,
+    startedAt: "2026-10-16T00:00:00Z",
+    manualTranslation: true,
+  });
+  expect(host.textContent).toContain("手动翻译");
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>("button")!.click(),
+  );
+  expect(api.setAssistance).toHaveBeenCalledWith("book", "start");
 });
