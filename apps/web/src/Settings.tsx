@@ -733,20 +733,6 @@ export function Settings({
           </TabsContent>
           <TabsContent value="reading" className="settings-panel" keepMounted>
             <section className="mb-6 space-y-4">
-              <label className="flex items-start gap-2 text-sm">
-                <Checkbox
-                  checked={theme.autoGenerateOverview ?? false}
-                  onCheckedChange={(checked) =>
-                    setTheme({ autoGenerateOverview: !!checked })
-                  }
-                />
-                <span>
-                  导入后生成文档概要
-                  <span className="block text-xs text-muted-foreground">
-                    使用已配置的文字模型，单独记录用量；已有文档按需生成。
-                  </span>
-                </span>
-              </label>
               <label className="block text-sm">
                 文档上下文上限（可选）
                 <Input
@@ -833,6 +819,21 @@ export function Settings({
                   <span className="block text-xs text-muted-foreground">
                     只把文中的 DOI 或 arXiv 编号发送给 arXiv、Crossref 与
                     Semantic Scholar
+                  </span>
+                </span>
+              </label>
+              <label className="mt-4 flex items-start gap-2 text-sm">
+                <Checkbox
+                  className="mt-0.5"
+                  checked={theme.autoGenerateOverview ?? false}
+                  onCheckedChange={(checked) =>
+                    setTheme({ autoGenerateOverview: !!checked })
+                  }
+                />
+                <span>
+                  导入后生成文档概要
+                  <span className="block text-xs text-muted-foreground">
+                    使用已配置的文字模型，单独记录用量；已有文档按需生成。
                   </span>
                 </span>
               </label>
