@@ -52,20 +52,8 @@ run(process.execPath, [
   "--config.node-linker=hoisted",
   processor,
 ]);
-await cp(join(processor, "dist/main.mjs"), join(processor, "main.mjs"));
-await cp(join(processor, "dist/corpus.mjs"), join(processor, "corpus.mjs"));
-await cp(
-  join(processor, "dist/render-pages.mjs"),
-  join(processor, "render-pages.mjs"),
-);
-await cp(
-  join(processor, "dist/endnote-pdf-cli.mjs"),
-  join(processor, "endnote-pdf-cli.mjs"),
-);
-await cp(join(processor, "dist/model.mjs"), join(processor, "model.mjs"));
-await cp(join(processor, "dist/models"), join(processor, "models"), {
-  recursive: true,
-});
+// Include lazy worker/shared chunks as well as entrypoints and the model.
+await cp(join(processor, "dist"), processor, { recursive: true });
 await rm(join(processor, "dist"), { recursive: true });
 await cp(
   join(root, "scripts/processor-smoke.mjs"),
