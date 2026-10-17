@@ -265,3 +265,99 @@ func TestEndnoteNullableMetadataDoesNotBlockOtherPapers(t *testing.T) {
 		t.Fatalf("expected two imported documents, got %d", count)
 	}
 }
+
+func TestEndnoteDifferentSourceSamePDFReportsUnmergedData(t *testing.T) {
+	path, db := endnoteFixture(t)
+	_, err := db.Exec(`INSERT INTO refs (id,reference_type,title,notes,keywords,trash_state) VALUES(2,0,'Other title','Other note','Other tag',0); INSERT INTO file_res VALUES(2,'123/paper.pdf',0)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scan, err := endnoteSource(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := testServer(t)
+	calls := 0
+	convert := func(ctx context.Context, input, work string) (string, endnotePDFResult, error) {
+		calls++
+		return input, endnotePDFResult{}, nil
+	}
+	first, err := s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, convert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		result, err := s.importEndnoteEntry(context.Background(), scan.Entries[1], "papers", true, convert)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != "exists" || !strings.Contains(strings.Join(result.Warnings, ""), "未合并此来源的标题、元数据、标签和笔记") {
+			t.Fatalf("silent skip: %+v", result)
+		}
+	}
+	repeat, err := s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, convert)
+	if err != nil || repeat.Status != "exists" || len(repeat.Warnings) != 0 || calls != 1 {
+		t.Fatalf("repeat: %+v %v calls=%d", repeat, err, calls)
+	}
+	doc, err := s.Store.Document(first.DocumentID)
+	if err != nil || doc.Title != "论文" {
+		t.Fatalf("existing title changed: %+v %v", doc, err)
+	}
+	var note string
+	if err := s.Store.DB.QueryRow("SELECT body FROM document_notes WHERE document_id=?", first.DocumentID).Scan(&note); err != nil || note != "note\n\nresearch" {
+		t.Fatalf("existing note changed: %q %v", note, err)
+	}
+	var count int
+	if err := s.Store.DB.QueryRow("SELECT count(*) FROM endnote_imports").Scan(&count); err != nil || count != 1 {
+		t.Fatalf("unexpected migration records: %d %v", count, err)
+	}
+}
+
+func TestEndnoteRejectedMetadataIsReportedAndArchived(t *testing.T) {
+	path, db := endnoteFixture(t)
+	abstract := strings.Repeat("a", 20001)
+	if _, err := db.Exec("UPDATE refs SET year=?,url=?,abstract=?,author=?", "2024a", "ftp://example.org/paper", abstract, strings.Repeat("b", 201)); err != nil {
+		t.Fatal(err)
+	}
+	scan, err := endnoteSource(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := testServer(t)
+	result, err := s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, func(ctx context.Context, input, work string) (string, endnotePDFResult, error) {
+		return input, endnotePDFResult{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "imported" {
+		t.Fatalf("%+v", result)
+	}
+	warnings := strings.Join(result.Warnings, "\n")
+	for _, key := range []string{"date", "url", "abstract", "creators"} {
+		if !strings.Contains(warnings, metadataLabels[key]+"未转换") {
+			t.Fatalf("missing %s warning: %s", key, warnings)
+		}
+	}
+	doc, err := s.Store.Document(result.DocumentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Metadata.Date != "" || doc.Metadata.URL != "" || doc.Metadata.Abstract != "" || len(doc.Metadata.Creators) != 0 || doc.Author != "" || doc.Metadata.DOI != "10.1000/test" {
+		t.Fatalf("unexpected metadata: %+v", doc)
+	}
+	var raw []byte
+	if err := s.Store.DB.QueryRow("SELECT body FROM endnote_imports WHERE source_id=?", scan.Entries[0].ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var archive struct {
+		Metadata PaperMetadata `json:"metadata"`
+		Warnings []string      `json:"warnings"`
+	}
+	if err := json.Unmarshal(raw, &archive); err != nil {
+		t.Fatal(err)
+	}
+	if archive.Metadata.Date != "2024a" || archive.Metadata.URL != "ftp://example.org/paper" || archive.Metadata.Abstract != abstract || len(archive.Metadata.Creators[0].Name) != 201 || len(archive.Warnings) != len(result.Warnings) {
+		t.Fatal("source values or warnings missing from archive")
+	}
+}

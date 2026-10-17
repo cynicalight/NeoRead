@@ -7,11 +7,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -186,11 +188,11 @@ func (s *Server) importEndnoteEntry(ctx context.Context, e *endnoteEntry, librar
 		}
 		result.Status = "exists"
 		var migrated int
-		if err = s.Store.DB.QueryRowContext(ctx, "SELECT count(*) FROM endnote_imports WHERE document_id=? AND source_hash=?", docID, sourceHash).Scan(&migrated); err != nil {
+		if err = s.Store.DB.QueryRowContext(ctx, "SELECT count(*) FROM endnote_imports WHERE source_id=? AND document_id=? AND source_hash=?", e.ID, docID, sourceHash).Scan(&migrated); err != nil {
 			return result, err
 		}
 		if migrated == 0 {
-			result.Warnings = append(result.Warnings, "相同 PDF 已在 Reader 中；保留现有文档，本次未转换其内嵌标记或覆盖论文信息")
+			result.Warnings = append(result.Warnings, "相同 PDF 已在 Reader 中，但此 EndNote 来源尚未迁移；保留现有文档，本次未合并此来源的标题、元数据、标签和笔记，未转换内嵌标记，也未登记此来源。请在 EndNote 中核对未迁移内容")
 		}
 		return result, nil
 	}
@@ -223,8 +225,11 @@ func (s *Server) importEndnoteEntry(ctx context.Context, e *endnoteEntry, librar
 		return result, err
 	}
 	defer tx.Rollback()
-	d := Document{ID: docID, Type: "pdf", Library: library, Title: e.Title, Author: CreatorNames(e.metadata.Creators), Size: cleanInfo.Size(), CreatedAt: now(), LastOpenedAt: now(), Tags: []string{}, Folders: []string{}}
-	d.Metadata.Merge(e.metadata, "manual")
+	d := Document{ID: docID, Type: "pdf", Library: library, Title: e.Title, Size: cleanInfo.Size(), CreatedAt: now(), LastOpenedAt: now(), Tags: []string{}, Folders: []string{}}
+	metadata, metadataWarnings := endnoteMetadata(e.metadata)
+	result.Warnings = append(result.Warnings, metadataWarnings...)
+	d.Metadata.Merge(metadata, "manual")
+	d.Author = CreatorNames(d.Metadata.Creators)
 	d.Metadata.Lookup = "done"
 	var warnings []string
 	d.Tags, warnings = zoteroLabels(nil, e.Tags, "标签")
@@ -277,4 +282,35 @@ func (s *Server) importEndnoteEntry(ctx context.Context, e *endnoteEntry, librar
 	}
 	result.Status = "imported"
 	return result, nil
+}
+
+// Validate each field before Merge so rejected values are visible in the report.
+// The unmodified source metadata is retained in endnote_imports.
+func endnoteMetadata(source PaperMetadata) (PaperMetadata, []string) {
+	result := PaperMetadata{}
+	warnings := []string{}
+	keys := make([]string, 0, len(metadataLabels))
+	for key := range metadataLabels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if !source.has(key) {
+			continue
+		}
+		var value any
+		if key == "creators" {
+			value = source.Creators
+		} else {
+			value = *source.textField(key)
+		}
+		raw, _ := json.Marshal(value)
+		normalized, err := normalizeMetadataField(key, raw)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("%s未转换：%v；原值保存在迁移记录中", metadataLabels[key], err))
+			continue
+		}
+		result.set(key, normalized, "manual")
+	}
+	return result, warnings
 }
