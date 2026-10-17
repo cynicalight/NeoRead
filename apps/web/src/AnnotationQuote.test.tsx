@@ -95,3 +95,23 @@ it("reflows a linked PDF source while preserving authored translation paragraphs
   expect(html).toContain("<span>粗定位</span>");
   expect(html).toContain("第一段。\n第二段。");
 });
+
+it.each([
+  ["https://host/\npath", "https://host/path"],
+  ["See http://example.com/  \r\n  paper", "See http://example.com/paper"],
+  ["https://host/a/\nb/\nc", "https://host/a/b/c"],
+  ["www.example.com/\npaper", "www.example.com/paper"],
+  ["DOI: 10.1234/\nabcdef", "DOI: 10.1234/abcdef"],
+  ["(https://doi.org/\n10.1234/\nabcdef)", "(https://doi.org/10.1234/abcdef)"],
+  ["input /\noutput", "input / output"],
+  [
+    "See https://host/page and/or\nother text",
+    "See https://host/page and/or other text",
+  ],
+  ["https://host/\n\nNext paragraph", "https://host/\n\nNext paragraph"],
+])(
+  "preserves URL slash wraps without joining ordinary prose: %j",
+  (input, expected) => {
+    expect(reflowPDFQuote(input)).toBe(expected);
+  },
+);

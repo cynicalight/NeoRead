@@ -5,10 +5,20 @@ export function reflowPDFQuote(text: string): string {
     .replace(/\r\n?/g, "\n")
     .replace(
       /(\S)[^\S\n]*\n[^\S\n]*(?=(\S))/gu,
-      (_, left: string, right: string) => {
+      (_, left: string, right: string, offset: number, input: string) => {
         if (left === "\u00ad") return "";
         // A hard hyphen may be part of a compound; preserve it.
         if (left === "-") return left;
+        if (left === "/") {
+          // Rejoin earlier slash wraps when recognizing a multi-line URL/DOI.
+          const prefix = input
+            .slice(0, offset + 1)
+            .replace(/\/[^\S\n]*\n[^\S\n]*/g, "/");
+          if (
+            /(?:^|[\s(])(?:https?:\/\/|www\.|10\.\d{4,9}\/)\S*$/i.test(prefix)
+          )
+            return left;
+        }
         const cjk =
           /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
         const punctuation = /[，。！？；：、）》」』】]/u;
