@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { Pause, RotateCcw, Sparkles } from "lucide-react";
+import { Check, Pause, RotateCcw, Languages } from "lucide-react";
 import type { EPUBLocation, LibraryMode, Processing } from "@reader/core";
 import { api } from "@reader/api";
 import { Button } from "@reader/ui/components/button";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from "@reader/ui/components/alert-dialog";
 import { toast } from "sonner";
 import type { PageRange } from "./chapters";
 
@@ -28,6 +38,7 @@ export function AssistanceControls({
 }) {
   const [saved, setSaved] = useState<Processing>();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const serial = useRef(0);
   const job =
     saved &&
@@ -39,6 +50,7 @@ export function AssistanceControls({
     let alive = true;
     setSaved(undefined);
     setBusy(false);
+    setConfirming(false);
     void api
       .assistance(documentId)
       .then((p) => {
@@ -60,13 +72,18 @@ export function AssistanceControls({
           ? epubChapter &&
             (!job?.startedAt || job.translating?.status === "complete")
             ? ["chapter", "翻译本章"]
-            : job?.startedAt
+            : job?.startedAt && !job.manualTranslation
               ? ["resume", "继续翻译"]
-              : ["start", "开始翻译"]
+              : ["start", "翻译"]
           : library === "books"
             ? ["chapter", "翻译本章"]
             : ["start", "翻译完成"];
   const finished = complete && action !== "chapter";
+  const actionLabel = job?.retranslating
+    ? action === "pause"
+      ? "暂停重译"
+      : "继续重译"
+    : label;
   const run = async () => {
     if (action !== "chapter") return api.setAssistance(documentId, action);
     if (epubChapter) {
@@ -119,15 +136,70 @@ export function AssistanceControls({
           }
         }}
       >
-        {action === "pause" ? (
+        {finished ? (
+          <Check />
+        ) : action === "pause" ? (
           <Pause />
         ) : action === "resume" && job?.status === "failed" ? (
           <RotateCcw />
         ) : (
-          <Sparkles />
+          <Languages />
         )}
-        {label}
+        {actionLabel}
       </Button>
+      {finished && library === "papers" && !epubChapter && (
+        <AlertDialog open={confirming} onOpenChange={setConfirming}>
+          <AlertDialogTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={busy}
+                title="重新翻译"
+                aria-label="重新翻译"
+              />
+            }
+          >
+            <RotateCcw />
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>重新翻译全文？</AlertDialogTitle>
+              <AlertDialogDescription>
+                将使用当前 Agent
+                翻译模型和已保存的翻译提示词重新翻译正文。现有译文会保留，新结果完成后逐段替换。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>取消</AlertDialogCancel>
+              <Button
+                disabled={busy}
+                onClick={async () => {
+                  const operation = ++serial.current;
+                  setBusy(true);
+                  try {
+                    const next = await api.setAssistance(
+                      documentId,
+                      "retranslate",
+                    );
+                    if (operation === serial.current) {
+                      setConfirming(false);
+                      setSaved(next);
+                    }
+                  } catch (e) {
+                    if (operation === serial.current)
+                      toast.error((e as Error).message);
+                  } finally {
+                    if (operation === serial.current) setBusy(false);
+                  }
+                }}
+              >
+                {busy ? "正在开始…" : "开始重新翻译"}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }

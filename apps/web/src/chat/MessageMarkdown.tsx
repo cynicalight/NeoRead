@@ -25,10 +25,12 @@ import {
   remarkReadingCitations,
 } from "../reading-links";
 import "./markdown.css";
+import { remarkLatex } from "./remark-latex";
+import { ChatCitationNavigation, remarkChatCitations } from "./citations";
 
 const Code = lazy(() => import("./CodeBlock"));
 const MathFormula = lazy(() => import("./MathFormula"));
-const plugins = [remarkGfm, remarkMath];
+const plugins = [remarkGfm, remarkMath, remarkLatex];
 export const safeMarkdownURL = (url: string) =>
   /^(https?:\/\/|mailto:|#)/i.test(url)
     ? url.replace(/(?:[。，；！？]|%E3%80%82|%EF%BC%8C)+$/gi, "")
@@ -41,6 +43,23 @@ function MarkdownLink({
   children?: ReactNode;
 }) {
   const navigate = useContext(ReadingLinkNavigation);
+  const evidence = useContext(ChatCitationNavigation);
+  if (href?.startsWith("#reader-evidence?")) {
+    const sourceId =
+      new URLSearchParams(href.split("?")[1]).get("source") ?? "";
+    if (!evidence?.sourceIds.includes(sourceId)) return <span>{children}</span>;
+    return (
+      <a
+        href={href}
+        onClick={(event) => {
+          event.preventDefault();
+          evidence.navigate(sourceId);
+        }}
+      >
+        {children}
+      </a>
+    );
+  }
   if (href?.startsWith("#"))
     return (
       <a
@@ -176,20 +195,24 @@ const markdownOptions = {
 const StaticBlock = memo(function StaticBlock({
   text,
   citationBlockId,
+  generating,
 }: {
   text: string;
   citationBlockId?: string;
+  generating: boolean;
 }) {
+  const evidence = useContext(ChatCitationNavigation);
   const options = useMemo<
     Pick<ComponentProps<typeof CachedMarkdown>, "remarkPlugins">
   >(
     () => ({
       remarkPlugins: [
         ...plugins,
+        [remarkChatCitations, { sourceIds: evidence?.sourceIds, generating }],
         [remarkReadingCitations, { blockId: citationBlockId }],
       ],
     }),
-    [citationBlockId],
+    [citationBlockId, evidence?.sourceIds, generating],
   );
   return (
     <CachedMarkdown {...markdownOptions} {...options}>
@@ -212,7 +235,13 @@ function StaticMarkdown({
     const text = generating ? remend(content) : content;
     // Keep global definitions and math in one parser. Other long responses reuse
     // completed groups of top-level tokens, never splitting a fence/list/table.
-    if (text.length <= 32_768 || global || text.includes("$")) return [text];
+    if (
+      text.length <= 32_768 ||
+      global ||
+      text.includes("$") ||
+      /\\[([]/.test(text)
+    )
+      return [text];
     const result: string[] = [];
     let group = "";
     for (const token of marked.lexer(text)) {
@@ -232,6 +261,7 @@ function StaticMarkdown({
           key={index}
           text={text}
           citationBlockId={citationBlockId}
+          generating={generating}
         />
       ))}
     </>
@@ -251,6 +281,16 @@ export const MessageMarkdown = memo(function MessageMarkdown({
   citationBlockId?: string;
 }) {
   const reduced = useMotionPreference();
+  const evidence = useContext(ChatCitationNavigation);
+  const streamingPlugins = useMemo<
+    ComponentProps<typeof CachedMarkdown>["remarkPlugins"]
+  >(
+    () => [
+      ...plugins,
+      [remarkChatCitations, { sourceIds: evidence?.sourceIds, generating }],
+    ],
+    [evidence?.sourceIds, generating],
+  );
   const [backgrounded, setBackgrounded] = useState(false);
   useEffect(() => {
     // Once backgrounded, this message stays immediate through completion: no backlog replay.
@@ -283,6 +323,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
         {animate ? (
           <Streamdown
             {...markdownOptions}
+            remarkPlugins={streamingPlugins}
             content={content}
             smoothing="realtime"
             granularity="word"

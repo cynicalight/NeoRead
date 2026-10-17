@@ -6,7 +6,7 @@ import (
 )
 
 func TestTranslationPromptAsksForKaTeXInlineMath(t *testing.T) {
-	prompt := translationPrompt(Document{Title: "t"}, layoutManifest{Pages: 1}, translationBatch{})
+	prompt := translationPrompt(Document{Title: "t"}, layoutManifest{Pages: 1}, translationBatch{}, "")
 	for _, rule := range []string{"KaTeX", "$T_i$", `\\ll`, `\\$`, "不要输出 $$", "sentences.source 仍按原文复制"} {
 		if !strings.Contains(prompt, rule) {
 			t.Fatalf("prompt lacks %q", rule)

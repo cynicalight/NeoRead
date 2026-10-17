@@ -231,3 +231,38 @@ func TestConnectorOriginlessBrowserRequestNeedsCredential(t *testing.T) {
 		t.Fatalf("originless session request: %d", code)
 	}
 }
+
+func TestConnectorLargePaperConfirmation(t *testing.T) {
+	for _, library := range []string{"papers", "books"} {
+		t.Run(library, func(t *testing.T) {
+			s := testServer(t)
+			secret := sessionTestConnector(t, s)
+			for _, confirmed := range []bool{false, true} {
+				var body bytes.Buffer
+				m := multipart.NewWriter(&body)
+				m.WriteField("metadata", `{"title":"Large PDF"}`)
+				m.WriteField("sourceUrl", "https://example.org/paper")
+				if confirmed {
+					m.WriteField("allowLarge", "1")
+					m.WriteField("library", library)
+				}
+				f, _ := m.CreateFormFile("pdf", "paper.pdf")
+				f.Write(testPDF(160))
+				m.Close()
+				w := bridgeRequest(s, "POST", "/v1/import", secret, &body, m.FormDataContentType())
+				if !confirmed {
+					if w.Code != 409 || !strings.Contains(w.Body.String(), "large-paper") {
+						t.Fatalf("missing confirmation: %d %s", w.Code, w.Body.String())
+					}
+				} else {
+					var result struct {
+						Document Document `json:"document"`
+					}
+					if w.Code != 201 || json.Unmarshal(w.Body.Bytes(), &result) != nil || result.Document.Library != library {
+						t.Fatalf("destination: %d %s", w.Code, w.Body.String())
+					}
+				}
+			}
+		})
+	}
+}

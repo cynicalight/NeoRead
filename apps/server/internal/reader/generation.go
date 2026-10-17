@@ -78,11 +78,12 @@ type generationConnection struct {
 	Incremental                  bool
 }
 type GenerationService struct {
-	timeout       time.Duration // Zero keeps the normal three-minute request limit.
-	primary       string
-	connections   map[string]generationConnection
-	attemptFailed func(string, bool, error)
-	usageSink     func(UsageCall) error
+	translationInstructions string
+	timeout                 time.Duration // Zero keeps the normal three-minute request limit.
+	primary                 string
+	connections             map[string]generationConnection
+	attemptFailed           func(string, bool, error)
+	usageSink               func(UsageCall) error
 }
 
 func (s *Server) generationService(config AIConfig) *GenerationService {
@@ -94,6 +95,9 @@ func (s *Server) taskGenerationService(config AIConfig, task modelTask) *Generat
 	models, efforts := config.Models, config.Efforts
 	if task == taskTranslation {
 		models, efforts = config.TranslationModels, config.TranslationEfforts
+		if config.TranslationPrompt != nil {
+			g.translationInstructions = *config.TranslationPrompt
+		}
 	}
 	g.attemptFailed = func(provider string, vision bool, err error) {
 		// Capability checks cover the chat model; a failing translation model

@@ -207,7 +207,7 @@ func TestEPUBSourceIsStrictWhilePDFRepairsRemainAvailable(t *testing.T) {
 	if _, err := parseTranslationSource(raw, source, true); err != nil {
 		t.Fatal(err)
 	}
-	prompt := translationPrompt(Document{Type: "epub"}, epubTranslationDocument{}, translationBatch{})
+	prompt := translationPrompt(Document{Type: "epub"}, epubTranslationDocument{}, translationBatch{}, "")
 	if strings.Contains(prompt, "原文由 PDF") || !strings.Contains(prompt, "禁止修正") {
 		t.Fatal(prompt)
 	}

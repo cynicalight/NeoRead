@@ -6,7 +6,9 @@ import { api, type ZoteroScan, type ZoteroImportResult } from "@reader/api";
 import { refreshLibrary } from "../store";
 import { downloadText } from "../download";
 import { ZoteroImportDialog } from "./ZoteroImportDialog";
-vi.mock("@reader/api", () => ({
+vi.mock("@reader/api", async (importOriginal) => ({
+  RequestError: (await importOriginal<typeof import("@reader/api")>())
+    .RequestError,
   api: { zoteroDefaults: vi.fn(), scanZotero: vi.fn(), importZotero: vi.fn() },
 }));
 vi.mock("../store", () => ({ refreshLibrary: vi.fn(async () => {}) }));

@@ -63,7 +63,7 @@ func (s *Store) migrateOrganization() error {
 	}
 	// Existing papers open in the paper library; everything else stays with books.
 	if !columns["library"] {
-		if _, err = tx.Exec("UPDATE documents SET library='papers' WHERE type='pdf' AND category='paper' AND size<=?", maxPaperBytes); err != nil {
+		if _, err = tx.Exec("UPDATE documents SET library='papers' WHERE type='pdf' AND category='paper' AND size<=?", 50<<20); err != nil {
 			return err
 		}
 	}

@@ -168,10 +168,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ directory, linkedBase }),
     }),
-  importZotero: (scanId: string, entryId: string) =>
+  importZotero: (
+    scanId: string,
+    entryId: string,
+    options?: { library: LibraryMode; allowLarge: boolean },
+  ) =>
     request<ZoteroImportResult>("/api/import/zotero", {
       method: "POST",
-      body: JSON.stringify({ scanId, entryId }),
+      body: JSON.stringify({ scanId, entryId, ...options }),
     }),
   chatUsage: (id: string) =>
     request<ProcessingUsage>(
@@ -195,6 +199,15 @@ export const api = {
   removeTagBoard: (id: string) =>
     request<void>(`/api/tag-boards/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    }),
+  translateSelection: (
+    selection: { text: string; context?: { before: string; after: string } },
+    signal: AbortSignal,
+  ) =>
+    request<{ text: string }>("/api/translate-selection", {
+      method: "POST",
+      body: JSON.stringify({ text: selection.text, ...selection.context }),
+      signal,
     }),
   translationStream: async (
     id: string,
@@ -277,7 +290,10 @@ export const api = {
     ),
   assistance: (id: string) =>
     request<Processing>(`/api/documents/${id}/assistance`),
-  setAssistance: (id: string, action: "start" | "pause" | "resume") =>
+  setAssistance: (
+    id: string,
+    action: "start" | "pause" | "resume" | "retranslate",
+  ) =>
     request<Processing>(`/api/documents/${id}/assistance`, {
       method: "POST",
       body: JSON.stringify({ action }),
@@ -329,7 +345,7 @@ export const api = {
     if (error) throw new Error(error.error);
     return data;
   },
-  /** Papers over 50 pages fail with code "large-paper" unless allowLarge. */
+  /** Papers over 100 pages or 100 MB fail with code "large-paper" unless allowLarge. */
   import: (file: File, library: LibraryMode = "books", allowLarge = false) => {
     const form = new FormData();
     form.append("library", library);
@@ -338,10 +354,13 @@ export const api = {
     return request<Document>("/api/documents", { method: "POST", body: form });
   },
   /** Import a paper from an arXiv ID, DOI, paper link, PDF link or title. */
-  resolveDocument: (ref: string) =>
+  resolveDocument: (
+    ref: string,
+    options?: { library: LibraryMode; allowLarge: boolean },
+  ) =>
     request<Document>("/api/documents/resolve", {
       method: "POST",
-      body: JSON.stringify({ ref }),
+      body: JSON.stringify({ ref, ...options }),
     }),
   lookupMetadata: (id: string) =>
     request<Document>(

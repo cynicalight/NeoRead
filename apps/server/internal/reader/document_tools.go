@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -441,15 +440,16 @@ func documentActivityLabel(text string) string {
 	return documentExcerpt(strings.Join(strings.Fields(text), " "), 160)
 }
 
-var documentCitationPattern = regexp.MustCompile(`\[S([1-9][0-9]*)\]`)
-
 func (a *documentAgent) references(text string) (json.RawMessage, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	refs := []any{}
 	seen := map[string]bool{}
-	for _, m := range documentCitationPattern.FindAllString(text, -1) {
-		source := m[1 : len(m)-1]
+	sources, err := documentCitationSources(text)
+	if err != nil {
+		return nil, err
+	}
+	for _, source := range sources {
 		if seen[source] {
 			continue
 		}

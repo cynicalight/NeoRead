@@ -15,6 +15,9 @@ func mergeProcessing(current, update Processing) Processing {
 	if update.lane != "" {
 		current.Translating = &ProcessingStage{Status: update.Status, Detail: update.Detail, Warning: update.Warning}
 		current.TranslationsDone, current.TranslationsTotal = update.TranslationsDone, update.TranslationsTotal
+		if update.Status == "complete" {
+			current.Retranslating = false
+		}
 	} else {
 		if stage := current.Translating; stage != nil {
 			if (update.resetStages && (stage.Status == "failed" || stage.Status == "waiting")) || (update.wakeStages && stage.Status == "waiting") || (update.recoverStages && stage.Status == "running") {

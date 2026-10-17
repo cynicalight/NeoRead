@@ -217,7 +217,7 @@ func (s *Server) paperLabels() ([]string, []string, error) {
 	return folders, tags, nil
 }
 func (s *Server) connectorImport(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxImportBytes+(11<<20))
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		fail(w, 400, "上传超过限制或内容无效")
 		return
@@ -300,11 +300,19 @@ func (s *Server) connectorImport(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "无法检查 PDF")
 		return
 	}
-	if existing, lookupErr := s.Store.Document(hex.EncodeToString(hash.Sum(nil))[:32]); lookupErr == nil && existing.Library != "papers" {
-		fail(w, 409, "相同 PDF 已在图书库，请先移到论文库")
+	library := r.FormValue("library")
+	if library == "" {
+		library = "papers"
+	}
+	if !validLibrary(library) {
+		fail(w, 400, "未知书库")
 		return
 	}
-	d, status, err := s.importFile(r.Context(), temp.Name(), "paper.pdf", "papers", r.FormValue("allowLarge") == "1")
+	if existing, lookupErr := s.Store.Document(hex.EncodeToString(hash.Sum(nil))[:32]); lookupErr == nil && existing.Library != library {
+		fail(w, 409, "相同 PDF 已在另一个书库，请先在 Reader 中移动")
+		return
+	}
+	d, status, err := s.importFile(r.Context(), temp.Name(), "paper.pdf", library, r.FormValue("allowLarge") == "1")
 	if err != nil {
 		var imp importError
 		if errors.As(err, &imp) {
@@ -314,8 +322,8 @@ func (s *Server) connectorImport(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if d.Library != "papers" {
-		fail(w, 409, "相同 PDF 已在图书库，请先移到论文库")
+	if d.Library != library {
+		fail(w, 409, "相同 PDF 已在另一个书库，请先在 Reader 中移动")
 		return
 	}
 	d, err = s.applyFound(d.ID, found, title, "connector", "")

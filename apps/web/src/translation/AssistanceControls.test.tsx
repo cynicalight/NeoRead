@@ -57,7 +57,7 @@ it("opening and changing pages do not authorize processing", async () => {
   await render(40);
   await act(async () => vi.advanceTimersByTime(1000));
   expect(api.setAssistance).not.toHaveBeenCalled();
-  expect(host.textContent).toContain("开始翻译");
+  expect(host.textContent).toContain("翻译");
   vi.mocked(api.setAssistance).mockResolvedValue({
     ...paused,
     enabled: true,
@@ -104,6 +104,63 @@ it("uses chronological status ordering for variable timestamp precision", async 
   });
   expect(host.textContent).toContain("翻译完成");
   expect(host.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
+});
+
+it("keeps completion visible and requires confirmation before retranslation", async () => {
+  const ready: Processing = {
+    ...paused,
+    enabled: true,
+    status: "complete",
+    phase: "ready",
+    translationsDone: 2,
+    translationsTotal: 2,
+  };
+  await render(1, ready);
+  expect(host.textContent).toContain("翻译完成");
+  const restart = () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="重新翻译"]')!;
+  await act(async () => restart().click());
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
+    "重新翻译全文？",
+  );
+  expect(api.setAssistance).not.toHaveBeenCalled();
+  const dialogButton = (text: string) =>
+    [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[role="alertdialog"] button',
+      ),
+    ].find((b) => b.textContent === text)!;
+  await act(async () => dialogButton("取消").click());
+  expect(api.setAssistance).not.toHaveBeenCalled();
+  await act(async () => {
+    await vi.runAllTimersAsync();
+  });
+  await act(async () => restart().click());
+  vi.mocked(api.setAssistance).mockRejectedValueOnce(new Error("暂时无法开始"));
+  await act(async () => dialogButton("开始重新翻译").click());
+  expect(host.textContent).toContain("翻译完成");
+  expect(toast.error).toHaveBeenCalledWith("暂时无法开始");
+  expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+  vi.mocked(api.setAssistance).mockResolvedValueOnce({
+    ...ready,
+    retranslating: true,
+    status: "queued",
+    updatedAt: "2026-10-17T00:00:00Z",
+  });
+  await act(async () => dialogButton("开始重新翻译").click());
+  expect(api.setAssistance).toHaveBeenLastCalledWith("book", "retranslate");
+  expect(host.textContent).toContain("暂停重译");
+  expect(host.querySelector('[aria-label="重新翻译"]')).toBeNull();
+});
+
+it("offers continuation when an interrupted retranslation still has readable old text", async () => {
+  await render(1, {
+    ...paused,
+    retranslating: true,
+    startedAt: "2026-10-17T00:00:00Z",
+  });
+  expect(host.textContent).toContain("继续重译");
+  expect(host.querySelector('[aria-label="重新翻译"]')).toBeNull();
 });
 
 it("a book translates the current chapter instead of the whole document", async () => {
@@ -192,4 +249,20 @@ it("EPUB legacy jobs request a chapter without restarting old whole-book work", 
   expect(api.translateEPUBChapter).toHaveBeenCalledWith("book", location);
   expect(api.setAssistance).not.toHaveBeenCalled();
   expect(api.translateRange).not.toHaveBeenCalled();
+});
+
+it("offers manual translation after local parsing instead of resuming a translation", async () => {
+  await render(1, {
+    ...paused,
+    phase: "translating",
+    pagesDone: 60,
+    pagesTotal: 60,
+    startedAt: "2026-10-16T00:00:00Z",
+    manualTranslation: true,
+  });
+  expect(host.textContent).toContain("翻译");
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>("button")!.click(),
+  );
+  expect(api.setAssistance).toHaveBeenCalledWith("book", "start");
 });

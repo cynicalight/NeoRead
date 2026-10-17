@@ -310,7 +310,7 @@ func TestLiveDeepSeekTranslationSession(t *testing.T) {
 	batch := translationBatch{Paragraphs: []translationParagraph{{BlockID: "p7-b3", SourceHash: translationHash(source), Source: source}}}
 	var rows []TranslationBlock
 	decoder := newTranslationJSONL(batch, func(b TranslationBlock) error { rows = append(rows, b); return nil })
-	result, err := session.Stream(ctx, GenerateRequest{AIInput{Prompt: translationPrompt(Document{Title: "Live"}, layoutManifest{}, batch)}}, func(e ProviderEvent) error {
+	result, err := session.Stream(ctx, GenerateRequest{AIInput{Prompt: translationPrompt(Document{Title: "Live"}, layoutManifest{}, batch, "")}}, func(e ProviderEvent) error {
 		return decoder.feed(e.Text)
 	})
 	if err == nil && strings.TrimSpace(decoder.buffer) != "" {

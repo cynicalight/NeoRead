@@ -1,3 +1,4 @@
+import { selectionContext } from "./selection-context";
 import {
   annotationsInRects,
   sentenceRectsAtPoint,
@@ -754,6 +755,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       ...(last.id !== first.id ? { endBlockId: last.id } : {}),
     };
     this.selection = {
+      context: selectionContext(range, this.container),
       text: selected.toString(),
       location,
       anchor: selectionAnchor(selected, pointer),

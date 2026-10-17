@@ -60,19 +60,6 @@ import { PDFReaderAdapter } from "./pdf";
 let host: HTMLDivElement;
 let adapter: PDFReaderAdapter;
 let stylesheet: HTMLStyleElement;
-let previewContexts: Map<
-  HTMLCanvasElement,
-  {
-    drawImage: ReturnType<typeof vi.fn>;
-    putImageData: ReturnType<typeof vi.fn>;
-    getImageData: (
-      x: number,
-      y: number,
-      width: number,
-      height: number,
-    ) => ImageData;
-  }
->;
 let worker: {
   onmessage?: (event: MessageEvent) => void;
   onerror?: () => void;
@@ -111,33 +98,17 @@ beforeEach(() => {
       }
     },
   );
-  previewContexts = new Map();
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-    function (this: HTMLCanvasElement) {
-      const element = this;
-      let context = previewContexts.get(element);
-      if (!context) {
-        context = {
-          drawImage: vi.fn(),
-          putImageData: vi.fn(),
-          getImageData: (_x, _y, width, height) =>
-            new ImageData(
-              new Uint8ClampedArray(width * height * 4).fill(255),
-              width,
-              height,
-            ),
-        };
-        previewContexts.set(element, context);
-      }
-      return context as unknown as CanvasRenderingContext2D;
-    },
-  );
   stylesheet = document.createElement("style");
   const rule = styles.match(
     /\.pdf-container\[data-theme="dark"\][^{]+canvas:not\(\[data-pdf-dark-ready\]\)\s*\{[^}]+\}/,
   )?.[0];
   expect(rule).toBeTruthy();
-  stylesheet.textContent = rule!;
+  stylesheet.textContent =
+    rule! +
+    "\n" +
+    (
+      styles.match(/\.pdf-container[^{}]*\.canvasWrapper[^{}]*\{[^}]+\}/g) ?? []
+    ).join("\n");
   document.head.append(stylesheet);
   host = document.createElement("div");
   document.body.append(host);
@@ -212,11 +183,7 @@ it("hides initial and detail canvases until dark pixels have been written", asyn
     expect(
       new Uint8ClampedArray(worker.postMessage.mock.lastCall![0].pixels),
     ).toEqual(new Uint8ClampedArray([255, 255, 255, 255]));
-    const preview = host.querySelector<HTMLCanvasElement>(".pdf-dark-preview")!;
-    expect(getComputedStyle(preview).visibility).toBe("visible");
-    expect(
-      previewContexts.get(preview)!.putImageData.mock.lastCall![0].data,
-    ).toEqual(new Uint8ClampedArray([36, 36, 36, 255]));
+    expect(host.querySelector(".pdf-dark-preview")).toBeNull();
     reply(worker.postMessage.mock.lastCall![0].id);
     expect(context.putImageData.mock.lastCall![0].data).toEqual(
       new Uint8ClampedArray([36, 36, 36, 255]),
@@ -254,7 +221,7 @@ function position(element: HTMLElement, top: number, bottom: number) {
   } as DOMRect);
 }
 
-it("keeps queued pages visible and processes the latest visible page before skipped pages", async () => {
+it("processes the latest visible page before skipped pages", async () => {
   adapter.preferTheme({ ...defaultTheme, mode: "dark" });
   await adapter.open({ id: "doc", type: "pdf" } as Document);
   position(host, 0, 100);
@@ -270,7 +237,7 @@ it("keeps queued pages visible and processes the latest visible page before skip
   expect(worker.postMessage).toHaveBeenCalledTimes(1);
   expect(skipped.context.getImageData).not.toHaveBeenCalled();
   expect(visible.context.getImageData).not.toHaveBeenCalled();
-  expect(host.querySelectorAll(".pdf-dark-preview")).toHaveLength(3);
+  expect(host.querySelectorAll(".pdf-dark-preview")).toHaveLength(0);
   host.dispatchEvent(new Event("scroll"));
   reply(worker.postMessage.mock.lastCall![0].id);
   expect(worker.postMessage).toHaveBeenCalledTimes(2);
@@ -295,7 +262,7 @@ it("drops released canvases and continues after an obsolete in-flight page", asy
   first.element.remove();
   released.element.remove();
   host.dispatchEvent(new Event("scroll"));
-  expect(host.querySelectorAll(".pdf-dark-preview")).toHaveLength(1);
+  expect(host.querySelectorAll(".pdf-dark-preview")).toHaveLength(0);
   reply(worker.postMessage.mock.lastCall![0].id);
   expect(first.context.putImageData).not.toHaveBeenCalled();
   expect(released.context.getImageData).not.toHaveBeenCalled();
@@ -304,7 +271,7 @@ it("drops released canvases and continues after an obsolete in-flight page", asy
   expect(getComputedStyle(replacement.element).visibility).toBe("visible");
 });
 
-it("bounds previews at high zoom and does not reprocess repeated detail notifications", async () => {
+it("avoids low-resolution previews at high zoom and does not reprocess repeated detail notifications", async () => {
   adapter.preferTheme({ ...defaultTheme, mode: "dark" });
   await adapter.open({ id: "doc", type: "pdf" } as Document);
   const { element } = canvas();
@@ -317,13 +284,10 @@ it("bounds previews at high zoom and does not reprocess repeated detail notifica
     height: "50%",
   });
   rendered(element, true);
-  const preview = host.querySelector<HTMLCanvasElement>(".pdf-dark-preview")!;
-  expect([preview.width, preview.height]).toEqual([512, 256]);
-  expect(preview.style.cssText).toBe(element.style.cssText);
-  expect(preview.dataset.pdfDarkDetail).toBe("true");
+  expect(host.querySelector(".pdf-dark-preview")).toBeNull();
   rendered(element, true);
   expect(worker.postMessage).toHaveBeenCalledTimes(1);
-  expect(host.querySelectorAll(".pdf-dark-preview")).toHaveLength(1);
+  expect(host.querySelectorAll(".pdf-dark-preview")).toHaveLength(0);
 });
 
 it("cancels the old queue on a theme change without blocking the newly rendered page", async () => {
@@ -342,10 +306,7 @@ it("cancels the old queue on a theme change without blocking the newly rendered 
   expect(host.querySelector(".pdf-dark-preview")).toBeNull();
   const fresh = canvas();
   rendered(fresh.element);
-  const preview = host.querySelector<HTMLCanvasElement>(".pdf-dark-preview")!;
-  expect(
-    previewContexts.get(preview)!.putImageData.mock.lastCall![0].data,
-  ).toEqual(new Uint8ClampedArray([0, 0, 0, 255]));
+  expect(getComputedStyle(fresh.element).visibility).toBe("hidden");
   previousWorker.onmessage!({
     data: {
       id: previousId,
@@ -386,4 +347,32 @@ it("displays light canvases without waiting for dark processing", async () => {
   rendered(element);
   expect(getComputedStyle(element).visibility).toBe("visible");
   expect(context.putImageData).not.toHaveBeenCalled();
+});
+
+it("contains detail canvases below text and keeps native selection above page pixels", () => {
+  const wrapper = document.createElement("div");
+  wrapper.className = "canvasWrapper";
+  host.append(wrapper);
+  const detail = document.createElement("canvas");
+  detail.dataset.pdfDarkDetail = "true";
+  const selection = document.createElement("div");
+  selection.className = "selection";
+  wrapper.append(detail, selection);
+  expect(getComputedStyle(wrapper).isolation).toBe("isolate");
+  expect(Number(getComputedStyle(selection).zIndex)).toBeGreaterThan(
+    Number(getComputedStyle(detail).zIndex),
+  );
+});
+
+it("brightens native PDF highlights on dark paper", () => {
+  host.dataset.theme = "dark";
+  const wrapper = document.createElement("div");
+  wrapper.className = "canvasWrapper";
+  const mark = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  mark.classList.add("highlight");
+  wrapper.append(mark);
+  host.append(wrapper);
+  expect(getComputedStyle(mark).getPropertyValue("--blend-mode")).toBe(
+    "screen",
+  );
 });

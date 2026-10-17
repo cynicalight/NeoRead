@@ -403,7 +403,7 @@ func runRead(c *client, f *options, args []string, out io.Writer) error {
 		return writeJSON(out, text)
 	}
 	if !text.Parsed {
-		return exitError{1, "这份 PDF 还没有完成版面解析，暂时读不到正文。论文导入后会自动解析；如果关闭了“导入后自动翻译”，请在 Reader 的阅读工具栏点“开始翻译”。"}
+		return exitError{1, "这份 PDF 还没有完成版面解析，暂时读不到正文。论文导入后会自动解析，请等待解析完成；解析失败时可在 Reader 中重试。"}
 	}
 	fmt.Fprintf(out, "# %s\n", d.Title)
 	unit, untranslated := 0, 0
@@ -576,7 +576,7 @@ func runNote(c *client, f *options, args []string, out io.Writer) error {
 
 func importFlags(fs *flag.FlagSet, f *options) {
 	fs.StringVar(&f.library, "library", "papers", "导入论文库（papers）或图书库（books）")
-	fs.BoolVar(&f.allowLarge, "allow-large", false, "超过 50 页的 PDF 仍导入论文库")
+	fs.BoolVar(&f.allowLarge, "allow-large", false, "超过 100 页或 100 MB 的 PDF 仍导入论文库")
 }
 
 type importResult struct {

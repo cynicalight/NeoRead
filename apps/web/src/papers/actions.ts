@@ -1,4 +1,5 @@
-import { api } from "@reader/api";
+import { confirmLargePaper } from "../LargePaperDialog";
+import { api, RequestError } from "@reader/api";
 import type {
   Document,
   PaperLibraryPreferences,
@@ -252,7 +253,16 @@ export const looksLikeReference = (text: string) =>
 
 /** Download a paper by identifier, link or title and show it in the list. */
 export async function importReference(ref: string) {
-  const doc = await api.resolveDocument(ref.trim());
+  let doc;
+  try {
+    doc = await api.resolveDocument(ref.trim());
+  } catch (error) {
+    if (!(error instanceof RequestError) || error.code !== "large-paper")
+      throw error;
+    const library = await confirmLargePaper();
+    if (!library) throw new Error("已取消导入");
+    doc = await api.resolveDocument(ref.trim(), { library, allowLarge: true });
+  }
   await refreshLibrary().catch(() => {});
   const ui = usePaperUI.getState();
   if (doc.library === "papers") {

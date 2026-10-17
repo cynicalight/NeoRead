@@ -55,7 +55,7 @@ const session = await ort.InferenceSession.create(modelPath, {
   executionProviders: ["cpu"],
 });
 const file = await readFile(input);
-if (file.byteLength > 100 * 1024 * 1024) throw new Error("PDF 超过 100 MB");
+if (file.byteLength > 512 * 1024 * 1024) throw new Error("PDF 超过 512 MB");
 const loading = getDocument({
   data: new Uint8Array(file),
   useSystemFonts: true,
@@ -84,7 +84,6 @@ const timings: {
 const start = performance.now();
 try {
   const pdf = await loading.promise;
-  if (pdf.numPages > 1000) throw new Error("PDF 超过本轮处理上限（1000 页）");
   const first = fromPage ?? 1,
     last = Math.min(toPage ?? pdf.numPages, pdf.numPages);
   if (first > last) throw new Error("页码范围无效");

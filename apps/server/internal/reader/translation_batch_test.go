@@ -82,7 +82,7 @@ func TestTranslationBatchBoundariesAndContext(t *testing.T) {
 	if len(retry[0].Paragraphs) != 1 || retry[0].Paragraphs[0].BlockID != m.Blocks[1].ID || retry[0].After[0].BlockID != m.Blocks[2].ID {
 		t.Fatal("retry changed boundaries or regenerated completed text")
 	}
-	prompt := translationPrompt(Document{Title: "论文标题", Author: "作者"}, m, batches[0])
+	prompt := translationPrompt(Document{Title: "论文标题", Author: "作者"}, m, batches[0], "")
 	if !strings.Contains(prompt, `"title":"论文标题"`) || !strings.Contains(prompt, `"author":"作者"`) {
 		t.Fatal("metadata not attached")
 	}

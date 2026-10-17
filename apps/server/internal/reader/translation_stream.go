@@ -30,7 +30,7 @@ func (s *Server) streamTranslations(w http.ResponseWriter, r *http.Request) {
 	if sourceErr != nil {
 		m = layoutManifest{}
 	}
-	items, err := s.translations(d.ID, m)
+	items, err := s.visibleTranslations(d.ID, m)
 	if err != nil {
 		s.translationMu.Unlock()
 		fail(w, 500, "无法读取译文")

@@ -26,7 +26,7 @@ const require = createRequire(import.meta.url);
 const assets = dirname(require.resolve("pdfjs-dist/package.json"));
 const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
 const data = await readFile(values.input);
-if (data.byteLength > 100 * 1024 * 1024) throw new Error("PDF exceeds 100 MB");
+if (data.byteLength > 512 * 1024 * 1024) throw new Error("PDF exceeds 512 MB");
 const task = getDocument({
   data: new Uint8Array(data),
   useSystemFonts: true,
@@ -37,7 +37,7 @@ const task = getDocument({
 });
 try {
   const pdf = await task.promise;
-  if (pdf.numPages > 1000 || selected.some((p) => p > pdf.numPages))
+  if (selected.some((p) => p > pdf.numPages))
     throw new Error("Page outside PDF");
   let bytes = 0;
   for (const number of selected) {

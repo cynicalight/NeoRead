@@ -198,6 +198,15 @@ assets/            # Logo 源文件与应用图标
 
 更长期的计划见[路线图](docs/roadmap.md)。
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=cynicalight%2Freader&amp;type=date&amp;legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=cynicalight/reader&amp;type=date&amp;legend=top-left&amp;theme=dark" />
+    <img src="https://api.star-history.com/svg?repos=cynicalight/reader&amp;type=date&amp;legend=top-left" alt="Reader 的 GitHub Star 增长历史" />
+  </picture>
+</a>
+
 ## 致谢
 
 感谢 [Readium](https://github.com/readium)、[PDF.js](https://github.com/mozilla/pdf.js)、[shadcn/ui](https://github.com/shadcn-ui/ui) 和 [Base UI](https://github.com/mui/base-ui)。shadcn 组件保留在 `packages/ui`，相关许可见 [packages/ui/LICENSE.md](packages/ui/LICENSE.md)。更多技术来源与归属见[第三方来源](docs/sources.md)。

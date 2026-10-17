@@ -90,6 +90,8 @@ func OpenStore(root string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,body TEXT NOT NULL,created_at TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS document_processing(document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,phase TEXT NOT NULL,status TEXT NOT NULL,body TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS translations(document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,block_id TEXT NOT NULL,source_hash TEXT NOT NULL,status TEXT NOT NULL,body TEXT NOT NULL,priority INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(document_id,block_id,source_hash));
+ CREATE TABLE IF NOT EXISTS translation_previous(document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,block_id TEXT NOT NULL,source_hash TEXT NOT NULL,body TEXT NOT NULL,PRIMARY KEY(document_id,block_id,source_hash));
+ CREATE TABLE IF NOT EXISTS translation_restarts(document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,options TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS processing_usage(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,body TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS chat_usage_coverage(document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,history_complete INTEGER NOT NULL);
  INSERT OR IGNORE INTO chat_usage_coverage(document_id,history_complete) SELECT id,NOT EXISTS(SELECT 1 FROM messages WHERE document_id=documents.id) FROM documents;

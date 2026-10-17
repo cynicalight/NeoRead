@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ChatCitationNavigation } from "./chat/citations";
 import { ArrowUpRight, Loader2 } from "lucide-react";
 import type {
   DocumentLocation,
@@ -19,18 +20,28 @@ export function SourceReferences({
   toc,
   adapter,
   onNavigate,
+  children,
 }: {
   message: Message;
   toc: TOCItem[];
   adapter?: ReaderAdapter;
   onNavigate: (location: DocumentLocation, text: string) => Promise<void>;
+  children?: ReactNode;
 }) {
   const [pending, setPending] = useState<string>();
   const [error, setError] = useState("");
   const [candidates, setCandidates] = useState<ReferenceCard[]>();
   const request = useRef(0);
+  useEffect(() => {
+    setPending(undefined);
+    setError("");
+    setCandidates(undefined);
+    return () => {
+      request.current++;
+    };
+  }, [message.id, adapter]);
   const cards = referenceCards(message, toc);
-  if (!cards.length) return null;
+  if (!cards.length) return children ?? null;
   const choose = async (card: ReferenceCard) => {
     if (!adapter || pending) return;
     const serial = ++request.current;
@@ -79,48 +90,63 @@ export function SourceReferences({
     }
   };
   return (
-    <div className="chat-user-references">
-      {candidates && <p className="reference-prompt">选择原文位置</p>}
-      <div className="reference-list" role="list" aria-label="原文引用列表">
-        {(candidates || cards).map((card) => (
-          <div role="listitem" key={card.id}>
-            <Button
-              variant="ghost"
-              className="reference-card"
-              disabled={!adapter || !!pending}
-              onClick={() => void choose(card)}
-            >
-              <span className="reference-card-heading">
-                <span title={card.label}>引用原文 · {card.label}</span>
-                {pending === card.id ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <ArrowUpRight className="size-3" />
-                )}
-              </span>
-              <span className="reference-card-excerpt">{card.text}</span>
-            </Button>
+    <ChatCitationNavigation.Provider
+      value={{
+        sourceIds: cards.flatMap((card) =>
+          card.sourceId ? [card.sourceId] : [],
+        ),
+        navigate: (sourceId) => {
+          const card = cards.find((card) => card.sourceId === sourceId);
+          if (card) void choose(card);
+        },
+      }}
+    >
+      {children}
+      <div className="chat-user-references">
+        {candidates && <p className="reference-prompt">选择原文位置</p>}
+        {(!children || candidates) && (
+          <div className="reference-list" role="list" aria-label="原文引用列表">
+            {(candidates || cards).map((card) => (
+              <div role="listitem" key={card.id}>
+                <Button
+                  variant="ghost"
+                  className="reference-card"
+                  disabled={!adapter || !!pending}
+                  onClick={() => void choose(card)}
+                >
+                  <span className="reference-card-heading">
+                    <span title={card.label}>引用原文 · {card.label}</span>
+                    {pending === card.id ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <ArrowUpRight className="size-3" />
+                    )}
+                  </span>
+                  <span className="reference-card-excerpt">{card.text}</span>
+                </Button>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
+        {error && (
+          <p role="alert" className="reference-error">
+            {error}
+          </p>
+        )}
+        {candidates && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              request.current++;
+              setCandidates(undefined);
+              setError("");
+            }}
+          >
+            返回引用列表
+          </Button>
+        )}
       </div>
-      {error && (
-        <p role="alert" className="reference-error">
-          {error}
-        </p>
-      )}
-      {candidates && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            request.current++;
-            setCandidates(undefined);
-            setError("");
-          }}
-        >
-          返回引用列表
-        </Button>
-      )}
-    </div>
+    </ChatCitationNavigation.Provider>
   );
 }

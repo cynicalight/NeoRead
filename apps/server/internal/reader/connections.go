@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type APIConnection struct {
@@ -48,6 +49,7 @@ type AIConfig struct {
 	// Reader picks the fast tier from the live catalog.
 	TranslationModels  map[string]string            `json:"translationModels,omitempty"`
 	TranslationEfforts map[string]map[string]string `json:"translationEfforts,omitempty"`
+	TranslationPrompt  *string                      `json:"translationPrompt,omitempty"`
 	// The API agent also picks a model for image input. Other agents send
 	// images to their chat model.
 	VisionModels  map[string]string            `json:"visionModels,omitempty"`
@@ -275,6 +277,14 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "请选择主 Agent")
 		return
 	}
+	if c.TranslationPrompt != nil {
+		value := strings.TrimSpace(*c.TranslationPrompt)
+		if utf8.RuneCountInString(value) > 6000 {
+			fail(w, 400, "翻译提示词不能超过 6000 个字符")
+			return
+		}
+		c.TranslationPrompt = &value
+	}
 	for _, efforts := range []map[string]map[string]string{c.Efforts, c.TranslationEfforts, c.VisionEfforts} {
 		for provider, models := range efforts {
 			for _, effort := range models {
@@ -288,6 +298,9 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	old := s.readAIConfig()
+	if c.TranslationPrompt == nil {
+		c.TranslationPrompt = old.TranslationPrompt
+	}
 	if c.Efforts == nil {
 		c.Efforts = old.Efforts
 	}

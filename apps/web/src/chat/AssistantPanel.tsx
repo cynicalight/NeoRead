@@ -64,6 +64,7 @@ export function AssistantPanel({
   references,
   onRegenerate,
   regenerateDisabled = false,
+  renderAnswer = (_message, content) => content,
 }: {
   session: ChatSession;
   empty: ReactNode;
@@ -71,6 +72,7 @@ export function AssistantPanel({
   references: (message: Message) => ReactNode;
   onRegenerate: () => void;
   regenerateDisabled?: boolean;
+  renderAnswer?: (message: Message, content: ReactNode) => ReactNode;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const scroll = useChatScroll(state.pending?.key);
@@ -97,6 +99,18 @@ export function AssistantPanel({
             const timestamp = message?.createdAt
               ? new Date(message.createdAt)
               : undefined;
+            const markdown = (
+              <Suspense
+                fallback={
+                  <div style={{ whiteSpace: "pre-wrap" }}>{content}</div>
+                }
+              >
+                <MessageMarkdown
+                  content={content}
+                  generating={answer?.phase === "generating"}
+                />
+              </Suspense>
+            );
             return (
               <div
                 key={key}
@@ -147,16 +161,11 @@ export function AssistantPanel({
                   />
                 )}
                 {assistant ? (
-                  <Suspense
-                    fallback={
-                      <div style={{ whiteSpace: "pre-wrap" }}>{content}</div>
-                    }
-                  >
-                    <MessageMarkdown
-                      content={content}
-                      generating={answer?.phase === "generating"}
-                    />
-                  </Suspense>
+                  message ? (
+                    renderAnswer(message, markdown)
+                  ) : (
+                    markdown
+                  )
                 ) : (
                   <>
                     {message && references(message)}

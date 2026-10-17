@@ -4,6 +4,72 @@
   "security": [{ "session": [] }],
   "paths":
     {
+      "/api/translate-selection":
+        {
+          "post":
+            {
+              "summary": "Translate selected text using at most 30 nearby words on each side",
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "required": ["text"],
+                              "additionalProperties": false,
+                              "properties":
+                                {
+                                  "text":
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 12000,
+                                    },
+                                  "before": { "type": "string" },
+                                  "after": { "type": "string" },
+                                },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Completed translation; not persisted",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "required": ["text"],
+                                  "properties":
+                                    { "text": { "type": "string" } },
+                                },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Error",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
       "/api/overviews":
         {
           "get":
@@ -554,6 +620,14 @@
                                 {
                                   "scanId": { "type": "string" },
                                   "entryId": { "type": "string" },
+                                  "library":
+                                    {
+                                      "type": "string",
+                                      "enum": ["papers", "books"],
+                                      "default": "papers",
+                                    },
+                                  "allowLarge":
+                                    { "type": "boolean", "default": false },
                                 },
                               "required": ["scanId", "entryId"],
                             },
@@ -762,12 +836,12 @@
                                   "library":
                                     {
                                       "enum": ["books", "papers"],
-                                      "description": "Target library. Papers accept PDFs up to 50 MB and 150 pages. Defaults to books.",
+                                      "description": "Target library. Papers accept PDFs; over 100 MB or 100 pages requires confirmation. Defaults to books.",
                                     },
                                   "allowLarge":
                                     {
                                       "enum": ["1"],
-                                      "description": "Confirms a paper over 50 pages. Without it such a paper fails with 409, code large-paper and its page count.",
+                                      "description": "Confirms a paper over 100 pages or 100 MB. Without it such a paper fails with 409, code large-paper and its page count.",
                                     },
                                 },
                               "required": ["file"],
@@ -1994,7 +2068,14 @@
                                   "action":
                                     {
                                       "type": "string",
-                                      "enum": ["start", "pause", "resume"],
+                                      "enum":
+                                        [
+                                          "start",
+                                          "pause",
+                                          "resume",
+                                          "retranslate",
+                                        ],
+                                      "description": "retranslate restarts completed paper text with saved current translation choices, retaining previous translations until replacement succeeds. Books keep chapter translation controls.",
                                     },
                                 },
                             },
@@ -3581,7 +3662,18 @@
                           "schema":
                             {
                               "type": "object",
-                              "properties": { "ref": { "type": "string" } },
+                              "properties":
+                                {
+                                  "ref": { "type": "string" },
+                                  "library":
+                                    {
+                                      "type": "string",
+                                      "enum": ["papers", "books"],
+                                      "default": "papers",
+                                    },
+                                  "allowLarge":
+                                    { "type": "boolean", "default": false },
+                                },
                               "required": ["ref"],
                             },
                         },
@@ -4229,6 +4321,17 @@
                         "x": { "type": "number" },
                         "y": { "type": "number" },
                         "quote": { "type": "string" },
+                        "quoteContext":
+                          {
+                            "type": "object",
+                            "description": "Search paragraph context and UTF-16 offset of the selected match.",
+                            "properties":
+                              {
+                                "text": { "type": "string" },
+                                "start": { "type": "integer", "minimum": 0 },
+                              },
+                            "required": ["text", "start"],
+                          },
                         "rects":
                           {
                             "type": "array",
@@ -4781,6 +4884,16 @@
               "properties":
                 {
                   "enabled": { "type": "boolean" },
+                  "manualTranslation": { "type": "boolean", "readOnly": true },
+                  "retranslating": { "type": "boolean", "readOnly": true },
+                  "autoTranslateMaxPages":
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 150,
+                      "multipleOf": 10,
+                      "readOnly": true,
+                    },
                   "epubManual":
                     {
                       "type": "boolean",
@@ -4995,6 +5108,12 @@
                       "type": "object",
                       "description": "Translation model by provider. Empty uses the provider's fast-tier recommendation.",
                       "additionalProperties": { "type": "string" },
+                    },
+                  "translationPrompt":
+                    {
+                      "type": "string",
+                      "maxLength": 6000,
+                      "description": "Translation style and terminology preferences. Empty resets to default; omission preserves the saved value. Does not replace source-alignment or output-format rules.",
                     },
                   "translationEfforts":
                     {

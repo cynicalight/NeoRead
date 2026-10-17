@@ -13,6 +13,7 @@ import { createInterface } from "node:readline";
 import { readFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
+import { agentPath } from "./agent-path";
 import { annotationUndoShortcut } from "../../../packages/reader-core/src/undo-shortcut";
 import { zoomCommand } from "../../../packages/reader-core/src/zoom-shortcut";
 import {
@@ -74,15 +75,7 @@ async function startServer() {
   const web = app.isPackaged
     ? join(process.resourcesPath, "web")
     : join(root, "web", "dist");
-  const pathValue = [
-    join(homedir(), ".local", "bin"),
-    join(homedir(), ".kimi-code", "bin"),
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    process.env.PATH,
-  ]
-    .filter(Boolean)
-    .join(process.platform === "win32" ? ";" : ":");
+  const pathValue = await agentPath(childEnv, homedir(), process.platform);
   child = spawn(
     binary,
     [

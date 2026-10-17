@@ -28,6 +28,10 @@ func (s *Server) setAssistance(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
+	if req.Action == "retranslate" {
+		s.requestRetranslation(w, r)
+		return
+	}
 	if req.Action != "start" && req.Action != "pause" && req.Action != "resume" {
 		fail(w, 400, "无效的辅助阅读操作")
 		return
@@ -81,15 +85,18 @@ func (s *Server) setAssistance(w http.ResponseWriter, r *http.Request) {
 	p.Enabled = req.Action != "pause"
 	p.CompletedAt = ""
 	if p.Enabled {
+		p.AutoTranslateMaxPages = nil
+		p.ManualTranslation = false
 		p.Status, p.Detail = "queued", "等待继续处理"
 		// Prepare the complete manifest; cached completed results remain reusable.
 		// Completed translations and formula results are reused.
-		p.Phase = "learning"
-		p.PagesDone = 0
-		p.Translating = nil
-		if d.Type == "epub" {
+		if d.Type == "epub" || p.Retranslating {
 			p.Phase = "translating"
 			p.Translating = &ProcessingStage{Status: "queued", Detail: "等待继续翻译"}
+		} else {
+			p.Phase = "learning"
+			p.PagesDone = 0
+			p.Translating = nil
 		}
 		if e = s.retryFailedTranslations(d.ID); e != nil {
 			fail(w, 500, "无法恢复译文")

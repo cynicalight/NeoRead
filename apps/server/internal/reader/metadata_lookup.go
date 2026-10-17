@@ -17,7 +17,7 @@ func (s *Server) scholarClient() *scholar.Client {
 	s.scholarMu.Lock()
 	defer s.scholarMu.Unlock()
 	if s.scholar == nil {
-		s.scholar = scholar.New(maxPaperBytes)
+		s.scholar = scholar.New(maxImportBytes)
 	}
 	return s.scholar
 }
@@ -171,9 +171,18 @@ func (s *Server) lookupMetadata(w http.ResponseWriter, r *http.Request) {
 // resolveDocument imports a paper from an arXiv ID, DOI, link or title.
 func (s *Server) resolveDocument(w http.ResponseWriter, r *http.Request) {
 	var v struct {
-		Ref string `json:"ref"`
+		Ref        string `json:"ref"`
+		Library    string `json:"library"`
+		AllowLarge bool   `json:"allowLarge"`
 	}
 	if !decode(w, r, &v) {
+		return
+	}
+	if v.Library == "" {
+		v.Library = "papers"
+	}
+	if !validLibrary(v.Library) {
+		fail(w, 400, "未知书库")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
@@ -205,7 +214,12 @@ func (s *Server) resolveDocument(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "无法保存文件")
 		return
 	}
-	d, status, err := s.importFile(ctx, temp.Name(), result.Filename, "papers", true)
+	d, status, err := s.importFile(ctx, temp.Name(), result.Filename, v.Library, v.AllowLarge)
+	var imp importError
+	if errors.As(err, &imp) && imp.code != "" {
+		respond(w, status, map[string]any{"error": imp.message, "code": imp.code, "pages": imp.pages})
+		return
+	}
 	if err != nil {
 		fail(w, status, err.Error())
 		return

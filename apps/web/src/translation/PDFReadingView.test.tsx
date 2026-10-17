@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { act, useEffect } from "react";
+import { ReadingLinkNavigation } from "../reading-links";
+import { act, useContext, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -47,7 +48,32 @@ vi.mock("@reader/api", () => ({
   blockImageURL: () => "",
 }));
 vi.mock("../chat/MessageMarkdown", () => ({
-  MessageMarkdown: ({ content }: { content: string }) => <p>{content}</p>,
+  MessageMarkdown: ({
+    content,
+    citationBlockId,
+  }: {
+    content: string;
+    citationBlockId?: string;
+  }) => {
+    const navigate = useContext(ReadingLinkNavigation);
+    return (
+      <p>
+        {content === "如图三" ? (
+          <a
+            href="#figure"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate?.(citationBlockId!, "figure:3");
+            }}
+          >
+            {content}
+          </a>
+        ) : (
+          content
+        )}
+      </p>
+    );
+  },
 }));
 const adapter = {
   open: vi.fn(async () => {}),
@@ -64,6 +90,7 @@ const adapter = {
   getContext: vi.fn(async () => ""),
   destroy: vi.fn(async () => {}),
   focusBlock: vi.fn(async () => {}),
+  flashReference: vi.fn(),
   cancelBlockFocus: vi.fn(),
   followBlock: vi.fn(async () => {}),
   focusSentences: vi.fn(async () => {}),
@@ -967,3 +994,57 @@ it.each(["仅原文", "原文译文"])(
     ).toBe("false");
   },
 );
+
+it("focuses the image from a translated figure reference even with sync disabled", async () => {
+  fixture.translations[0].sentences[0].target = "如图三";
+  await renderView(defaultTheme, [
+    {
+      id: "figure-3",
+      page: 2,
+      label: "image",
+      text: "",
+      caption: "Figure 3. Result",
+      image: "figure.png",
+      bounds: { x: 0.1, y: 0.1, width: 0.5, height: 0.3 },
+    },
+  ]);
+  await click("原文译文");
+  await click("取消同步效果");
+  vi.mocked(adapter.focusBlock!).mockClear();
+  await act(async () =>
+    host.querySelector<HTMLAnchorElement>('a[href="#figure"]')!.click(),
+  );
+  expect(adapter.focusBlock).toHaveBeenCalledExactlyOnceWith(
+    "figure-3",
+    "parallel",
+  );
+  expect(adapter.goTo).not.toHaveBeenCalled();
+});
+
+it("paints search and annotation jump feedback after focusing the source", async () => {
+  const location = {
+    type: "pdf" as const,
+    page: 1,
+    x: 0.1,
+    y: 0.2,
+    quote: "target",
+  };
+  vi.mocked(adapter.flashReference!).mockClear();
+  await act(async () => {
+    await fixture.ready!.focusLocation?.(location);
+  });
+  expect(adapter.flashReference).toHaveBeenCalledWith(location, "target");
+});
+
+it("paints a jump target on an unparsed page after page navigation", async () => {
+  const location = { type: "pdf" as const, page: 2, quote: "unparsed target" };
+  vi.mocked(adapter.flashReference!).mockClear();
+  await act(async () => {
+    await fixture.ready!.focusLocation?.(location);
+  });
+  expect(adapter.goTo).toHaveBeenCalledWith(location);
+  expect(adapter.flashReference).toHaveBeenCalledWith(
+    location,
+    "unparsed target",
+  );
+});

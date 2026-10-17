@@ -1,3 +1,4 @@
+import { create } from "zustand";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,7 +28,6 @@ export function LargePaperDialog({
   onChoose: (library: "papers" | "books") => void;
   onCancel: () => void;
 }) {
-  const [first] = papers;
   return (
     <AlertDialog
       open={papers.length > 0}
@@ -39,25 +39,52 @@ export function LargePaperDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>检测到 PDF 过大</AlertDialogTitle>
           <AlertDialogDescription>
-            {papers.length === 1
-              ? `“${first?.name}”有 ${first?.pages} 页。`
-              : `${papers.length} 份 PDF 超过 50 页。`}
-            作为论文导入会一次翻译全文，耗时较长；导入为图书后按章节翻译。是否导入为图书？
+            请确认是否是论文？如果是图书类，请导入图书库。
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogAction
             variant="outline"
             disabled={busy}
-            onClick={() => onChoose("papers")}
+            onClick={() => onChoose("books")}
           >
-            仍然导入为论文
+            不是论文，导入图书库
           </AlertDialogAction>
-          <AlertDialogAction disabled={busy} onClick={() => onChoose("books")}>
-            导入到图书库
+          <AlertDialogAction disabled={busy} onClick={() => onChoose("papers")}>
+            确认是论文，仍然导入论文库
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+const useLargeConfirmation = create<{
+  pending?: { resolve: (library: "papers" | "books" | null) => void };
+}>(() => ({}));
+let confirmationQueue = Promise.resolve();
+export function confirmLargePaper(): Promise<"papers" | "books" | null> {
+  const next = confirmationQueue.then(
+    () =>
+      new Promise<"papers" | "books" | null>((resolve) => {
+        useLargeConfirmation.setState({ pending: { resolve } });
+      }),
+  );
+  confirmationQueue = next.then(() => {});
+  return next;
+}
+export function LargePaperConfirmation() {
+  const pending = useLargeConfirmation((state) => state.pending);
+  const choose = (library: "papers" | "books" | null) => {
+    useLargeConfirmation.setState({ pending: undefined });
+    pending?.resolve(library);
+  };
+  return (
+    <LargePaperDialog
+      papers={pending ? [{ name: "PDF", pages: 0 }] : []}
+      busy={false}
+      onChoose={choose}
+      onCancel={() => choose(null)}
+    />
   );
 }

@@ -1,6 +1,12 @@
+import { confirmLargePaper } from "../LargePaperDialog";
 import { useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, Loader2 } from "lucide-react";
-import { api, type ZoteroImportResult, type ZoteroScan } from "@reader/api";
+import {
+  api,
+  RequestError,
+  type ZoteroImportResult,
+  type ZoteroScan,
+} from "@reader/api";
 import { Button } from "@reader/ui/components/button";
 import { Checkbox } from "@reader/ui/components/checkbox";
 import { Input } from "@reader/ui/components/input";
@@ -107,7 +113,21 @@ export function ZoteroImportDialog({
       setCurrent(entry.title);
       let result: Outcome;
       try {
-        result = await api.importZotero(scan.id, entry.id);
+        try {
+          result = await api.importZotero(scan.id, entry.id);
+        } catch (error) {
+          if (!(error instanceof RequestError) || error.code !== "large-paper")
+            throw error;
+          const library = await confirmLargePaper();
+          if (!library) {
+            stop.current = true;
+            break;
+          }
+          result = await api.importZotero(scan.id, entry.id, {
+            library,
+            allowLarge: true,
+          });
+        }
       } catch (e) {
         result = { status: "failed", error: (e as Error).message };
       }
@@ -261,8 +281,8 @@ export function ZoteroImportDialog({
               </p>
             ))}
             <p className="text-muted-foreground text-xs">
-              同一论文的多个 PDF 分别导入。支持 50 MB、150 页以内的 PDF；超过 50
-              页的附件也会导入论文库。迁移不会自动启动 AI 翻译。
+              同一论文的多个 PDF 分别导入。超过 100 页或 100 MB
+              时需确认是否是论文。自动翻译遵循设置中的页数上限。
             </p>
             {phase === "running" && (
               <div role="status" className="grid gap-2">

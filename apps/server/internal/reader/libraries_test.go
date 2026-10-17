@@ -98,31 +98,31 @@ func TestPaperLibraryImportLimits(t *testing.T) {
 	if w = uploadTo(t, s, "papers", "book.epub", sample(t, "the-art-of-reading.epub")); w.Code != 400 || !strings.Contains(w.Body.String(), "只支持 PDF") {
 		t.Fatalf("epub accepted into papers: %d %s", w.Code, w.Body.String())
 	}
-	if w = uploadTo(t, s, "papers", "long.pdf", testPDF(maxPaperPages+1)); w.Code != 400 || !strings.Contains(w.Body.String(), "页") {
+	if w = uploadTo(t, s, "papers", "long.pdf", testPDF(largePaperPages+1)); w.Code != 409 || !strings.Contains(w.Body.String(), "large-paper") {
 		t.Fatalf("long PDF accepted: %d %s", w.Code, w.Body.String())
 	}
 	if w = uploadTo(t, s, "shelf", "x.pdf", testPDF(1)); w.Code != 400 {
 		t.Fatalf("unknown library accepted: %d", w.Code)
 	}
 	// The same file in the book library is accepted there without limits.
-	if w = uploadTo(t, s, "", "long.pdf", testPDF(maxPaperPages+1)); w.Code != 201 {
+	if w = uploadTo(t, s, "", "long.pdf", testPDF(largePaperPages+1)); w.Code != 201 {
 		t.Fatal(w.Body.String())
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil || d.Library != "books" {
 		t.Fatalf("default library: %+v %v", d, err)
 	}
-	if reason := paperLimit("pdf", maxPaperBytes+1, ""); !strings.Contains(reason, "MB") {
+	if reason := paperLimit("pdf", largePaperBytes+1, ""); reason != "" {
 		t.Fatalf("size limit: %q", reason)
 	}
 }
 func TestMoveDocumentBetweenLibraries(t *testing.T) {
 	s := testServer(t)
-	long := uploadTo(t, s, "books", "long.pdf", testPDF(maxPaperPages+1))
+	long := uploadTo(t, s, "books", "long.pdf", testPDF(largePaperPages+1))
 	short := uploadTo(t, s, "books", "short.pdf", testPDF(2))
 	var longDoc, shortDoc Document
 	_ = json.Unmarshal(long.Body.Bytes(), &longDoc)
 	_ = json.Unmarshal(short.Body.Bytes(), &shortDoc)
-	if w := request(t, s, "PATCH", "/api/documents/"+longDoc.ID, strings.NewReader(`{"library":"papers"}`)); w.Code != 400 {
+	if w := request(t, s, "PATCH", "/api/documents/"+longDoc.ID, strings.NewReader(`{"library":"papers"}`)); w.Code != 200 {
 		t.Fatalf("long PDF moved: %d", w.Code)
 	}
 	if w := request(t, s, "PATCH", "/api/documents/"+shortDoc.ID, strings.NewReader(`{"library":"nowhere"}`)); w.Code != 400 {

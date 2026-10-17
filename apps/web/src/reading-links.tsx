@@ -1,3 +1,4 @@
+import { figureReferences } from "./readers/figure-references";
 import { createContext } from "react";
 import { toast } from "sonner";
 import type { Link, PhrasingContent, Root, Text } from "mdast";
@@ -31,13 +32,31 @@ export function remarkReadingCitations({ blockId }: { blockId?: string }) {
     visit(tree, (node, index, parent) => {
       if (node.type === "link" || node.type === "linkReference") return SKIP;
       if (node.type !== "text" || !parent || index === undefined) return;
-      const parts = citationParts(node.value, blockId);
+      const parts = readingParts(node.value, blockId);
       if (!parts) return;
       // Text only lives in phrasing parents.
       (parent.children as PhrasingContent[]).splice(index, 1, ...parts);
       return [SKIP, index + parts.length];
     });
   };
+}
+function readingParts(value: string, blockId: string) {
+  const figures = figureReferences(value);
+  if (!figures.length) return citationParts(value, blockId);
+  const parts: PhrasingContent[] = [];
+  let start = 0;
+  for (const figure of figures) {
+    const before = value.slice(start, figure.index);
+    parts.push(...(citationParts(before, blockId) ?? [text(before)]), {
+      type: "link",
+      url: citationHref(blockId, `figure:${figure.label}`),
+      children: [text(figure.text)],
+    });
+    start = figure.index + figure.text.length;
+  }
+  const after = value.slice(start);
+  parts.push(...(citationParts(after, blockId) ?? [text(after)]));
+  return parts;
 }
 function citationParts(value: string, blockId: string) {
   const parts: PhrasingContent[] = [];

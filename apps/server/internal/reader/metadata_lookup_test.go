@@ -19,10 +19,14 @@ const lookupAtom = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://
 <author><name>Ashish Vaswani</name></author></entry></feed>`
 
 // scholarFixture serves an arXiv entry and its PDF; it counts requests.
-func scholarFixture(t *testing.T, s *Server) *atomic.Int32 {
+func scholarFixture(t *testing.T, s *Server, pageCounts ...int) *atomic.Int32 {
 	t.Helper()
 	var hits atomic.Int32
-	pdf := testPDF(3)
+	pages := 3
+	if len(pageCounts) > 0 {
+		pages = pageCounts[0]
+	}
+	pdf := testPDF(pages)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		switch {
@@ -35,7 +39,7 @@ func scholarFixture(t *testing.T, s *Server) *atomic.Int32 {
 		}
 	}))
 	t.Cleanup(server.Close)
-	c := scholar.New(maxPaperBytes)
+	c := scholar.New(maxImportBytes)
 	c.AllowPrivateHosts = true
 	c.ArXivAPI, c.ArXivPDF = server.URL+"/api", server.URL+"/pdf/"
 	c.Crossref, c.SemanticScholar = server.URL+"/none/", server.URL+"/none/"
@@ -122,5 +126,23 @@ func TestAutoLookupPreference(t *testing.T) {
 	request(t, s, "PUT", "/api/preferences/library", strings.NewReader(`{"papers":{"autoLookup":false}}`))
 	if s.autoLookupEnabled() {
 		t.Fatal("preference ignored")
+	}
+}
+
+func TestResolveLargePaperConfirmation(t *testing.T) {
+	for _, library := range []string{"papers", "books"} {
+		t.Run(library, func(t *testing.T) {
+			s := testServer(t)
+			scholarFixture(t, s, 160)
+			w := request(t, s, "POST", "/api/documents/resolve", strings.NewReader(`{"ref":"1706.03762"}`))
+			if w.Code != 409 || !strings.Contains(w.Body.String(), "large-paper") {
+				t.Fatalf("missing confirmation: %d %s", w.Code, w.Body.String())
+			}
+			w = request(t, s, "POST", "/api/documents/resolve", strings.NewReader(`{"ref":"1706.03762","allowLarge":true,"library":"`+library+`"}`))
+			var d Document
+			if w.Code != 201 || json.Unmarshal(w.Body.Bytes(), &d) != nil || d.Library != library {
+				t.Fatalf("confirmed destination: %d %s", w.Code, w.Body.String())
+			}
+		})
 	}
 }

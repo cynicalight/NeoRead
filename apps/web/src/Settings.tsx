@@ -1,3 +1,5 @@
+import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
+import { TranslationPromptSettings } from "./TranslationPromptSettings";
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronLeft,
@@ -91,9 +93,6 @@ export function Settings({
   const [apiModels, setAPIModels] = useState<AgentModel[]>([]);
   const [apiModelsError, setAPIModelsError] = useState("");
   const [apiDetails, setAPIDetails] = useState(false);
-  const [connector, setConnector] = useState<Awaited<
-    ReturnType<typeof api.connectorStatus>
-  > | null>(null);
   const [journalRank, setJournalRank] = useState<JournalRankConfig | null>(
     null,
   );
@@ -138,13 +137,6 @@ export function Settings({
   };
   useEffect(() => {
     if (!open) setAPIDetails(false);
-  }, [open]);
-  useEffect(() => {
-    if (open)
-      void api
-        .connectorStatus()
-        .then(setConnector)
-        .catch(() => setConnector(null));
   }, [open]);
   const {
     theme,
@@ -342,23 +334,25 @@ export function Settings({
       setAIConfig(await api.saveAIConfig(change(await api.aiConfig())));
     } catch (e) {
       toast.error((e as Error).message);
-      return;
+      return false;
     } finally {
       setSaving(false);
     }
     await refresh();
+    return true;
   };
-  const saveAPI = (connection: APIConnection) => {
+  const saveAPI = async (connection: APIConnection) => {
     // A new address or key is a new connection: test its models again.
     for (const key of checked.current)
       if (key.startsWith('["api"')) checked.current.delete(key);
-    return saveConfig((latest) => ({ ...latest, api: connection }));
+    await saveConfig((latest) => ({ ...latest, api: connection }));
   };
-  const saveAPIModels = (change: (models: string[]) => string[]) =>
-    saveConfig((latest) => ({
+  const saveAPIModels = async (change: (models: string[]) => string[]) => {
+    await saveConfig((latest) => ({
       ...latest,
       apiModels: change(latest.apiModels ?? []),
     }));
+  };
   const checkStatus = (id: string, capability?: AICapability) => (
     <div className="flex flex-wrap gap-x-5">
       {(
@@ -723,14 +717,14 @@ export function Settings({
                       {
                         preserve: "保持原色（透明底补白）",
                         invert: "图片全部反色",
-                        adaptive: "矢量图适配深色，位图保留原色",
+                        adaptive: "自适应深色（处理图片白底）",
                       }[theme.pdfDarkImageMode ?? "adaptive"]
                     }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="adaptive">
-                    矢量图适配深色，位图保留原色
+                    自适应深色（处理图片白底）
                   </SelectItem>
                   <SelectItem value="preserve">
                     保持原色（透明底补白）
@@ -745,20 +739,6 @@ export function Settings({
           </TabsContent>
           <TabsContent value="reading" className="settings-panel" keepMounted>
             <section className="mb-6 space-y-4">
-              <label className="flex items-start gap-2 text-sm">
-                <Checkbox
-                  checked={theme.autoGenerateOverview ?? false}
-                  onCheckedChange={(checked) =>
-                    setTheme({ autoGenerateOverview: !!checked })
-                  }
-                />
-                <span>
-                  导入后生成文档概要
-                  <span className="block text-xs text-muted-foreground">
-                    使用已配置的文字模型，单独记录用量；已有文档按需生成。
-                  </span>
-                </span>
-              </label>
               <label className="block text-sm">
                 文档上下文上限（可选）
                 <Input
@@ -829,22 +809,7 @@ export function Settings({
           </TabsContent>
           <TabsContent value="papers" className="settings-panel" keepMounted>
             <section>
-              <h3 className="mb-3 text-sm font-medium">论文库</h3>
-              <div className="mb-5 rounded-md border p-3 text-sm">
-                <div className="font-medium">浏览器收录插件</div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  启动 Reader 后，Chrome 插件会自动连接本机论文库。
-                </p>
-                {connector && !connector.available && (
-                  <p
-                    className={`mt-2 text-xs ${connector.reason === "disabled" ? "text-muted-foreground" : "text-destructive"}`}
-                  >
-                    {connector.reason === "disabled"
-                      ? "开发模式未启用插件连接。"
-                      : "本机端口 17841 被占用，插件连接不可用。"}
-                  </p>
-                )}
-              </div>
+              <h3 className="mb-3 text-sm font-medium">导入设置</h3>
               <label className="flex items-start gap-2 text-sm">
                 <Checkbox
                   className="mt-0.5"
@@ -866,18 +831,19 @@ export function Settings({
               <label className="mt-4 flex items-start gap-2 text-sm">
                 <Checkbox
                   className="mt-0.5"
-                  checked={theme.autoTranslatePDF ?? true}
+                  checked={theme.autoGenerateOverview ?? false}
                   onCheckedChange={(checked) =>
-                    setTheme({ autoTranslatePDF: !!checked })
+                    setTheme({ autoGenerateOverview: !!checked })
                   }
                 />
                 <span>
-                  导入后自动翻译
+                  导入后生成文档概要
                   <span className="block text-xs text-muted-foreground">
-                    开启后，新导入的论文会自动翻译全文。
+                    使用已配置的文字模型，单独记录用量；已有文档按需生成。
                   </span>
                 </span>
               </label>
+              <AutoTranslationSettings theme={theme} setTheme={setTheme} />
             </section>
             <fieldset className="mt-7 border-t pt-5">
               <legend className="text-sm font-medium">表格显示列</legend>
@@ -1109,6 +1075,13 @@ export function Settings({
                       ? "只列出通过检测的模型：问答与翻译需通过文本推理，图片需通过图片理解。公式转换与主动图片提问使用图片模型。"
                       : "问答与翻译分别使用上方模型；未指定时，问答使用主力模型，翻译使用快速模型。公式转换与主动图片提问会向此 Agent 发送图片。"}
                   </p>
+                  <TranslationPromptSettings
+                    value={config.translationPrompt ?? ""}
+                    disabled={saving || aiModelSaving || testing.size > 0}
+                    onSave={(translationPrompt) =>
+                      saveConfig((latest) => ({ ...latest, translationPrompt }))
+                    }
+                  />
                 </div>
               )}
               <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2">

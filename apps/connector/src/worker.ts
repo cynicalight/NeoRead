@@ -14,6 +14,7 @@ async function save(
   folders: string[],
   tags: string[],
   allowLarge = false,
+  library: "papers" | "books" = "papers",
 ): Promise<Result> {
   const { secret } = await chrome.storage.local.get("secret");
   if (!secret) return { ok: false, error: "请先打开 Reader 后重新打开插件" };
@@ -29,15 +30,16 @@ async function save(
   }
   if (!pdf.ok) return { ok: false, error: `PDF 下载失败 (${pdf.status})` };
   const declared = Number(pdf.headers.get("content-length") || 0);
-  if (declared > 50 * 1024 * 1024)
-    return { ok: false, error: "PDF 超过 Reader 的 50 MB 限制" };
+  if (declared > 512 * 1024 * 1024)
+    return { ok: false, error: "PDF 超过 Reader 的 512 MB 上传限制" };
   const blob = await pdf.blob();
-  if (blob.size > 50 * 1024 * 1024)
-    return { ok: false, error: "PDF 超过 Reader 的 50 MB 限制" };
+  if (blob.size > 512 * 1024 * 1024)
+    return { ok: false, error: "PDF 超过 Reader 的 512 MB 上传限制" };
   const magic = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
   if (String.fromCharCode(...magic) !== "%PDF-")
     return { ok: false, error: "下载结果不是 PDF；可能需要在网站登录" };
   const form = new FormData();
+  form.append("library", library);
   form.append("pdf", blob, "paper.pdf");
   form.append("metadata", JSON.stringify(candidate.metadata));
   form.append("sourceUrl", candidate.sourceUrl);
@@ -75,9 +77,16 @@ chrome.runtime.onMessage.addListener(
       folders?: string[];
       tags?: string[];
       allowLarge?: boolean;
+      library?: "papers" | "books";
     };
     if (m?.type !== "save" || !m.candidate) return;
-    void save(m.candidate, m.folders || [], m.tags || [], !!m.allowLarge)
+    void save(
+      m.candidate,
+      m.folders || [],
+      m.tags || [],
+      !!m.allowLarge,
+      m.library,
+    )
       .then(sendResponse)
       .catch((error: Error) =>
         sendResponse({ ok: false, error: error.message }),

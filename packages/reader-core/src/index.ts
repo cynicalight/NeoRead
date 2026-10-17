@@ -23,6 +23,8 @@ export type PDFLocation = {
   x?: number;
   y?: number;
   quote?: string;
+  /** Search-only paragraph context and UTF-16 offset of the selected match. */
+  quoteContext?: { text: string; start: number };
   sentenceLink?: SentenceLink;
   translation?: TranslationLocation;
   rects?: { x: number; y: number; width: number; height: number }[];
@@ -59,7 +61,7 @@ export type EPUBLocation = {
 };
 export type DocumentLocation = PDFLocation | EPUBLocation;
 export type DocumentCategory = "book" | "article" | "paper";
-/** Books and papers are separate libraries; papers are PDFs up to 150 pages and 50 MB. */
+/** Books and papers are separate libraries; large PDFs require confirmation. */
 export type LibraryMode = "books" | "papers";
 export type PaperItemType =
   | "journal"
@@ -279,6 +281,8 @@ export interface SelectionAnchor {
   bottom: number;
 }
 export interface ReaderSelection {
+  /** Nearby source text, captured before the DOM selection is cleared. */
+  context?: { before: string; after: string };
   /** Transient renderer viewport position; never persist as a document anchor. */
   anchor?: SelectionAnchor;
   text: string;
@@ -293,6 +297,8 @@ export interface ReaderTheme {
   /** Opt in to copying text selections and selected annotations. */
   autoCopySelection?: boolean;
   autoTranslatePDF?: boolean;
+  /** 0 means manual only; otherwise auto translate papers up to this many pages. */
+  autoTranslateMaxPages?: number;
   /** How figures and embedded images are displayed when a PDF uses dark mode. */
   pdfDarkImageMode?: "preserve" | "invert" | "adaptive";
   /** Contrast used for PDF text and paper while the dark reading appearance is active. */
@@ -511,6 +517,9 @@ export interface ProcessingStage {
   warning?: string;
 }
 export interface Processing {
+  retranslating?: boolean;
+  autoTranslateMaxPages?: number;
+  manualTranslation?: boolean;
   enabled?: boolean;
   translating?: ProcessingStage;
   usageTracked?: boolean;
@@ -590,6 +599,8 @@ export interface AIConfig {
   efforts?: Record<string, Record<string, ReasoningEffort>>;
   translationModels?: Record<string, string>;
   translationEfforts?: Record<string, Record<string, ReasoningEffort>>;
+  /** Translation style and terminology preferences. Empty uses the default. */
+  translationPrompt?: string;
   /** Image-input model of the "api" agent; other agents use their chat model. */
   visionModels?: Record<string, string>;
   visionEfforts?: Record<string, Record<string, ReasoningEffort>>;

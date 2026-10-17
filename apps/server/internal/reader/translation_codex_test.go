@@ -138,7 +138,7 @@ func TestTranslationCodexUsesMainAutomaticSelectionAndFallback(t *testing.T) {
 			service, adapter := s.translationService(config)
 			defer adapter.close()
 			batch := translationBatch{Paragraphs: []translationParagraph{{BlockID: m.Blocks[0].ID, SourceHash: translationHash(m.Blocks[0].Text), Source: m.Blocks[0].Text}}}
-			if _, err := service.Generate(t.Context(), AIInput{Prompt: translationPrompt(Document{}, m, batch)}, false, nil); err != nil {
+			if _, err := service.Generate(t.Context(), AIInput{Prompt: translationPrompt(Document{}, m, batch, "")}, false, nil); err != nil {
 				t.Fatal(err)
 			}
 			data, err := os.ReadFile(capture)
@@ -290,7 +290,7 @@ func TestTranslationCodexCancellationClosesSession(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	batch := translationBatch{Paragraphs: []translationParagraph{{BlockID: m.Blocks[0].ID, SourceHash: translationHash(m.Blocks[0].Text), Source: m.Blocks[0].Text}}}
-	_, err := a.Stream(ctx, GenerateRequest{AIInput{Prompt: translationPrompt(Document{}, m, batch)}}, func(e ProviderEvent) error {
+	_, err := a.Stream(ctx, GenerateRequest{AIInput{Prompt: translationPrompt(Document{}, m, batch, "")}}, func(e ProviderEvent) error {
 		if e.Text != "" {
 			cancel()
 		}

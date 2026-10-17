@@ -229,7 +229,7 @@ func TestFormulaFailurePreservesCaptionAndCanRetry(t *testing.T) {
 
 func TestAssetBodyExcludedFromTranslationFrontMatter(t *testing.T) {
 	m := layoutManifest{Blocks: []PDFBlock{{ID: "p1-b1", Page: 1, Label: "table", Text: "PRIVATE TABLE CELLS", Caption: "Table caption."}, {ID: "p1-b2", Page: 1, Label: "display_formula", Text: "FORMULA OCR"}}}
-	prompt := translationPrompt(Document{Title: "Test"}, m, translationBatch{})
+	prompt := translationPrompt(Document{Title: "Test"}, m, translationBatch{}, "")
 	if strings.Contains(prompt, "PRIVATE TABLE CELLS") || strings.Contains(prompt, "FORMULA OCR") {
 		t.Fatal("asset body leaked through metadata context")
 	}

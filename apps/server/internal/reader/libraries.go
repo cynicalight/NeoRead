@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -12,12 +11,12 @@ import (
 	"rsc.io/pdf"
 )
 
-// The paper library accepts article-sized PDFs only; books stay in the book library.
+// Classification confirmation is independent of the transport safety bound.
 const (
-	maxPaperBytes = 50 << 20
-	maxPaperPages = 150
+	maxImportBytes  = 512 << 20 // Transport/download safety bound, not a paper classification limit.
+	largePaperBytes = 100 << 20
 	// Longer papers ask whether to import as a book, translated by chapter.
-	largePaperPages = 50
+	largePaperPages = 100
 )
 
 func validLibrary(library string) bool { return library == "books" || library == "papers" }
@@ -51,18 +50,12 @@ func pdfPageCount(path string) (pages int, err error) {
 	return pages, nil
 }
 
-// paperLimit returns a user-facing reason when a file cannot join the paper library.
-// An unreadable page tree does not block import; the size limit still applies.
+// paperLimit restricts the paper library to PDFs; size/page thresholds ask for confirmation.
 func paperLimit(kind string, size int64, path string) string {
 	if kind != "pdf" {
 		return "论文库只支持 PDF"
 	}
-	if size > maxPaperBytes {
-		return fmt.Sprintf("论文库只收录 %d MB 以内的 PDF，可导入图书库", maxPaperBytes>>20)
-	}
-	if pages, err := pdfPageCount(path); err == nil && pages > maxPaperPages {
-		return fmt.Sprintf("这份 PDF 有 %d 页，论文库只收录 %d 页以内的论文，可导入图书库", pages, maxPaperPages)
-	}
+
 	return ""
 }
 

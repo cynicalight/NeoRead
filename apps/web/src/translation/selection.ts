@@ -1,3 +1,4 @@
+import { selectionContext } from "../readers/selection-context";
 import { epubSentenceLocation } from "./epub-links";
 import type {
   PDFBlock,
@@ -91,6 +92,7 @@ export function translatedSelection(
     block = blocks.find((b) => b.id === first.blockId)!,
     rect = range.getBoundingClientRect();
   const selection: ReaderSelection = {
+    context: selectionContext(range, host),
     text: range.toString().trim(),
     anchor: {
       x: (rect.left + rect.right) / 2,

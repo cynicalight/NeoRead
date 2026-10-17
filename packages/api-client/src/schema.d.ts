@@ -4,6 +4,61 @@
  */
 
 export interface paths {
+    "/api/translate-selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Translate selected text using at most 30 nearby words on each side */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        text: string;
+                        before?: string;
+                        after?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Completed translation; not persisted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            text: string;
+                        };
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/overviews": {
         parameters: {
             query?: never;
@@ -557,6 +612,13 @@ export interface paths {
                     "application/json": {
                         scanId: string;
                         entryId: string;
+                        /**
+                         * @default papers
+                         * @enum {string}
+                         */
+                        library?: "papers" | "books";
+                        /** @default false */
+                        allowLarge?: boolean;
                     };
                 };
             };
@@ -701,12 +763,12 @@ export interface paths {
                         /** Format: binary */
                         file: string;
                         /**
-                         * @description Target library. Papers accept PDFs up to 50 MB and 150 pages. Defaults to books.
+                         * @description Target library. Papers accept PDFs; over 100 MB or 100 pages requires confirmation. Defaults to books.
                          * @enum {unknown}
                          */
                         library?: "books" | "papers";
                         /**
-                         * @description Confirms a paper over 50 pages. Without it such a paper fails with 409, code large-paper and its page count.
+                         * @description Confirms a paper over 100 pages or 100 MB. Without it such a paper fails with 409, code large-paper and its page count.
                          * @enum {unknown}
                          */
                         allowLarge?: "1";
@@ -1646,8 +1708,11 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        /** @enum {string} */
-                        action: "start" | "pause" | "resume";
+                        /**
+                         * @description retranslate restarts completed paper text with saved current translation choices, retaining previous translations until replacement succeeds. Books keep chapter translation controls.
+                         * @enum {string}
+                         */
+                        action: "start" | "pause" | "resume" | "retranslate";
                     };
                 };
             };
@@ -3132,6 +3197,13 @@ export interface paths {
                 content: {
                     "application/json": {
                         ref: string;
+                        /**
+                         * @default papers
+                         * @enum {string}
+                         */
+                        library?: "papers" | "books";
+                        /** @default false */
+                        allowLarge?: boolean;
                     };
                 };
             };
@@ -3491,6 +3563,11 @@ export interface components {
             x?: number;
             y?: number;
             quote?: string;
+            /** @description Search paragraph context and UTF-16 offset of the selected match. */
+            quoteContext?: {
+                text: string;
+                start: number;
+            };
             rects?: {
                 x: number;
                 y: number;
@@ -3706,6 +3783,9 @@ export interface components {
         };
         Processing: {
             enabled?: boolean;
+            readonly manualTranslation?: boolean;
+            readonly retranslating?: boolean;
+            readonly autoTranslateMaxPages?: number;
             /** @description EPUB work uses explicit chapter requests; the legacy automatic queue has been migrated. */
             readonly epubManual?: boolean;
             translating?: components["schemas"]["ProcessingStage"];
@@ -3810,6 +3890,8 @@ export interface components {
             translationModels?: {
                 [key: string]: string;
             };
+            /** @description Translation style and terminology preferences. Empty resets to default; omission preserves the saved value. Does not replace source-alignment or output-format rules. */
+            translationPrompt?: string;
             /** @description Translation effort by provider and model ID. Defaults to medium. */
             translationEfforts?: {
                 [key: string]: {

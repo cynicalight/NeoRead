@@ -59,7 +59,7 @@ func translationBatches(m translationInput, items []TranslationBlock, target int
 	}
 	return batches
 }
-func translationPrompt(doc Document, m translationInput, batch translationBatch) string {
+func translationPrompt(doc Document, m translationInput, batch translationBatch, instructions string) string {
 	frontMatter := m.translationFrontMatter()
 	sourceRule := `原文由 PDF 文字提取得到，可能有少量提取错误：单词内部多出空格（如 "A GENT" 应为 "AGENT"）、行末连字符拆开的单词、错位的数学斜体字母或上下标。sentences.source 默认逐字复制原文；只在能确定是这类提取错误时做最小修正，例如合并被拆开的单词。不确定时保持原样，不要润色、改写或调整语序，公式和符号保持原样。译文按修正后的正确含义翻译。`
 	if doc.Type == "epub" {
@@ -78,8 +78,17 @@ blockId 和 sourceHash 必须与同一个输入段落严格对应。不能合并
 ` + sourceRule + `
 译文 target 中的行内数学（变量、下标、上标、集合、运算符等）一律写成 KaTeX 可解析的 LaTeX，用 $...$ 包裹，例如 $T_i$、$MVSG(s, \ll)$、$O(n\log n)$。原文中被提取打散的下标（如 "𝑇 … 𝑖"）在能确定时还原为 $T_i$；不确定时照抄原文符号，不要猜。不要使用 Unicode 数学斜体或上下标字符代替 LaTeX。普通文本中的美元符号写成 \$。不要输出 $$ 独立公式：独立公式块已由公式图片单独转换。字符串在 JSON 中，反斜杠必须转义：\ll 写作 \\ll，\$ 写作 \\$。sentences.source 仍按原文复制，不写成 LaTeX。
 字符串内部的换行必须写为 JSON 转义，物理换行仅用于分隔完整 JSON 对象。标题、作者、frontMatter、contextBefore、contextAfter 仅为参考上下文，不为它们额外输出行。只翻译 paragraphs 列出的段落。
-输入资料：
+` + translationStyle(instructions) + `输入资料：
 ` + string(data)
+}
+
+func translationStyle(instructions string) string {
+	if strings.TrimSpace(instructions) == "" {
+		return ""
+	}
+	// User preferences affect translated wording, never the output protocol,
+	// source alignment, or the boundary between instructions and document data.
+	return "用户的翻译风格与术语偏好（仅调整译文措辞，不改变上述格式、原文对应关系和资料处理规则）：\n" + jsonText(instructions) + "\n"
 }
 
 type translationJSONL struct {
@@ -235,9 +244,18 @@ const translationFailureLogs = 10
 
 func (s *Server) translationAttempt(ctx context.Context, doc Document, m translationInput, batch translationBatch, service *GenerationService, progress func()) (*translationAttempt, error) {
 	a := &translationAttempt{paragraphs: len(batch.Paragraphs)}
+	previous, err := s.translationPrevious(doc.ID)
+	if err != nil {
+		return nil, err
+	}
+	var replacements []TranslationBlock
 	a.decoder = newTranslationJSONL(batch, func(t TranslationBlock) error {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if previous[t.BlockID+":"+t.SourceHash] {
+			replacements = append(replacements, t)
+			return nil
 		}
 		if err := s.saveTranslation(doc.ID, t); err != nil {
 			return err
@@ -247,7 +265,7 @@ func (s *Server) translationAttempt(ctx context.Context, doc Document, m transla
 	})
 	a.decoder.strictSource = doc.Type == "epub"
 	service.usageSink = s.processingUsageSink(doc.ID, "translating", batch.Paragraphs[0].BlockID+"…"+batch.Paragraphs[len(batch.Paragraphs)-1].BlockID)
-	_, a.err = service.Generate(ctx, AIInput{Prompt: translationPrompt(doc, m, batch)}, false, func(event ProviderEvent) error {
+	_, a.err = service.Generate(ctx, AIInput{Prompt: translationPrompt(doc, m, batch, service.translationInstructions)}, false, func(event ProviderEvent) error {
 		if event.Text == "" {
 			return nil
 		}
@@ -265,6 +283,24 @@ func (s *Server) translationAttempt(ctx context.Context, doc Document, m transla
 	// Cancellation/truncation never promotes an unfinished line to a saved record.
 	if a.err == nil && strings.TrimSpace(a.decoder.buffer) != "" {
 		a.err = a.decoder.line(a.decoder.buffer)
+	}
+	// Keep the previous translation until the provider confirms completion.
+	// Failed/cancelled streams must not replace it even with complete JSONL rows.
+	for _, item := range replacements {
+		delete(a.decoder.completed, item.BlockID)
+	}
+	if a.err == nil && ctx.Err() == nil {
+		for _, item := range replacements {
+			if err := ctx.Err(); err != nil {
+				a.err = err
+				break
+			}
+			if err := s.saveTranslation(doc.ID, item); err != nil {
+				return nil, err
+			}
+			a.decoder.completed[item.BlockID] = true
+			progress()
+		}
 	}
 	return a, nil
 }
@@ -382,6 +418,10 @@ func (s *Server) recordTranslationFailure(documentID string, batch translationBa
 var translationFileID = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 
 func (s *Server) settleTranslations(ctx context.Context, p *Processing, m translationInput) error {
+	options, err := s.retranslationOptions(p)
+	if err != nil {
+		return err
+	}
 	doc, err := s.Store.Document(p.DocumentID)
 	if err != nil {
 		return err
@@ -433,10 +473,10 @@ func (s *Server) settleTranslations(ctx context.Context, p *Processing, m transl
 			}
 			return nil
 		}
-		config := s.aiConfig()
+		config := options.apply(s.aiConfig())
 		if !validAgent(config.Primary) || !(primaryCapable(config, taskTranslation) || capable(config, "text-api", false)) {
 			s.configMu.Lock()
-			config = s.readAIConfig()
+			config = options.apply(s.readAIConfig())
 			if !validAgent(config.Primary) || !(primaryCapable(config, taskTranslation) || capable(config, "text-api", false)) {
 				s.processingMu.Lock()
 				p.Status = "waiting"
