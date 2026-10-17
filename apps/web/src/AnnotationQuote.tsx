@@ -1,5 +1,31 @@
 import type { DocumentLocation } from "@reader/core";
-/** The marked side keeps its exact excerpt; its counterpart uses whole sentences. */
+/** Reflow PDF layout lines for display without changing stored text or anchors. */
+export function reflowPDFQuote(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .replace(
+      /(\S)[^\S\n]*\n[^\S\n]*(?=(\S))/gu,
+      (_, left: string, right: string) => {
+        if (left === "\u00ad") return "";
+        // A hard hyphen may be part of a compound; preserve it.
+        if (left === "-") return left;
+        const cjk =
+          /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+        const punctuation = /[，。！？；：、）》」』】]/u;
+        return (
+          left +
+          (cjk.test(left) ||
+          cjk.test(right) ||
+          punctuation.test(left) ||
+          punctuation.test(right)
+            ? ""
+            : " ")
+        );
+      },
+    );
+}
+
+/** The marked side keeps its excerpt; its counterpart uses whole sentences. */
 export function AnnotationQuote({
   quote,
   location,
@@ -8,7 +34,8 @@ export function AnnotationQuote({
   location: DocumentLocation;
 }) {
   const pair = location.type === "pdf" ? location.sentenceLink : undefined;
-  if (!pair?.parts.length) return <>{quote}</>;
+  if (!pair?.parts.length)
+    return <>{location.type === "pdf" ? reflowPDFQuote(quote) : quote}</>;
   const source =
     pair.origin === "source"
       ? quote
@@ -21,7 +48,7 @@ export function AnnotationQuote({
     <span className="annotation-quote-pair">
       <span>
         <span className="annotation-quote-label">原文</span>
-        <span>{source}</span>
+        <span>{reflowPDFQuote(source)}</span>
       </span>
       <span>
         <span className="annotation-quote-label">译文</span>
