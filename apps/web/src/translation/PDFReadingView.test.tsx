@@ -1117,6 +1117,17 @@ it.each(["wheel", "mode", "reopen"])(
     await act(async () =>
       fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
     );
+    const source = document.createElement("div");
+    source.className = "pdf-container";
+    source.innerHTML = '<div class="page" data-page-number="1"></div>';
+    host.querySelector(".translation-source")!.append(source);
+    vi.spyOn(source, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 600, 600),
+    );
+    vi.spyOn(
+      source.firstElementChild!,
+      "getBoundingClientRect",
+    ).mockReturnValue(new DOMRect(0, 0, 600, 1000));
     vi.useFakeTimers();
     try {
       await renderView(defaultTheme, [], [], { left: false, right: true });
@@ -1134,6 +1145,43 @@ it.each(["wheel", "mode", "reopen"])(
         await vi.advanceTimersByTimeAsync(300);
       });
       expect(adapter.focusBlock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+it.each(["left", "right"] as const)(
+  "keeps an unparsed page in place when the %s sidebar closes",
+  async (closed) => {
+    await act(async () =>
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+    );
+    const source = document.createElement("div");
+    source.className = "pdf-container";
+    source.innerHTML =
+      '<div class="page" data-page-number="1"></div><div class="page" data-page-number="2"></div>';
+    host.querySelector(".translation-source")!.append(source);
+    vi.spyOn(source, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 600, 600),
+    );
+    vi.spyOn(
+      source.firstElementChild!,
+      "getBoundingClientRect",
+    ).mockReturnValue(new DOMRect(0, -1000, 600, 1000));
+    vi.mocked(adapter.focusBlock!).mockClear();
+    vi.mocked(adapter.goTo).mockClear();
+    vi.useFakeTimers();
+    try {
+      await renderView(defaultTheme, [], [], {
+        left: closed !== "left",
+        right: closed !== "right",
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      expect(adapter.focusBlock).not.toHaveBeenCalled();
+      expect(adapter.goTo).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

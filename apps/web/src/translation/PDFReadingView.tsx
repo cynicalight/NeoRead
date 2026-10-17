@@ -891,13 +891,13 @@ export function PDFReadingView({
         }
       }
     }
-    return nearest ?? reading.current?.blockId;
+    return nearest;
   };
   const changeMode = (value: Mode) => {
     if (value === "parallel" && mode !== "parallel") {
-      enteringParallel.current = centerBlock(
-        mode === "translation" ? "translation" : "source",
-      );
+      enteringParallel.current =
+        centerBlock(mode === "translation" ? "translation" : "source") ??
+        reading.current?.blockId;
     }
     input(value === "translation" ? "translation" : "source");
     setPopup(undefined);
