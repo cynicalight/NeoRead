@@ -43,6 +43,7 @@ func (s *Server) runLayout(ctx context.Context, d Document, work string, from, t
 		}
 		s.diagnosticEvent(level, "pdf.parse.finish", "runId", runID, "documentId", d.ID,
 			"stage", lastStage, "outcome", outcome, "exitCode", exitCode,
+			"exitCodeHex", layoutExitHex(exitCode), "nativeDiagnostics", stderr.nativeCodes(), "nativeTrace", stderr.nativeTrace(),
 			"durationMs", time.Since(started).Milliseconds(), "stderrBytes", stderr.total,
 			"stderrFingerprint", stderr.fingerprint(), "stderrTruncated", stderr.total > int64(len(stderr.tail)),
 			"canceled", ctx.Err() != nil)
@@ -98,7 +99,11 @@ func (s *Server) runLayout(ctx context.Context, d Document, work string, from, t
 			s.diagnosticEvent(level, "pdf.parse.stage", "runId", runID, "documentId", d.ID,
 				"stage", event.Stage, "status", event.Status, "page", event.Page,
 				"durationMs", event.DurationMs, "errorType", event.ErrorType,
-				"errorCode", event.ErrorCode, "errorFingerprint", event.ErrorFingerprint)
+				"errorCode", event.ErrorCode, "errorFingerprint", event.ErrorFingerprint,
+				"onnxVersion", event.OnnxVersion, "nodeVersion", event.NodeVersion, "electronVersion", event.ElectronVersion,
+				"rssBytes", event.RSSBytes, "heapUsedBytes", event.HeapUsedBytes,
+				"externalBytes", event.ExternalBytes, "freeMemoryBytes", event.FreeMemoryBytes,
+				"totalMemoryBytes", event.TotalMemoryBytes)
 			continue
 		case "page":
 			p.PagesDone, p.PagesTotal = event.Page, event.Total

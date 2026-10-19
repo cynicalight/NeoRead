@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,6 +24,7 @@ func init() {
 		fmt.Println(`{"event":"diagnostic","stage":"onnx_load","status":"start"}`)
 		fmt.Println(`{"event":"diagnostic","stage":"onnx_load","status":"failed","errorCode":"ERR_DLOPEN_FAILED","errorType":"Error","errorFingerprint":"0123456789abcdef"}`)
 		fmt.Println(`{"event":"diagnostic","stage":"PRIVATE_PDF_TEXT","status":"failed"}`)
+		fmt.Fprintln(os.Stderr, "[crashpad_client_win.cc:868] not connected")
 		fmt.Fprintln(os.Stderr, "C:\\Users\\PRIVATE\\secret.pdf PRIVATE_PDF_TEXT")
 		os.Exit(23)
 	}
@@ -70,7 +72,7 @@ func TestLayoutFailureDiagnostics(t *testing.T) {
 		all.Write(b)
 	}
 	output := all.String()
-	for _, want := range []string{"pdf.parse.start", "pdf.parse.spawned", "pdf.parse.stage", "pdf.parse.finish", "onnx_load", "ERR_DLOPEN_FAILED", `"exitCode":23`, "stderrFingerprint", "runId", "test-document"} {
+	for _, want := range []string{"pdf.parse.start", "pdf.parse.spawned", "pdf.parse.stage", "pdf.parse.finish", "onnx_load", "ERR_DLOPEN_FAILED", `"exitCode":23`, "stderrFingerprint", "nativeDiagnostics", "crashpad_not_connected", `"exitCodeHex":"0x00000017"`, "runId", "test-document"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("missing %s in %s", want, output)
 		}
@@ -87,5 +89,57 @@ func TestLayoutStderrBounded(t *testing.T) {
 	}
 	if len(w.tail) > 16<<10 || w.total != 700000 || len(w.fingerprint()) != 16 {
 		t.Fatal("stderr capture is unbounded or incomplete")
+	}
+}
+
+func TestLayoutNativeDiagnosticsAcrossWrites(t *testing.T) {
+	w := &layoutStderr{}
+	// Deliberately split the Crashpad message across pipe reads.
+	for _, part := range []string{"C:\\Users\\PRIVATE\\secret.pdf\n[crashpad_client_win.cc:868] not con", "nected\n", "Initializing session PRIVATE\n", "Session successfully initialized\n", strings.Repeat("PRIVATE", 20000), "\nFATAL ERROR: JavaScript heap out of memory"} {
+		_, _ = w.Write([]byte(part))
+	}
+	codes := w.nativeCodes()
+	for _, code := range []string{"crashpad_not_connected", "ort_session_initialize", "ort_session_ready", "node_fatal_error", "javascript_heap_oom"} {
+		if !slices.Contains(codes, code) {
+			t.Errorf("missing %s: %v", code, codes)
+		}
+	}
+	if strings.Contains(strings.Join(codes, " "), "PRIVATE") || len(w.pending) > 4096 || len(w.tail) > 16<<10 {
+		t.Fatal("unbounded or private diagnostic")
+	}
+	if !slices.Equal(codes, w.nativeCodes()) {
+		t.Fatal("duplicate classification")
+	}
+	if layoutExitHex(4294930435) != "0xFFFF7003" || layoutExitHex(-1) != "" {
+		t.Fatal("incorrect Windows exit code")
+	}
+}
+
+func TestLayoutRuntimeFieldsRejectPrivateText(t *testing.T) {
+	e := layoutDiagnostic{Stage: "session_create", Status: "start", NodeVersion: "24.21.0", ElectronVersion: "44.5.1", OnnxVersion: "1.30.0", RSSBytes: 123}
+	if !e.valid() {
+		t.Fatal("valid runtime fields rejected")
+	}
+	e.OnnxVersion = "PRIVATE_PATH"
+	if e.valid() {
+		t.Fatal("arbitrary runtime text accepted")
+	}
+	e.OnnxVersion = "1.30.0"
+	e.RSSBytes = -1
+	if e.valid() {
+		t.Fatal("invalid memory accepted")
+	}
+}
+
+func TestLayoutNativeSourceTrace(t *testing.T) {
+	w := &layoutStderr{}
+	for i := 0; i < 50; i++ {
+		fmt.Fprintf(w, "[I:onnxruntime:, inference_session.cc:%d Initialize] PRIVATE C:\\Users\\private.pdf\n", i)
+	}
+	fmt.Fprintln(w, "[I:onnxruntime:, PRIVATE.cc:123 secret] PRIVATE")
+	w.nativeCodes()
+	trace := w.nativeTrace()
+	if len(trace) != 32 || trace[31] != "inference_session.cc:49" || strings.Contains(strings.Join(trace, " "), "PRIVATE") {
+		t.Fatalf("unsafe/unbounded trace: %v", trace)
 	}
 }

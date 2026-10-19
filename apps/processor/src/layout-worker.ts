@@ -54,11 +54,16 @@ if ((await readdir(output)).length)
 await mkdir(join(output, "assets"), { recursive: true, mode: 0o700 });
 stage("model_verify");
 const modelPath = await resolveModel(values.model && resolve(values.model));
-stage("session_create");
+// Native initialization logs are classified by the parent into fixed diagnostic
+// codes. Raw ONNX messages (which may contain paths) are never persisted.
+ort.env.logLevel = "verbose";
+stage("session_create", 0, ort.env.versions.node ?? "");
 const session = await ort.InferenceSession.create(modelPath, {
   intraOpNumThreads: 2,
   interOpNumThreads: 1,
   executionProviders: ["cpu"],
+  logSeverityLevel: 0,
+  logVerbosityLevel: 1,
 });
 stage("pdf_read");
 const file = await readFile(input);

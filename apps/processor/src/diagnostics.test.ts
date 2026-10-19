@@ -1,7 +1,33 @@
-import { describe, expect, it } from "vitest";
-import { safeError } from "./diagnostics";
+import { describe, expect, it, vi } from "vitest";
+import { writeSync } from "node:fs";
+import { safeError, stage } from "./diagnostics";
+
+vi.mock("node:fs", () => ({ writeSync: vi.fn() }));
 
 describe("layout diagnostics privacy", () => {
+  it("flushes stage and numeric runtime evidence before native initialization", () => {
+    stage("session_create", 0, "1.30.0");
+    const [fd, data] = vi.mocked(writeSync).mock.calls.at(-1)!;
+    expect(fd).toBe(1);
+    const event = JSON.parse(data as string);
+    expect(event).toMatchObject({
+      event: "diagnostic",
+      stage: "session_create",
+      onnxVersion: "1.30.0",
+      nodeVersion: process.versions.node,
+    });
+    for (const key of [
+      "rssBytes",
+      "heapUsedBytes",
+      "externalBytes",
+      "freeMemoryBytes",
+      "totalMemoryBytes",
+    ]) {
+      expect(event[key]).toBeGreaterThanOrEqual(0);
+    }
+    expect(event).not.toHaveProperty("env");
+    expect(event).not.toHaveProperty("argv");
+  });
   it("keeps native loader codes without leaking message, path or stack", () => {
     const error = Object.assign(
       new Error("C:\\Users\\private\\secret.pdf token=private-secret"),

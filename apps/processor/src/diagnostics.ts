@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
+import { writeSync } from "node:fs";
+import { freemem, totalmem } from "node:os";
 
 let currentStage = "bootstrap";
 let currentPage = 0;
 const started = performance.now();
 
-export function stage(value: string, page = 0) {
+export function stage(value: string, page = 0, onnxVersion = "") {
   currentStage = value;
   currentPage = page;
-  emit({ status: "start" });
+  emit({ status: "start", onnxVersion });
 }
 
 export function safeError(error: unknown) {
@@ -66,9 +68,20 @@ export function failure(error: unknown) {
 }
 
 function emit(fields: Record<string, string>) {
-  process.stdout.write(
+  const memory = process.memoryUsage();
+  // Flush before entering native code: an abrupt process termination must not
+  // lose the last stage in Node's asynchronous pipe buffer.
+  writeSync(
+    1,
     JSON.stringify({
       event: "diagnostic",
+      nodeVersion: process.versions.node,
+      electronVersion: process.versions.electron ?? "",
+      rssBytes: memory.rss,
+      heapUsedBytes: memory.heapUsed,
+      externalBytes: memory.external,
+      freeMemoryBytes: freemem(),
+      totalMemoryBytes: totalmem(),
       stage: currentStage,
       page: currentPage,
       durationMs: Math.round(performance.now() - started),
