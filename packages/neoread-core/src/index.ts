@@ -1,4 +1,5 @@
 export { zoomCommand } from "./zoom-shortcut";
+export { documentTabCommand } from "./document-tab-shortcut";
 export {
   NEOREAD_SCHEME,
   LINK_SCHEMES,
@@ -358,6 +359,8 @@ export interface ReaderLayout {
   swapped: boolean;
 }
 export interface ReaderTheme {
+  /** Ordered open documents and the selected document; null selects the library. */
+  readingSession?: { documentIds: string[]; activeId: string | null };
   readerLayout?: Partial<ReaderLayout>;
   /** Opt in to copying text selections and selected annotations. */
   autoCopySelection?: boolean;

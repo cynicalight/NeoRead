@@ -9,10 +9,45 @@ import {
   type NeoReadLinkTarget,
 } from "@neoread/core";
 import { api } from "@neoread/api";
+import { readingSession } from "./reading-session";
+import { forgetProgress } from "./progress";
 let openRevision = 0;
+type ClosedTabGroup = {
+  tabs: { id: string; index: number }[];
+  activeId: string;
+};
+
+function sessionPatch(
+  theme: ReaderTheme,
+  tabIds: string[],
+  active: Document | null,
+) {
+  const saved = theme.readingSession;
+  const activeId = active?.id ?? null;
+  return {
+    tabIds,
+    active,
+    theme:
+      saved?.activeId === activeId &&
+      Array.isArray(saved.documentIds) &&
+      saved.documentIds.length === tabIds.length &&
+      saved.documentIds.every((id, i) => id === tabIds[i])
+        ? theme
+        : { ...theme, readingSession: { documentIds: tabIds, activeId } },
+  };
+}
 export const useReaderStore = create<{
   documents: Document[];
   active: Document | null;
+  tabIds: string[];
+  visitedTabs: string[];
+  sessionReady: boolean;
+  restoreSession: () => void;
+  openMany: (documents: Document[]) => void;
+  closeTab: (id: string) => void;
+  closeTabs: (ids: string[]) => void;
+  reopenTabs: () => Document | null;
+  closedTabGroups: ClosedTabGroup[];
   theme: ReaderTheme;
   aiConfig?: AIConfig;
   aiModelSaving: boolean;
@@ -28,9 +63,112 @@ export const useReaderStore = create<{
   setDocuments: (documents: Document[]) => void;
   open: (active: Document | null) => void;
   setTheme: (patch: Partial<ReaderTheme>) => void;
-}>((set) => ({
+}>((set, get) => ({
   documents: [],
   active: null,
+  tabIds: [],
+  visitedTabs: [],
+  sessionReady: false,
+  closedTabGroups: [],
+  restoreSession: () =>
+    set((state) => {
+      if (state.sessionReady) return state;
+      const session = readingSession(
+        state.theme.readingSession,
+        state.documents,
+      );
+      const active =
+        state.documents.find((d) => d.id === session.activeId) ?? null;
+      return {
+        ...sessionPatch(state.theme, session.documentIds, active),
+        visitedTabs: active ? [active.id] : [],
+        sessionReady: true,
+      };
+    }),
+  openMany: (documents) => {
+    ++openRevision;
+    set((state) => {
+      if (!documents.length) return state;
+      const active = documents[0];
+      return {
+        ...sessionPatch(
+          state.theme,
+          [...new Set([...state.tabIds, ...documents.map((d) => d.id)])],
+          active,
+        ),
+        visitedTabs: [...new Set([...state.visitedTabs, active.id])],
+        sessionReady: true,
+      };
+    });
+  },
+  closeTab: (id) => get().closeTabs([id]),
+  closeTabs: (requested) =>
+    set((state) => {
+      const removing = new Set(requested);
+      const closed = state.tabIds.flatMap((id, index) =>
+        removing.has(id) ? [{ id, index }] : [],
+      );
+      if (!closed.length) return state;
+      const ids = state.tabIds.filter((id) => !removing.has(id));
+      const activeRemoved = state.active && removing.has(state.active.id);
+      const index = state.tabIds.indexOf(state.active?.id ?? "");
+      const neighbor =
+        state.tabIds.slice(index + 1).find((id) => !removing.has(id)) ??
+        state.tabIds
+          .slice(0, index)
+          .reverse()
+          .find((id) => !removing.has(id));
+      const active = activeRemoved
+        ? (state.documents.find((doc) => doc.id === neighbor) ?? null)
+        : state.active;
+      return {
+        ...sessionPatch(state.theme, ids, active),
+        visitedTabs: [
+          ...new Set([
+            ...state.visitedTabs.filter((id) => !removing.has(id)),
+            ...(active ? [active.id] : []),
+          ]),
+        ],
+        closedTabGroups: [
+          ...state.closedTabGroups,
+          {
+            tabs: closed,
+            activeId: activeRemoved
+              ? state.active!.id
+              : closed[closed.length - 1].id,
+          },
+        ].slice(-20),
+      };
+    }),
+  reopenTabs: () => {
+    let opened: Document | null = null;
+    set((state) => {
+      const groups = [...state.closedTabGroups];
+      while (groups.length) {
+        const group = groups.pop()!;
+        const restored = group.tabs.filter(
+          (tab) =>
+            !state.tabIds.includes(tab.id) &&
+            state.documents.some((doc) => doc.id === tab.id),
+        );
+        if (!restored.length) continue;
+        const ids = [...state.tabIds];
+        for (const tab of restored)
+          ids.splice(Math.min(tab.index, ids.length), 0, tab.id);
+        const selected = restored.some((tab) => tab.id === group.activeId)
+          ? group.activeId
+          : restored[restored.length - 1].id;
+        opened = state.documents.find((doc) => doc.id === selected)!;
+        return {
+          ...sessionPatch(state.theme, ids, opened),
+          visitedTabs: [...new Set([...state.visitedTabs, selected])],
+          closedTabGroups: groups,
+        };
+      }
+      return { closedTabGroups: groups };
+    });
+    return opened;
+  },
   theme: defaultTheme,
   aiModelSaving: false,
   libraryPreferences: {},
@@ -41,10 +179,51 @@ export const useReaderStore = create<{
   setLibraryPreferences: (libraryPreferences) => set({ libraryPreferences }),
   setAIConfig: (aiConfig) => set({ aiConfig }),
   setAIModelSaving: (aiModelSaving) => set({ aiModelSaving }),
-  setDocuments: (documents) => set({ documents }),
+  setDocuments: (documents) =>
+    set((state) => {
+      if (!state.sessionReady)
+        return {
+          documents,
+          active: documents.find((d) => d.id === state.active?.id) ?? null,
+        };
+      const available = new Set(documents.map((d) => d.id));
+      const ids = state.tabIds.filter((id) => available.has(id));
+      const activeId =
+        state.active &&
+        (available.has(state.active.id)
+          ? state.active.id
+          : ids[
+              Math.min(state.tabIds.indexOf(state.active.id), ids.length - 1)
+            ]);
+      const active = documents.find((d) => d.id === activeId) ?? null;
+      return {
+        documents,
+        closedTabGroups: state.closedTabGroups.flatMap((group) => {
+          const tabs = group.tabs.filter((tab) => available.has(tab.id));
+          return tabs.length ? [{ ...group, tabs }] : [];
+        }),
+        ...sessionPatch(state.theme, ids, active),
+        visitedTabs: [
+          ...new Set([
+            ...state.visitedTabs.filter((id) => available.has(id)),
+            ...(active ? [active.id] : []),
+          ]),
+        ],
+      };
+    }),
   open: (active) => {
     ++openRevision;
-    set({ active });
+    set((state) => ({
+      ...sessionPatch(
+        state.theme,
+        active ? [...new Set([...state.tabIds, active.id])] : state.tabIds,
+        active,
+      ),
+      visitedTabs: active
+        ? [...new Set([...state.visitedTabs, active.id])]
+        : state.visitedTabs,
+      sessionReady: true,
+    }));
   },
   setTheme: (patch) =>
     set((state) => ({ theme: { ...state.theme, ...patch } })),
@@ -52,9 +231,9 @@ export const useReaderStore = create<{
 let libraryRevision = 0;
 export function forgetLibraryDocuments(ids: string[]) {
   ++libraryRevision;
+  forgetProgress(ids);
   const state = useReaderStore.getState();
   state.setDocuments(state.documents.filter((d) => !ids.includes(d.id)));
-  if (state.active && ids.includes(state.active.id)) state.open(null);
 }
 export async function refreshLibrary() {
   const revision = ++libraryRevision;

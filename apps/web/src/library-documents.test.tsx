@@ -49,6 +49,7 @@ const docs: Document[] = ["Alpha", "Beta"].map((title, i) => ({
   percentage: 0,
 }));
 let root: Root, host: HTMLDivElement;
+const openMany = vi.fn();
 const open = vi.fn(),
   edit = vi.fn(),
   overview = vi.fn();
@@ -63,6 +64,7 @@ function Harness() {
       jobs={[]}
       processingError=""
       openDocument={open}
+      openDocuments={openMany}
       favorite={() => {}}
       onEdit={edit}
       onSettings={() => {}}
@@ -302,4 +304,22 @@ it("shows details on click and opens on double click", async () => {
     ),
   );
   expect(alpha.dataset.active).toBe("false");
+});
+
+it("opens the selected documents together in tabs", async () => {
+  await act(async () => button("编辑").click());
+  await act(async () =>
+    host
+      .querySelector("article")!
+      .dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "a",
+          metaKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+  );
+  await act(async () => button("在标签页中打开").click());
+  expect(openMany).toHaveBeenCalledExactlyOnceWith(docs);
 });

@@ -12,6 +12,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 export function ReaderView({
   document: doc,
+  active = true,
   theme,
   annotations,
   blocks = [],
@@ -19,6 +20,7 @@ export function ReaderView({
   events,
 }: {
   document: Document;
+  active?: boolean;
   theme: ReaderTheme;
   annotations: Annotation[];
   blocks?: PDFBlock[];
@@ -27,8 +29,15 @@ export function ReaderView({
 }) {
   const host = useRef<HTMLDivElement>(null);
   const adapter = useRef<ReaderAdapter | null>(null);
-  const latest = useRef({ theme, annotations, blocks, events, onReady });
-  latest.current = { theme, annotations, blocks, events, onReady };
+  const latest = useRef({
+    theme,
+    annotations,
+    blocks,
+    events,
+    onReady,
+    active,
+  });
+  latest.current = { theme, annotations, blocks, events, onReady, active };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -50,13 +59,15 @@ export function ReaderView({
       const Engine = PDFReaderAdapter || EPUBReaderAdapter!;
       engine = new Engine(container, {
         epubInteraction: () => {
-          if (!disposed) latest.current.events.epubInteraction?.();
+          if (!disposed && latest.current.active)
+            latest.current.events.epubInteraction?.();
         },
         epubBlocksChanged: (blocks) => {
           if (!disposed) latest.current.events.epubBlocksChanged?.(blocks);
         },
         epubReadingAnchor: (id) => {
-          if (!disposed) latest.current.events.epubReadingAnchor?.(id);
+          if (!disposed && latest.current.active)
+            latest.current.events.epubReadingAnchor?.(id);
         },
         epubBlockHover: (id) => {
           if (!disposed) latest.current.events.epubBlockHover?.(id);
@@ -68,19 +79,23 @@ export function ReaderView({
           if (!disposed) latest.current.events.epubBlockAction?.(block, action);
         },
         readingAnchor: (anchor) => {
-          if (!disposed) latest.current.events.readingAnchor?.(anchor);
+          if (!disposed && latest.current.active)
+            latest.current.events.readingAnchor?.(anchor);
         },
         blockFocus: (block) => {
-          if (!disposed) latest.current.events.blockFocus?.(block);
+          if (!disposed && latest.current.active)
+            latest.current.events.blockFocus?.(block);
         },
         annotationHover: (target) => {
-          if (!disposed) latest.current.events.annotationHover?.(target);
+          if (!disposed && latest.current.active)
+            latest.current.events.annotationHover?.(target);
         },
         annotation: (target) => {
-          if (!disposed) latest.current.events.annotation?.(target);
+          if (!disposed && latest.current.active)
+            latest.current.events.annotation?.(target);
         },
         zoom: (zoom, origin, widthRatio) => {
-          if (!disposed) {
+          if (!disposed && latest.current.active) {
             if (origin === "layout")
               latest.current.events.zoom?.(zoom, origin, widthRatio);
             else if (origin) latest.current.events.zoom?.(zoom, origin);
@@ -88,22 +103,28 @@ export function ReaderView({
           }
         },
         blockHover: (block) => {
-          if (!disposed) latest.current.events.blockHover?.(block);
+          if (!disposed && latest.current.active)
+            latest.current.events.blockHover?.(block);
         },
         blockAction: (block, action) => {
-          if (!disposed) latest.current.events.blockAction?.(block, action);
+          if (!disposed && latest.current.active)
+            latest.current.events.blockAction?.(block, action);
         },
         location: (...args) => {
-          if (!disposed) latest.current.events.location(...args);
+          if (!disposed && latest.current.active)
+            latest.current.events.location(...args);
         },
         selection: (selection) => {
-          if (!disposed) latest.current.events.selection(selection);
+          if (!disposed && latest.current.active)
+            latest.current.events.selection(selection);
         },
         linkPreview: (preview) => {
-          if (!disposed) latest.current.events.linkPreview?.(preview);
+          if (!disposed && latest.current.active)
+            latest.current.events.linkPreview?.(preview);
         },
         internalLink: (origin) => {
-          if (!disposed) latest.current.events.internalLink?.(origin);
+          if (!disposed && latest.current.active)
+            latest.current.events.internalLink?.(origin);
         },
       });
       engine.preferTheme?.(latest.current.theme);
@@ -138,8 +159,9 @@ export function ReaderView({
     };
   }, [doc.id]);
   useEffect(() => {
+    if (!active) return;
     void adapter.current?.setTheme(theme).catch((e) => toast.error(e.message));
-  }, [theme]);
+  }, [theme, active]);
   useEffect(() => {
     void adapter.current
       ?.highlight(annotations)

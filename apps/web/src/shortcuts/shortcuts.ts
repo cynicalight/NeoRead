@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "@neoread/api";
+import { documentTabCommand } from "@neoread/core";
 
 export const shortcutActions = [
   { id: "readerLeft", name: "阅读模式－左侧栏", scope: "reader", key: "l" },
@@ -157,6 +158,7 @@ export function useShortcut(
 export function forwardReaderShortcut(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing || event.repeat) return;
   if (
+    !documentTabCommand(event) &&
     ![
       "readerLeft",
       "readerRight",

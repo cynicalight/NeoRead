@@ -60,6 +60,7 @@ import { searchPDFBlocks } from "./pdf-search";
 type Mode = "source" | "parallel" | "translation";
 export function PDFReadingView({
   document: doc,
+  active = true,
   theme,
   annotations,
   blocks,
@@ -73,6 +74,7 @@ export function PDFReadingView({
   events,
 }: {
   document: ReaderDocument;
+  active?: boolean;
   theme: ReaderTheme;
   annotations: Annotation[];
   blocks: PDFBlock[];
@@ -134,6 +136,7 @@ export function PDFReadingView({
     translationMotion.current.moving = false;
   };
   useLayoutEffect(() => {
+    if (!active) return;
     const host = pane.current;
     if (!host) return;
     let initialized = false;
@@ -159,7 +162,7 @@ export function PDFReadingView({
       observer.disconnect();
       cancelTranslationMotion();
     };
-  }, [mode, doc.id]);
+  }, [mode, doc.id, active]);
   const state = useRef({ mode, blocks, translations, events, theme });
   state.current = { mode, blocks, translations, events, theme };
   useSentenceMarks(
@@ -554,7 +557,7 @@ export function PDFReadingView({
     onReady(facade.current, toc);
   };
   useEffect(() => {
-    if (!engine) return;
+    if (!engine || !active) return;
     hoverOwner.current = undefined;
     setHoveredBlock(undefined);
     engine.hoverBlock?.(null);
@@ -612,7 +615,7 @@ export function PDFReadingView({
       cancelled = true;
       engine.hoverBlock?.(null);
     };
-  }, [mode, engine]);
+  }, [mode, engine, active]);
   useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
   useEffect(() => {
     const release = () => {
@@ -857,6 +860,7 @@ export function PDFReadingView({
             onKeyDownCapture={() => input("source")}
           >
             <ReaderView
+              active={active}
               document={doc}
               theme={theme}
               annotations={annotations.filter(

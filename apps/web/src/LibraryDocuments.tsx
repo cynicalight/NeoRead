@@ -34,6 +34,7 @@ export function LibraryDocuments({
   jobs,
   processingError,
   openDocument,
+  openDocuments,
   favorite,
   onEdit,
   onMove,
@@ -50,6 +51,7 @@ export function LibraryDocuments({
   jobs: Processing[];
   processingError: string;
   openDocument: (doc: Document) => void;
+  openDocuments?: (docs: Document[]) => void;
   favorite: (doc: Document) => void;
   onEdit: (id: string) => void;
   onMove?: (doc: Document, library: LibraryMode) => void;
@@ -165,6 +167,21 @@ export function LibraryDocuments({
               <span className="text-sm text-muted-foreground" role="status">
                 已选 {selected.size} 份
               </span>
+              {openDocuments && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!selected.size}
+                  onClick={() =>
+                    openDocuments(
+                      documents.filter((doc) => selected.has(doc.id)),
+                    )
+                  }
+                >
+                  <BookOpen />
+                  在标签页中打开
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="destructive"

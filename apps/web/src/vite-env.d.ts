@@ -73,6 +73,7 @@ interface Window {
       callback: (target: import("@neoread/core").NeoReadLinkTarget) => void,
     ) => () => void;
     onBeforeClose: (callback: () => Promise<void>) => () => void;
+    setDocumentTabActive?: (active: boolean) => Promise<void>;
     onLibraryChanged: (callback: () => void) => () => void;
   };
 }

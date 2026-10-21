@@ -65,6 +65,8 @@ contextBridge.exposeInMainWorld("neoreadDesktop", {
       systemDarkContrast?: "high" | "soft";
     },
   ) => ipcRenderer.invoke("neoread:appearance", appearance, palettes),
+  setDocumentTabActive: (active: boolean) =>
+    ipcRenderer.invoke("neoread:document-tab-active", active),
   findEndNoteLibraries: (id: string) =>
     ipcRenderer.invoke("neoread:find-endnote", id),
   cancelEndNoteSearch: (id: string) =>

@@ -25,6 +25,7 @@ import { agentPath } from "./agent-path";
 import { codexThreadURL } from "../../../packages/neoread-core/src/codex-link";
 import { annotationUndoShortcut } from "../../../packages/neoread-core/src/undo-shortcut";
 import { zoomCommand } from "../../../packages/neoread-core/src/zoom-shortcut";
+import { documentTabCommand } from "../../../packages/neoread-core/src/document-tab-shortcut";
 import {
   LINK_SCHEMES,
   parseNeoReadLink,
@@ -70,6 +71,7 @@ let child: ChildProcess | undefined;
 let serverURL = "";
 let serverToken = "";
 let window: BrowserWindow | undefined;
+let documentTabActive = false;
 let quitting = false;
 let closing = false;
 let flushed = false;
@@ -550,16 +552,26 @@ app
     });
     // Let the renderer handle reading shortcuts; editable fields keep native undo.
     window.webContents.on("before-input-event", (_event, input) => {
+      const tabCommand = documentTabCommand({
+        key: input.key,
+        metaKey: input.meta,
+        ctrlKey: input.control,
+        shiftKey: input.shift,
+        altKey: input.alt,
+        isComposing: input.isComposing,
+      });
       window?.webContents.setIgnoreMenuShortcuts(
         input.type === "keyDown" &&
-          (annotationUndoShortcut({
-            key: input.key,
-            metaKey: input.meta,
-            ctrlKey: input.control,
-            shiftKey: input.shift,
-            altKey: input.alt,
-            isComposing: input.isComposing,
-          }) ||
+          ((tabCommand !== null &&
+            (documentTabActive || tabCommand.type === "reopen")) ||
+            annotationUndoShortcut({
+              key: input.key,
+              metaKey: input.meta,
+              ctrlKey: input.control,
+              shiftKey: input.shift,
+              altKey: input.alt,
+              isComposing: input.isComposing,
+            }) ||
             ((input.meta || input.control) &&
               !input.shift &&
               !input.alt &&
@@ -604,6 +616,11 @@ app
     ipcMain.handle("neoread:library-warning", (event) => {
       settingsSender(event);
       return libraryWarning;
+    });
+    ipcMain.handle("neoread:document-tab-active", (event, active: unknown) => {
+      settingsSender(event);
+      if (typeof active !== "boolean") throw new Error("Invalid tab state");
+      documentTabActive = active;
     });
     ipcMain.handle("neoread:import-library", async (event) => {
       settingsSender(event);

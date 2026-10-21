@@ -97,3 +97,77 @@ it("never retries an older failed location after a newer save succeeds", async (
     1, 2,
   ]);
 });
+
+it("keeps the latest position of every document when tabs change before the debounce", async () => {
+  vi.useFakeTimers();
+  update.mockResolvedValue({});
+  const { scheduleProgress, flushProgress } = await import("./progress");
+  scheduleProgress(
+    "a",
+    { progress: { type: "pdf", page: 2 }, percentage: 0.2 },
+    () => {},
+  );
+  scheduleProgress(
+    "b",
+    { progress: { type: "epub", href: "ch3.xhtml" }, percentage: 0.3 },
+    () => {},
+  );
+  scheduleProgress(
+    "a",
+    { progress: { type: "pdf", page: 5 }, percentage: 0.5 },
+    () => {},
+  );
+  await flushProgress();
+  expect(update.mock.calls.map(([id, patch]) => [id, patch.progress])).toEqual([
+    ["a", { type: "pdf", page: 5 }],
+    ["b", { type: "epub", href: "ch3.xhtml" }],
+  ]);
+});
+it("saves other tabs even when one document fails and retries only its newest position", async () => {
+  update.mockRejectedValueOnce(new Error("offline")).mockResolvedValue({});
+  const { scheduleProgress, flushProgress } = await import("./progress");
+  scheduleProgress(
+    "a",
+    { progress: { type: "pdf", page: 2 }, percentage: 0.2 },
+    () => {},
+  );
+  scheduleProgress(
+    "b",
+    { progress: { type: "pdf", page: 3 }, percentage: 0.3 },
+    () => {},
+  );
+  await expect(flushProgress()).rejects.toThrow("offline");
+  expect(update).toHaveBeenCalledTimes(2);
+  scheduleProgress(
+    "a",
+    { progress: { type: "pdf", page: 4 }, percentage: 0.4 },
+    () => {},
+  );
+  await flushProgress();
+  expect(
+    update.mock.calls.map(([id, patch]) => [id, patch.progress.page]),
+  ).toEqual([
+    ["a", 2],
+    ["b", 3],
+    ["a", 4],
+  ]);
+});
+
+it("discards deleted documents without losing another tab's pending position", async () => {
+  update.mockResolvedValue({});
+  const { scheduleProgress, flushProgress, forgetProgress } =
+    await import("./progress");
+  scheduleProgress(
+    "deleted",
+    { progress: { type: "pdf", page: 2 }, percentage: 0.2 },
+    () => {},
+  );
+  scheduleProgress(
+    "kept",
+    { progress: { type: "pdf", page: 3 }, percentage: 0.3 },
+    () => {},
+  );
+  forgetProgress(["deleted"]);
+  await flushProgress();
+  expect(update.mock.calls.map(([id]) => id)).toEqual(["kept"]);
+});

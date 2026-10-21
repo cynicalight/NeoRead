@@ -1,0 +1,426 @@
+import { useEffect, useRef, useState } from "react";
+import { BookOpen, Plus, X, Check, ChevronDown } from "lucide-react";
+import { documentTabCommand, type Document } from "@neoread/core";
+import type { Processing, ReaderTheme } from "@neoread/core";
+import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
+import { Button } from "@neoread/ui/components/button";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@neoread/ui/components/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@neoread/ui/components/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@neoread/ui/components/context-menu";
+import { toast } from "sonner";
+import { useReaderStore, refreshLibrary } from "./store";
+import { flushProgress } from "./progress";
+import { tabCloseWarning } from "./document-tab-guards";
+import { Workspace } from "./Workspace";
+import "./document-tabs.css";
+
+export function DocumentTabs({
+  onSelect,
+  onLibrary,
+  onNew,
+}: {
+  onSelect: (doc: Document) => void;
+  onLibrary: () => void;
+  onNew: () => void;
+}) {
+  const { documents, tabIds, active, closeTabs, closedTabGroups } =
+    useReaderStore();
+  const [confirming, setConfirming] = useState<string[] | null>(null);
+  const [closing, setClosing] = useState(false);
+  const pendingClose = useRef(false),
+    restoreFocus = useRef(false);
+  const strip = useRef<HTMLDivElement>(null);
+  const tabs = tabIds.flatMap(
+    (id) => documents.find((doc) => doc.id === id) ?? [],
+  );
+  const tabOrder = JSON.stringify(tabIds);
+  const warningFor = (ids: string[]) => {
+    const warnings = ids.flatMap((id) => tabCloseWarning(id) ?? []);
+    return warnings.find((warning) => warning.blocked) ?? warnings[0] ?? null;
+  };
+  const finishClose = async (ids: string[], confirmed = false) => {
+    if (pendingClose.current) return;
+    pendingClose.current = true;
+    setClosing(true);
+    try {
+      await flushProgress();
+      const warning = warningFor(ids);
+      if (warning?.blocked || (warning && !confirmed)) {
+        setConfirming(ids);
+        return;
+      }
+      const focused = document.activeElement;
+      restoreFocus.current =
+        confirmed ||
+        !focused ||
+        focused === document.body ||
+        ids.includes(useReaderStore.getState().active?.id ?? "") ||
+        ids.some((id) =>
+          document
+            .getElementById(`document-tab-${id}`)
+            ?.parentElement?.contains(focused),
+        );
+      closeTabs(ids);
+      setConfirming(null);
+      void refreshLibrary().catch((e) => toast.error(e.message));
+    } catch (error) {
+      toast.error(
+        `阅读进度保存失败，标签页已保留：${(error as Error).message}`,
+      );
+    } finally {
+      pendingClose.current = false;
+      setClosing(false);
+    }
+  };
+  const requestClose = (requested: string[]) => {
+    if (pendingClose.current) return;
+    const ids = requested.filter((id) =>
+      useReaderStore.getState().tabIds.includes(id),
+    );
+    if (!ids.length) return;
+    if (warningFor(ids)) setConfirming(ids);
+    else void finishClose(ids);
+  };
+  const reopen = () => {
+    if (pendingClose.current) return;
+    restoreFocus.current = true;
+    const doc = useReaderStore.getState().reopenTabs();
+    if (doc) onSelect(doc);
+    else restoreFocus.current = false;
+  };
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.repeat ||
+        document.querySelector(
+          '[role="dialog"], [role="alertdialog"], [role="menu"]',
+        )
+      )
+        return;
+      const command = documentTabCommand(event);
+      if (!command) return;
+      if (command.type === "reopen") {
+        if (closedTabGroups.length) {
+          event.preventDefault();
+          reopen();
+        }
+        return;
+      }
+      if (!tabs.length || (command.type === "close" && !active)) return;
+      event.preventDefault();
+      if (command.type === "close") {
+        requestClose([active!.id]);
+        return;
+      }
+      const index =
+        command.type === "select"
+          ? command.index < 0
+            ? tabs.length - 1
+            : command.index
+          : active
+            ? (tabs.findIndex((doc) => doc.id === active.id) +
+                (command.type === "next" ? 1 : -1) +
+                tabs.length) %
+              tabs.length
+            : command.type === "next"
+              ? 0
+              : tabs.length - 1;
+      if (tabs[index]) onSelect(tabs[index]);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  });
+  useEffect(() => {
+    const selected = active
+      ? document.getElementById(`document-tab-${active.id}`)
+      : document.getElementById("reader-library-tab");
+    if (active)
+      selected?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    if (!restoreFocus.current) return;
+    const frame = requestAnimationFrame(() => {
+      restoreFocus.current = false;
+      (selected ?? document.getElementById("reader-library-panel"))?.focus({
+        preventScroll: true,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active?.id, tabOrder]);
+  useEffect(() => {
+    void window.neoreadDesktop
+      ?.setDocumentTabActive?.(!!active)
+      .catch((e: Error) => toast.error(e.message));
+  }, [active?.id]);
+  useEffect(() => {
+    if (!confirming) return;
+    const ids = confirming.filter((id) => tabIds.includes(id));
+    if (ids.length !== confirming.length)
+      setConfirming(ids.length ? ids : null);
+  }, [tabIds, confirming]);
+  if (!tabs.length && !closedTabGroups.length) return null;
+  const warning = confirming ? warningFor(confirming) : null;
+  const targets = tabs.filter((doc) => confirming?.includes(doc.id));
+  return (
+    <>
+      <Tabs
+        className="document-tabbar"
+        value={active?.id ?? "library"}
+        onValueChange={(value) => {
+          if (value === "library") onLibrary();
+          else {
+            const doc = tabs.find((item) => item.id === value);
+            if (doc) onSelect(doc);
+          }
+        }}
+      >
+        <TabsList
+          variant="line"
+          className="document-tabs-list"
+          aria-label="已打开的文档"
+        >
+          <TabsTrigger
+            id="reader-library-tab"
+            value="library"
+            aria-controls="reader-library-panel"
+            className="document-library-tab"
+            aria-label="返回书库"
+          >
+            <BookOpen className="size-3.5" />
+            书库
+          </TabsTrigger>
+          <div className="document-tabs-scroll" ref={strip}>
+            {tabs.map((doc, index) => (
+              <ContextMenu key={doc.id}>
+                <ContextMenuTrigger
+                  render={
+                    <div
+                      className="document-tab"
+                      data-active={active?.id === doc.id || undefined}
+                      onAuxClick={(event) => {
+                        if (event.button === 1) {
+                          event.preventDefault();
+                          requestClose([doc.id]);
+                        }
+                      }}
+                    />
+                  }
+                >
+                  <TabsTrigger
+                    value={doc.id}
+                    id={`document-tab-${doc.id}`}
+                    aria-controls={`document-panel-${doc.id}`}
+                    className="document-tab-trigger"
+                    title={doc.title}
+                  >
+                    <span>{doc.title}</span>
+                  </TabsTrigger>
+                  <Button
+                    className="document-tab-close"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`关闭标签页：${doc.title}`}
+                    disabled={closing}
+                    onClick={() => requestClose([doc.id])}
+                  >
+                    <X className="size-3" />
+                  </Button>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    disabled={closing}
+                    onClick={() => requestClose([doc.id])}
+                  >
+                    关闭标签页
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={closing || tabs.length < 2}
+                    onClick={() =>
+                      requestClose(tabIds.filter((id) => id !== doc.id))
+                    }
+                  >
+                    关闭其他标签页
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={closing || index === tabs.length - 1}
+                    onClick={() => requestClose(tabIds.slice(index + 1))}
+                  >
+                    关闭右侧标签页
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    disabled={closing || !closedTabGroups.length}
+                    onClick={reopen}
+                  >
+                    重新打开关闭的标签页
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+            ))}
+          </div>
+        </TabsList>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="打开其他文档"
+          title="打开其他文档"
+          onClick={onNew}
+        >
+          <Plus />
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="标签页列表"
+                title={`已打开 ${tabs.length} 份文档`}
+              />
+            }
+          >
+            <ChevronDown />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="w-72 max-w-[calc(100vw-24px)]"
+          >
+            {tabs.map((doc) => (
+              <DropdownMenuItem
+                key={doc.id}
+                onClick={() => onSelect(doc)}
+                title={doc.title}
+                aria-current={active?.id === doc.id ? "page" : undefined}
+              >
+                {active?.id === doc.id ? (
+                  <Check className="size-3.5" />
+                ) : (
+                  <span className="size-3.5 shrink-0" />
+                )}
+                <span className="truncate">{doc.title}</span>
+              </DropdownMenuItem>
+            ))}
+            {!!tabs.length && <DropdownMenuSeparator />}
+            <DropdownMenuItem
+              disabled={closing || !closedTabGroups.length}
+              onClick={reopen}
+            >
+              重新打开关闭的标签页
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={closing || !tabs.length}
+              onClick={() => requestClose(tabIds)}
+            >
+              关闭所有标签页
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div className="document-tabs-drag" aria-hidden="true" />
+      </Tabs>
+      <AlertDialog
+        open={!!confirming}
+        onOpenChange={(open) => {
+          if (!open && !closing) setConfirming(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {warning?.blocked
+                ? "暂时无法关闭标签页"
+                : targets.length > 1
+                  ? `关闭这 ${targets.length} 个标签页？`
+                  : "关闭这个标签页？"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="mb-2 block">
+                {targets
+                  .slice(0, 3)
+                  .map((doc) => `《${doc.title}》`)
+                  .join("、")}
+                {targets.length > 3 ? `等 ${targets.length} 份文档` : ""}
+              </span>
+              {warning?.message ?? "已保存的阅读记录和对话会保留。"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={closing}>返回阅读</AlertDialogCancel>
+            {!warning?.blocked && (
+              <AlertDialogAction
+                disabled={closing}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (confirming) void finishClose(confirming, true);
+                }}
+              >
+                关闭标签页
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+/** Only visited tabs create readers; switching keeps their drafts and streams alive. */
+export function ReadingWorkspaces({
+  theme,
+  jobs,
+  onLibrary,
+  onSettings,
+}: {
+  theme: ReaderTheme;
+  jobs: Processing[];
+  onLibrary: () => void;
+  onSettings: () => void;
+}) {
+  const { documents, tabIds, visitedTabs, active } = useReaderStore();
+  return tabIds.map((id) => {
+    const doc = documents.find((item) => item.id === id);
+    if (!doc) return null;
+    const selected = active?.id === id;
+    return (
+      <div
+        key={id}
+        id={`document-panel-${id}`}
+        role="tabpanel"
+        aria-labelledby={`document-tab-${id}`}
+        className="reader-tab-panel"
+        hidden={!selected}
+        inert={!selected}
+      >
+        {visitedTabs.includes(id) && (
+          <Workspace
+            document={doc}
+            active={selected}
+            theme={theme}
+            processing={jobs.find((job) => job.documentId === id)}
+            onBack={onLibrary}
+            onSettings={onSettings}
+          />
+        )}
+      </div>
+    );
+  });
+}

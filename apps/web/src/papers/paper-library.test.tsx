@@ -64,6 +64,7 @@ const docs: Document[] = [
 let root: Root, host: HTMLDivElement;
 const open = vi.fn();
 let jobs = new Map<string, Processing>();
+const openMany = vi.fn();
 function Harness({ navOpen = true }: { navOpen?: boolean } = {}) {
   const documents = useReaderStore((s) => s.documents);
   return (
@@ -83,6 +84,7 @@ function Harness({ navOpen = true }: { navOpen?: boolean } = {}) {
         jobs={jobs}
         loading={false}
         openDocument={open}
+        openDocuments={openMany}
         moveToBooks={() => {}}
         navOpen={navOpen}
         onToggleNav={() => {}}
@@ -2320,4 +2322,21 @@ it("fits saved narrow widths to the complete header without overwriting preferen
   } finally {
     rects.mockRestore();
   }
+});
+
+it("opens picked papers together in document tabs and exits batch mode", async () => {
+  await act(async () =>
+    usePaperUI.getState().startPicking(docs.slice(0, 2).map((doc) => doc.id)),
+  );
+  await act(async () => button("在标签页中打开").click());
+  expect(openMany).toHaveBeenCalledOnce();
+  expect(
+    openMany.mock.calls[0][0].map((doc: Document) => doc.id).sort(),
+  ).toEqual(
+    docs
+      .slice(0, 2)
+      .map((doc) => doc.id)
+      .sort(),
+  );
+  expect(usePaperUI.getState().picking).toBe(false);
 });

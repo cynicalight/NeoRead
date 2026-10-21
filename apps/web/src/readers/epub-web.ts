@@ -258,6 +258,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     }
     if (typeof ResizeObserver !== "undefined") {
       this.resize = new ResizeObserver(() => {
+        if (this.container.closest("[inert]")) return;
         this.preserveAnchor();
         this.onScroll();
       });
