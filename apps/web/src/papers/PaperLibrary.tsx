@@ -150,6 +150,7 @@ export interface PaperLibraryProps {
   jobs: Map<string, Processing>;
   loading: boolean;
   openDocument: (doc: Document) => void;
+  openDocuments?: (docs: Document[]) => void;
   moveToBooks: (doc: Document) => void;
   navOpen: boolean;
   onToggleNav: () => void;
@@ -164,6 +165,7 @@ export function PaperLibrary({
   jobs,
   loading,
   openDocument,
+  openDocuments,
   moveToBooks,
   navOpen,
   onToggleNav,
@@ -755,6 +757,19 @@ export function PaperLibrary({
                   已选 {picked.size} 篇
                 </span>
                 <div className="ml-auto flex flex-wrap items-center gap-1">
+                  {openDocuments && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!pickedDocs.length}
+                      onClick={() => {
+                        openDocuments(pickedDocs);
+                        ui.stopPicking();
+                      }}
+                    >
+                      在标签页中打开
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"

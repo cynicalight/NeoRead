@@ -56,6 +56,8 @@ contextBridge.exposeInMainWorld("readerDesktop", {
   },
   setAppearance: (appearance: "light" | "sepia" | "dark" | "system") =>
     ipcRenderer.invoke("reader:appearance", appearance),
+  setDocumentTabActive: (active: boolean) =>
+    ipcRenderer.invoke("reader:document-tab-active", active),
   findEndNoteLibraries: (id: string) =>
     ipcRenderer.invoke("reader:find-endnote", id),
   cancelEndNoteSearch: (id: string) =>

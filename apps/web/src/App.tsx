@@ -55,7 +55,8 @@ import { usePaperUI } from "./papers/state";
 import { ImportPaperDialog } from "./papers/ImportPaperDialog";
 import { LibraryModeSwitcher, libraryModes } from "./LibraryModeSwitcher";
 import { Settings } from "./Settings";
-import { Workspace } from "./Workspace";
+import { DocumentTabs, ReadingWorkspaces } from "./DocumentTabs";
+import { flushProgress } from "./progress";
 import { useProcessing } from "./ProcessingStatus";
 import { useUpdateProgress } from "./update-progress";
 import { useResolvedTheme } from "./appearance";
@@ -70,6 +71,8 @@ export function App() {
   const {
     documents: allDocuments,
     active,
+    tabIds,
+    closedTabGroups,
     theme,
     setTheme,
     open,
@@ -117,6 +120,7 @@ export function App() {
       ),
       api.settings().then((value) => setTheme(value)),
     ])
+      .then(() => useReaderStore.getState().restoreSession())
       .catch((e) => setError(e.message))
       .finally(() => {
         setLoading(false);
@@ -309,6 +313,18 @@ export function App() {
     open(doc);
     void api.update(doc.id, {}).catch((e) => toast.error(e.message));
   };
+  const showLibrary = () => {
+    open(null);
+    void flushProgress()
+      .then(refreshLibrary)
+      .catch((e) => toast.error(e.message));
+  };
+  const openDocuments = (docs: Document[]) => {
+    if (!docs.length) return;
+    useReaderStore.getState().openMany(docs);
+    setEditingLibrary(false);
+    void api.update(docs[0].id, {}).catch((e) => toast.error(e.message));
+  };
   const filtered = filterDocuments(
     documents,
     filter,
@@ -358,6 +374,9 @@ export function App() {
       <div
         className="app"
         data-platform={window.readerDesktop?.platform}
+        data-has-tabs={
+          tabIds.length > 0 || closedTabGroups.length > 0 || undefined
+        }
         onDragOver={(e) => {
           e.preventDefault();
         }}
@@ -377,20 +396,32 @@ export function App() {
             e.target.value = "";
           }}
         />
-        {active ? (
-          <Workspace
-            key={active.id}
-            document={active}
-            theme={resolvedTheme}
-            processing={jobs.find((job) => job.documentId === active.id)}
-            onBack={() => {
-              open(null);
-              void refreshLibrary();
-            }}
-            onSettings={() => setSettings(true)}
-          />
-        ) : (
-          <>
+        <DocumentTabs
+          onSelect={openDocument}
+          onLibrary={showLibrary}
+          onNew={() => {
+            showLibrary();
+            setCommand(true);
+          }}
+        />
+        <ReadingWorkspaces
+          theme={resolvedTheme}
+          jobs={jobs}
+          onLibrary={showLibrary}
+          onSettings={() => setSettings(true)}
+        />
+        {!active && (
+          <div
+            id="reader-library-panel"
+            className="library-tab-panel"
+            role="tabpanel"
+            aria-labelledby={
+              tabIds.length || closedTabGroups.length
+                ? "reader-library-tab"
+                : undefined
+            }
+            tabIndex={-1}
+          >
             {/* Outside the sidebar, which is transformed while collapsed. */}
             <div className="window-top-drag" aria-hidden="true" />
             <aside
@@ -514,6 +545,7 @@ export function App() {
             </aside>
             {papers ? (
               <PaperLibrary
+                openDocuments={openDocuments}
                 documents={documents}
                 trash={trash}
                 jobs={jobsById}
@@ -630,6 +662,7 @@ export function App() {
                     />
                   ) : filtered.length ? (
                     <LibraryDocuments
+                      openDocuments={openDocuments}
                       key={JSON.stringify([filter, query, filters])}
                       documents={filtered}
                       libraryView={libraryView}
@@ -688,7 +721,7 @@ export function App() {
                 </div>
               </main>
             )}
-          </>
+          </div>
         )}
         {editing && (
           <DocumentEditor

@@ -1,4 +1,5 @@
 import { useShortcut } from "./shortcuts/shortcuts";
+import { registerTabCloseGuard } from "./document-tab-guards";
 import { SelectionTranslation } from "./SelectionTranslation";
 import { LinkPreviewPanel } from "./LinkPreviewPanel";
 import { AnnotationHoverCard } from "./AnnotationHoverCard";
@@ -215,12 +216,14 @@ function TOCTree({
 }
 export function Workspace({
   document: doc,
+  active = true,
   theme,
   processing,
   onBack,
   onSettings,
 }: {
   document: ReaderDocument;
+  active?: boolean;
   theme: ReaderTheme;
   processing?: Processing;
   onBack: () => void;
@@ -280,6 +283,20 @@ export function Workspace({
   const [location, setLocation] = useState<DocumentLocation | undefined>(
     doc.progress,
   );
+  const lastReadingLocation = useRef(doc.progress);
+  const resumeReading = useRef(false);
+  useEffect(() => {
+    if (!active) {
+      resumeReading.current = true;
+      return;
+    }
+    if (resumeReading.current && adapter && lastReadingLocation.current) {
+      resumeReading.current = false;
+      void adapter
+        .goTo(lastReadingLocation.current)
+        .catch((e) => toast.error(e.message));
+    }
+  }, [active, adapter]);
   const [translationSelection, setTranslationSelection] =
     useState<ReaderSelection | null>(null);
   const [selection, setSelection] = useState<ReaderSelection | null>(null);
@@ -501,13 +518,17 @@ export function Workspace({
     setSearchedQuery("");
     setSearching(false);
   }, [doc.id]);
-  useShortcut("readerLeft", () => setLeft((value) => !value));
-  useShortcut("readerRight", () => setRight((value) => !value));
-  useShortcut("search", () => {
-    setLeft(true);
-    setLeftTab("search");
-    requestAnimationFrame(() => searchInput.current?.focus());
-  });
+  useShortcut("readerLeft", () => setLeft(!left), active);
+  useShortcut("readerRight", () => setRight(!right), active);
+  useShortcut(
+    "search",
+    () => {
+      setLeft(true);
+      setLeftTab("search");
+      requestAnimationFrame(() => searchInput.current?.focus());
+    },
+    active,
+  );
   useEffect(() => {
     let alive = true;
     session.activate();
@@ -578,6 +599,8 @@ export function Workspace({
         .catch((e) => toast.error(e.message));
   }, [linkTarget, adapter, annotationsLoaded, annotations, doc.id, doc.type]);
   const saveLocation = (next: DocumentLocation, percent: number) => {
+    if (!active) return;
+    lastReadingLocation.current = next;
     setTranslationSelection(null);
     setLocation(next);
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
@@ -641,7 +664,7 @@ export function Workspace({
       adapter?.clearSelection();
       setSelection(null);
     },
-    () => !annotationsLoaded || annotationSaving.current || noteOpen,
+    () => !active || !annotationsLoaded || annotationSaving.current || noteOpen,
   );
 
   const [hoveredAnnotation, setHoveredAnnotation] =
@@ -1014,6 +1037,42 @@ export function Workspace({
       </IconButton>
     </div>
   );
+  const closeState = useRef({ busy: false, draft: false, saving: false });
+  closeState.current = {
+    busy: chat.busy || sending,
+    draft:
+      !!prompt.trim() ||
+      quotes.length > 0 ||
+      images.length > 0 ||
+      (noteOpen && !!note.trim()),
+    saving: noteSaving || annotationSaving.current,
+  };
+  useEffect(
+    () =>
+      registerTabCloseGuard(doc.id, () => {
+        if (closeState.current.saving)
+          return {
+            blocked: true,
+            message: "批注正在保存，请保存完成后再关闭。",
+          };
+        if (closeState.current.busy || closeState.current.draft)
+          return {
+            message:
+              "关闭后会清除未发送的问题、附件和未保存的批注。已保存的阅读记录与对话会保留，后台回答会继续，可重新打开查看。",
+          };
+        return null;
+      }),
+    [doc.id],
+  );
+  useEffect(() => {
+    if (active) return;
+    adapter?.clearSelection();
+    setSelection(null);
+    setTranslationSelection(null);
+    setLinkPreview(null);
+    setAnnotationTarget(null);
+    void flushProgress().catch((e) => toast.error(e.message));
+  }, [active, adapter]);
   return (
     <div className="workspace">
       <header className="reader-toolbar">
@@ -1408,6 +1467,7 @@ export function Workspace({
                 doc.type === "pdf" ? PDFReadingView : EPUBReadingView;
               return (
                 <ReadingView
+                  active={active}
                   sidebarsOpen={{ left, right }}
                   document={doc}
                   theme={theme}
@@ -1822,17 +1882,17 @@ export function Workspace({
 
       <SelectionTranslation
         key={doc.id}
-        selection={translationSelection}
+        selection={active ? translationSelection : null}
         onClose={() => setTranslationSelection(null)}
       />
       <AnnotationHoverCard
-        target={!selection && !noteOpen ? hoveredAnnotation : null}
+        target={active && !selection && !noteOpen ? hoveredAnnotation : null}
         annotations={annotations}
         onEdit={editAnnotationNote}
       />
       <LinkPreviewPanel
         key={doc.id}
-        preview={linkPreview}
+        preview={active ? linkPreview : null}
         onDismiss={() => setLinkPreview(null)}
         onNavigate={(location) =>
           void visitReference(location, "").catch((error) =>
@@ -1841,7 +1901,7 @@ export function Workspace({
         }
         renderKey={`${theme.mode}:${theme.pdfDarkImageMode}:${theme.pdfDarkContrast}`}
       />
-      {previewImage && (
+      {active && previewImage && (
         <ImagePreview
           key={previewImage.id}
           documentId={doc.id}
@@ -1851,7 +1911,7 @@ export function Workspace({
         />
       )}
       <Dialog
-        open={noteOpen}
+        open={active && noteOpen}
         onOpenChange={(open) => {
           if (noteSaving) return;
           setNoteOpen(open);
@@ -1933,7 +1993,7 @@ export function Workspace({
           )}
         </DialogContent>
       </Dialog>
-      {exportingNotes && (
+      {active && exportingNotes && (
         <ExportDocumentDialog
           key={`export-${doc.id}`}
           document={doc}
@@ -1945,14 +2005,14 @@ export function Workspace({
       )}
       <DocumentOverviewDialog
         key={doc.id}
-        document={overviewOpen ? doc : null}
+        document={active && overviewOpen ? doc : null}
         onClose={() => setOverviewOpen(false)}
         onNavigate={async (location) => {
           await adapter?.goTo(location);
         }}
       />
       <ProcessingUsageDialog
-        document={usageOpen ? doc : null}
+        document={active && usageOpen ? doc : null}
         onClose={() => setUsageOpen(false)}
       />
     </div>
