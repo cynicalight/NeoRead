@@ -84,6 +84,8 @@ it("does not let hidden reader events change progress or zoom, and reuses its en
   });
   location.mockClear();
   fixture.events.get("a")!.zoom?.(2);
+  fixture.events.get("a")!.zoom?.(2.5, "focus");
+  fixture.events.get("a")!.zoom?.(1, "layout", 0.5);
   fixture.events.get("a")!.location({ type: "pdf", page: 6 }, 0.6);
   expect(zoom).not.toHaveBeenCalled();
   expect(location).not.toHaveBeenCalled();
@@ -93,6 +95,10 @@ it("does not let hidden reader events change progress or zoom, and reuses its en
   fixture.events.get("a")!.zoom?.(1.5);
   expect(location).toHaveBeenLastCalledWith("a", { type: "pdf", page: 7 });
   expect(zoom).toHaveBeenLastCalledWith(1.5);
+  fixture.events.get("a")!.zoom?.(2.5, "focus");
+  expect(zoom).toHaveBeenLastCalledWith(2.5, "focus");
+  fixture.events.get("a")!.zoom?.(1.25, "layout", 0.5);
+  expect(zoom).toHaveBeenLastCalledWith(1.25, "layout", 0.5);
   expect(fixture.events.get("a")).toBe(previous);
   expect(fixture.destroyed).toEqual([]);
 });

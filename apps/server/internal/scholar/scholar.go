@@ -60,12 +60,19 @@ func (e Error) Error() string { return e.Message }
 
 var ErrNotFound = Error{"没有找到这篇论文"}
 
+type rateLimitError struct{ cause Error }
+
+func (e rateLimitError) Unwrap() error { return e.cause }
+
+func (e rateLimitError) Error() string { return e.cause.Message }
+
 type Client struct {
 	HTTP            *http.Client
 	ArXivAPI        string
 	ArXivPDF        string
 	Crossref        string
 	SemanticScholar string
+	CrossrefEmail   string
 	OpenReview      string
 	OpenReviewAPI   string
 	DOIResolver     string
@@ -178,7 +185,7 @@ func (c *Client) get(ctx context.Context, raw, accept string, limit int64) ([]by
 		return nil, "", "", ErrNotFound
 	}
 	if res.StatusCode == http.StatusTooManyRequests {
-		return nil, "", "", Error{fmt.Sprintf("%s 请求过于频繁，请稍后重试", u.Host)}
+		return nil, "", "", rateLimitError{Error{fmt.Sprintf("%s 服务商限制了请求频率，请稍后重试", u.Host)}}
 	}
 	if res.StatusCode < 200 || res.StatusCode > 299 {
 		return nil, "", "", Error{fmt.Sprintf("%s 返回 %d", u.Host, res.StatusCode)}

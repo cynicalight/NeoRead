@@ -127,6 +127,10 @@ export class PDFReadingNavigation {
   cancelMotion() {
     this.interrupt();
   }
+  resizeViewport() {
+    this.cancelMotion();
+    if (this.host.classList.contains("pdf-block-reading")) this.updateInsets();
+  }
   private updateInsets() {
     this.host.style.setProperty(
       "--reading-inset-x",

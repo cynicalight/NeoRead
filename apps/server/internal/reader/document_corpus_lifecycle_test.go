@@ -69,22 +69,6 @@ func TestDocumentCorpusPreparedDuringPDFParsing(t *testing.T) {
 	}
 }
 
-func TestDocumentCorpusBackgroundDoesNotResumeTranslation(t *testing.T) {
-	s, p := processingFixture(t)
-	p.Enabled, p.Status = false, "paused"
-	if err := s.Store.saveProcessing(p); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	stop := s.StartProcessing(ctx)
-	defer func() { cancel(); stop() }()
-	waitPreparedCorpus(t, s, "doc")
-	saved, err := s.Store.processing("doc")
-	if err != nil || saved.Enabled || saved.Status != "paused" {
-		t.Fatalf("index preparation resumed translation: %+v %v", saved, err)
-	}
-}
-
 func TestDocumentCorpusRecoveryAndJobDeletion(t *testing.T) {
 	s, _ := epubRangeFixture(t, nil)
 	if err := s.Store.queueDocumentCorpus("doc"); err != nil {

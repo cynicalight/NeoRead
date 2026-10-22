@@ -260,3 +260,47 @@ it("bounds gesture zoom and removes event handlers on disposal", async () => {
   expect(wheel().defaultPrevented).toBe(false);
   expect(state.update).not.toHaveBeenCalled();
 });
+
+it("resizes a manually zoomed PDF with its pane and preserves horizontal and vertical content position", async () => {
+  let width = 800;
+  Object.defineProperties(host, {
+    clientWidth: { get: () => width, configurable: true },
+    clientHeight: { value: 600, configurable: true },
+  });
+  host.getBoundingClientRect = () => new DOMRect(30, 50, width, 600);
+  const page = document.createElement("div");
+  page.className = "page";
+  host.append(page);
+  page.getBoundingClientRect = () =>
+    new DOMRect(
+      30 - host.scrollLeft,
+      50 - host.scrollTop,
+      1000 * state.scale,
+      1200 * state.scale,
+    );
+  state.pageNode = page;
+  await adapter.setTheme({ ...defaultTheme, zoom: 1.6 });
+  host.scrollLeft = 320;
+  host.scrollTop = 1100;
+  vi.useFakeTimers();
+  try {
+    host.dispatchEvent(new Event("scroll"));
+    await vi.advanceTimersByTimeAsync(32);
+    width = 400;
+    state.resize?.();
+    await vi.advanceTimersByTimeAsync(32);
+    expect(state.scale).toBe(0.8);
+    expect(host.scrollLeft).toBeCloseTo(160);
+    expect(host.scrollTop).toBeCloseTo(400);
+    expect(zoom).toHaveBeenLastCalledWith(0.8, "layout", 0.5);
+    await adapter.setTheme({ ...defaultTheme, zoom: 0.8 });
+    width = 800;
+    state.resize?.();
+    await vi.advanceTimersByTimeAsync(32);
+    expect(state.scale).toBe(1.6);
+    expect(host.scrollLeft).toBeCloseTo(320);
+    expect(host.scrollTop).toBeCloseTo(1100);
+  } finally {
+    vi.useRealTimers();
+  }
+});

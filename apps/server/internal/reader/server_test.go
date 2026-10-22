@@ -50,6 +50,106 @@ func upload(t *testing.T, s *Server, name string, data []byte) *httptest.Respons
 	s.Handler().ServeHTTP(w, r)
 	return w
 }
+
+func uploadToFolder(t *testing.T, s *Server, name string, data []byte, library, folder string, smartID ...string) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	m := multipart.NewWriter(&body)
+	_ = m.WriteField("library", library)
+	_ = m.WriteField("folder", folder)
+	if len(smartID) > 0 {
+		_ = m.WriteField("smartCategory", smartID[0])
+	}
+	f, _ := m.CreateFormFile("file", name)
+	_, _ = f.Write(data)
+	_ = m.Close()
+	r := httptest.NewRequest("POST", "http://127.0.0.1:17840/api/documents", &body)
+	r.Header.Set("Authorization", "Bearer test-secret")
+	r.Header.Set("Content-Type", m.FormDataContentType())
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	return w
+}
+
+func TestImportPaperIntoFolderKeepsExistingAssignment(t *testing.T) {
+	s := testServer(t)
+	data := sample(t, "reading-notes.pdf")
+	first := uploadToFolder(t, s, "reading-notes.pdf", data, "papers", "Security/Web")
+	if first.Code != 201 {
+		t.Fatalf("import: %d %s", first.Code, first.Body.String())
+	}
+	var doc Document
+	if err := json.Unmarshal(first.Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.Store.Document(doc.ID)
+	if err != nil || len(saved.Folders) != 1 || saved.Folders[0] != "Security/Web" {
+		t.Fatalf("folder not persisted: %+v %v", saved.Folders, err)
+	}
+	duplicate := uploadToFolder(t, s, "reading-notes.pdf", data, "papers", "Other")
+	if duplicate.Code != 200 {
+		t.Fatalf("duplicate: %d %s", duplicate.Code, duplicate.Body.String())
+	}
+	saved, err = s.Store.Document(doc.ID)
+	if err != nil || len(saved.Folders) != 1 || saved.Folders[0] != "Security/Web" {
+		t.Fatalf("duplicate changed folders: %+v %v", saved.Folders, err)
+	}
+	for _, folder := range []string{"Security/", " Security", strings.Repeat("x", 41)} {
+		invalid := uploadToFolder(t, s, "reading-notes.pdf", data, "papers", folder)
+		if invalid.Code != 400 {
+			t.Fatalf("invalid folder %q: %d %s", folder, invalid.Code, invalid.Body.String())
+		}
+	}
+	wrongLibrary := uploadToFolder(t, s, "reading-notes.pdf", data, "books", "Security")
+	if wrongLibrary.Code != 400 {
+		t.Fatalf("book folder: %d %s", wrongLibrary.Code, wrongLibrary.Body.String())
+	}
+}
+
+func TestImportSmartCategoryTags(t *testing.T) {
+	for _, source := range []string{"file", "reference"} {
+		t.Run(source, func(t *testing.T) {
+			s := testServer(t)
+			scholarFixture(t, s)
+			prefs := `{"papers":{"smartCategories":[{"id":"web","name":"Web Security","tags":["Security","Web","security"]}]}}`
+			w := request(t, s, "PUT", "/api/preferences/library", strings.NewReader(prefs))
+			if w.Code != 200 {
+				t.Fatal(w.Body.String())
+			}
+			if source == "file" {
+				w = uploadToFolder(t, s, "paper.pdf", testPDF(2), "papers", "", "web")
+			} else {
+				w = request(t, s, "POST", "/api/documents/resolve", strings.NewReader(`{"ref":"1706.03762","smartCategory":"web"}`))
+			}
+			if w.Code != 201 {
+				t.Fatalf("import: %d %s", w.Code, w.Body.String())
+			}
+			var doc Document
+			if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
+				t.Fatal(err)
+			}
+			saved, err := s.Store.Document(doc.ID)
+			if err != nil || len(saved.Tags) != 2 || saved.Tags[0] != "Security" || saved.Tags[1] != "Web" || len(saved.Folders) != 0 {
+				t.Fatalf("smart category tags not persisted: %+v %v", saved, err)
+			}
+		})
+	}
+}
+
+func TestInvalidSmartCategoryDoesNotImport(t *testing.T) {
+	s := testServer(t)
+	request(t, s, "PUT", "/api/preferences/library", strings.NewReader(`{"papers":{"smartCategories":[{"id":"empty","tags":[]}]}}`))
+	for _, smartID := range []string{"missing", "empty"} {
+		w := uploadToFolder(t, s, "paper.pdf", testPDF(2), "papers", "", smartID)
+		if w.Code != 400 {
+			t.Fatalf("invalid smart category: %d %s", w.Code, w.Body.String())
+		}
+	}
+	var count int
+	if err := s.Store.DB.QueryRow("SELECT count(*) FROM documents").Scan(&count); err != nil || count != 0 {
+		t.Fatalf("failed import saved a document: count=%d error=%v", count, err)
+	}
+}
 func sample(t *testing.T, name string) []byte {
 	t.Helper()
 	b, e := os.ReadFile(filepath.Join("../../../web/public/samples", name))

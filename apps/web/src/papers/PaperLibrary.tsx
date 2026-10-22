@@ -1,4 +1,5 @@
 import { PaperColumns, usePaperColumns } from "./PaperColumns";
+import { setPaperDragImage } from "./paper-drag-image";
 import type { TableColumn } from "./columns";
 import { PaperTagFilterButton } from "./PaperTagFilter";
 import { Badge } from "@reader/ui/components/badge";
@@ -1286,6 +1287,8 @@ function PaperRow({
   moreMenu: React.ReactNode;
 }) {
   const byline = paperByline(doc);
+  const dragImage = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => dragImage.current?.(), []);
   const percent = paperProgress(doc.percentage);
   const check = picking && (
     <span className="paper-row-check" data-row-action>
@@ -1439,8 +1442,19 @@ function PaperRow({
         draggable
         aria-label={doc.title}
         onDragStart={(e) => {
-          e.dataTransfer.setData(PAPER_DRAG_TYPE, JSON.stringify(dragIds()));
+          const ids = dragIds();
+          e.dataTransfer.setData(PAPER_DRAG_TYPE, JSON.stringify(ids));
           e.dataTransfer.effectAllowed = "copy";
+          dragImage.current?.();
+          dragImage.current = setPaperDragImage(
+            e.dataTransfer,
+            doc.title,
+            ids.length,
+          );
+        }}
+        onDragEnd={() => {
+          dragImage.current?.();
+          dragImage.current = undefined;
         }}
         onClick={(e) => {
           if ((e.target as Element).closest("[data-row-action]")) return;

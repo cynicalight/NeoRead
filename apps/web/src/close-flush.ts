@@ -1,4 +1,4 @@
-import { api } from "@reader/api";
+import { saveReaderSettings } from "./reader-settings";
 import { flushProgress } from "./progress";
 import { useReaderStore } from "./store";
 
@@ -10,7 +10,7 @@ export function installCloseFlush() {
   window.addEventListener("pagehide", flush);
   const removeClose = window.readerDesktop?.onBeforeClose(async () => {
     await flushProgress();
-    await api.saveSettings(useReaderStore.getState().theme);
+    await saveReaderSettings(useReaderStore.getState().theme);
   });
   return () => {
     window.removeEventListener("pagehide", flush);

@@ -1015,6 +1015,16 @@
                                       "enum": ["1"],
                                       "description": "Confirms a paper over 100 pages or 100 MB. Without it such a paper fails with 409, code large-paper and its page count.",
                                     },
+                                  "folder":
+                                    {
+                                      "type": "string",
+                                      "description": "Optional target paper category. Applied only to a newly imported paper; an existing document keeps its folders.",
+                                    },
+                                  "smartCategory":
+                                    {
+                                      "type": "string",
+                                      "description": "Saved smart category ID, mutually exclusive with folder. Its required tags are applied atomically to a newly imported paper. Existing documents keep their tags.",
+                                    },
                                 },
                               "required": ["file"],
                             },
@@ -4044,6 +4054,16 @@
                                     },
                                   "allowLarge":
                                     { "type": "boolean", "default": false },
+                                  "folder":
+                                    {
+                                      "type": "string",
+                                      "description": "Optional target paper category. Applied only to a newly imported paper; an existing document keeps its folders.",
+                                    },
+                                  "smartCategory":
+                                    {
+                                      "type": "string",
+                                      "description": "Saved smart category ID, mutually exclusive with folder. Its required tags are applied atomically to a newly imported paper. Existing documents keep their tags.",
+                                    },
                                 },
                               "required": ["ref"],
                             },

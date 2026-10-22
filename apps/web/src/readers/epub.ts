@@ -800,7 +800,11 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     const palette = {
       light: ["#ffffff", "#27272a"],
       sepia: ["#f7f6f2", "#1f1e1d"],
-      dark: ["#202020", "#dededb"],
+      // Graphite, or the neutral dark page for pure black.
+      dark:
+        theme.pdfDarkContrast === "high"
+          ? ["#202020", "#dededb"]
+          : ["#2f2c2f", "#e4dfda"],
     }[theme.mode];
     const submit = async () => {
       await this.navigator?.submitPreferences(

@@ -4,6 +4,7 @@ import { selectionAnchor, isSelectionToolbar } from "./selection-anchor";
 import { pdfQuotePoint } from "./pdf-reference-location";
 import { PDFBlockOverlay, referenceBlock } from "./pdf-blocks";
 import { PDFReadingNavigation } from "./pdf-navigation";
+import { PDFViewport } from "./pdf-viewport";
 import { PDFLocationHighlight } from "./pdf-location-highlight";
 import { PDFAnnotationLayer } from "./pdf-annotations";
 import { PDFLinkPreview } from "./pdf-link-preview";
@@ -66,7 +67,10 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private removeExternalLinks: () => void;
   private texts = new Map<number, string>();
   private resize: ResizeObserver;
-  private resizeTimer?: ReturnType<typeof setTimeout>;
+  private resizeFrame = 0;
+  private viewportFrame = 0;
+  private viewport: PDFViewport;
+  private resizingViewport = false;
   private fitWidth = true;
   private appliedZoom?: ReaderTheme["zoom"];
   private wheelScale?: number;
@@ -151,6 +155,11 @@ export class PDFReaderAdapter implements ReaderAdapter {
       imagesRightClickMinSize: Number.POSITIVE_INFINITY,
     });
     this.links.setViewer(this.viewer);
+    this.viewport = new PDFViewport(container, this.viewer);
+    this.bus.on("scalechanging", () => {
+      if (!this.disposed && !this.resizingViewport)
+        this.viewport.scaleChanged();
+    });
     this.bus.on("pagesinit", () => {
       // PDFViewer resets lang during setup. Explicitly mark it unknown before
       // text rendering to match PDF.js's measurement canvas and stop inheriting
@@ -210,18 +219,30 @@ export class PDFReaderAdapter implements ReaderAdapter {
       passive: true,
     });
     this.resize = new ResizeObserver(() => {
-      viewer.style.paddingBottom = `${container.clientHeight / 2}px`;
-      this.clearSelection();
-      clearTimeout(this.resizeTimer);
-      const fit = () => {
-        if (container.closest("[inert]")) return;
-        if (!this.disposed && this.pdf && this.fitWidth)
-          this.viewer.currentScaleValue = "page-width";
-      };
-      // Refit once the sidebar settles, not on every animation frame.
-      if (container.closest("[data-toggling]"))
-        this.resizeTimer = setTimeout(fit, 100);
-      else fit();
+      cancelAnimationFrame(this.resizeFrame);
+      this.resizeFrame = requestAnimationFrame(() => {
+        if (this.disposed || !this.pdf || container.closest("[inert]")) return;
+        viewer.style.paddingBottom = `${container.clientHeight / 2}px`;
+        this.resizingViewport = true;
+        let result;
+        try {
+          result = this.viewport.resize(this.fitWidth, () =>
+            this.navigation.resizeViewport(),
+          );
+        } finally {
+          this.resizingViewport = false;
+        }
+        if (!result) return;
+        this.clearSelection();
+        this.wheelScale = undefined;
+        if (
+          !this.fitWidth &&
+          (result.scaleChanged || result.widthRatio !== 1)
+        ) {
+          this.appliedZoom = result.scale;
+          this.events.zoom?.(result.scale, "layout", result.widthRatio);
+        }
+      });
     });
     this.resize.observe(container);
   }
@@ -408,6 +429,8 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private onScroll = () => {
     this.clearSelection();
     this.processNextDarkPage();
+    cancelAnimationFrame(this.viewportFrame);
+    this.viewportFrame = requestAnimationFrame(() => this.viewport.remember());
   };
   private onPointerDown = (event: PointerEvent) => {
     if (isSelectionToolbar(event.target)) return;
@@ -434,6 +457,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
       this.fitWidth = true;
       this.appliedZoom = "width";
       this.viewer.currentScaleValue = "page-width";
+      this.viewport.reset();
       this.events.zoom?.("width");
       return;
     }
@@ -476,6 +500,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
       this.appliedZoom = applied;
       this.events.zoom?.(applied);
     }
+    this.viewport.reset();
   }
   private onWheel = (event: WheelEvent) => {
     // Chromium reports trackpad pinch as Ctrl+wheel; macOS Cmd+wheel uses metaKey.
@@ -811,6 +836,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
       this.viewer.currentScaleValue = this.fitWidth
         ? "page-width"
         : String(theme.zoom);
+      this.viewport.reset();
     }
     this.container.dataset.theme = theme.mode;
     this.container.dataset.darkContrast = theme.pdfDarkContrast ?? "soft";
@@ -844,10 +870,14 @@ export class PDFReaderAdapter implements ReaderAdapter {
     if (!block) return false;
     this.fitWidth = false;
     this.clearSelection();
+    this.appliedZoom = this.viewer.currentScale;
+    this.events.zoom?.(this.appliedZoom, "focus");
+    this.viewport.reset();
     const reached = await this.navigation.focusBlock(block.id, "source");
     if (reached) {
       this.appliedZoom = this.viewer.currentScale;
-      this.events.zoom?.(this.appliedZoom);
+      this.events.zoom?.(this.appliedZoom, "focus");
+      this.viewport.reset();
       this.location = { ...location, page: block.page };
       this.events.location(
         this.location,
@@ -876,16 +906,22 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.blocks.setSearchBlocks(blockIds);
   }
   async focusBlock(blockId: string, layout: "source" | "parallel") {
+    if (!this.blockData.some((block) => block.id === blockId)) return;
     this.fitWidth = false;
     this.clearSelection();
+    this.appliedZoom = this.viewer.currentScale;
+    this.events.zoom?.(this.appliedZoom, "focus");
+    this.viewport.reset();
     const reached = await this.navigation.focusBlock(blockId, layout);
     if (reached) {
       this.appliedZoom = this.viewer.currentScale;
-      this.events.zoom?.(this.appliedZoom);
+      this.events.zoom?.(this.appliedZoom, "focus");
+      this.viewport.reset();
     }
   }
   cancelBlockFocus() {
     this.navigation.cancelMotion();
+    this.viewport.reset();
   }
   followBlock(anchor: import("@reader/core").PDFReadingAnchor) {
     return this.navigation.follow(anchor);
@@ -987,7 +1023,8 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.figureLinks.destroy();
     this.disposed = true;
     this.resize.disconnect();
-    clearTimeout(this.resizeTimer);
+    cancelAnimationFrame(this.resizeFrame);
+    cancelAnimationFrame(this.viewportFrame);
     document.removeEventListener("mouseup", this.onMouseUp);
     document.removeEventListener("pointerdown", this.onPointerDown);
     document.removeEventListener("selectionchange", this.onSelectionChange);

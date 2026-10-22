@@ -17,6 +17,7 @@ import {
   removeCategoryPreferences,
   renameCategoryPreferences,
   hasTag,
+  inSmartCategory,
   validCategory,
   withinCategory,
   type PaperView,
@@ -252,21 +253,49 @@ export const looksLikeReference = (text: string) =>
   text.length <= 500 && referencePattern.test(text.trim());
 
 /** Download a paper by identifier, link or title and show it in the list. */
-export async function importReference(ref: string) {
+export async function importReference(ref: string, target = "") {
+  const smartCategory = target.startsWith("smart:") ? target.slice(6) : "";
+  const folder = smartCategory
+    ? ""
+    : target.startsWith("folder:")
+      ? target.slice(7)
+      : target;
+  const category = smartCategory ? { smartCategory } : folder ? { folder } : {};
   let doc;
   try {
-    doc = await api.resolveDocument(ref.trim());
+    doc = target
+      ? await api.resolveDocument(ref.trim(), {
+          library: "papers",
+          allowLarge: false,
+          ...category,
+        })
+      : await api.resolveDocument(ref.trim());
   } catch (error) {
     if (!(error instanceof RequestError) || error.code !== "large-paper")
       throw error;
     const library = await confirmLargePaper();
     if (!library) throw new Error("已取消导入");
-    doc = await api.resolveDocument(ref.trim(), { library, allowLarge: true });
+    doc = await api.resolveDocument(ref.trim(), {
+      library,
+      allowLarge: true,
+      ...(library === "papers" ? category : {}),
+    });
   }
   await refreshLibrary().catch(() => {});
   const ui = usePaperUI.getState();
   if (doc.library === "papers") {
-    ui.setView("all");
+    const smart = useReaderStore
+      .getState()
+      .libraryPreferences.papers?.smartCategories?.find(
+        (item) => item.id === smartCategory,
+      );
+    ui.setView(
+      smart && inSmartCategory(doc, smart)
+        ? `smart:${smart.id}`
+        : folder && doc.folders.includes(folder)
+          ? `folder:${folder}`
+          : "all",
+    );
     ui.setQuery("");
     ui.setTagFilter({ ...ui.tagFilter, tags: [] });
     ui.select(doc.id);

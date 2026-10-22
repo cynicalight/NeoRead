@@ -36,6 +36,7 @@ import {
 import { startUpdateService } from "./update-service";
 import { devIsolation } from "./dev-isolation";
 import { startDiagnosticService } from "./diagnostic-service";
+import { serverSpawnDiagnostics } from "./server-spawn-diagnostics";
 import { discoverEndNote } from "./endnote-discovery";
 import { commandLineStatus, setCommandLine } from "./command-line";
 const isolation = devIsolation({
@@ -136,7 +137,11 @@ async function startServer() {
       reject(new Error("本地服务启动超时"));
     }, 20000);
     child!.once("error", (err) => {
-      diagnostics?.record("server.spawn_failed", err);
+      diagnostics?.logs.record("desktop", {
+        level: "error",
+        event: "server.spawn_failed",
+        ...serverSpawnDiagnostics(binary, err),
+      });
       clearTimeout(timer);
       reject(err);
     });
@@ -177,9 +182,24 @@ async function startServer() {
   });
 }
 /** Window background before the renderer paints, matching the theme. */
-function windowBackground(appearance: unknown) {
-  if (appearance === "sepia") return "#eeede7";
-  return nativeTheme.shouldUseDarkColors ? "#171717" : "#ffffff";
+function windowBackground(appearance: unknown, palettes: unknown) {
+  const option = (key: string) =>
+    typeof palettes === "object" && palettes !== null && key in palettes
+      ? (palettes as Record<string, unknown>)[key]
+      : undefined;
+  const system = appearance !== "light" && appearance !== "sepia";
+  const dark =
+    appearance === "dark" || (system && nativeTheme.shouldUseDarkColors);
+  if (!dark)
+    return appearance === "sepia" ||
+      (system && option("systemLightMode") === "sepia")
+      ? "#eeede7"
+      : "#ffffff";
+  // Pure black keeps the neutral dark window; graphite is the default.
+  const contrast = option(
+    appearance === "dark" ? "pdfDarkContrast" : "systemDarkContrast",
+  );
+  return contrast === "high" ? "#171717" : "#211e21";
 }
 // Long papers wait for the reader's choice. The renderer refers to them by
 // one-time IDs, never by path.
@@ -188,6 +208,7 @@ async function importPaths(
   paths: string[],
   library: "books" | "papers" = "books",
   allowLarge = false,
+  folder = "",
 ) {
   const accepted = library === "papers" ? /\.pdf$/i : /\.(epub|pdf)$/i;
   const large: Array<{ id: string; name: string; pages: number }> = [];
@@ -198,6 +219,13 @@ async function importPaths(
     const form = new FormData();
     form.append("library", library);
     if (allowLarge) form.append("allowLarge", "1");
+    if (folder.startsWith("smart:"))
+      form.append("smartCategory", folder.slice(6));
+    else if (folder)
+      form.append(
+        "folder",
+        folder.startsWith("folder:") ? folder.slice(7) : folder,
+      );
     form.append("file", new Blob([data]), name);
     const response = await fetch(`${serverURL}/api/documents`, {
       method: "POST",
@@ -337,8 +365,8 @@ app
             titleBarStyle: "hidden" as const,
             trafficLightPosition: { x: 20, y: 20 },
           }
-        : {}),
-      backgroundColor: windowBackground(appearance),
+        : { autoHideMenuBar: true }),
+      backgroundColor: windowBackground(appearance, preferences),
       webPreferences: {
         preload: join(__dirname, "preload.cjs"),
         contextIsolation: true,
@@ -580,23 +608,26 @@ app
       restartRequested = true;
       app.quit();
     });
-    ipcMain.handle("reader:appearance", (event, appearance: unknown) => {
-      if (
-        event.sender !== window?.webContents ||
-        event.senderFrame !== window.webContents.mainFrame
-      )
-        throw new Error("Invalid sender");
-      if (
-        appearance !== "light" &&
-        appearance !== "sepia" &&
-        appearance !== "dark" &&
-        appearance !== "system"
-      )
-        throw new Error("Invalid appearance");
-      // Paper is a light theme for native chrome with its own background.
-      nativeTheme.themeSource = appearance === "sepia" ? "light" : appearance;
-      window.setBackgroundColor(windowBackground(appearance));
-    });
+    ipcMain.handle(
+      "reader:appearance",
+      (event, appearance: unknown, palettes: unknown) => {
+        if (
+          event.sender !== window?.webContents ||
+          event.senderFrame !== window.webContents.mainFrame
+        )
+          throw new Error("Invalid sender");
+        if (
+          appearance !== "light" &&
+          appearance !== "sepia" &&
+          appearance !== "dark" &&
+          appearance !== "system"
+        )
+          throw new Error("Invalid appearance");
+        // Paper is a light theme for native chrome with its own background.
+        nativeTheme.themeSource = appearance === "sepia" ? "light" : appearance;
+        window.setBackgroundColor(windowBackground(appearance, palettes));
+      },
+    );
     ipcMain.handle(
       "reader:document-file",
       async (event, id: unknown, type: unknown, action: unknown) => {
@@ -725,26 +756,33 @@ app
       });
       return selected.canceled ? null : selected.filePaths[0] || null;
     });
-    ipcMain.handle("reader:import", async (event, library: unknown) => {
-      if (
-        event.sender !== window?.webContents ||
-        event.senderFrame !== window.webContents.mainFrame
-      )
-        throw new Error("Invalid sender");
-      if (library !== "books" && library !== "papers")
-        throw new Error("Invalid library");
-      const selected = await dialog.showOpenDialog(window, {
-        properties: ["openFile", "multiSelections"],
-        filters:
-          library === "papers"
-            ? [{ name: "PDF", extensions: ["pdf"] }]
-            : [{ name: "EPUB / PDF", extensions: ["epub", "pdf"] }],
-      });
-      return selected.canceled ? [] : importPaths(selected.filePaths, library);
-    });
+    ipcMain.handle(
+      "reader:import",
+      async (event, library: unknown, folder: unknown) => {
+        if (
+          event.sender !== window?.webContents ||
+          event.senderFrame !== window.webContents.mainFrame
+        )
+          throw new Error("Invalid sender");
+        if (library !== "books" && library !== "papers")
+          throw new Error("Invalid library");
+        if (typeof folder !== "string" || (library !== "papers" && folder))
+          throw new Error("Invalid folder");
+        const selected = await dialog.showOpenDialog(window, {
+          properties: ["openFile", "multiSelections"],
+          filters:
+            library === "papers"
+              ? [{ name: "PDF", extensions: ["pdf"] }]
+              : [{ name: "EPUB / PDF", extensions: ["epub", "pdf"] }],
+        });
+        return selected.canceled
+          ? []
+          : importPaths(selected.filePaths, library, false, folder);
+      },
+    );
     ipcMain.handle(
       "reader:import-large",
-      async (event, ids: unknown, library: unknown) => {
+      async (event, ids: unknown, library: unknown, folder: unknown) => {
         if (
           event.sender !== window?.webContents ||
           event.senderFrame !== window.webContents.mainFrame
@@ -752,7 +790,9 @@ app
           throw new Error("Invalid sender");
         if (
           !Array.isArray(ids) ||
-          (library !== "books" && library !== "papers")
+          (library !== "books" && library !== "papers") ||
+          typeof folder !== "string" ||
+          (library !== "papers" && folder)
         )
           throw new Error("Invalid import");
         const paths = ids.flatMap((id) => {
@@ -760,7 +800,7 @@ app
           if (path) largePapers.delete(id);
           return path ? [path] : [];
         });
-        await importPaths(paths, library, true);
+        await importPaths(paths, library, true, folder);
       },
     );
     await window.loadURL(`${url}/#token=${serverToken}`);

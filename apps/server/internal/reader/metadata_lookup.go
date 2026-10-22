@@ -19,7 +19,18 @@ func (s *Server) scholarClient() *scholar.Client {
 	if s.scholar == nil {
 		s.scholar = scholar.New(maxImportBytes)
 	}
-	return s.scholar
+	// Snapshot preferences per operation; never mutate the shared client in flight.
+	client := *s.scholar
+	var value string
+	if s.Store.DB.QueryRow("SELECT value FROM settings WHERE key='preferences:library'").Scan(&value) == nil {
+		var prefs struct {
+			CrossrefEmail string `json:"crossrefEmail"`
+		}
+		if json.Unmarshal([]byte(value), &prefs) == nil {
+			client.CrossrefEmail = prefs.CrossrefEmail
+		}
+	}
+	return &client
 }
 
 func fromScholar(m scholar.Metadata) PaperMetadata {
@@ -171,9 +182,11 @@ func (s *Server) lookupMetadata(w http.ResponseWriter, r *http.Request) {
 // resolveDocument imports a paper from an arXiv ID, DOI, link or title.
 func (s *Server) resolveDocument(w http.ResponseWriter, r *http.Request) {
 	var v struct {
-		Ref        string `json:"ref"`
-		Library    string `json:"library"`
-		AllowLarge bool   `json:"allowLarge"`
+		Ref           string `json:"ref"`
+		Library       string `json:"library"`
+		AllowLarge    bool   `json:"allowLarge"`
+		Folder        string `json:"folder"`
+		SmartCategory string `json:"smartCategory"`
 	}
 	if !decode(w, r, &v) {
 		return
@@ -183,6 +196,10 @@ func (s *Server) resolveDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validLibrary(v.Library) {
 		fail(w, 400, "未知书库")
+		return
+	}
+	if _, err := s.importCategoryTags(v.Library, v.Folder, v.SmartCategory); err != nil {
+		fail(w, 400, err.Error())
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
@@ -214,7 +231,7 @@ func (s *Server) resolveDocument(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "无法保存文件")
 		return
 	}
-	d, status, err := s.importFile(ctx, temp.Name(), result.Filename, v.Library, v.AllowLarge)
+	d, status, err := s.importFileToCategory(ctx, temp.Name(), result.Filename, v.Library, v.AllowLarge, v.Folder, v.SmartCategory)
 	var imp importError
 	if errors.As(err, &imp) && imp.code != "" {
 		respond(w, status, map[string]any{"error": imp.message, "code": imp.code, "pages": imp.pages})

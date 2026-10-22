@@ -1,4 +1,5 @@
 import { figureTarget } from "../readers/figure-references";
+import { readerLayout, updateReaderLayout } from "../reader-layout";
 import {
   useEffect,
   useLayoutEffect,
@@ -67,7 +68,6 @@ export function PDFReadingView({
   toolbarHost,
   autoCenterHost,
   pageNavigation,
-  sidebarsOpen,
   searchResults = [],
   searchQuery = "",
   onReady,
@@ -88,8 +88,8 @@ export function PDFReadingView({
   onReady: (adapter: ReaderAdapter, toc: TOCItem[]) => void;
   events: ReaderEvents;
 }) {
+  const { swapped, sourceWidth } = readerLayout(theme.readerLayout);
   const [mode, setMode] = useState<Mode>("source"),
-    [swapped, setSwapped] = useState(false),
     [syncEnabled, setSyncEnabled] = useState(true);
   const { translations, error } = useTranslations(doc.id);
   const [popup, setPopup] = useState<{ block: PDFBlock; rect: DOMRect }>();
@@ -616,45 +616,6 @@ export function PDFReadingView({
       engine.hoverBlock?.(null);
     };
   }, [mode, engine, active]);
-  const leftOpen = sidebarsOpen?.left ?? true;
-  const rightOpen = sidebarsOpen?.right ?? true;
-  const previousSidebars = useRef({ left: leftOpen, right: rightOpen });
-  useLayoutEffect(() => {
-    const previous = previousSidebars.current;
-    previousSidebars.current = { left: leftOpen, right: rightOpen };
-    if (
-      !engine ||
-      !((previous.left && !leftOpen) || (previous.right && !rightOpen))
-    )
-      return;
-    // Capture before Workspace's layout effect collapses the panels.
-    const origin =
-      mode === "translation"
-        ? "translation"
-        : mode === "source"
-          ? "source"
-          : side.current;
-    const id = centerBlock(origin);
-    const block = blocks.find((block) => block.id === id);
-    if (!block) return;
-    const motion = explicitFocus.current;
-    const operation = motion.operation;
-    motion.moving = true;
-    let settledFrames = 0;
-    let frame = requestAnimationFrame(function settle() {
-      if (operation !== motion.operation) return;
-      // Workspace owns the transition marker, including interrupted transitions.
-      // Allow ResizeObserver and PDF.js to commit the final width afterwards.
-      if (root.current?.closest("[data-toggling]")) settledFrames = 0;
-      else settledFrames++;
-      if (settledFrames < 2) frame = requestAnimationFrame(settle);
-      else void focusBlock(block, origin);
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      if (operation === motion.operation) motion.moving = false;
-    };
-  }, [leftOpen, rightOpen, engine, mode, doc.id]);
   useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
   useEffect(() => {
     const release = () => {
@@ -881,7 +842,12 @@ export function PDFReadingView({
       <TranslationPanes
         mode={mode}
         swapped={swapped}
-        onSwap={() => setSwapped((value) => !value)}
+        onSwap={() => updateReaderLayout({ swapped: !swapped })}
+        sourceWidth={sourceWidth}
+        onSourceWidthChange={(sourceWidth) =>
+          updateReaderLayout({ sourceWidth })
+        }
+        onResizeStart={() => engine?.cancelBlockFocus?.()}
         source={
           <div
             className="translation-source"
@@ -980,7 +946,9 @@ export function PDFReadingView({
                     : undefined;
                 input("translation");
                 hover("translation");
-                selecting.current = true;
+                // The viewport itself receives scrollbar presses. Keep following
+                // those scrolls while the pointer is down; only text drags select.
+                selecting.current = !!section && event.button === 0;
                 selection.current = null;
                 events.selection(null);
                 void engine?.focusSentences?.("", []);

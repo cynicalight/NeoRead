@@ -1,5 +1,11 @@
 import { useShortcut } from "./shortcuts/shortcuts";
 import { registerTabCloseGuard } from "./document-tab-guards";
+import { useDocumentTheme } from "./useDocumentTheme";
+import {
+  readerLayout,
+  sidebarLayout,
+  updateReaderLayout,
+} from "./reader-layout";
 import { SelectionTranslation } from "./SelectionTranslation";
 import { LinkPreviewPanel } from "./LinkPreviewPanel";
 import { AnnotationHoverCard } from "./AnnotationHoverCard";
@@ -129,6 +135,7 @@ import { useReaderStore } from "./store";
 import { scheduleProgress, flushProgress } from "./progress";
 import { Slider } from "@reader/ui/components/slider";
 import { TranslationFontControls } from "./TranslationFontControls";
+import { AppearancePicker } from "./AppearancePicker";
 function IconButton({
   label,
   children,
@@ -217,7 +224,7 @@ function TOCTree({
 export function Workspace({
   document: doc,
   active = true,
-  theme,
+  theme: sharedTheme,
   processing,
   onBack,
   onSettings,
@@ -229,7 +236,12 @@ export function Workspace({
   onBack: () => void;
   onSettings: () => void;
 }) {
-  const { setTheme, aiConfig, setAIConfig, aiModelSaving } = useReaderStore();
+  const { aiConfig, setAIConfig, aiModelSaving } = useReaderStore();
+  const { theme, setTheme, onZoom } = useDocumentTheme(
+    sharedTheme,
+    doc,
+    active,
+  );
   const translationSize = theme.translationFontSize ?? 1;
   const assistantSize = theme.assistantFontScale ?? 1;
   const linkTarget = useReaderStore((s) => s.linkTarget);
@@ -319,16 +331,26 @@ export function Workspace({
       });
     },
   );
-  const [left, setLeft] = useState(true);
-  const [right, setRight] = useState(true);
+  const layout = readerLayout(theme.readerLayout);
+  const left = layout.navigationOpen;
+  const right = layout.assistantOpen;
+  const setLeft = (navigationOpen: boolean) => {
+    adapter?.cancelBlockFocus?.();
+    updateReaderLayout({ navigationOpen });
+  };
+  const setRight = (assistantOpen: boolean) => {
+    adapter?.cancelBlockFocus?.();
+    updateReaderLayout({ assistantOpen });
+  };
+  const initialLayout = useRef(sidebarLayout(layout));
   const leftPanel = usePanelRef();
   const rightPanel = usePanelRef();
   const panelGroup = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const group = panelGroup.current;
     const changes = [
-      [leftPanel.current, left],
-      [rightPanel.current, right],
+      [leftPanel.current, left, layout.navigationWidth],
+      [rightPanel.current, right, layout.assistantWidth],
     ] as const;
     if (
       !group ||
@@ -336,9 +358,9 @@ export function Workspace({
     )
       return;
     group.setAttribute("data-toggling", "");
-    for (const [panel, open] of changes) {
+    for (const [panel, open, width] of changes) {
       if (panel && panel.isCollapsed() === open) {
-        if (open) panel.expand();
+        if (open) panel.resize(`${width}%`);
         else panel.collapse();
       }
     }
@@ -347,7 +369,14 @@ export function Workspace({
       clearTimeout(timer);
       group.removeAttribute("data-toggling");
     };
-  }, [left, right, leftPanel, rightPanel]);
+  }, [
+    left,
+    right,
+    layout.navigationWidth,
+    layout.assistantWidth,
+    leftPanel,
+    rightPanel,
+  ]);
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [rightTab, setRightTab] = useState("ai");
@@ -1133,41 +1162,10 @@ export function Workspace({
             >
               <Type />
             </PopoverTrigger>
-            <PopoverContent className="w-72">
+            <PopoverContent className="w-80">
               <h3 className="text-sm font-medium">阅读外观</h3>
               <div className="space-y-4">
-                <Tabs
-                  value={
-                    theme.mode === "dark"
-                      ? theme.pdfDarkContrast === "high"
-                        ? "dark"
-                        : "gray"
-                      : theme.mode
-                  }
-                  onValueChange={(value) => {
-                    if (!value) return;
-                    const mode =
-                      value === "gray"
-                        ? "dark"
-                        : (value as "light" | "sepia" | "dark");
-                    setTheme({
-                      mode,
-                      appearance: mode,
-                      ...(mode === "dark"
-                        ? {
-                            pdfDarkContrast: value === "gray" ? "soft" : "high",
-                          }
-                        : {}),
-                    });
-                  }}
-                >
-                  <TabsList className="w-full" aria-label="阅读配色">
-                    <TabsTrigger value="light">浅色</TabsTrigger>
-                    <TabsTrigger value="dark">深色</TabsTrigger>
-                    <TabsTrigger value="sepia">纸张</TabsTrigger>
-                    <TabsTrigger value="gray">灰色</TabsTrigger>
-                  </TabsList>
-                </Tabs>
+                <AppearancePicker theme={theme} setTheme={setTheme} />
                 <div className="flex items-center gap-3">
                   <span className="shrink-0 text-sm">Agent 字号</span>
                   <Slider
@@ -1350,17 +1348,28 @@ export function Workspace({
         orientation="horizontal"
         className="reader-panels"
         elementRef={panelGroup}
-        onLayoutChanged={(layout, { isUserInteraction }) => {
+        defaultLayout={initialLayout.current}
+        onLayoutChanged={(sizes, { isUserInteraction }) => {
           if (isUserInteraction) {
-            setLeft(layout.navigation > 0);
-            setRight(layout.assistant > 0);
+            updateReaderLayout({
+              navigationOpen: sizes.navigation > 0,
+              assistantOpen: sizes.assistant > 0,
+              ...(sizes.navigation > 0
+                ? { navigationWidth: sizes.navigation }
+                : {}),
+              ...(sizes.assistant > 0
+                ? { assistantWidth: sizes.assistant }
+                : {}),
+            });
           }
         }}
         onPointerDownCapture={(event) => {
           if (
             (event.target as Element).closest('[data-slot="resizable-handle"]')
-          )
+          ) {
+            adapter?.cancelBlockFocus?.();
             panelGroup.current?.removeAttribute("data-toggling");
+          }
         }}
       >
         <ResizablePanel
@@ -1484,7 +1493,7 @@ export function Workspace({
                     setTOC(items);
                   }}
                   events={{
-                    zoom: (zoom) => setTheme({ zoom }),
+                    zoom: onZoom,
                     location: saveLocation,
                     selection: selectText,
                     annotation: selectAnnotation,

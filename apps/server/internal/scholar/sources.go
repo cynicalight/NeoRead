@@ -127,7 +127,18 @@ func datePart(parts [][]int) string {
 }
 
 func (c *Client) crossref(ctx context.Context, doi string) (Metadata, error) {
-	data, _, _, err := c.get(ctx, c.Crossref+url.PathEscape(doi), "application/json", 5<<20)
+	endpoint := c.Crossref + url.PathEscape(doi)
+	if c.CrossrefEmail != "" {
+		endpoint += "?" + url.Values{"mailto": {c.CrossrefEmail}}.Encode()
+	}
+	data, _, _, err := c.get(ctx, endpoint, "application/json", 5<<20)
+	var limited rateLimitError
+	if errors.As(err, &limited) {
+		if c.CrossrefEmail == "" {
+			return Metadata{}, Error{"Crossref 服务商限制了请求频率。可前往「设置 → 论文库 → 论文信息服务」填写自己的邮箱，以使用服务商提供的更高额度；也可稍后重试"}
+		}
+		return Metadata{}, Error{"Crossref 服务商限制了请求频率；请求已携带你填写的邮箱，请稍后重试"}
+	}
 	if err != nil {
 		return Metadata{}, err
 	}

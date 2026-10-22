@@ -938,7 +938,11 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     const palette = {
       light: ["#ffffff", "#27272a"],
       sepia: ["#f7f6f2", "#1f1e1d"],
-      dark: ["#202020", "#dededb"],
+      // Graphite, or the neutral dark page for pure black.
+      dark:
+        this.theme.pdfDarkContrast === "high"
+          ? ["#202020", "#dededb"]
+          : ["#2f2c2f", "#e4dfda"],
     }[this.theme.mode];
     Object.assign(this.container.style, {
       fontSize: `${this.theme.fontSize}rem`,

@@ -11,18 +11,52 @@ export function resolveTheme(
   systemDark: boolean,
 ): ReaderTheme {
   const appearance = theme.appearance ?? "system";
+  if (appearance === "system")
+    return systemDark
+      ? {
+          ...theme,
+          mode: "dark",
+          pdfDarkContrast: theme.systemDarkContrast ?? "soft",
+        }
+      : { ...theme, mode: theme.systemLightMode ?? "light" };
   const mode =
-    appearance === "system"
-      ? systemDark
-        ? "dark"
-        : "light"
-      : appearance === "dark"
-        ? "dark"
-        : // Older settings kept paper as light appearance plus a sepia mode.
-          appearance === "sepia" || theme.mode === "sepia"
-          ? "sepia"
-          : "light";
+    appearance === "dark"
+      ? "dark"
+      : // Older settings kept paper as light appearance plus a sepia mode.
+        appearance === "sepia" || theme.mode === "sepia"
+        ? "sepia"
+        : "light";
   return { ...theme, mode };
+}
+
+/** Graphite and pure black are both the dark appearance, told apart by PDF contrast. */
+export type AppearanceChoice =
+  "light" | "sepia" | "graphite" | "black" | "system";
+export const appearanceChoices: [AppearanceChoice, string][] = [
+  ["light", "浅色"],
+  ["sepia", "纸张"],
+  ["graphite", "石墨"],
+  ["black", "纯黑"],
+  ["system", "跟随系统"],
+];
+export function appearanceChoice(theme: ReaderTheme): AppearanceChoice {
+  const appearance = theme.appearance ?? "system";
+  if (appearance === "system") return "system";
+  if (appearance === "dark")
+    return theme.pdfDarkContrast === "high" ? "black" : "graphite";
+  return appearance === "sepia" || theme.mode === "sepia" ? "sepia" : "light";
+}
+export function chooseAppearance(
+  choice: AppearanceChoice,
+): Partial<ReaderTheme> {
+  if (choice === "system") return { appearance: "system" };
+  if (choice === "graphite" || choice === "black")
+    return {
+      appearance: "dark",
+      mode: "dark",
+      pdfDarkContrast: choice === "black" ? "high" : "soft",
+    };
+  return { appearance: choice, mode: choice };
 }
 export function useResolvedTheme(theme: ReaderTheme) {
   const dark = useSyncExternalStore(

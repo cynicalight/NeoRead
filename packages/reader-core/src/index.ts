@@ -217,6 +217,8 @@ export interface SmartCategory {
   tags: string[];
 }
 export interface LibraryPreferences {
+  /** Optional contact email sent only to Crossref for its polite pool. */
+  crossrefEmail?: string;
   /** Library opened at startup; defaults to papers. */
   primaryMode?: LibraryMode;
   mode?: LibraryMode;
@@ -314,9 +316,21 @@ export interface ReaderAnnotationTarget {
   anchor: SelectionAnchor;
 }
 export type Appearance = "light" | "sepia" | "dark" | "system";
+/** Last user-chosen reading layout, shared by PDF and EPUB documents. */
+export interface ReaderLayout {
+  /** Expanded sidebar widths as percentages of the full reading workspace. */
+  navigationWidth: number;
+  assistantWidth: number;
+  navigationOpen: boolean;
+  assistantOpen: boolean;
+  /** Source width in parallel mode, independent of its left/right position. */
+  sourceWidth: number;
+  swapped: boolean;
+}
 export interface ReaderTheme {
   /** Ordered open documents and the selected document; null selects the library. */
   readingSession?: { documentIds: string[]; activeId: string | null };
+  readerLayout?: Partial<ReaderLayout>;
   /** Opt in to copying text selections and selected annotations. */
   autoCopySelection?: boolean;
   autoTranslatePDF?: boolean;
@@ -330,6 +344,10 @@ export interface ReaderTheme {
   /** Estimated total document-agent context; output and history reserve is included. */
   documentContextTokens?: number;
   appearance?: Appearance;
+  /** Following the system: the palette used while the system is light. */
+  systemLightMode?: "light" | "sepia";
+  /** Following the system: graphite ("soft") or pure black ("high") PDFs while dark. */
+  systemDarkContrast?: "high" | "soft";
   mode: "light" | "sepia" | "dark";
   fontSize: number;
   fontFamily: string;
@@ -337,6 +355,8 @@ export interface ReaderTheme {
   margin: number;
   scroll: boolean;
   zoom: number | "width";
+  /** Explicit zoom preferences for individual PDFs; global zoom is the fallback. */
+  documentZooms?: Record<string, number | "width">;
   /** Translated text size in rem; smaller than the source by default. */
   translationFontSize?: number;
   /** AI conversation text scale; 1 keeps the existing size. */
@@ -417,7 +437,11 @@ export interface ReaderEvents {
   annotation?: (target: ReaderAnnotationTarget | null) => void;
   /** Hover preview only; never select or copy annotation text. */
   annotationHover?: (target: ReaderAnnotationTarget | null) => void;
-  zoom?: (zoom: ReaderTheme["zoom"]) => void;
+  zoom?: (
+    zoom: ReaderTheme["zoom"],
+    origin?: "focus" | "layout",
+    widthRatio?: number,
+  ) => void;
   readingAnchor?: (anchor: PDFReadingAnchor) => void;
   blockFocus?: (block: PDFBlock) => void;
   blockAction?: (block: PDFBlock, action: PDFBlockAction) => void;

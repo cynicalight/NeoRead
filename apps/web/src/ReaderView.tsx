@@ -82,9 +82,13 @@ export function ReaderView({
           if (!disposed && latest.current.active)
             latest.current.events.annotation?.(target);
         },
-        zoom: (zoom) => {
-          if (!disposed && latest.current.active)
-            latest.current.events.zoom?.(zoom);
+        zoom: (zoom, origin, widthRatio) => {
+          if (!disposed && latest.current.active) {
+            if (origin === "layout")
+              latest.current.events.zoom?.(zoom, origin, widthRatio);
+            else if (origin) latest.current.events.zoom?.(zoom, origin);
+            else latest.current.events.zoom?.(zoom);
+          }
         },
         blockHover: (block) => {
           if (!disposed && latest.current.active)

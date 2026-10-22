@@ -5,12 +5,13 @@ module.exports = {
   files: ["dist/**/*", "package.json"],
   extraResources: [{ from: "staging", to: ".", filter: ["**/*"] }],
   asar: true,
-  // Solid LZMA for NSIS and maximum zip compression.
+  // Keep maximum compression for Windows NSIS.
   compression: "maximum",
   npmRebuild: false,
   publish: null,
   protocols: [{ name: "Reader", schemes: ["reader"] }],
   mac: {
+    compression: "normal",
     // The zip is the Squirrel.Mac in-place update payload.
     target: ["dmg", "zip"],
     category: "public.app-category.books",

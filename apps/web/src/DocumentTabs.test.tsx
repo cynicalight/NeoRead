@@ -10,6 +10,7 @@ import { DocumentTabs, ReadingWorkspaces } from "./DocumentTabs";
 import { registerTabCloseGuard } from "./document-tab-guards";
 import { flushProgress } from "./progress";
 import { toast } from "sonner";
+import { forwardReaderShortcut } from "./shortcuts/shortcuts";
 const fixture = vi.hoisted(() => ({
   mounts: [] as string[],
   unmounts: [] as string[],
@@ -175,6 +176,25 @@ it("keeps tabs open if progress cannot be saved and supports cycling/numbered ke
   expect(useReaderStore.getState().tabIds).toEqual(["a", "b"]);
 });
 
+it("forwards tab navigation and close commands from EPUB frames", async () => {
+  const cycle = new KeyboardEvent("keydown", {
+    key: "Tab",
+    ctrlKey: true,
+    cancelable: true,
+  });
+  await act(async () => forwardReaderShortcut(cycle));
+  expect(cycle.defaultPrevented).toBe(true);
+  expect(useReaderStore.getState().active?.id).toBe("b");
+  const close = new KeyboardEvent("keydown", {
+    key: "w",
+    metaKey: true,
+    cancelable: true,
+  });
+  await act(async () => forwardReaderShortcut(close));
+  expect(close.defaultPrevented).toBe(true);
+  expect(useReaderStore.getState().tabIds).toEqual(["a", "c"]);
+});
+
 it("checks for new drafts again if saving progress delayed the close", async () => {
   let finish!: () => void;
   vi.mocked(flushProgress).mockImplementationOnce(
@@ -262,15 +282,13 @@ it("does not steal focus from the current chat when closing a background tab wit
   const input = host.querySelector<HTMLInputElement>('[aria-label="问题 a"]')!;
   input.focus();
   await act(async () =>
-    document
-      .getElementById("document-tab-b")!
-      .dispatchEvent(
-        new MouseEvent("auxclick", {
-          bubbles: true,
-          button: 1,
-          cancelable: true,
-        }),
-      ),
+    document.getElementById("document-tab-b")!.dispatchEvent(
+      new MouseEvent("auxclick", {
+        bubbles: true,
+        button: 1,
+        cancelable: true,
+      }),
+    ),
   );
   await act(async () => {
     await new Promise(requestAnimationFrame);

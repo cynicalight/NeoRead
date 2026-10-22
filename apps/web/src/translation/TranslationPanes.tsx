@@ -18,25 +18,32 @@ export function TranslationPanes({
   mode,
   swapped,
   onSwap,
+  onResizeStart,
+  sourceWidth,
+  onSourceWidthChange,
   source,
   translation,
 }: {
   mode: "source" | "parallel" | "translation";
   swapped: boolean;
   onSwap: () => void;
+  onResizeStart?: () => void;
+  sourceWidth: number;
+  onSourceWidthChange: (width: number) => void;
   source: ReactNode;
   translation: ReactNode;
 }) {
   const id = useId();
   const sourcePanel = usePanelRef();
-  const sourceWidth = useRef(50);
+  const rememberedWidth = useRef(sourceWidth);
+  rememberedWidth.current = sourceWidth;
   const [dividerLeft, setDividerLeft] = useState(50);
   const parallel = mode === "parallel";
   const sourceId = `${id}-${swapped ? "right" : "left"}`;
 
   useLayoutEffect(() => {
     sourcePanel.current?.resize(
-      `${mode === "source" ? 100 : mode === "translation" ? 0 : sourceWidth.current}%`,
+      `${mode === "source" ? 100 : mode === "translation" ? 0 : rememberedWidth.current}%`,
     );
   }, [mode, swapped, sourcePanel]);
 
@@ -47,7 +54,7 @@ export function TranslationPanes({
       key="source"
       id={sourceId}
       panelRef={sourcePanel}
-      defaultSize={mode === "source" ? "100%" : "50%"}
+      defaultSize={`${mode === "source" ? 100 : mode === "translation" ? 0 : sourceWidth}%`}
       minSize={parallel ? "20%" : "0%"}
       className="translation-pane-content"
       style={{ overflow: "hidden" }}
@@ -65,7 +72,7 @@ export function TranslationPanes({
     <ResizablePanel
       key="translation"
       id={`${id}-${swapped ? "left" : "right"}`}
-      defaultSize={mode === "source" ? "0%" : "50%"}
+      defaultSize={`${mode === "source" ? 0 : mode === "translation" ? 100 : 100 - sourceWidth}%`}
       minSize={parallel ? "20%" : "0%"}
       className="translation-pane-content"
       style={{ overflow: "hidden" }}
@@ -80,12 +87,26 @@ export function TranslationPanes({
       <ResizablePanelGroup
         orientation="horizontal"
         disabled={!parallel}
+        onPointerDownCapture={(event) => {
+          if (
+            (event.target as Element).closest('[data-slot="resizable-handle"]')
+          )
+            onResizeStart?.();
+        }}
+        onKeyDownCapture={(event) => {
+          if (
+            (event.target as Element).closest('[data-slot="resizable-handle"]')
+          )
+            onResizeStart?.();
+        }}
         onLayoutChange={(layout) => {
           if (parallel) setDividerLeft(layout[`${id}-left`]);
         }}
         onLayoutChanged={(layout, { isUserInteraction }) => {
-          if (parallel && isUserInteraction)
-            sourceWidth.current = layout[sourceId];
+          if (parallel && isUserInteraction) {
+            rememberedWidth.current = layout[sourceId];
+            onSourceWidthChange(layout[sourceId]);
+          }
         }}
       >
         {swapped ? panels.reverse() : panels}

@@ -23,8 +23,30 @@
   --ring: oklch(0.708 0 0);
   --radius: 0.6rem;
 }
+/* Graphite: a warm charcoal paper. Shell #211e21, surface #2f2c2f,
+   wear #777477. */
 .dark {
   color-scheme: dark;
+  --background: #2f2c2f;
+  --foreground: #e4dfda;
+  --card: #2f2c2f;
+  --card-foreground: #e4dfda;
+  --popover: #383438;
+  --popover-foreground: #e4dfda;
+  --primary: #e4dfda;
+  --primary-foreground: #2f2c2f;
+  --secondary: #3a363a;
+  --secondary-foreground: #e4dfda;
+  --muted: #3a363a;
+  --muted-foreground: #a39ea1;
+  --accent: #423e42;
+  --accent-foreground: #e4dfda;
+  --border: #423e42;
+  --input: #4d494d;
+  --ring: #777477;
+}
+/* Pure black keeps the neutral dark palette, without paper texture. */
+.dark[data-dark-contrast="high"] {
   --background: oklch(0.16 0 0);
   --foreground: oklch(0.92 0 0);
   --card: oklch(0.19 0 0);
@@ -42,6 +64,46 @@
   --border: oklch(0.29 0 0);
   --input: oklch(0.34 0 0);
   --ring: oklch(0.55 0 0);
+}
+/* Distressed paper: fine grain, fibres and soft mottling on the shell, in one
+   tile of procedural noise below the app's opaque panels. */
+.dark .app {
+  position: relative;
+  isolation: isolate;
+  background: #211e21;
+}
+.dark[data-dark-contrast="high"] .app {
+  background: color-mix(in oklch, var(--muted) 60%, var(--background));
+}
+.dark .app::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 2.2 -1.25'/%3E%3C/filter%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.006 .32' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 3 -1.9'/%3E%3C/filter%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.012' numOctaves='3' seed='11' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.4 -.62'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)' opacity='.5'/%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23f)' opacity='.7'/%3E%3C/svg%3E");
+  opacity: 0.1;
+  mix-blend-mode: soft-light;
+}
+.dark[data-dark-contrast="high"] .app::before {
+  content: none;
+}
+/* The dark input tone nearly matches the default tab track, hiding the
+   active tab. Sink the track and raise the active tab instead. */
+.dark {
+  --tab-active: #4d494d;
+  --tab-active-border: #5c585c;
+}
+.dark[data-dark-contrast="high"] {
+  --tab-active: oklch(0.33 0 0);
+  --tab-active-border: oklch(0.41 0 0);
+}
+.dark [data-slot="tabs-list"][data-variant="default"] {
+  background: rgb(0 0 0 / 22%);
+}
+.dark [data-slot="tabs-indicator"] {
+  border-color: var(--tab-active-border);
+  background: var(--tab-active);
 }
 /* Paper: a warm light theme for the whole window. Surfaces: primary
    #f7f6f2, secondary #eeede7, tertiary #e2e1db. */
@@ -692,8 +754,8 @@ kbd {
 }
 .reader-stage[data-theme="dark"],
 .pdf-reading[data-theme="dark"] {
-  --pdf-dark-paper: #242424;
-  --pdf-dark-ink: #dedede;
+  --pdf-dark-paper: #2f2c2f;
+  --pdf-dark-ink: #dcd7d2;
 }
 .reader-stage[data-theme="dark"][data-dark-contrast="high"],
 .pdf-reading[data-theme="dark"][data-dark-contrast="high"] {
@@ -729,13 +791,17 @@ kbd {
      those layers inside the reader, below app dialogs and popovers. */
   isolation: isolate;
   overflow: auto;
-  scrollbar-width: none;
-  scrollbar-gutter: auto;
 }
-.reader-engine.pdf-container::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
+/* Both reading panes keep a discoverable scrollbar, even before wheel input. */
+.reader-engine.pdf-container,
+.pdf-reading .translation-document {
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--muted-foreground) transparent;
+}
+.reader-engine.pdf-container::-webkit-scrollbar-thumb,
+.pdf-reading .translation-document::-webkit-scrollbar-thumb {
+  background-color: var(--muted-foreground);
 }
 .pdfViewer .page {
   margin: 20px auto !important;
@@ -743,7 +809,7 @@ kbd {
   box-shadow: 0 1px 8px #0000000f;
 }
 .pdf-container[data-theme="dark"] .pdfViewer .page {
-  background: var(--pdf-dark-paper, #242424);
+  background: var(--pdf-dark-paper, #2f2c2f);
   box-shadow: 0 1px 8px #00000050;
 }
 /* PDF.js may show partially rendered white canvases before the dark worker finishes. */
@@ -3438,6 +3504,39 @@ textarea.paper-note-input {
 }
 .paper-column-source {
   opacity: 0.4;
+}
+
+.paper-drag-preview {
+  position: fixed;
+  inset: 0 auto auto 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(280px, 80vw);
+  min-height: 40px;
+  padding: 10px 12px;
+  overflow: hidden;
+  contain: layout paint;
+  pointer-events: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  font-size: 12px;
+  line-height: 18px;
+  box-shadow: 0 3px 12px #0002;
+}
+.paper-drag-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.paper-drag-count {
+  flex: none;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Temporary paper tags share the current category and text search. */

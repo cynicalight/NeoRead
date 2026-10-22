@@ -1,7 +1,7 @@
 {
   "name": "reader",
   "private": true,
-  "version": "0.8.6",
+  "version": "0.8.8",
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "dev": "node scripts/prepare-assets.mjs && node scripts/dev.mjs",

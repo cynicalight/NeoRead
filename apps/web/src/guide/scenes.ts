@@ -2211,7 +2211,7 @@ const exportPdf = scene({
 
 // Reading appearance: themes recolor the PDF, sliders scale it.
 const appearanceButton = { x: 566, y: 11, w: 24, h: 22 };
-const A: Rect = { x: 384, y: 40, w: 240, h: 214 };
+const A: Rect = { x: 354, y: 40, w: 270, h: 214 };
 const themeTabs = { x: A.x + 14, y: A.y + 36, w: A.w - 28, h: 26 };
 const sliderX = A.x + 16;
 const sliderW = A.w - 32;
@@ -2219,9 +2219,9 @@ const zoomY = A.y + 146;
 const zoomThumb = { x: sliderX + sliderW * 0.4, y: zoomY };
 const inks: Ink[] = [
   lightInk,
-  { paper: "#1c1c1e", text: "#e4e4e7", bar: "#52525b" },
   { paper: "#f4ecd8", text: "#5b4636", bar: "#d9c9a8" },
-  { paper: "#3a3a3c", text: "#d4d4d8", bar: "#6b6b70" },
+  { paper: "#2f2c2f", text: "#dcd7d2", bar: "#5a555a" },
+  { paper: "#000000", text: "#ffffff", bar: "#52525b" },
 ];
 const themePane: Rect = { x: content.x, y: content.y, w: 370, h: content.h };
 
@@ -2230,11 +2230,11 @@ const appearanceScript = script({ x: 300, y: 300 })
   .move(appearanceButton, 800)
   .click("open")
   .wait(400)
-  .move(tabRects(themeTabs, 4)[1], 600)
-  .click("dark")
+  .move(tabRects(themeTabs, 5)[2], 600)
+  .click("graphite")
   .wait(1600)
-  .move(tabRects(themeTabs, 4)[3], 500)
-  .click("gray")
+  .move(tabRects(themeTabs, 5)[3], 500)
+  .click("black")
   .wait(1500)
   .move(zoomThumb, 600)
   .mark("grab")
@@ -2253,9 +2253,9 @@ const appearance = scene({
       active: f.after("open"),
     });
     card(f, content);
-    const theme = f.after("gray") ? 3 : f.after("dark") ? 1 : 0;
-    const previous = theme === 3 ? 1 : 0;
-    const change = theme === 3 ? "gray" : "dark";
+    const theme = f.after("black") ? 3 : f.after("graphite") ? 2 : 0;
+    const previous = theme === 3 ? 2 : 0;
+    const change = theme === 3 ? "black" : "graphite";
     const zoom =
       1 +
       0.25 *
@@ -2280,7 +2280,7 @@ const appearance = scene({
     p.alpha(f.progress("open", 180), () => {
       p.box(A, { fill: c.popover, radius: 10, shadow: 18, stroke: c.border });
       p.text("阅读外观", A.x + 16, A.y + 20, { size: 12.5, weight: 600 });
-      tabs(f, themeTabs, ["浅色", "深色", "纸张", "灰色"], theme);
+      tabs(f, themeTabs, ["浅色", "纸张", "石墨", "纯黑", "跟随系统"], theme);
       const rows: [string, string, number, number][] = [
         ["Agent 字号", "14", A.y + 96, 0.5],
         [

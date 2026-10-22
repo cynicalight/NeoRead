@@ -24,6 +24,20 @@ describe("PDF dark appearance colors", () => {
     expect(red).not.toEqual(blue);
   });
 
+  it.each([
+    [255, 0, 0, 255, 69, 71],
+    [255, 255, 0, 255, 250, 71],
+    [255, 0, 255, 255, 69, 244],
+  ])(
+    "keeps saturated RGB(%i, %i, %i) from wrapping in graphite",
+    (r, g, b, rr, gg, bb) => {
+      expect(adaptPDFColor(r, g, b, "soft")).toEqual([rr, gg, bb]);
+      const pixels = new Uint8ClampedArray([r, g, b, 255]);
+      processPDFPagePixels(pixels, 1, 1, [], [], "adaptive", "soft");
+      expect([...pixels]).toEqual([rr, gg, bb, 255]);
+    },
+  );
+
   it("maps grayscale content to black and white in high contrast mode", () => {
     expect(adaptPDFColor(255, 255, 255, "high")).toEqual([0, 0, 0]);
     expect(adaptPDFColor(0, 0, 0, "high")).toEqual([255, 255, 255]);
@@ -33,8 +47,8 @@ describe("PDF dark appearance colors", () => {
       foreground: "#ffffff",
     });
     expect(pdfDarkPalette("soft")).toEqual({
-      background: "#242424",
-      foreground: "#dedede",
+      background: "#2f2c2f",
+      foreground: "#dcd7d2",
     });
   });
 
@@ -164,8 +178,8 @@ it("adapts connected neutral image backgrounds and ink while preserving colored 
     [],
     "adaptive",
   );
-  expect([...result.slice(0, 3)]).toEqual([36, 36, 36]);
-  expect([...result.slice(4, 7)]).toEqual([222, 222, 222]);
+  expect([...result.slice(0, 3)]).toEqual([47, 44, 47]);
+  expect([...result.slice(4, 7)]).toEqual([220, 215, 210]);
   expect([...result.slice(8, 11)]).toEqual([255, 0, 0]);
 });
 
@@ -195,16 +209,16 @@ it("preserves enclosed colored-image interiors and never floods outside bitmap b
     [],
     "adaptive",
   );
-  expect([...result.slice(0, 3)]).toEqual([36, 36, 36]);
+  expect([...result.slice(0, 3)]).toEqual([47, 44, 47]);
   expect([...result.slice(8, 11)]).toEqual([100, 100, 100]);
-  expect([...result.slice(12, 15)]).toEqual([36, 36, 36]);
+  expect([...result.slice(12, 15)]).toEqual([47, 44, 47]);
 });
 
 it("adapts transparent image borders while preserve mode still composites on white", () => {
   const region = [{ x: 0, y: 0, width: 1, height: 1 }];
   for (const [mode, expected] of [
-    ["adaptive", 36],
-    ["preserve", 255],
+    ["adaptive", [47, 44, 47]],
+    ["preserve", [255, 255, 255]],
   ] as const) {
     const result = processPDFPagePixels(
       new Uint8ClampedArray([0, 0, 0, 0]),
@@ -214,6 +228,6 @@ it("adapts transparent image borders while preserve mode still composites on whi
       [],
       mode,
     );
-    expect([...result]).toEqual([expected, expected, expected, 255]);
+    expect([...result]).toEqual([...expected, 255]);
   }
 });

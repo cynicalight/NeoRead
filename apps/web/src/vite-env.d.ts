@@ -32,6 +32,11 @@ interface Window {
     writeClipboardImage: (data: Uint8Array, text: string) => Promise<void>;
     setAppearance: (
       appearance: "light" | "sepia" | "dark" | "system",
+      palettes: {
+        pdfDarkContrast?: "high" | "soft";
+        systemLightMode?: "light" | "sepia";
+        systemDarkContrast?: "high" | "soft";
+      },
     ) => Promise<void>;
     /** Resolves with long papers that need the reader's confirmation. */
     findEndNoteLibraries?: (id: string) => Promise<{
@@ -43,10 +48,12 @@ interface Window {
     chooseZoteroDirectory?: () => Promise<string | null>;
     importFiles: (
       library: "books" | "papers",
+      folder?: string,
     ) => Promise<Array<{ id: string; name: string; pages: number }>>;
     importLargePapers: (
       ids: string[],
       library: "books" | "papers",
+      folder?: string,
     ) => Promise<void>;
     showDocumentFile: (id: string, type: "pdf" | "epub") => Promise<void>;
     openDocumentFile: (id: string, type: "pdf" | "epub") => Promise<void>;

@@ -3,6 +3,9 @@ import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { TranslationPanes } from "./TranslationPanes";
+import { defaultTheme } from "@reader/core";
+import { useReaderStore } from "../store";
+import { readerLayout, updateReaderLayout } from "../reader-layout";
 
 let host: HTMLDivElement, root: Root;
 const mount = vi.fn(),
@@ -18,7 +21,8 @@ function Harness() {
   const [mode, setMode] = useState<"source" | "parallel" | "translation">(
     "source",
   );
-  const [swapped, setSwapped] = useState(false);
+  const theme = useReaderStore((state) => state.theme);
+  const { swapped, sourceWidth } = readerLayout(theme.readerLayout);
   return (
     <>
       {(["source", "parallel", "translation"] as const).map((value) => (
@@ -29,7 +33,11 @@ function Harness() {
       <TranslationPanes
         mode={mode}
         swapped={swapped}
-        onSwap={() => setSwapped((v) => !v)}
+        onSwap={() => updateReaderLayout({ swapped: !swapped })}
+        sourceWidth={sourceWidth}
+        onSourceWidthChange={(sourceWidth) =>
+          updateReaderLayout({ sourceWidth })
+        }
         source={<Source />}
         translation={<div>译文</div>}
       />
@@ -59,6 +67,7 @@ function left(element: HTMLElement): number {
   return offset;
 }
 beforeEach(async () => {
+  useReaderStore.setState({ theme: defaultTheme });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
     "ResizeObserver",
@@ -221,4 +230,29 @@ it("supports keyboard resizing and keeps clicks on the swap button out of the dr
   expect(sourceSize()).toBe(before);
   await click("交换原文和译文");
   expect(sourceSize()).toBe(before);
+});
+
+it("restores the last source width and order after leaving a document, without saving single-pane widths", async () => {
+  await click("parallel");
+  await drag(150);
+  await click("交换原文和译文");
+  await drag(50);
+  expect(sourceSize()).toBeCloseTo(60);
+  await click("translation");
+  expect(useReaderStore.getState().theme.readerLayout).toMatchObject({
+    sourceWidth: expect.closeTo(60),
+    swapped: true,
+  });
+  const saved = JSON.parse(JSON.stringify(useReaderStore.getState().theme));
+  await act(async () => root.unmount());
+  useReaderStore.setState({ theme: saved });
+  root = createRoot(host);
+  await act(async () => root.render(<Harness />));
+  await click("parallel");
+  expect(sourceSize()).toBeCloseTo(60);
+  expect(
+    host
+      .querySelector("[data-group]")!
+      .lastElementChild!.querySelector("[data-source]"),
+  ).not.toBeNull();
 });

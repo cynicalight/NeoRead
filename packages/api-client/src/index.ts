@@ -393,17 +393,34 @@ export const api = {
     return data;
   },
   /** Papers over 100 pages or 100 MB fail with code "large-paper" unless allowLarge. */
-  import: (file: File, library: LibraryMode = "books", allowLarge = false) => {
+  import: (
+    file: File,
+    library: LibraryMode = "books",
+    allowLarge = false,
+    folder = "",
+  ) => {
     const form = new FormData();
     form.append("library", library);
     if (allowLarge) form.append("allowLarge", "1");
+    if (folder.startsWith("smart:"))
+      form.append("smartCategory", folder.slice(6));
+    else if (folder)
+      form.append(
+        "folder",
+        folder.startsWith("folder:") ? folder.slice(7) : folder,
+      );
     form.append("file", file);
     return request<Document>("/api/documents", { method: "POST", body: form });
   },
   /** Import a paper from an arXiv ID, DOI, paper link, PDF link or title. */
   resolveDocument: (
     ref: string,
-    options?: { library: LibraryMode; allowLarge: boolean },
+    options?: {
+      library: LibraryMode;
+      allowLarge: boolean;
+      folder?: string;
+      smartCategory?: string;
+    },
   ) =>
     request<Document>("/api/documents/resolve", {
       method: "POST",

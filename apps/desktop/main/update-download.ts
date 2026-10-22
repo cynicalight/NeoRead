@@ -37,7 +37,7 @@ export async function downloadUpdate(
 ): Promise<string> {
   // Only selectRelease can supply these URLs; they are never renderer-controlled.
   const options: RequestInit = {
-    signal: AbortSignal.timeout(10 * 60 * 1000),
+    signal: AbortSignal.timeout(30 * 60 * 1000),
     credentials: "omit",
   };
   const chunks: Buffer[] = [];

@@ -1,3 +1,4 @@
+import { PaperServiceSettings } from "./papers/PaperServiceSettings";
 import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
 import { TranslationPromptSettings } from "./TranslationPromptSettings";
 import { useEffect, useRef, useState } from "react";
@@ -5,7 +6,6 @@ import {
   ChevronLeft,
   FileText,
   Bot,
-  Check,
   CircleCheck,
   CircleHelp,
   Highlighter,
@@ -73,6 +73,7 @@ import { Checkbox } from "@reader/ui/components/checkbox";
 import { toast } from "sonner";
 import { columnLabels, defaultColumns, toggleColumn } from "./papers/model";
 import { savePaperPreferences } from "./papers/actions";
+import { AppearancePicker } from "./AppearancePicker";
 // Checks run automatically for this many API models; the rest on demand.
 const autoAPIChecks = 12;
 export function Settings({
@@ -733,35 +734,7 @@ export function Settings({
             </section>
             <section>
               <h3 className="mb-3 text-sm font-medium">界面主题</h3>
-              <div className="flex gap-2">
-                {(["light", "sepia", "dark", "system"] as const).map(
-                  (mode, i) => (
-                    <Button
-                      key={mode}
-                      aria-pressed={(theme.appearance ?? "system") === mode}
-                      variant={
-                        (theme.appearance ?? "system") === mode
-                          ? "default"
-                          : "outline"
-                      }
-                      onClick={() =>
-                        setTheme({
-                          appearance: mode,
-                          mode:
-                            mode === "dark" || mode === "sepia"
-                              ? mode
-                              : "light",
-                        })
-                      }
-                    >
-                      {["浅色", "纸张", "深色", "跟随系统"][i]}
-                      {(theme.appearance ?? "system") === mode && (
-                        <Check className="size-3" />
-                      )}
-                    </Button>
-                  ),
-                )}
-              </div>
+              <AppearancePicker theme={theme} setTheme={setTheme} buttons />
             </section>
             <section className="mt-6">
               <label
@@ -901,8 +874,8 @@ export function Settings({
                 <span>
                   导入 PDF 后自动补全论文信息
                   <span className="block text-xs text-muted-foreground">
-                    只把文中的 DOI 或 arXiv 编号发送给 arXiv、Crossref 与
-                    Semantic Scholar
+                    通过文中的 DOI 或 arXiv 编号向 arXiv、Crossref 与 Semantic
+                    Scholar 查询
                   </span>
                 </span>
               </label>
@@ -923,6 +896,7 @@ export function Settings({
               </label>
               <AutoTranslationSettings theme={theme} setTheme={setTheme} />
             </section>
+            <PaperServiceSettings open={open} />
             <fieldset className="mt-7 border-t pt-5">
               <legend className="text-sm font-medium">表格显示列</legend>
               <p className="mb-3 text-xs text-muted-foreground">

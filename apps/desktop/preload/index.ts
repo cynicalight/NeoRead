@@ -54,8 +54,14 @@ contextBridge.exposeInMainWorld("readerDesktop", {
     ipcRenderer.on("reader:flush", listener);
     return () => ipcRenderer.removeListener("reader:flush", listener);
   },
-  setAppearance: (appearance: "light" | "sepia" | "dark" | "system") =>
-    ipcRenderer.invoke("reader:appearance", appearance),
+  setAppearance: (
+    appearance: "light" | "sepia" | "dark" | "system",
+    palettes: {
+      pdfDarkContrast?: "high" | "soft";
+      systemLightMode?: "light" | "sepia";
+      systemDarkContrast?: "high" | "soft";
+    },
+  ) => ipcRenderer.invoke("reader:appearance", appearance, palettes),
   setDocumentTabActive: (active: boolean) =>
     ipcRenderer.invoke("reader:document-tab-active", active),
   findEndNoteLibraries: (id: string) =>
@@ -66,10 +72,13 @@ contextBridge.exposeInMainWorld("readerDesktop", {
     ipcRenderer.invoke("reader:choose-endnote", directory),
   chooseZoteroDirectory: () =>
     ipcRenderer.invoke("reader:choose-zotero-directory"),
-  importFiles: (library: "books" | "papers") =>
-    ipcRenderer.invoke("reader:import", library),
-  importLargePapers: (ids: string[], library: "books" | "papers") =>
-    ipcRenderer.invoke("reader:import-large", ids, library),
+  importFiles: (library: "books" | "papers", folder = "") =>
+    ipcRenderer.invoke("reader:import", library, folder),
+  importLargePapers: (
+    ids: string[],
+    library: "books" | "papers",
+    folder = "",
+  ) => ipcRenderer.invoke("reader:import-large", ids, library, folder),
   showDocumentFile: (id: string, type: "pdf" | "epub") =>
     ipcRenderer.invoke("reader:document-file", id, type, "show"),
   openDocumentFile: (id: string, type: "pdf" | "epub") =>

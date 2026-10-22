@@ -146,3 +146,31 @@ func TestResolveLargePaperConfirmation(t *testing.T) {
 		})
 	}
 }
+
+func TestCrossrefEmailPreferences(t *testing.T) {
+	s := testServer(t)
+	initial := s.scholarClient()
+	for _, email := range []string{" reader+papers@example.com ", ""} {
+		body, _ := json.Marshal(map[string]any{"crossrefEmail": email, "papers": map[string]bool{"autoLookup": false}})
+		w := request(t, s, "PUT", "/api/preferences/library", strings.NewReader(string(body)))
+		if w.Code != 200 {
+			t.Fatal(w.Body.String())
+		}
+		if got := s.scholarClient().CrossrefEmail; got != strings.TrimSpace(email) {
+			t.Fatalf("email = %q", got)
+		}
+		w = request(t, s, "GET", "/api/preferences/library", nil)
+		if !strings.Contains(w.Body.String(), `"autoLookup":false`) {
+			t.Fatal("other preferences lost")
+		}
+	}
+	if initial.CrossrefEmail != "" {
+		t.Fatal("mutated an in-flight client")
+	}
+	for _, value := range []string{`"bad"`, `"Name <a@example.com>"`, `123`, `null`, `"a@example.com\r\nBcc:b@example.com"`} {
+		w := request(t, s, "PUT", "/api/preferences/library", strings.NewReader(`{"crossrefEmail":`+value+`}`))
+		if w.Code != 400 {
+			t.Fatalf("accepted %s: %d", value, w.Code)
+		}
+	}
+}

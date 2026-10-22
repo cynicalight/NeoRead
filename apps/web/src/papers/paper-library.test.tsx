@@ -137,6 +137,11 @@ const button = (label: string) =>
     (b) => b.textContent?.trim() === label || b.getAttribute("aria-label") === label,
   )!;
 
+const menuItem = (label: string) =>
+  [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent === label,
+  )!;
+
 it("shows details on click and saves an edited field as manual metadata", async () => {
   await act(async () => row("Attention Is All You Need").click());
   const detail = host.querySelector(".paper-detail")!;
@@ -421,6 +426,23 @@ it("edits authors as capsules", async () => {
   });
 });
 
+it("offers existing tags when adding one from the detail panel", async () => {
+  await act(async () =>
+    useReaderStore.setState({
+      documents: [{ ...docs[0], tags: ["Transformer", "NLP"] }, docs[1]],
+    }),
+  );
+  await act(async () => row("Graph Attention Networks").click());
+  const detail = host.querySelector(".paper-detail")!;
+  await act(async () =>
+    detail
+      .querySelector<HTMLButtonElement>('button[aria-label="添加标签"]')!
+      .click(),
+  );
+  await act(async () => menuItem("#Transformer").click());
+  expect(api.update).toHaveBeenLastCalledWith("b", { tags: ["Transformer"] });
+});
+
 it("tags a paper and collects it in a smart tag category", async () => {
   await act(async () => row("Graph Attention Networks").click());
   const detail = host.querySelector(".paper-detail")!;
@@ -429,6 +451,7 @@ it("tags a paper and collects it in a smart tag category", async () => {
       .querySelector<HTMLButtonElement>('button[aria-label="添加标签"]')!
       .click(),
   );
+  await act(async () => menuItem("新标签…").click());
   const input = detail.querySelector<HTMLInputElement>(
     'input[aria-label="添加标签"]',
   )!;
@@ -1090,6 +1113,36 @@ const dragColumn = async (element: Element, type: string, x = 0, y = 0) => {
   await act(async () => element.dispatchEvent(event));
   return transfer;
 };
+it.each(["list", "table"] as const)(
+  "uses a compact independent drag image in %s view without changing selected paper IDs",
+  async (view) => {
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 1),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    await act(async () => {
+      useReaderStore.getState().setLibraryPreferences({
+        mode: "papers",
+        papers: { layout: view },
+      });
+      usePaperUI.setState({ picking: true, picked: new Set(["a", "b"]) });
+    });
+    const transfer = await dragColumn(row(docs[0].title), "dragstart");
+    expect(transfer.setData).toHaveBeenCalledWith(
+      "application/x-reader-papers",
+      JSON.stringify(["a", "b"]),
+    );
+    const [preview, x, y] = transfer.setDragImage.mock.calls[0];
+    expect(preview.parentElement).toBe(document.body);
+    expect(preview.className).toBe("paper-drag-preview");
+    expect(preview.textContent).toBe(`${docs[0].title}2 篇论文`);
+    expect(preview.querySelector("button, table, article, [id]")).toBeNull();
+    expect([x, y]).toEqual([20, 20]);
+    await dragColumn(row(docs[0].title), "dragend");
+    expect(preview.isConnected).toBe(false);
+  },
+);
 const headerColumns = () =>
   [...host.querySelectorAll("th[data-column]")].map((el) =>
     el.getAttribute("data-column"),

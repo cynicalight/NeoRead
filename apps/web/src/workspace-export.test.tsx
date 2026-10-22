@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, type ReactNode } from "react";
+import { act, type ReactNode, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { defaultTheme, type Processing } from "@reader/core";
@@ -7,6 +7,13 @@ import { TooltipProvider } from "@reader/ui/components/tooltip";
 import { api } from "@reader/api";
 import { Workspace } from "./Workspace";
 import { paper } from "./papers/fixtures";
+import { useReaderStore } from "./store";
+import type { ResizablePanelGroup } from "@reader/ui/components/resizable";
+type GroupProps = ComponentProps<typeof ResizablePanelGroup>;
+
+const panels = vi.hoisted(() => ({
+  props: undefined as GroupProps | undefined,
+}));
 
 vi.mock("@reader/api", () => ({
   api: {
@@ -53,7 +60,10 @@ vi.mock("@reader/ui/components/resizable", async () => {
   );
   return {
     ResizablePanel: Panel,
-    ResizablePanelGroup: Panel,
+    ResizablePanelGroup: (props: GroupProps) => {
+      panels.props = props;
+      return <Panel>{props.children}</Panel>;
+    },
     ResizableHandle: () => null,
     usePanelRef: () => useRef(null),
   };
@@ -90,12 +100,71 @@ const button = (text: string) =>
   )!;
 beforeEach(() => {
   vi.clearAllMocks();
+  useReaderStore.setState({ theme: defaultTheme });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("PointerEvent", MouseEvent);
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+});
+
+it("restores user sidebar sizes and collapsed state without replacing expanded sizes with zero", async () => {
+  function Reader() {
+    const theme = useReaderStore((state) => state.theme);
+    return (
+      <TooltipProvider>
+        <Workspace
+          document={doc}
+          theme={theme}
+          onBack={() => {}}
+          onSettings={() => {}}
+        />
+      </TooltipProvider>
+    );
+  }
+  await act(async () => root.render(<Reader />));
+  const change = (
+    navigation: number,
+    assistant: number,
+    isUserInteraction: boolean,
+  ) =>
+    panels.props!.onLayoutChanged!(
+      { navigation, assistant, reading: 100 - navigation - assistant },
+      { isUserInteraction },
+    );
+  await act(async () => change(20, 32, true));
+  await act(async () => change(0, 32, true));
+  await act(async () => change(0, 40, false));
+  expect(useReaderStore.getState().theme.readerLayout).toMatchObject({
+    navigationWidth: 20,
+    assistantWidth: 32,
+    navigationOpen: false,
+  });
+  const saved = JSON.parse(JSON.stringify(useReaderStore.getState().theme));
+  await act(async () => root.unmount());
+  useReaderStore.setState({ theme: saved });
+  root = createRoot(host);
+  await act(async () => root.render(<Reader />));
+  expect(panels.props!.defaultLayout).toEqual({
+    navigation: 0,
+    reading: 68,
+    assistant: 32,
+  });
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="目录与搜索"]')!.click(),
+  );
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>('[aria-label="Agent 与批注"]')!
+      .click(),
+  );
+  expect(useReaderStore.getState().theme.readerLayout).toMatchObject({
+    navigationWidth: 20,
+    assistantWidth: 32,
+    navigationOpen: true,
+    assistantOpen: false,
+  });
 });
 afterEach(async () => {
   await act(async () => root.unmount());

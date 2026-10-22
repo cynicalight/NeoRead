@@ -1,5 +1,6 @@
 import { annotationsInRects, sentenceRectsAtPoint } from "./annotation-hover";
 import { useTranslations } from "./useTranslations";
+import { readerLayout, updateReaderLayout } from "../reader-layout";
 import {
   useEffect,
   useRef,
@@ -53,7 +54,7 @@ export function EPUBReadingView({
   pageNavigation?: ReactNode;
 }) {
   const [mode, setMode] = useState<Mode>("source");
-  const [swapped, setSwapped] = useState(false);
+  const { swapped, sourceWidth } = readerLayout(theme.readerLayout);
   const [blocks, setBlocks] = useState<EPUBReadingBlock[]>([]);
   const { translations, error: streamError } = useTranslations(doc.id);
   const [chapter, setChapter] = useState(
@@ -348,7 +349,11 @@ export function EPUBReadingView({
       <TranslationPanes
         mode={mode}
         swapped={swapped}
-        onSwap={() => setSwapped((v) => !v)}
+        onSwap={() => updateReaderLayout({ swapped: !swapped })}
+        sourceWidth={sourceWidth}
+        onSourceWidthChange={(sourceWidth) =>
+          updateReaderLayout({ sourceWidth })
+        }
         source={
           <div className="translation-source">
             <ReaderView
