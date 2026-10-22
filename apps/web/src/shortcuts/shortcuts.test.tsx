@@ -262,3 +262,61 @@ it("allows reading shortcuts beside a pinned preview but not from its controls",
   expect(run).toHaveBeenCalledOnce();
   modal.remove();
 });
+
+it("supports bare function keys, exact modifiers, persistence and conflicts", () => {
+  for (const mac of [true, false]) {
+    expect(
+      matches(
+        new KeyboardEvent("keydown", { key: "F1" }),
+        "primaryLibrary",
+        defaults(),
+        mac,
+      ),
+    ).toBe(true);
+    expect(
+      matches(
+        new KeyboardEvent("keydown", { key: "F2" }),
+        "secondaryLibrary",
+        defaults(),
+        mac,
+      ),
+    ).toBe(true);
+    for (const modifier of ["ctrlKey", "metaKey", "altKey", "shiftKey"]) {
+      expect(
+        matches(
+          new KeyboardEvent("keydown", { key: "F1", [modifier]: true }),
+          "primaryLibrary",
+          defaults(),
+          mac,
+        ),
+      ).toBe(false);
+    }
+  }
+  expect(label(defaults().primaryLibrary)).toBe("F1");
+  const saved = { ...defaults(), primaryLibrary: { key: "f2", shift: true } };
+  expect(normalizeBindings(saved)).toEqual(saved);
+  expect(
+    bindingError("secondaryLibrary", defaults().primaryLibrary, defaults()),
+  ).toContain("冲突");
+});
+
+it("forwards library function keys from EPUB frames and blocks them in dialogs", async () => {
+  const run = vi.fn();
+  function Harness() {
+    useShortcut("primaryLibrary", run);
+    return null;
+  }
+  await act(async () => root.render(<Harness />));
+  const fire = () => {
+    const event = new KeyboardEvent("keydown", { key: "F1", cancelable: true });
+    forwardReaderShortcut(event);
+    return event;
+  };
+  expect(fire().defaultPrevented).toBe(true);
+  const dialog = document.createElement("div");
+  dialog.setAttribute("role", "dialog");
+  document.body.append(dialog);
+  expect(fire().defaultPrevented).toBe(false);
+  dialog.remove();
+  expect(run).toHaveBeenCalledTimes(1);
+});

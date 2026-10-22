@@ -43,6 +43,7 @@ import {
   useReaderStore,
   refreshLibrary,
   libraryMode,
+  primaryLibraryMode,
   loadLibraryPreferences,
   updateLibraryPreferences,
   refreshTrash,
@@ -343,6 +344,17 @@ export function App() {
       toast.error(e.message),
     );
   };
+  const openLibrary = (next: LibraryMode) => {
+    open(null);
+    switchMode(next);
+  };
+  const primaryMode = primaryLibraryMode(libraryPreferences);
+  useShortcut("primaryLibrary", () => openLibrary(primaryMode), !loading);
+  useShortcut(
+    "secondaryLibrary",
+    () => openLibrary(primaryMode === "papers" ? "books" : "papers"),
+    !loading,
+  );
   const moveDocument = async (doc: Document, library: LibraryMode) => {
     try {
       await api.update(doc.id, { library });

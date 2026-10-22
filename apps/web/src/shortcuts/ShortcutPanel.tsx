@@ -40,7 +40,10 @@ export function ShortcutPanel() {
       <h2 className="text-base font-medium">快捷键</h2>
       <p className="text-sm text-muted-foreground">
         点击组合键后按下新快捷键，按 Esc 取消。使用 {isMac() ? "Cmd" : "Ctrl"}{" "}
-        加字母或数字，可搭配 Shift。
+        加字母或数字，或使用 F1、F2，可搭配 Shift。
+      </p>
+      <p className="text-sm text-muted-foreground">
+        F1 默认打开设置中的首选书库，F2 打开另一个书库。
       </p>
       <div className="flex items-center gap-2">
         <Input
@@ -100,7 +103,7 @@ export function ShortcutPanel() {
                 const binding = bindingFromEvent(event);
                 if (!binding) {
                   setError(
-                    `请使用 ${isMac() ? "Cmd" : "Ctrl"} 加字母或数字，可搭配 Shift。`,
+                    `请使用 ${isMac() ? "Cmd" : "Ctrl"} 加字母或数字，或使用 F1、F2，可搭配 Shift。`,
                   );
                   return;
                 }

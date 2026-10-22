@@ -5,6 +5,8 @@ export const shortcutActions = [
   { id: "readerLeft", name: "阅读模式－左侧栏", scope: "reader", key: "l" },
   { id: "readerRight", name: "阅读模式－右侧栏", scope: "reader", key: "j" },
   { id: "libraryLeft", name: "主界面－左侧栏", scope: "library", key: "l" },
+  { id: "primaryLibrary", name: "首选书库", scope: "all", key: "f1" },
+  { id: "secondaryLibrary", name: "第二书库", scope: "all", key: "f2" },
   { id: "search", name: "搜索", scope: "all", key: "f" },
 ] as const;
 export type ShortcutId = (typeof shortcutActions)[number]["id"];
@@ -35,7 +37,7 @@ export function normalizeBindings(saved: unknown): Bindings {
       if (
         value &&
         typeof value.key === "string" &&
-        /^[a-z0-9]$/.test(value.key) &&
+        /^(?:[a-z0-9]|f[12])$/.test(value.key) &&
         typeof value.shift === "boolean"
       )
         result[id] = value;
@@ -63,6 +65,8 @@ export function useBindings() {
   }, readBindings);
 }
 export function label(binding: Binding, mac = isMac()) {
+  if (/^f[12]$/.test(binding.key))
+    return `${binding.shift ? "Shift + " : ""}${binding.key.toUpperCase()}`;
   return `${mac ? "Cmd" : "Ctrl"}${binding.shift ? " + Shift" : ""} + ${binding.key.toUpperCase()}`;
 }
 export function bindingFromEvent(
@@ -72,6 +76,13 @@ export function bindingFromEvent(
   >,
   mac = isMac(),
 ): Binding | null {
+  if (
+    /^F[12]$/i.test(event.key) &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey
+  )
+    return { key: event.key.toLowerCase(), shift: event.shiftKey };
   if (
     !(mac
       ? event.metaKey && !event.ctrlKey
@@ -146,9 +157,13 @@ export function useShortcut(
 export function forwardReaderShortcut(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing || event.repeat) return;
   if (
-    !["readerLeft", "readerRight", "search"].some((id) =>
-      matches(event, id as ShortcutId),
-    )
+    ![
+      "readerLeft",
+      "readerRight",
+      "search",
+      "primaryLibrary",
+      "secondaryLibrary",
+    ].some((id) => matches(event, id as ShortcutId))
   )
     return;
   const forwarded = new KeyboardEvent("keydown", {
