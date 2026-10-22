@@ -120,7 +120,7 @@ function centered(s: ReturnType<typeof setup>, id: string) {
   expect(r.left + r.width / 2).toBeCloseTo(v.left + v.width / 2);
   expect(r.top).toBeCloseTo(v.top + Math.max(0, (v.height - r.height) / 2));
 }
-it("smoothly scales and centers from the first click without a mode or an initial jump", async () => {
+it("applies scale once without an initial jump and smoothly centers from the first click", async () => {
   const s = setup();
   try {
     const before = s.rect("a");
@@ -131,9 +131,11 @@ it("smoothly scales and centers from the first click without a mode or an initia
     expect(s.rect("a").left + s.rect("a").width / 2).toBeCloseTo(
       before.left + before.width / 2,
     );
+    expect(s.viewer.currentScale).toBe(1.5);
     await vi.advanceTimersByTimeAsync(96);
-    expect(s.viewer.currentScale).toBeGreaterThan(1);
-    expect(s.viewer.currentScale).toBeLessThan(1.5);
+    expect(s.viewer.currentScale).toBe(1.5);
+    expect(s.rect("a").top).toBeLessThan(before.top);
+    expect(s.rect("a").top).toBeGreaterThan(120);
     await finish(pending);
     expect(s.viewer.currentScale).toBe(1.5);
     centered(s, "a");

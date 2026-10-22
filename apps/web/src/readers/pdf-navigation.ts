@@ -21,6 +21,8 @@ export class PDFReadingNavigation {
   private operation = 0;
   private focus: PDFPassage[] = [];
   private linkedRanges: Range[] = [];
+  private anchorBlocksSource?: PDFBlock[];
+  private anchorBlocks: PDFBlock[] = [];
   constructor(
     private host: HTMLElement,
     private viewer: PDFViewer,
@@ -87,10 +89,25 @@ export class PDFReadingNavigation {
     let best: PDFBlock | undefined,
       distance = Infinity,
       fraction = 0;
-    for (const b of this.readableBlocks()) {
-      const node = this.pageNode(b.page);
-      if (!node) continue;
-      const r = node.getBoundingClientRect();
+    const sourceBlocks = this.blocks();
+    if (sourceBlocks !== this.anchorBlocksSource) {
+      this.anchorBlocksSource = sourceBlocks;
+      this.anchorBlocks = sourceBlocks.filter(
+        (b) => !isPDFPageDecoration(b) && (b.image || b.text.trim()),
+      );
+    }
+    // A PDF page contains many reading blocks, but its layout rectangle is the
+    // same for all of them. Read it once per visible page rather than once per
+    // block; repeated geometry reads here were stalling the other pane during
+    // synchronized scrolling.
+    const pageRects = new Map<number, DOMRect | null>();
+    for (const b of this.anchorBlocks) {
+      let r = pageRects.get(b.page);
+      if (r === undefined) {
+        r = this.pageNode(b.page)?.getBoundingClientRect() ?? null;
+        pageRects.set(b.page, r);
+      }
+      if (!r) continue;
       if (r.bottom < viewport.top || r.top > viewport.bottom) continue;
       const bx = r.left + b.bounds.x * r.width,
         by = r.top + b.bounds.y * r.height,
@@ -164,61 +181,65 @@ export class PDFReadingNavigation {
             ),
           )
         : 1.5;
-      const initialScale = this.viewer.currentScale;
-      const initial = node.getBoundingClientRect(),
-        view = this.host.getBoundingClientRect();
-      const fromX =
-        initial.left -
-        view.left +
-        (block.bounds.x + block.bounds.width / 2) * initial.width;
-      const fromY = initial.top - view.top + block.bounds.y * initial.height;
+      const before = node.getBoundingClientRect(),
+        beforeView = this.host.getBoundingClientRect(),
+        beforeX =
+          before.left -
+          beforeView.left +
+          (block.bounds.x + block.bounds.width / 2) * before.width,
+        beforeY =
+          before.top - beforeView.top + block.bounds.y * before.height;
       this.onFocus(block.id);
       const reduced = window.matchMedia?.(
         "(prefers-reduced-motion: reduce)",
       ).matches;
-      let started: number | undefined;
-      await new Promise<void>((resolve) => {
-        const frame = (now: number) => {
-          if (this.disposed || operation !== this.operation) {
-            resolve();
-            return;
-          }
-          started ??= now;
-          const progress = reduced ? 1 : Math.min(1, (now - started) / 240);
-          const ease = 1 - (1 - progress) ** 3;
-          // Scale and position share one animation. Adding centering space or zooming
-          // must never produce a visible jump before the scroll starts.
-          this.updateInsets();
-          const zoom = initialScale + (scale - initialScale) * ease;
-          if (Math.abs(this.viewer.currentScale - zoom) > 0.0001) {
-            if (this.viewer.updateScale)
-              this.viewer.updateScale({
-                scaleFactor: zoom / this.viewer.currentScale,
-                drawingDelay: 100,
-              });
-            else this.viewer.currentScaleValue = String(zoom);
-          }
-          const r = node.getBoundingClientRect(),
-            v = this.host.getBoundingClientRect();
-          const targetY = Math.max(
-            0,
-            (this.host.clientHeight - block.bounds.height * r.height) / 2,
-          );
-          this.host.scrollLeft +=
-            r.left -
-            v.left +
-            (block.bounds.x + block.bounds.width / 2) * r.width -
-            (fromX + (this.host.clientWidth / 2 - fromX) * ease);
-          this.host.scrollTop +=
-            r.top -
-            v.top +
-            block.bounds.y * r.height -
-            (fromY + (targetY - fromY) * ease);
-          if (progress < 1) requestAnimationFrame(frame);
-          else resolve();
-        };
-        requestAnimationFrame(frame);
-      });
+      // Scaling every animation frame repeatedly cancels and restarts PDF.js
+      // page renders. Apply the final scale once, then animate only scrolling.
+      this.updateInsets();
+      if (Math.abs(this.viewer.currentScale - scale) > 0.0001) {
+        if (this.viewer.updateScale)
+          this.viewer.updateScale({
+            scaleFactor: scale / this.viewer.currentScale,
+            drawingDelay: 100,
+          });
+        else this.viewer.currentScaleValue = String(scale);
+      }
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      if (this.disposed || operation !== this.operation) return false;
+      let r = node.getBoundingClientRect(),
+        v = this.host.getBoundingClientRect();
+      // Keep the focused text at its original screen position while the final
+      // scale is applied, then animate from there to the centered position.
+      this.host.scrollLeft +=
+        r.left -
+        v.left +
+        (block.bounds.x + block.bounds.width / 2) * r.width -
+        beforeX;
+      this.host.scrollTop +=
+        r.top -
+        v.top +
+        block.bounds.y * r.height -
+        beforeY;
+      r = node.getBoundingClientRect();
+      v = this.host.getBoundingClientRect();
+      const left =
+        this.host.scrollLeft +
+        r.left -
+        v.left +
+        (block.bounds.x + block.bounds.width / 2) * r.width -
+        this.host.clientWidth / 2;
+      const top =
+        this.host.scrollTop +
+        r.top -
+        v.top +
+        block.bounds.y * r.height -
+        Math.max(0, (this.host.clientHeight - block.bounds.height * r.height) / 2);
+      if (reduced) {
+        this.host.scrollLeft = left;
+        this.host.scrollTop = top;
+      } else {
+        await this.moveTo(left, top, operation);
+      }
       if (this.disposed || operation !== this.operation) return false;
       const anchor = this.anchor();
       if (anchor) this.events.readingAnchor?.(anchor);
@@ -230,7 +251,7 @@ export class PDFReadingNavigation {
       }
     }
   }
-  async follow(anchor: PDFReadingAnchor) {
+  async follow(anchor: PDFReadingAnchor, smooth = true) {
     const block = this.blocks().find((b) => b.id === anchor.blockId);
     if (!block || isPDFPageDecoration(block)) return;
     const operation = ++this.operation;
@@ -242,15 +263,23 @@ export class PDFReadingNavigation {
     const x = r.left + block.bounds.x * r.width;
     if (x > v.right || x + block.bounds.width * r.width < v.left)
       left += x - v.left - 16;
-    await this.moveTo(
-      left,
+    const top =
       this.host.scrollTop +
-        r.top -
-        v.top +
-        (block.bounds.y + anchor.fraction * block.bounds.height) * r.height -
-        this.host.clientHeight * 0.5,
-      operation,
-    );
+      r.top -
+      v.top +
+      (block.bounds.y + anchor.fraction * block.bounds.height) * r.height -
+      this.host.clientHeight * 0.5;
+    if (!smooth) {
+      // Live pane synchronization runs once per animation frame. Restarting a
+      // 240 ms animation for every new anchor makes the target pane perpetually
+      // chase the source. Apply the latest position directly instead.
+      this.moving = false;
+      this.host.scrollLeft = left;
+      this.host.scrollTop = top;
+      this.scrolled();
+      return;
+    }
+    await this.moveTo(left, top, operation);
   }
   focusSentences(blockId: string, sources: string[], scroll = false) {
     return this.focusPassages(

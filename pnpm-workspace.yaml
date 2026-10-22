@@ -10,3 +10,4 @@ onlyBuiltDependencies:
 patchedDependencies:
   '@readium/navigator-html-injectables@2.8.4': patches/@readium__navigator-html-injectables@2.8.4.patch
   '@readium/navigator@2.11.1': patches/@readium__navigator@2.11.1.patch
+  pdfjs-dist@6.3.289: patches/pdfjs-dist@6.3.289.patch

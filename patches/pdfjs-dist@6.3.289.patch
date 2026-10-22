@@ -1,0 +1,499 @@
+diff --git a/build/pdf.mjs b/build/pdf.mjs
+index c55a629aa4482ce73d02e19d4e5eddeba8976e97..dd752e16bc71731b2a0fbb7b8fb24f58152cd7d1 100644
+--- a/build/pdf.mjs
++++ b/build/pdf.mjs
+@@ -10919,7 +10919,7 @@ class CanvasGraphics {
+   constructor(canvasCtx, commonObjs, objs, canvasFactory, filterFactory, {
+     optionalContentConfig,
+     markedContentStack = null
+-  }, annotationCanvasMap, pageColors, dependencyTracker, imagesTracker) {
++  }, annotationCanvasMap, pageColors, dependencyTracker, imagesTracker, readerColorAdapter = null) {
+     this.ctx = canvasCtx;
+     this.current = new CanvasExtraState(this.ctx.canvas.width, this.ctx.canvas.height);
+     this.stateStack = [];
+@@ -10951,12 +10951,20 @@ class CanvasGraphics {
+     this.outputScaleX = 1;
+     this.outputScaleY = 1;
+     this.pageColors = pageColors;
++    this.readerColorAdapter = readerColorAdapter;
++    this.readerMaskDepth = 0;
+     this._cachedScaleForStroking = [-1, 0];
+     this._cachedGetSinglePixelWidth = null;
+     this._cachedBitmapsMap = new Map();
+     this.dependencyTracker = dependencyTracker ?? null;
+     this.imagesTracker = imagesTracker ?? null;
+   }
++  _readerPaint(ctx, kind, paint) {
++    if (!this.readerColorAdapter || this.readerMaskDepth || this.annotationCanvas) {
++      return paint();
++    }
++    return this.readerColorAdapter.paint(ctx, kind, paint);
++  }
+   getObject(opIdx, data, fallback = null) {
+     if (typeof data === "string") {
+       this.dependencyTracker?.recordNamedDependency(opIdx, data);
+@@ -10973,9 +10981,10 @@ class CanvasGraphics {
+     const width = this.ctx.canvas.width;
+     const height = this.ctx.canvas.height;
+     const savedFillStyle = this.ctx.fillStyle;
+-    this.ctx.fillStyle = background || "#ffffff";
++    this.ctx.fillStyle = this.readerColorAdapter?.background || background || "#ffffff";
+     this.ctx.fillRect(0, 0, width, height);
+     this.ctx.fillStyle = savedFillStyle;
++    this.readerColorAdapter?.begin(this.ctx, viewport, transform);
+     if (transparency) {
+       const transparentCanvas = this.transparentCanvasEntry = this.canvasFactory.create(width, height);
+       this.compositeCtx = this.ctx;
+@@ -10983,6 +10992,7 @@ class CanvasGraphics {
+         canvas: this.transparentCanvas,
+         context: this.ctx
+       } = transparentCanvas);
++      this.readerColorAdapter?.context(this.ctx, this.compositeCtx, 0, 0);
+       this.ctx.save();
+       this.ctx.transform(...getCurrentTransform(this.compositeCtx));
+     }
+@@ -11261,7 +11271,7 @@ class CanvasGraphics {
+     }
+     fillCtx.globalCompositeOperation = "source-in";
+     const inverse = Util.transform(getCurrentTransformInverse(fillCtx), [1, 0, 0, 1, -offsetX, -offsetY]);
+-    fillCtx.fillStyle = isPatternFill ? fillColor.getPattern(ctx, this, inverse, PathType.FILL, opIdx) : fillColor;
++    fillCtx.fillStyle = isPatternFill ? (fillColor.readerOriginal || fillColor.getPattern.bind(fillColor))(ctx, this, inverse, PathType.FILL, opIdx) : fillColor;
+     fillCtx.fillRect(0, 0, width, height);
+     if (cache && !isPatternFill) {
+       cache.set(cacheKey, fillCanvas.canvas);
+@@ -11497,6 +11507,7 @@ class CanvasGraphics {
+     this.smaskScratchCanvas = scratchCanvas;
+     this.suspendedCtx = this.ctx;
+     const ctx = this.ctx = scratchCanvas.context;
++    this.readerColorAdapter?.context(ctx, this.suspendedCtx, 0, 0);
+     ctx.setTransform(this.suspendedCtx.getTransform());
+     copyCtxState(this.suspendedCtx, ctx);
+     mirrorContextOperations(ctx, this.suspendedCtx);
+@@ -11910,7 +11921,7 @@ class CanvasGraphics {
+     this.dependencyTracker?.recordDependencies(opIdx, Dependencies.fill);
+     if (isPatternFill) {
+       const dims = this.current.tilingPatternDims;
+-      const tileIdx = dims && fillColor.canSkipPatternCanvas(dims);
++      const tileIdx = !this.readerColorAdapter && dims && fillColor.canSkipPatternCanvas(dims);
+       if (tileIdx) {
+         fillColor.drawPattern(this, path, this.pendingEOFill, tileIdx, opIdx);
+         this.pendingEOFill = false;
+@@ -11934,10 +11945,10 @@ class CanvasGraphics {
+     }
+     if (this.contentVisible && intersect !== null) {
+       if (this.pendingEOFill) {
+-        ctx.fill(path, "evenodd");
++        this._readerPaint(ctx, "fill", () => ctx.fill(path, "evenodd"));
+         this.pendingEOFill = false;
+       } else {
+-        ctx.fill(path);
++        this._readerPaint(ctx, "fill", () => ctx.fill(path));
+       }
+     }
+     if (needRestore) {
+@@ -11976,7 +11987,7 @@ class CanvasGraphics {
+   }
+   rawFillPath(opIdx, path) {
+     const started = this.#beginKnockoutElement(this.current.fillAlpha);
+-    this.ctx.fill(path);
++    this._readerPaint(this.ctx, "fill", () => this.ctx.fill(path));
+     this.dependencyTracker?.recordDependencies(opIdx, Dependencies.rawFillPath).recordOperation(opIdx);
+     this.#endKnockoutElement(started);
+   }
+@@ -12138,9 +12149,9 @@ class CanvasGraphics {
+           currentTransform = ctx.getTransform();
+           ctx.setTransform(...patternFillTransform);
+           const scaledPath = this.#getScaledPath(path, currentTransform, patternFillTransform);
+-          ctx.fill(scaledPath);
++          this._readerPaint(ctx, "fill", () => ctx.fill(scaledPath));
+         } else {
+-          ctx.fill(path);
++          this._readerPaint(ctx, "fill", () => ctx.fill(path));
+         }
+       }
+       if (fillStrokeMode === TextRenderingMode.STROKE || fillStrokeMode === TextRenderingMode.FILL_STROKE) {
+@@ -12157,23 +12168,23 @@ class CanvasGraphics {
+           const transf = Util.transform([a, b, c, d, 0, 0], invPatternTransform);
+           Util.singularValueDecompose2dScale(transf, XY);
+           ctx.lineWidth *= Math.max(XY[0], XY[1]) / fontSize;
+-          ctx.stroke(this.#getScaledPath(path, currentTransform, patternStrokeTransform));
++          this._readerPaint(ctx, "stroke", () => ctx.stroke(this.#getScaledPath(path, currentTransform, patternStrokeTransform)));
+         } else {
+           ctx.lineWidth /= fontSize;
+-          ctx.stroke(path);
++          this._readerPaint(ctx, "stroke", () => ctx.stroke(path));
+         }
+       }
+       ctx.restore();
+     } else {
+       if (fillStrokeMode === TextRenderingMode.FILL || fillStrokeMode === TextRenderingMode.FILL_STROKE) {
+-        ctx.fillText(character, x, y);
++        this._readerPaint(ctx, "fill", () => ctx.fillText(character, x, y));
+         this.dependencyTracker?.recordCharacterBBox(opIdx, ctx, font, fontSize, x, y, () => ctx.measureText(character));
+       }
+       if (fillStrokeMode === TextRenderingMode.STROKE || fillStrokeMode === TextRenderingMode.FILL_STROKE) {
+         if (this.dependencyTracker) {
+           this.dependencyTracker?.recordCharacterBBox(opIdx, ctx, font, fontSize, x, y, () => ctx.measureText(character)).recordDependencies(opIdx, Dependencies.stroke);
+         }
+-        ctx.strokeText(character, x, y);
++        this._readerPaint(ctx, "stroke", () => ctx.strokeText(character, x, y));
+       }
+     }
+     if (isAddToPathSet) {
+@@ -12288,7 +12299,7 @@ class CanvasGraphics {
+         width += glyph.width;
+       }
+       const joinedChars = chars.join("");
+-      ctx.fillText(joinedChars, 0, 0);
++      this._readerPaint(ctx, "fill", () => ctx.fillText(joinedChars, 0, 0));
+       if (this.dependencyTracker !== null) {
+         const measure = ctx.measureText(joinedChars);
+         this.dependencyTracker.recordBBox(opIdx, this.ctx, -measure.actualBoundingBoxLeft, measure.actualBoundingBoxRight, -measure.actualBoundingBoxAscent, measure.actualBoundingBoxDescent).recordShowTextOperation(opIdx);
+@@ -12340,7 +12351,7 @@ class CanvasGraphics {
+       }
+       if (this.contentVisible && (glyph.isInFont || font.missingFile)) {
+         if (simpleFillText && !accent) {
+-          ctx.fillText(character, scaledX, scaledY);
++          this._readerPaint(ctx, "fill", () => ctx.fillText(character, scaledX, scaledY));
+           this.dependencyTracker?.recordCharacterBBox(opIdx, ctx, measure ? {
+             bbox: null
+           } : font, fontSize / fontSizeScale, scaledX, scaledY, () => measure ?? ctx.measureText(character));
+@@ -12438,22 +12449,44 @@ class CanvasGraphics {
+     this.dependencyTracker?.recordBBox(opIdx, this.ctx, llx, urx, lly, ury).recordClipBox(opIdx, this.ctx, llx, urx, lly, ury);
+     this.endPath(opIdx);
+   }
+-  getColorN_Pattern(opIdx, IR) {
+-    let pattern;
+-    if (IR[0] === "TilingPattern") {
+-      const baseTransform = this.baseTransform || getCurrentTransform(this.ctx);
+-      const canvasGraphicsFactory = {
+-        createCanvasGraphics: (ctx, renderingOpIdx) => new CanvasGraphics(ctx, this.commonObjs, this.objs, this.canvasFactory, this.filterFactory, {
+-          optionalContentConfig: this.optionalContentConfig,
+-          markedContentStack: this.markedContentStack
+-        }, undefined, undefined, this.dependencyTracker ? new CanvasNestedDependencyTracker(this.dependencyTracker, renderingOpIdx, true) : null)
++  _readerPattern(pattern, createVariant) {
++    const adapter = this.readerColorAdapter;
++    if (!adapter) return pattern;
++    const original = pattern.getPattern.bind(pattern);
++    pattern.readerOriginal = original;
++    const variantPatterns = new Map();
++    pattern.getPattern = (ctx, owner, ...args) => {
++      if (owner.readerMaskDepth) return original(ctx, owner, ...args);
++      const variants = adapter.variants;
++      const create = variant => {
++        const result = variantPatterns.getOrInsertComputed(variant, () => createVariant(variant));
++        result.matrix = pattern.matrix;
++        return result.getPattern(ctx, owner, ...args);
+       };
+-      pattern = new TilingPattern(IR, this.ctx, canvasGraphicsFactory, baseTransform);
+-    } else {
+-      pattern = this._getPattern(opIdx, IR[1], IR[2]);
+-    }
++      if (variants.length === 1) return create(variants[0]);
++      const paints = {};
++      for (const variant of variants) {
++        ctx.save();
++        try { paints[variant] = create(variant); }
++        finally { ctx.restore(); }
++      }
++      const result = original(ctx, owner, ...args);
++      adapter.pattern(result, paints);
++      return result;
++    };
+     return pattern;
+   }
++  getColorN_Pattern(opIdx, IR) {
++    if (IR[0] !== "TilingPattern") return this._getPattern(opIdx, IR[1], IR[2]);
++    const baseTransform = this.baseTransform || getCurrentTransform(this.ctx);
++    const createPattern = adapter => new TilingPattern(IR, this.ctx, {
++      createCanvasGraphics: (ctx, renderingOpIdx) => new CanvasGraphics(ctx, this.commonObjs, this.objs, this.canvasFactory, this.filterFactory, {
++        optionalContentConfig: this.optionalContentConfig,
++        markedContentStack: this.markedContentStack
++      }, undefined, undefined, this.dependencyTracker ? new CanvasNestedDependencyTracker(this.dependencyTracker, renderingOpIdx, true) : null, null, adapter)
++    }, baseTransform);
++    return this._readerPattern(createPattern(null), variant => createPattern(this.readerColorAdapter.forPattern(variant)));
++  }
+   setStrokeColorN(opIdx, ...args) {
+     this.dependencyTracker?.recordSimpleData("strokeColor", opIdx);
+     this.current.strokeColor = this.getColorN_Pattern(opIdx, args);
+@@ -12488,7 +12521,10 @@ class CanvasGraphics {
+     this.current.tilingPatternDims = null;
+   }
+   _getPattern(opIdx, objId, matrix = null) {
+-    const pattern = this.cachedPatterns.getOrInsertComputed(objId, () => getShadingPattern(this.getObject(opIdx, objId)));
++    const pattern = this.cachedPatterns.getOrInsertComputed(objId, () => {
++      const IR = this.getObject(opIdx, objId);
++      return this._readerPattern(getShadingPattern(IR), variant => getShadingPattern(this.readerColorAdapter.shading(IR, variant)));
++    });
+     if (matrix) {
+       pattern.matrix = matrix;
+     }
+@@ -12512,9 +12548,9 @@ class CanvasGraphics {
+       const minMax = F32_BBOX_INIT.slice();
+       Util.axialAlignedBoundingBox([0, 0, width, height], inv, minMax);
+       const [x0, y0, x1, y1] = minMax;
+-      this.ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
++      this._readerPaint(this.ctx, "fill", () => this.ctx.fillRect(x0, y0, x1 - x0, y1 - y0));
+     } else {
+-      this.ctx.fillRect(-1e10, -1e10, 2e10, 2e10);
++      this._readerPaint(this.ctx, "fill", () => this.ctx.fillRect(-1e10, -1e10, 2e10, 2e10));
+     }
+     this.dependencyTracker?.resetBBox(opIdx).recordFullPageBBox(opIdx).recordDependencies(opIdx, Dependencies.transform).recordDependencies(opIdx, Dependencies.fill).recordOperation(opIdx);
+     this.compose(this.current.getClippedPathBoundingBox());
+@@ -12558,6 +12594,7 @@ class CanvasGraphics {
+     if (!this.contentVisible) {
+       return;
+     }
++    if (group.smask) this.readerMaskDepth++;
+     this.save(opIdx);
+     const {
+       inSMaskMode
+@@ -12610,6 +12647,7 @@ class CanvasGraphics {
+       this.smaskGroupCanvases.push(scratchCanvas);
+     }
+     const groupCtx = scratchCanvas.context;
++    this.readerColorAdapter?.context(groupCtx, currentCtx, offsetX, offsetY);
+     const backdropCtx = group.knockout && !group.isolated ? currentCtx : null;
+     const hasInnerBackdrop = !group.isolated && !group.knockout && !group.smask && group.needsIsolation && this.#knockoutGroupLevel > 0;
+     const knockoutMaskEntry = group.knockout ? this.canvasFactory.create(drawnWidth, drawnHeight) : null;
+@@ -12678,6 +12716,7 @@ class CanvasGraphics {
+     if (!this.contentVisible) {
+       return;
+     }
++    if (group.smask) this.readerMaskDepth--;
+     this.groupLevel--;
+     const groupCtx = this.ctx;
+     const ctx = this.groupStack.pop();
+@@ -12901,7 +12940,7 @@ class CanvasGraphics {
+     const maskCanvas = mask.canvas;
+     ctx.save();
+     ctx.setTransform(1, 0, 0, 1, 0, 0);
+-    ctx.drawImage(maskCanvas, mask.offsetX, mask.offsetY);
++    this._readerPaint(ctx, "stencil", () => ctx.drawImage(maskCanvas, mask.offsetX, mask.offsetY));
+     this.dependencyTracker?.resetBBox(opIdx).recordBBox(opIdx, this.ctx, mask.offsetX, mask.offsetX + maskCanvas.width, mask.offsetY, mask.offsetY + maskCanvas.height).recordOperation(opIdx);
+     ctx.restore();
+     if (mask.canvasEntry) {
+@@ -12925,7 +12964,7 @@ class CanvasGraphics {
+     this.dependencyTracker?.resetBBox(opIdx);
+     for (let i = 0, ii = positions.length; i < ii; i += 2) {
+       const trans = Util.transform(currentTransform, [scaleX, skewX, skewY, scaleY, positions[i], positions[i + 1]]);
+-      ctx.drawImage(mask.canvas, trans[4], trans[5]);
++      this._readerPaint(ctx, "stencil", () => ctx.drawImage(mask.canvas, trans[4], trans[5]));
+       this.dependencyTracker?.recordBBox(opIdx, this.ctx, trans[4], trans[4] + mask.canvas.width, trans[5], trans[5] + mask.canvas.height);
+     }
+     ctx.restore();
+@@ -12958,13 +12997,13 @@ class CanvasGraphics {
+       const img = this.getObject(opIdx, data, image);
+       putBinaryImageMask(maskCtx, img);
+       maskCtx.globalCompositeOperation = "source-in";
+-      maskCtx.fillStyle = isPatternFill ? fillColor.getPattern(maskCtx, this, getCurrentTransformInverse(ctx), PathType.FILL, opIdx) : fillColor;
++      maskCtx.fillStyle = isPatternFill ? (fillColor.readerOriginal || fillColor.getPattern.bind(fillColor))(maskCtx, this, getCurrentTransformInverse(ctx), PathType.FILL, opIdx) : fillColor;
+       maskCtx.fillRect(0, 0, width, height);
+       maskCtx.restore();
+       ctx.save();
+       ctx.transform(...transform);
+       ctx.scale(1, -1);
+-      drawImageAtIntegerCoords(ctx, maskCanvas.canvas, 0, 0, width, height, 0, -1, 1, 1);
++      this._readerPaint(ctx, "stencil", () => drawImageAtIntegerCoords(ctx, maskCanvas.canvas, 0, 0, width, height, 0, -1, 1, 1));
+       this.canvasFactory.destroy(maskCanvas);
+       this.dependencyTracker?.recordBBox(opIdx, ctx, 0, width, 0, height);
+       ctx.restore();
+@@ -13071,7 +13110,7 @@ class CanvasGraphics {
+       this.dependencyTracker.resetBBox(opIdx).recordBBox(opIdx, ctx, 0, width, -height, 0).recordDependencies(opIdx, Dependencies.imageXObject).recordOperation(opIdx);
+       this.imagesTracker?.record(ctx, width, height, this.dependencyTracker.clipBox);
+     }
+-    drawImageAtIntegerCoords(ctx, scaled.img, 0, 0, scaled.paintWidth, scaled.paintHeight, 0, -height, width, height);
++    this._readerPaint(ctx, { image: [0, -height, width, height] }, () => drawImageAtIntegerCoords(ctx, scaled.img, 0, 0, scaled.paintWidth, scaled.paintHeight, 0, -height, width, height));
+     if (scaled.tmpCanvas) {
+       this.canvasFactory.destroy(scaled.tmpCanvas);
+     }
+@@ -13105,7 +13144,7 @@ class CanvasGraphics {
+       ctx.save();
+       ctx.transform(...entry.transform);
+       ctx.scale(1, -1);
+-      drawImageAtIntegerCoords(ctx, imgToPaint, entry.x, entry.y, entry.w, entry.h, 0, -1, 1, 1);
++      this._readerPaint(ctx, { image: [0, -1, 1, 1] }, () => drawImageAtIntegerCoords(ctx, imgToPaint, entry.x, entry.y, entry.w, entry.h, 0, -1, 1, 1));
+       this.dependencyTracker?.recordBBox(opIdx, ctx, 0, 1, -1, 0);
+       ctx.restore();
+     }
+@@ -13122,7 +13161,7 @@ class CanvasGraphics {
+     }
+     const started = this.#beginKnockoutElement(this.current.fillAlpha);
+     this.dependencyTracker?.resetBBox(opIdx).recordBBox(opIdx, this.ctx, 0, 1, 0, 1).recordDependencies(opIdx, Dependencies.fill).recordOperation(opIdx);
+-    this.ctx.fillRect(0, 0, 1, 1);
++    this._readerPaint(this.ctx, "fill", () => this.ctx.fillRect(0, 0, 1, 1));
+     this.compose();
+     this.#endKnockoutElement(started);
+   }
+@@ -13251,7 +13290,7 @@ class CanvasGraphics {
+     const [scaleX, scaleY] = this.getScaleForStroking();
+     if (scaleX === scaleY) {
+       ctx.lineWidth = (lineWidth || 1) * scaleX;
+-      ctx.stroke(path);
++      this._readerPaint(ctx, "stroke", () => ctx.stroke(path));
+       return;
+     }
+     const SCALE_MATRIX = CanvasGraphics.#SCALE_MATRIX ??= new DOMMatrix();
+@@ -13270,7 +13309,7 @@ class CanvasGraphics {
+       ctx.lineDashOffset /= scale;
+     }
+     ctx.lineWidth = lineWidth || 1;
+-    ctx.stroke(newPath);
++    this._readerPaint(ctx, "stroke", () => ctx.stroke(newPath));
+     if (saveRestore) {
+       ctx.restore();
+     }
+@@ -15856,6 +15895,7 @@ class PDFPageProxy {
+     annotationMode = AnnotationMode.ENABLE,
+     transform = null,
+     background = null,
++    readerColorAdapter = null,
+     optionalContentConfigPromise = null,
+     annotationCanvasMap = null,
+     pageColors = null,
+@@ -15945,7 +15985,8 @@ class PDFPageProxy {
+         imagesTracker: shouldRecordImages ? new CanvasImagesTracker(canvas) : null,
+         viewport,
+         transform,
+-        background
++        background,
++        readerColorAdapter
+       },
+       objs: this.objs,
+       commonObjs: this.commonObjs,
+@@ -17137,7 +17178,7 @@ class InternalRenderTask {
+     });
+     this.gfx = new CanvasGraphics(canvasContext, this.commonObjs, this.objs, this.canvasFactory, this.filterFactory, {
+       optionalContentConfig
+-    }, this.annotationCanvasMap, this.pageColors, dependencyTracker, imagesTracker);
++    }, this.annotationCanvasMap, this.pageColors, dependencyTracker, imagesTracker, this.params.readerColorAdapter);
+     this.gfx.beginDrawing({
+       transform,
+       viewport,
+diff --git a/types/src/display/api.d.ts b/types/src/display/api.d.ts
+index 2cec950729f254f6697b9d8096fc36702c2a414a..134ed5050705cd07344dbdceb979a6bbc22cbc57 100644
+--- a/types/src/display/api.d.ts
++++ b/types/src/display/api.d.ts
+@@ -391,6 +391,7 @@ export type GetAnnotationsParameters = {
+  * Page render parameters.
+  */
+ export type RenderParameters = {
++    readerColorAdapter?: object | null;
+     /**
+      * - A DOM Canvas object. The default
+      * value is the canvas associated with the `canvasContext` parameter if no
+diff --git a/types/web/pdf_viewer.d.ts b/types/web/pdf_viewer.d.ts
+index 3ed4812a365d3a2996de7ad7ef6f1ba56e828c5e..69d87370b4ad1d9ec887d4379f2850049237dcdb 100644
+--- a/types/web/pdf_viewer.d.ts
++++ b/types/web/pdf_viewer.d.ts
+@@ -9,6 +9,9 @@ export type PDFLinkService = import("./pdf_link_service.js").PDFLinkService;
+ export type BaseDownloadManager = import("./base_download_manager.js").BaseDownloadManager;
+ export type L10n = import("./l10n.js").L10n;
+ export type PDFViewerOptions = {
++    getReaderColorAdapter?: (pageNumber: number) => object | null;
++    preRenderExtra?: boolean;
++    pageCacheSize?: number;
+     /**
+      * - The container for the viewer element.
+      */
+diff --git a/web/pdf_viewer.mjs b/web/pdf_viewer.mjs
+index 29b3492cd9cb0869a906785739c34fc364ec1c17..ab1610a072f8b9396f0134bf9a7a9fd2292f8ac9 100644
+--- a/web/pdf_viewer.mjs
++++ b/web/pdf_viewer.mjs
+@@ -6521,6 +6521,7 @@ class PDFPageView extends BasePDFPageView {
+     this.#textLayerMode = options.textLayerMode ?? TextLayerMode.ENABLE;
+     this.#annotationMode = options.annotationMode ?? AnnotationMode.ENABLE_FORMS;
+     this.imageResourcesPath = options.imageResourcesPath || "";
++    this.getReaderColorAdapter = options.getReaderColorAdapter;
+     this.enableDetailCanvas = options.enableDetailCanvas ?? true;
+     this.maxCanvasPixels = options.maxCanvasPixels ?? AppOptions.get("maxCanvasPixels");
+     this.maxCanvasDim = options.maxCanvasDim || AppOptions.get("maxCanvasDim");
+@@ -7017,7 +7018,7 @@ class PDFPageView extends BasePDFPageView {
+       this.#needsRestrictedScaling = true;
+     } else {
+       this.#needsRestrictedScaling = outputScale.limitCanvas(width, height, this.maxCanvasPixels, this.maxCanvasDim, this.capCanvasAreaFactor);
+-      if (this.#needsRestrictedScaling && this.enableDetailCanvas) {
++      if (this.#needsRestrictedScaling && this.enableDetailCanvas && !this.getReaderColorAdapter) {
+         const factor = this.enableOptimizedPartialRendering ? 4 : 2;
+         outputScale.sx /= factor;
+         outputScale.sy /= factor;
+@@ -7136,6 +7137,7 @@ class PDFPageView extends BasePDFPageView {
+       canvas,
+       transform,
+       viewport: this.viewport,
++      readerColorAdapter: this.getReaderColorAdapter?.(),
+       annotationMode: this.#annotationMode,
+       optionalContentConfigPromise: this._optionalContentConfigPromise,
+       annotationCanvasMap: this._annotationCanvasMap,
+@@ -7821,7 +7823,7 @@ class PDFRenderingQueue {
+       this.#idleTimeout = setTimeout(this.onIdle.bind(this), CLEANUP_TIMEOUT);
+     }
+   }
+-  getHighestPriority(visible, views, scrolledDown, preRenderExtra = false, ignoreDetailViews = false) {
++  getHighestPriority(visible, views, scrolledDown, preRenderExtra = false, ignoreDetailViews = false, preRenderReverse = false) {
+     const visibleViews = visible.views,
+       numVisible = visibleViews.length;
+     if (numVisible === 0) {
+@@ -7870,6 +7872,10 @@ class PDFRenderingQueue {
+         return preRenderView;
+       }
+     }
++    if (preRenderReverse) {
++      const reverse = views[scrolledDown ? firstId - 2 : lastId];
++      if (reverse && !this.isViewFinished(reverse)) return reverse;
++    }
+     return null;
+   }
+   isViewFinished(view) {
+@@ -8043,9 +8049,12 @@ class PDFViewer {
+     this.imageResourcesPath = options.imageResourcesPath || "";
+     this.enablePrintAutoRotate = options.enablePrintAutoRotate || false;
+     this.removePageBorders = options.removePageBorders || false;
++    this.preRenderExtra = options.preRenderExtra === true;
++    this.pageCacheSize = options.pageCacheSize ?? DEFAULT_CACHE_SIZE;
+     this.maxCanvasPixels = options.maxCanvasPixels;
+     this.maxCanvasDim = options.maxCanvasDim;
+     this.capCanvasAreaFactor = options.capCanvasAreaFactor;
++    this.getReaderColorAdapter = options.getReaderColorAdapter;
+     this.enableDetailCanvas = options.enableDetailCanvas ?? true;
+     this.enableOptimizedPartialRendering = options.enableOptimizedPartialRendering ?? false;
+     this.enableSelectionRendering = options.enableSelectionRendering !== false;
+@@ -8523,6 +8532,7 @@ class PDFViewer {
+           container: viewerElement,
+           eventBus,
+           id: pageNum,
++          getReaderColorAdapter: () => this.getReaderColorAdapter?.(pageNum),
+           scale,
+           defaultViewport: viewport.clone(),
+           optionalContentConfigPromise,
+@@ -8742,7 +8752,7 @@ class PDFViewer {
+     this._currentScale = (/* inlined export .UNKNOWN_SCALE */0);
+     this._currentScaleValue = null;
+     this._pageLabels = null;
+-    this.#buffer = new PDFPageViewBuffer(DEFAULT_CACHE_SIZE);
++    this.#buffer = new PDFPageViewBuffer(this.pageCacheSize);
+     this._location = null;
+     this._pagesRotation = 0;
+     this._optionalContentConfigPromise = null;
+@@ -9167,7 +9177,7 @@ class PDFViewer {
+     if (numVisiblePages === 0) {
+       return;
+     }
+-    const newCacheSize = Math.max(DEFAULT_CACHE_SIZE, 2 * numVisiblePages + 1);
++    const newCacheSize = Math.max(this.pageCacheSize, 2 * numVisiblePages + 1);
+     this.#buffer.resize(newCacheSize, visible.ids);
+     for (const {
+       view,
+@@ -9305,9 +9315,9 @@ class PDFViewer {
+   forceRendering(currentlyVisiblePages) {
+     const visiblePages = currentlyVisiblePages || this._getVisiblePages();
+     const scrollAhead = this.#getScrollAhead(visiblePages);
+-    const preRenderExtra = this._spreadMode !== SpreadMode.NONE && this._scrollMode !== ScrollMode.HORIZONTAL;
+-    const ignoreDetailViews = this.#scaleTimeoutId !== null || this.#scrollTimeoutId !== null && visiblePages.views.some(page => page.detailView?.renderingCancelled);
+-    const pageView = this.renderingQueue.getHighestPriority(visiblePages, this._pages, scrollAhead, preRenderExtra, ignoreDetailViews);
++    const preRenderExtra = this.preRenderExtra || this._spreadMode !== SpreadMode.NONE && this._scrollMode !== ScrollMode.HORIZONTAL;
++    const ignoreDetailViews = this.#scaleTimeoutId !== null || !this.preRenderExtra && this.#scrollTimeoutId !== null && visiblePages.views.some(page => page.detailView?.renderingCancelled);
++    const pageView = this.renderingQueue.getHighestPriority(visiblePages, this._pages, scrollAhead, preRenderExtra, ignoreDetailViews, this.preRenderExtra);
+     if (pageView) {
+       this.#ensurePdfPageLoaded(pageView).then(() => {
+         this.renderingQueue.renderView(pageView);

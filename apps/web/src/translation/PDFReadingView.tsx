@@ -710,10 +710,20 @@ export function PDFReadingView({
       const nodes = Array.from(
         pane.current.querySelectorAll<HTMLElement>("[data-translation-block]"),
       );
-      const node = nodes.find((n) => n.getBoundingClientRect().bottom > y);
+      // Translation blocks are in reading order. Find the first block crossing
+      // the viewport anchor without forcing a layout read for every paragraph.
+      let low = 0,
+        high = nodes.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (nodes[middle].getBoundingClientRect().bottom > y) high = middle;
+        else low = middle + 1;
+      }
+      const node = nodes[low];
       if (!node) return;
-      const r = node.getBoundingClientRect(),
-        anchor = {
+      const r = node.getBoundingClientRect();
+      if (r.top > v.bottom) return;
+      const anchor = {
           blockId: node.dataset.translationBlock!,
           fraction: Math.max(0, Math.min(1, (y - r.top) / (r.height || 1))),
         };
@@ -733,7 +743,7 @@ export function PDFReadingView({
         );
       if (mode === "parallel" && syncEnabledRef.current) {
         control.current.following("source");
-        void engine?.followBlock?.(anchor);
+        void engine?.followBlock?.(anchor, false);
       }
     });
   };

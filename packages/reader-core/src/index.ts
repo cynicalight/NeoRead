@@ -450,7 +450,7 @@ export interface ReaderAdapter {
     signal: AbortSignal,
     width?: number,
   ): Promise<Blob>;
-  followBlock?(anchor: PDFReadingAnchor): Promise<void>;
+  followBlock?(anchor: PDFReadingAnchor, smooth?: boolean): Promise<void>;
   previewCitation?(
     location: PDFLocation,
     anchor: HTMLAnchorElement,

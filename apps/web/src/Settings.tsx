@@ -790,14 +790,14 @@ export function Settings({
                       {
                         preserve: "保持原色（透明底补白）",
                         invert: "图片全部反色",
-                        adaptive: "自适应深色（处理图片白底）",
+                        adaptive: "矢量图适配深色，位图保留原色",
                       }[theme.pdfDarkImageMode ?? "adaptive"]
                     }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="adaptive">
-                    自适应深色（处理图片白底）
+                    矢量图适配深色，位图保留原色
                   </SelectItem>
                   <SelectItem value="preserve">
                     保持原色（透明底补白）

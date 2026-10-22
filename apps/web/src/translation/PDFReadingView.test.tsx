@@ -401,6 +401,11 @@ it("navigates to the matching bibliography block and restores the translated vie
   ]);
   await click("仅译文");
   const { pane } = translationGeometry();
+  const firstReference = host.querySelector<HTMLElement>(
+    '[data-translation-block="p9-first"]',
+  )!;
+  firstReference.getBoundingClientRect = () =>
+    new DOMRect(40, 800 - pane.scrollTop, 520, 60);
   const reference = host.querySelector<HTMLElement>(
     '[data-translation-block="p9-ref"]',
   )!;
@@ -572,10 +577,10 @@ it("can disable automatic original centering while reading the translation", asy
     pane.dispatchEvent(new Event("scroll", { bubbles: true }));
     await new Promise(requestAnimationFrame);
   });
-  expect(adapter.followBlock).toHaveBeenLastCalledWith({
-    blockId: "p1-b1",
-    fraction: 0.55,
-  });
+  expect(adapter.followBlock).toHaveBeenLastCalledWith(
+    { blockId: "p1-b1", fraction: 0.55 },
+    false,
+  );
   await act(async () => {
     host
       .querySelector<HTMLButtonElement>('[aria-label="取消同步效果"]')!

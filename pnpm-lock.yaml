@@ -11,6 +11,9 @@ patchedDependencies:
   '@readium/navigator@2.11.1':
     hash: 91945f1d2975bffd8f4a122ae1595096c882cef2991a5da8b8e39ed88a87985c
     path: patches/@readium__navigator@2.11.1.patch
+  pdfjs-dist@6.3.289:
+    hash: f5c8b1516b5e7c91f91726968114427cfbd13e55649a0059035db7111d44586d
+    path: patches/pdfjs-dist@6.3.289.patch
 
 importers:
 
@@ -108,7 +111,7 @@ importers:
         version: 1.30.0
       pdfjs-dist:
         specifier: 6.3.289
-        version: 6.3.289
+        version: 6.3.289(patch_hash=f5c8b1516b5e7c91f91726968114427cfbd13e55649a0059035db7111d44586d)
     devDependencies:
       esbuild:
         specifier: ^0.25.0
@@ -154,7 +157,7 @@ importers:
         version: 18.0.6
       pdfjs-dist:
         specifier: 6.3.289
-        version: 6.3.289
+        version: 6.3.289(patch_hash=f5c8b1516b5e7c91f91726968114427cfbd13e55649a0059035db7111d44586d)
       react:
         specifier: ^19.2.0
         version: 19.3.0
@@ -9725,7 +9728,7 @@ snapshots:
 
   pathe@2.0.3: {}
 
-  pdfjs-dist@6.3.289:
+  pdfjs-dist@6.3.289(patch_hash=f5c8b1516b5e7c91f91726968114427cfbd13e55649a0059035db7111d44586d):
     optionalDependencies:
       '@napi-rs/canvas': 1.0.10
 

@@ -746,18 +746,12 @@ kbd {
   background: var(--pdf-dark-paper, #242424);
   box-shadow: 0 1px 8px #00000050;
 }
-/* PDF.js may show partially rendered white canvases before the dark worker finishes. */
-.pdf-container[data-theme="dark"]
-  .canvasWrapper
-  > canvas:not([data-pdf-dark-ready]) {
-  visibility: hidden;
-}
 /* Keep every page canvas inside a single stacking context below the text,
    search and Reader annotation layers. Native PDF.js selection lives inside it. */
 .pdf-container .canvasWrapper {
   isolation: isolate;
 }
-.pdf-container .canvasWrapper > canvas[data-pdf-dark-detail] {
+.pdf-container .canvasWrapper > canvas.detailView {
   z-index: 0;
 }
 .pdf-container .canvasWrapper > .selection,

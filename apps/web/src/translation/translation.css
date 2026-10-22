@@ -67,8 +67,8 @@
   color: var(--pdf-dark-ink);
 }
 .pdf-reading .translation-document {
-  padding-left: clamp(11.2px, 2.1vw, 30.8px);
-  padding-right: clamp(11.2px, 2.1vw, 30.8px);
+  padding-left: clamp(8px, 1.6vw, 30px);
+  padding-right: clamp(8px, 1.6vw, 30px);
 }
 .translation-document section {
   position: relative;
