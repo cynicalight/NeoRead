@@ -54,6 +54,7 @@ export function NavigationTree({
   onDeleteBookmark,
   go,
   location,
+  visible: panelVisible = true,
 }: {
   documentId: string;
   type: "pdf" | "epub";
@@ -64,7 +65,10 @@ export function NavigationTree({
   onDeleteBookmark: (id: string) => void;
   go: (location: DocumentLocation) => void;
   location?: DocumentLocation;
+  visible?: boolean;
 }) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const rowElements = useRef(new Map<string, HTMLElement>());
   const [state, setState] = useState<DocumentNavigation>(emptyNavigation);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -158,6 +162,35 @@ export function NavigationTree({
             .at(-1)?.id
         : flat.find(sameSection)?.id;
   const disabled = !loaded || saving || resolving;
+  let followTarget = active;
+  let parent = active ? byId.get(active)?.parentId : undefined;
+  while (parent) {
+    const item = byId.get(parent);
+    if (item?.collapsed) followTarget = parent;
+    parent = item?.parentId;
+  }
+  useEffect(() => {
+    if (
+      !panelVisible ||
+      disabled ||
+      selecting ||
+      renaming ||
+      dragging ||
+      !followTarget
+    )
+      return;
+    const row = rowElements.current.get(followTarget);
+    const scroll = viewport.current;
+    if (!row || !scroll) return;
+    const bounds = scroll.getBoundingClientRect();
+    const item = row.getBoundingClientRect();
+    const top = bounds.top + scroll.clientTop;
+    const bottom = top + scroll.clientHeight;
+    // Reveal the nearest visible ancestor without changing saved collapse state.
+    // A stable target leaves manual navigation scrolling alone within a section.
+    if (item.top < top) scroll.scrollTop += item.top - top;
+    else if (item.bottom > bottom) scroll.scrollTop += item.bottom - bottom;
+  }, [followTarget, panelVisible, disabled, selecting, renaming, dragging]);
   const branches = flat.filter((item) => item.children.length > 0);
   function toggleAllCollapsed() {
     const collapsed = !allCollapsed;
@@ -287,6 +320,10 @@ export function NavigationTree({
           <ContextMenu>
             <ContextMenuTrigger
               render={<div />}
+              ref={(element) => {
+                if (element) rowElements.current.set(item.id, element);
+                else rowElements.current.delete(item.id);
+              }}
               className={`navigation-row ${selecting ? (checked.has(item.id) ? "multi-selected" : "") : active === item.id ? "selected" : ""} ${dropTarget === item.id ? (moveError ? "drop-invalid" : "drop-valid") : ""}`}
               style={{ paddingLeft: 8 + Math.min(depth, 12) * 14 }}
               tabIndex={0}
@@ -479,7 +516,7 @@ export function NavigationTree({
         }
       }}
     >
-      <ScrollArea className="h-full">
+      <ScrollArea className="h-full" viewportRef={viewport}>
         <div className="navigation-rows">
           {error && (
             <div role="alert" className="p-2 text-xs">
