@@ -12,6 +12,7 @@
     "@fontsource/noto-sans-sc": "5.2.9",
     "@lobehub/icons": "5.23.0",
     "@lobehub/streamdown": "1.4.0",
+    "@milkdown/kit": "7.22.3",
     "@neoread/api": "workspace:*",
     "@neoread/core": "workspace:*",
     "@neoread/ui": "workspace:*",

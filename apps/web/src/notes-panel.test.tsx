@@ -215,16 +215,33 @@ it("shares the raw draft with the expanded editor and preserves it on close", as
   const expand = button("展开论文笔记");
   expect(expand).toBeDefined();
   await act(async () => expand.click());
+  const mode = (label: string) =>
+    [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        ".paper-note-toolbar button",
+      ),
+    ].find((node) => node.textContent?.trim() === label)!;
+  await act(async () => mode("源码").click());
   const editor = document.querySelector<HTMLTextAreaElement>(
     'textarea[aria-label="编辑论文笔记"]',
   )!;
   expect(editor).not.toBeNull();
   const raw = "# My note\n\n[原文](reader://document/p)\n\n**bold**";
   await act(async () => type(editor, raw));
-  expect(document.querySelector(".paper-note-preview h1")?.textContent).toBe(
-    "My note",
-  );
-  expect(document.querySelector(".paper-note-preview a")).toBeNull();
+  await act(async () => mode("编辑").click());
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(document.querySelector(".paper-note-rich h1")?.textContent).toBe(
+        "My note",
+      ),
+    );
+  });
+  expect(
+    document.querySelector(
+      '.paper-note-rich [data-note-link="reader://document/p"]',
+    )?.textContent,
+  ).toBe("原文");
+  expect(document.querySelector(".paper-note-rich a[href]")).toBeNull();
   const close = document.querySelector<HTMLButtonElement>(
     '[data-slot="dialog-close"]',
   )!;

@@ -1,5 +1,4 @@
 import {
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -23,15 +22,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@neoread/ui/components/dialog";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@neoread/ui/components/tabs";
 import { annotationDigest } from "./notes-export";
 import { getPaperNote } from "./paper-note-state";
-import { PaperNoteMarkdown } from "./PaperNoteMarkdown";
+import { PaperNoteRichEditor } from "./PaperNoteRichEditor";
 
 const statusLabels = {
   loading: "读取中…",
@@ -56,12 +49,7 @@ export function PaperNote({
   );
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [narrow, setNarrow] = useState(
-    () => window.matchMedia?.("(max-width: 767px)").matches ?? false,
-  );
   const expandButton = useRef<HTMLButtonElement>(null);
-  const editor = useRef<HTMLTextAreaElement>(null);
-  const previewBody = useDeferredValue(body);
   const unavailable = status === "loading" || status === "load-error";
   useEffect(() => {
     let active = true;
@@ -75,13 +63,6 @@ export function PaperNote({
       active = false;
     };
   }, [note]);
-  useEffect(() => {
-    const media = window.matchMedia?.("(max-width: 767px)");
-    if (!media) return;
-    const change = () => setNarrow(media.matches);
-    media.addEventListener("change", change);
-    return () => media.removeEventListener("change", change);
-  }, []);
   const save = () => void note.flush().catch(() => {});
   const digest = unavailable
     ? ""
@@ -109,27 +90,6 @@ export function PaperNote({
         </>
       ) : (
         statusLabels[status]
-      )}
-    </div>
-  );
-  const editPane = (
-    <Textarea
-      ref={editor}
-      aria-label="编辑论文笔记"
-      placeholder="使用 Markdown 记录要点、疑问和启发…"
-      disabled={unavailable}
-      value={body}
-      onChange={(event) => note.edit(event.target.value)}
-      onBlur={save}
-      className="paper-note-editor-input"
-    />
-  );
-  const previewPane = (
-    <div className="paper-note-preview" aria-label="论文笔记预览">
-      {previewBody ? (
-        <PaperNoteMarkdown body={previewBody} />
-      ) : (
-        <p className="text-muted-foreground">暂无笔记</p>
       )}
     </div>
   );
@@ -195,7 +155,6 @@ export function PaperNote({
       </Collapsible>
       <DialogContent
         className="paper-note-dialog"
-        initialFocus={editor}
         finalFocus={expandButton}
         onKeyDown={(event) => {
           // Keep native editing shortcuts, without triggering App commands.
@@ -204,26 +163,18 @@ export function PaperNote({
       >
         <DialogHeader>
           <DialogTitle>论文笔记</DialogTitle>
-          <DialogDescription>Markdown 编辑与预览</DialogDescription>
+          <DialogDescription>
+            Markdown 笔记 · 公式可在源码中编辑
+          </DialogDescription>
         </DialogHeader>
-        {narrow ? (
-          <Tabs defaultValue="edit" className="paper-note-editor-tabs">
-            <TabsList aria-label="笔记视图">
-              <TabsTrigger value="edit">编辑</TabsTrigger>
-              <TabsTrigger value="preview">预览</TabsTrigger>
-            </TabsList>
-            <TabsContent value="edit" keepMounted>
-              {editPane}
-            </TabsContent>
-            <TabsContent value="preview" keepMounted>
-              {previewPane}
-            </TabsContent>
-          </Tabs>
-        ) : (
-          <div className="paper-note-panes">
-            <section aria-label="编辑">{editPane}</section>
-            <section aria-label="预览">{previewPane}</section>
-          </div>
+        {expanded && (
+          <PaperNoteRichEditor
+            key={documentId}
+            body={body}
+            disabled={unavailable}
+            onChange={note.edit}
+            onBlur={save}
+          />
         )}
         {feedback}
       </DialogContent>
