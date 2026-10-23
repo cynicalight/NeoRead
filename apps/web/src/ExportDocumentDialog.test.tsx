@@ -14,6 +14,7 @@ import { paper } from "./papers/fixtures";
 vi.mock("@neoread/api", () => ({
   api: {
     documentNote: vi.fn(),
+    saveDocumentNote: vi.fn(async (_id: string, body: string) => ({ body })),
     translations: vi.fn(),
     exportTranslation: vi.fn(),
   },
@@ -246,7 +247,7 @@ it("blocks missing selected notes instead of silently exporting an incomplete fi
   await mount();
   expect(button("导出").disabled).toBe(true);
   expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    "笔记读取失败",
+    "笔记读取或保存失败",
   );
   await act(async () => button("重试读取").click());
   expect(button("导出").disabled).toBe(false);
@@ -324,4 +325,50 @@ it("exports only selected annotation kinds into the original PDF", async () => {
   expect(exportAnnotatedPDFWithToast).toHaveBeenCalledWith(doc, ["note"]);
   await act(async () => checkbox("批注").click());
   expect(button("导出 PDF").disabled).toBe(false);
+});
+
+it("flushes the shared draft before loading counts and again at the actual export", async () => {
+  const { getPaperNote } = await import("./paper-note-state");
+  const note = getPaperNote(doc.id);
+  const release = note.subscribe(() => {});
+  await note.load();
+  note.edit("draft before dialog");
+  await mount();
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(
+    doc.id,
+    "draft before dialog",
+  );
+  note.edit("newer draft after dialog");
+  await act(async () => button("导出").click());
+  expect(api.exportTranslation).toHaveBeenLastCalledWith(
+    doc.id,
+    "markdown",
+    expect.any(AbortSignal),
+    expect.stringContaining("newer draft after dialog"),
+  );
+  release();
+});
+
+it("blocks stale exports on save failure and supports retry without losing the draft", async () => {
+  const { getPaperNote } = await import("./paper-note-state");
+  const note = getPaperNote(doc.id);
+  const release = note.subscribe(() => {});
+  await note.load();
+  await mount();
+  note.edit("must not lose this draft");
+  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
+  await act(async () => button("导出").click());
+  expect(api.exportTranslation).not.toHaveBeenCalled();
+  expect(downloadBlob).not.toHaveBeenCalled();
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+    "offline",
+  );
+  await act(async () => button("导出").click());
+  expect(api.exportTranslation).toHaveBeenLastCalledWith(
+    doc.id,
+    "markdown",
+    expect.any(AbortSignal),
+    expect.stringContaining("must not lose this draft"),
+  );
+  release();
 });
