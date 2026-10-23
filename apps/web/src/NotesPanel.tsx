@@ -1,12 +1,11 @@
 import { AnnotationQuote } from "./AnnotationQuote";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   ChevronDown,
   CircleHelp,
   Download,
   Link,
-  ListPlus,
   Loader2,
   Pencil,
   Search,
@@ -42,7 +41,7 @@ import { annotationLabels } from "./AnnotationToolbar";
 import { copyText } from "./chat/clipboard";
 import { colorLabel, documentOrder, highlightPalette } from "./annotations";
 import { useReaderStore } from "./store";
-import { annotationDigest } from "./notes-export";
+import { PaperNote } from "./PaperNote";
 
 export { documentOrder };
 
@@ -84,117 +83,6 @@ const plain = (markdown: string) =>
     .replace(/^\s*(?:#+|>|[-*+]|\d+\.)\s+/gm, "")
     .replace(/\s+/g, " ")
     .trim();
-
-/** One free-form note per document, saved shortly after typing stops. */
-function PaperNote({
-  documentId,
-  annotations,
-}: {
-  documentId: string;
-  annotations: Annotation[];
-}) {
-  const [body, setBody] = useState("");
-  const [state, setState] = useState<"loading" | "idle" | "saving" | "saved">(
-    "loading",
-  );
-  const [open, setOpen] = useState(true);
-  const saved = useRef("");
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => {
-    let alive = true;
-    void api
-      .documentNote(documentId)
-      .then((note) => {
-        if (!alive) return;
-        saved.current = note.body;
-        setBody(note.body);
-        setOpen(!!note.body);
-        setState("idle");
-      })
-      .catch((e) => toast.error((e as Error).message));
-    return () => {
-      alive = false;
-    };
-  }, [documentId]);
-  const save = async (text: string) => {
-    clearTimeout(timer.current);
-    if (text === saved.current) return;
-    setState("saving");
-    try {
-      await api.saveDocumentNote(documentId, text);
-      saved.current = text;
-      setState("saved");
-    } catch (e) {
-      setState("idle");
-      toast.error((e as Error).message);
-    }
-  };
-  const digest =
-    state === "loading"
-      ? ""
-      : annotationDigest(annotations, body, (a) =>
-          readerLink({ id: documentId, annotation: a.id }),
-        );
-  // Save on unmount so switching documents never drops the last edit.
-  const latest = useRef(body);
-  latest.current = body;
-  useEffect(
-    () => () => {
-      clearTimeout(timer.current);
-      if (latest.current !== saved.current)
-        void api.saveDocumentNote(documentId, latest.current).catch(() => {});
-    },
-    [documentId],
-  );
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} className="paper-note">
-      <CollapsibleTrigger
-        render={
-          <Button variant="ghost" size="sm" className="paper-note-toggle" />
-        }
-      >
-        <ChevronDown data-open={open} />
-        论文笔记
-        <span className="ml-auto text-[10px] text-muted-foreground">
-          {state === "saving" ? "保存中…" : state === "saved" ? "已保存" : ""}
-        </span>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <Textarea
-          aria-label="论文笔记"
-          placeholder="记下整篇的要点、疑问和启发…"
-          disabled={state === "loading"}
-          value={body}
-          onChange={(e) => {
-            const text = e.target.value;
-            setBody(text);
-            clearTimeout(timer.current);
-            timer.current = setTimeout(() => void save(text), 800);
-          }}
-          onBlur={() => void save(body)}
-          className="paper-note-input"
-        />
-        <Button
-          size="xs"
-          variant="ghost"
-          className="mt-1 text-muted-foreground"
-          disabled={state === "loading" || !digest}
-          title={digest ? undefined : "所有批注都已摘录"}
-          onClick={() => {
-            const text = body.trimEnd()
-              ? `${body.trimEnd()}\n\n${digest}\n`
-              : `${digest}\n`;
-            setBody(text);
-            void save(text);
-          }}
-        >
-          <ListPlus />
-          摘录批注
-        </Button>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
 
 function NoteCard({
   annotation: a,

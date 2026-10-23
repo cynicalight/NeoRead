@@ -11,6 +11,7 @@
     "@citation-js/plugin-csl": "^0.9.0",
     "@lobehub/icons": "5.23.0",
     "@lobehub/streamdown": "1.4.0",
+    "@milkdown/kit": "7.22.3",
     "@reader/api": "workspace:*",
     "@reader/core": "workspace:*",
     "@reader/ui": "workspace:*",

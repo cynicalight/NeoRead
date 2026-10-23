@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@reader/ui/components/dialog";
 import { copyText } from "./chat/clipboard";
+import { flushPaperNote } from "./paper-note-state";
 import {
   defaultExportParts,
   exportCounts,
@@ -70,11 +71,14 @@ export function ExportDocumentDialog({
     setPaperNote(null);
     setTranslationCount(null);
     setReadErrors({ paperNote: "", translation: "" });
-    void api.documentNote(doc.id).then(
-      (note) => alive && setPaperNote(note.body),
+    void flushPaperNote(doc.id).then(
+      (body) => alive && setPaperNote(body),
       () =>
         alive &&
-        setReadErrors((errors) => ({ ...errors, paperNote: "笔记读取失败" })),
+        setReadErrors((errors) => ({
+          ...errors,
+          paperNote: "笔记读取或保存失败",
+        })),
     );
     void api.translations(doc.id).then(
       (items) =>
@@ -142,9 +146,25 @@ export function ExportDocumentDialog({
     setBusy(action);
     setError("");
     try {
-      const notes = notesMarkdown(doc, data, noteParts, link, {
-        includeTitle: !translation,
-      });
+      // The draft can change while this dialog is open. Export the snapshot
+      // acknowledged by the same serialized writer used by both editors.
+      const currentNote = parts.includes("paperNote")
+        ? await flushPaperNote(doc.id)
+        : data.paperNote;
+      if (controller.signal.aborted) return;
+      const currentParts =
+        parts.includes("paperNote") && !noteParts.includes("paperNote")
+          ? [...noteParts, "paperNote" as const]
+          : noteParts;
+      const notes = notesMarkdown(
+        doc,
+        { ...data, paperNote: currentNote },
+        currentParts,
+        link,
+        {
+          includeTitle: !translation,
+        },
+      );
       const bundle = translation && images && action === "download";
       if (translation) {
         const blob = await api.exportTranslation(
