@@ -148,3 +148,80 @@ it("preserves EPUB href matching and does not mix PDF page selection into EPUB",
   await render({ type: "pdf", page: 3 }, true, epub);
   expect(host.querySelector('[aria-current="location"]')).toBeNull();
 });
+
+const epubChapters: TOCItem[] = [
+  {
+    id: "chapter",
+    label: "Chapter",
+    location: { type: "epub", href: "chapter.xhtml" },
+    children: [
+      {
+        id: "section-a",
+        label: "Section A",
+        location: { type: "epub", href: "chapter.xhtml#a" },
+        children: [],
+      },
+      {
+        id: "section-b",
+        label: "Section B",
+        location: { type: "epub", href: "chapter.xhtml#b" },
+        children: [],
+      },
+      {
+        id: "section-b-alias",
+        label: "Section B alias",
+        location: { type: "epub", href: "chapter.xhtml#b" },
+        children: [],
+      },
+    ],
+  },
+];
+
+it("marks and reveals only the first exact EPUB anchor match while preserving file-wide styling", async () => {
+  positions.Chapter = [10, 30];
+  positions["Section A"] = [150, 180];
+  positions["Section B"] = [300, 330];
+  positions["Section B alias"] = [400, 430];
+  await render({ type: "epub", href: "chapter.xhtml#a" }, true, epubChapters);
+  expect(host.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
+  expect(host.querySelector('[aria-current="location"]')?.textContent).toBe(
+    "Section A",
+  );
+  expect(host.querySelectorAll(".toc-item.selected")).toHaveLength(4);
+  expect(viewport.scrollTop).toBe(80);
+
+  // Navigating to another anchor in the same file must update the current item.
+  await render({ type: "epub", href: "chapter.xhtml#b" }, true, epubChapters);
+  expect(host.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
+  expect(host.querySelector('[aria-current="location"]')?.textContent).toBe(
+    "Section B",
+  );
+  expect(viewport.scrollTop).toBe(230);
+  viewport.scrollTop = 0;
+  await render(
+    { type: "epub", href: "chapter.xhtml#b", progression: 0.8 },
+    true,
+    epubChapters,
+  );
+  expect(viewport.scrollTop).toBe(0);
+});
+
+it("uses one stable EPUB file match for unknown fragments and clears it outside that file", async () => {
+  await render(
+    { type: "epub", href: "chapter.xhtml#paragraph" },
+    true,
+    epubChapters,
+  );
+  expect(host.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
+  expect(host.querySelector('[aria-current="location"]')?.textContent).toBe(
+    "Chapter",
+  );
+  await render({ type: "epub", href: "chapter.xhtml" }, true, epubChapters);
+  expect(host.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
+  expect(host.querySelector('[aria-current="location"]')?.textContent).toBe(
+    "Chapter",
+  );
+  await render({ type: "epub", href: "other.xhtml#a" }, true, epubChapters);
+  expect(host.querySelector('[aria-current="location"]')).toBeNull();
+  expect(host.querySelector(".toc-item.selected")).toBeNull();
+});

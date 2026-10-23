@@ -27,6 +27,24 @@ export function activePDFSection(items: TOCItem[], page: number) {
   return active?.id;
 }
 
+function activeEPUBSection(items: TOCItem[], href: string) {
+  let first: string | undefined;
+  let exact: string | undefined;
+  const resource = href.split("#")[0];
+  function visit(items: TOCItem[]) {
+    for (const item of items) {
+      const target = item.location;
+      if (target.type === "epub" && target.href.split("#")[0] === resource) {
+        first ??= item.id;
+        if (target.href === href) exact ??= item.id;
+      }
+      visit(item.children);
+    }
+  }
+  visit(items);
+  return exact ?? first;
+}
+
 export function TOCTree({
   items,
   go,
@@ -50,13 +68,22 @@ export function TOCTree({
       location?.type === "pdf" ? location.page : undefined,
     ],
   );
-  const epubHref =
-    location?.type === "epub" ? location.href.split("#")[0] : undefined;
+  const epubLocation = location?.type === "epub" ? location.href : undefined;
+  const epubHref = epubLocation?.split("#")[0];
+  const epubSection = useMemo(
+    () =>
+      epubLocation !== undefined
+        ? activeEPUBSection(items, epubLocation)
+        : undefined,
+    [items, epubLocation],
+  );
+  const currentSection = pdfSection ?? epubSection;
 
   useEffect(() => {
     if (!visible) return;
-    const selected =
-      root.current?.querySelector<HTMLElement>(".toc-item.selected");
+    const selected = root.current?.querySelector<HTMLElement>(
+      '[aria-current="location"]',
+    );
     const viewport = root.current?.closest<HTMLElement>(
       '[data-slot="scroll-area-viewport"]',
     );
@@ -69,7 +96,7 @@ export function TOCTree({
     // Page changes inside a section must not undo manual TOC browsing.
     if (item.top < top) viewport.scrollTop += item.top - top;
     else if (item.bottom > bottom) viewport.scrollTop += item.bottom - bottom;
-  }, [pdfSection, epubHref, visible, items]);
+  }, [currentSection, visible, items]);
 
   function tree(items: TOCItem[], depth: number): React.ReactNode {
     return (
@@ -85,7 +112,9 @@ export function TOCTree({
               <Button
                 variant="ghost"
                 className={`toc-item ${selected ? "selected" : ""}`}
-                aria-current={selected ? "location" : undefined}
+                aria-current={
+                  item.id === currentSection ? "location" : undefined
+                }
                 style={{ paddingLeft: Math.min(12 + depth * 14, 96) }}
                 title={item.label}
                 onClick={() => go(item.location)}
