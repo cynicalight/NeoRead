@@ -123,6 +123,11 @@ beforeEach(async ({ task }) => {
     );
     return child;
   });
+  vi.doMock("./cite-plugins", () => ({
+    citePluginStatus: vi.fn(async () => []),
+    installCitePlugin: vi.fn(),
+    uninstallCitePlugin: vi.fn(),
+  }));
   vi.doMock("node:child_process", () => ({ spawn: serverSpawn }));
   vi.doMock("node:fs/promises", () => ({
     readFile: vi.fn(),

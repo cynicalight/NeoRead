@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
+  <ribbon>
+    <tabs>
+      <tab id="readerCiteTab" label="Reader">
+        <group id="readerCiteGroup" label="引用">
+          <button id="addEditCitation" label="添加/编辑引注" size="large" imageMso="CitationInsert" onAction="ReaderCiteAction" screentip="添加/编辑引注" supertip="在光标处插入引注，或编辑光标所在的引注"/>
+          <button id="addEditBibliography" label="参考文献表" size="large" imageMso="BibliographyGallery" onAction="ReaderCiteAction" screentip="参考文献表" supertip="在光标处插入参考文献表，或更新已有的参考文献表"/>
+          <button id="refresh" label="刷新" size="large" imageMso="Refresh" onAction="ReaderCiteAction" screentip="刷新" supertip="按论文库中的最新信息更新全部引注和参考文献表"/>
+          <button id="setDocPrefs" label="文档首选项" imageMso="PropertySheet" onAction="ReaderCiteAction" screentip="文档首选项" supertip="选择引用样式、语言和脚注方式"/>
+          <button id="removeCodes" label="取消链接" imageMso="HyperlinkRemove" onAction="ReaderCiteAction" screentip="取消链接" supertip="把引注和参考文献表变成普通文字，之后不能再更新"/>
+        </group>
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>

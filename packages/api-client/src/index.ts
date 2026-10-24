@@ -14,6 +14,8 @@ import {
 } from "./translation-stream";
 import { consumeChatStream, type ChatStreamEvent } from "./chat-stream";
 export { ChatStreamError, type ChatStreamEvent } from "./chat-stream";
+import { consumeCiteEvents, type CiteEvent } from "./cite-events";
+export type { CiteEvent } from "./cite-events";
 import createClient from "openapi-fetch";
 import type { components, paths } from "./schema";
 import type {
@@ -734,6 +736,38 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(preferences),
     }),
+  citeEvents: async (
+    signal: AbortSignal,
+    onEvent: (event: CiteEvent) => void,
+  ) => {
+    const response = await diagnosticFetch("/api/cite/events", {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        Accept: "text/event-stream",
+      },
+      signal,
+    });
+    if (!response.ok || !response.body)
+      throw new Error(`无法连接引用插件 (${response.status})`);
+    return consumeCiteEvents(response.body, signal, onEvent);
+  },
+  /** One document operation in the Word or WPS plugin; resolves with its result. */
+  citeCall: (transaction: string, operation: object) =>
+    request<unknown>(
+      `/api/cite/transactions/${encodeURIComponent(transaction)}/call`,
+      {
+        method: "POST",
+        body: JSON.stringify({ ...operation, transaction }),
+      },
+    ),
+  citeComplete: (
+    transaction: string,
+    result: { activate: boolean; error?: string },
+  ) =>
+    request<void>(
+      `/api/cite/transactions/${encodeURIComponent(transaction)}/complete`,
+      { method: "POST", body: JSON.stringify(result) },
+    ),
   settings: () => request<Partial<ReaderTheme>>("/api/settings"),
   saveSettings: (theme: ReaderTheme) =>
     request<ReaderTheme>("/api/settings", {

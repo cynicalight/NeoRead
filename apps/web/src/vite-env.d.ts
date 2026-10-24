@@ -61,6 +61,14 @@ interface Window {
     openDocumentFile: (id: string, type: "pdf" | "epub") => Promise<void>;
     openExternal: (url: string) => Promise<void>;
     openCodexThread?: (threadId: string) => Promise<void>;
+    focusWindow?: () => Promise<void>;
+    citePlugins?: () => Promise<import("./cite/plugins").CitePluginStatus[]>;
+    installCitePlugin?: (
+      kind: "word" | "wps",
+    ) => Promise<import("./cite/plugins").CitePluginStatus[]>;
+    uninstallCitePlugin?: (
+      kind: "word" | "wps",
+    ) => Promise<import("./cite/plugins").CitePluginStatus[]>;
     onOpenLink?: (
       callback: (target: import("@neoread/core").NeoReadLinkTarget) => void,
     ) => () => void;

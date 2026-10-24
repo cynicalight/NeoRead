@@ -2,3 +2,7 @@ patches/*.patch whitespace=-blank-at-eol
 
 # PDF cross-reference records contain significant trailing spaces.
 *.pdf binary
+# Word imports VBA modules with Windows line endings.
+apps/cite-plugins/word/*.bas text eol=crlf
+apps/cite-plugins/word/*.ps1 text eol=crlf
+apps/cite-plugins/word/*.dotm binary

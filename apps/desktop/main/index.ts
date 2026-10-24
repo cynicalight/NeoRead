@@ -47,6 +47,12 @@ import { startDiagnosticService } from "./diagnostic-service";
 import { serverSpawnDiagnostics } from "./server-spawn-diagnostics";
 import { discoverEndNote } from "./endnote-discovery";
 import { commandLineStatus, setCommandLine } from "./command-line";
+import {
+  citePluginStatus,
+  installCitePlugin,
+  uninstallCitePlugin,
+  type CitePluginKind,
+} from "./cite-plugins";
 const isolation = devIsolation({
   isPackaged: app.isPackaged,
   env: process.env,
@@ -80,6 +86,11 @@ let pendingLibraryMove:
     }
   | undefined;
 const root = resolve(__dirname, "../..");
+/** Word template and WPS add-in files (apps/cite-plugins in development). */
+const citePluginsDirectory = () =>
+  app.isPackaged
+    ? join(process.resourcesPath, "cite-plugins")
+    : join(root, "cite-plugins");
 function bundledBinary(name: "neoread-server" | "neoread") {
   const file = process.platform === "win32" ? `${name}.exe` : name;
   return app.isPackaged
@@ -104,6 +115,7 @@ async function startServer() {
   const web = app.isPackaged
     ? join(process.resourcesPath, "web")
     : join(root, "web", "dist");
+  const citePlugins = citePluginsDirectory();
   const pathValue = await agentPath(childEnv, homedir(), process.platform);
   child = spawn(
     binary,
@@ -119,6 +131,8 @@ async function startServer() {
       "--shutdown-on-stdin",
       "--web",
       web,
+      "--cite-plugins",
+      citePlugins,
       ...(!isolation.enableConnector ? ["--connector=false"] : []),
     ],
     {
@@ -755,6 +769,55 @@ app
         await shell.openExternal(codexThreadURL(threadId));
       },
     );
+    const citeOptions = () => ({
+      platform: process.platform,
+      home: homedir(),
+      appData: app.getPath("appData"),
+      plugins: citePluginsDirectory(),
+    });
+    const citeKind = (kind: unknown): CitePluginKind => {
+      if (kind !== "word" && kind !== "wps") throw new Error("Invalid plugin");
+      return kind;
+    };
+    const fromWindow = (event: Electron.IpcMainInvokeEvent) => {
+      if (
+        event.sender !== window?.webContents ||
+        event.senderFrame !== window.webContents.mainFrame
+      )
+        throw new Error("Invalid sender");
+    };
+    ipcMain.handle("neoread:cite-plugins", (event) => {
+      fromWindow(event);
+      return citePluginStatus(citeOptions());
+    });
+    ipcMain.handle("neoread:cite-plugin-install", async (event, kind) => {
+      fromWindow(event);
+      await installCitePlugin(citeKind(kind), citeOptions());
+      return citePluginStatus(citeOptions());
+    });
+    ipcMain.handle("neoread:cite-plugin-uninstall", async (event, kind) => {
+      fromWindow(event);
+      await uninstallCitePlugin(citeKind(kind), citeOptions());
+      return citePluginStatus(citeOptions());
+    });
+    // A Word or WPS command opens a citation dialog here. Both systems keep a
+    // background app from taking focus, so this has to insist.
+    ipcMain.handle("neoread:focus-window", (event) => {
+      if (
+        event.sender !== window?.webContents ||
+        event.senderFrame !== window.webContents.mainFrame
+      )
+        throw new Error("Invalid sender");
+      if (window.isMinimized()) window.restore();
+      window.show();
+      if (process.platform === "darwin") app.focus({ steal: true });
+      else {
+        window.setAlwaysOnTop(true);
+        window.focus();
+        window.setAlwaysOnTop(false);
+      }
+      window.focus();
+    });
     ipcMain.handle("neoread:open-external", async (event, url: unknown) => {
       if (
         event.sender !== window?.webContents ||

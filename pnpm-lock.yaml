@@ -146,6 +146,9 @@ importers:
       '@readium/shared':
         specifier: 2.6.0
         version: 2.6.0
+      citeproc:
+        specifier: 2.4.63
+        version: 2.4.63
       katex:
         specifier: 0.18.1
         version: 0.18.1

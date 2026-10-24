@@ -84,6 +84,12 @@ func (s *Server) ConnectorHandler() http.Handler {
 	mux.HandleFunc("GET /v1/folders", s.connectorFolders)
 	mux.HandleFunc("GET /v1/labels", s.connectorLabels)
 	mux.HandleFunc("POST /v1/import", s.connectorImport)
+	mux.HandleFunc("POST /v1/cite/bootstrap", s.citeBootstrap)
+	mux.HandleFunc("POST /v1/cite/execCommand", s.citeExecCommand)
+	mux.HandleFunc("POST /v1/cite/respond", s.citeRespond)
+	mux.HandleFunc("POST /v1/cite/next", s.citeNext)
+	mux.HandleFunc("GET /wps/{key}/{file...}", s.citeWPSFile)
+	mux.HandleFunc("GET /wps/{$}", s.citeWPSFile)
 	return s.diagnosticHTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, port, err := net.SplitHostPort(r.Host)
 		if err != nil || host != "127.0.0.1" || port != ConnectorPort {
@@ -91,7 +97,9 @@ func (s *Server) ConnectorHandler() http.Handler {
 			return
 		}
 		origin := r.Header.Get("Origin")
-		if origin != "" && !connectorOriginAllowed(origin) {
+		// The WPS add-in page is served from this port and calls it directly.
+		sameOrigin := origin == "http://127.0.0.1:"+ConnectorPort && strings.HasPrefix(r.URL.Path, "/v1/cite/")
+		if origin != "" && !connectorOriginAllowed(origin) && !sameOrigin {
 			fail(w, 403, "invalid origin")
 			return
 		}
@@ -99,7 +107,7 @@ func (s *Server) ConnectorHandler() http.Handler {
 			fail(w, 403, "missing extension origin")
 			return
 		}
-		if origin != "" {
+		if origin != "" && !sameOrigin {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		}
 		w.Header().Set("Vary", "Origin")
@@ -110,7 +118,17 @@ func (s *Server) ConnectorHandler() http.Handler {
 			w.WriteHeader(204)
 			return
 		}
-		if r.URL.Path != "/v1/session" && r.URL.Path != "/v1/status" {
+		if strings.HasPrefix(r.URL.Path, "/wps/") {
+			// The resource handler validates the private installation key.
+		} else if r.URL.Path == "/v1/cite/bootstrap" {
+			// This handler authenticates with the private installation key.
+		} else if strings.HasPrefix(r.URL.Path, "/v1/cite/") {
+			// Word macros send no Origin; the plugins read a separate credential.
+			if !s.citeAuthorized(r) {
+				fail(w, 401, "本机访问凭据已失效，请重启 Reader")
+				return
+			}
+		} else if r.URL.Path != "/v1/session" && r.URL.Path != "/v1/status" {
 			savedHash := connectorSetting(s.Store.DB, "secret")
 			provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			actualHash := connectorHash(provided)

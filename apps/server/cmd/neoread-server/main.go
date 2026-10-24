@@ -31,6 +31,8 @@ func main() {
 	port := flag.String("port", "17840", "loopback port, 0 for automatic")
 	web := flag.String("web", "", "built web directory")
 	connector := flag.Bool("connector", true, "enable NeoRead Connector listener")
+	citeCredential := flag.String("cite-credential", "", "credential file for the Word and WPS plugins")
+	citePlugins := flag.String("cite-plugins", "", "directory with the Word and WPS add-in files")
 	probeNetwork := flag.Bool("probe-network", false, "check ChatGPT reachability and exit without opening a library")
 	logs := flag.String("logs", "", "diagnostic log directory")
 	session := flag.String("session", "", "diagnostic session ID")
@@ -130,6 +132,17 @@ func main() {
 			log.Printf("NeoRead Connector unavailable: %v", connectorError)
 		} else {
 			server.SetConnectorAvailable(true)
+			server.SetCitePlugins(*citePlugins)
+			if *citeCredential == "" {
+				if config, configErr := os.UserConfigDir(); configErr == nil {
+					*citeCredential = filepath.Join(config, "Reader", "cite-credential")
+				}
+			}
+			if *citeCredential != "" {
+				if credentialErr := server.SetCiteCredential(*citeCredential); credentialErr != nil {
+					log.Printf("citation plugins unavailable: %v", credentialErr)
+				}
+			}
 			connectorHTTP := &http.Server{Handler: server.ConnectorHandler(), ReadHeaderTimeout: 10 * time.Second}
 			go func() { _ = connectorHTTP.Serve(connectorListener) }()
 			defer connectorHTTP.Shutdown(context.Background())

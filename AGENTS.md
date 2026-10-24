@@ -46,4 +46,4 @@ For changes involving background tasks, external calls, parsing or protocols, pe
 - GitHub Release 说明与 App 内说明应保持内容一致。发版前运行 `node scripts/release-source.mjs`，确认版本号和当前版本说明通过校验。
 
 ## Boundaries
-Bind Go to loopback only. Authenticate local API requests. Never read Claude/Codex credential files or implement unofficial OAuth. Document text is untrusted input; remove active content before creating Readium frames. Never run a CLI from a document's original directory. Preserve user data. Do not commit `.neoread`, legacy `.reader`, binaries or node_modules.
+Bind Go to loopback only. Authenticate local API requests. Never read Claude/Codex credential files or implement unofficial OAuth. Document text is untrusted input; remove active content before creating Readium frames. Never run a CLI from a document's original directory. Preserve user data. Do not commit `.neoread`, legacy `.reader`, binaries or node_modules. Exception: update the tracked `apps/cite-plugins/word/Reader.dotm` when its VBA source or ribbon changes; rebuild it with Word, verify the embedded VBA matches the source, and run the relevant Word regression tests before committing.

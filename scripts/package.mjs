@@ -76,6 +76,23 @@ await cp(
 await cp(join(root, "apps/web/dist"), join(staging, "web"), {
   recursive: true,
 });
+// Citation plugins: the WPS add-in served by Reader and the Word template.
+const plugins = join(root, "apps/cite-plugins");
+await cp(join(plugins, "wps"), join(staging, "cite-plugins/wps"), {
+  recursive: true,
+  filter: (source) => !/\.test\.[cm]?[jt]s$/.test(source),
+});
+await mkdir(join(staging, "cite-plugins/word"), { recursive: true });
+await cp(
+  join(plugins, "word/ReaderCite.applescript"),
+  join(staging, "cite-plugins/word/ReaderCite.applescript"),
+);
+await cp(
+  join(plugins, "word/Reader.dotm"),
+  join(staging, "cite-plugins/word/Reader.dotm"),
+).catch(() =>
+  console.warn("Reader.dotm is missing; the Word plugin is not packaged."),
+);
 await mkdir(join(staging, "bin"));
 for (const name of ["neoread-server", "neoread"]) {
   const binary = `${name}${process.platform === "win32" ? ".exe" : ""}`;

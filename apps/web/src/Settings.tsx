@@ -62,6 +62,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@neoread/ui/components/tabs";
+import { CitePluginSettings } from "./cite/CitePluginSettings";
 import { HighlightColorsEditor } from "./HighlightColorsEditor";
 import { ProxySettings } from "./ProxySettings";
 import {
@@ -887,6 +888,7 @@ export function Settings({
                 <LibraryLocationSettings open={open} />
               </div>
             )}
+            <CitePluginSettings open={open} />
             <section>
               <h3 className="mb-3 text-sm font-medium">导入设置</h3>
               <label className="flex items-start gap-2 text-sm">
