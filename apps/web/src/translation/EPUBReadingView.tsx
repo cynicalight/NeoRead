@@ -40,6 +40,7 @@ import "./translation.css";
 type Mode = "source" | "parallel" | "translation";
 export function EPUBReadingView({
   document: doc,
+  active = true,
   theme,
   annotations,
   events,
@@ -356,6 +357,7 @@ export function EPUBReadingView({
         source={
           <div className="translation-source">
             <ReaderView
+              active={active}
               document={doc}
               theme={theme}
               annotations={annotations}

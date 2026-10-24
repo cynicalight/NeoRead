@@ -63,6 +63,7 @@ interface Window {
       callback: (target: import("@reader/core").ReaderLinkTarget) => void,
     ) => () => void;
     onBeforeClose: (callback: () => Promise<void>) => () => void;
+    setDocumentTabActive?: (active: boolean) => Promise<void>;
     onLibraryChanged: (callback: () => void) => () => void;
   };
 }

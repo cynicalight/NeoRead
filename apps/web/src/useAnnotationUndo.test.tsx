@@ -97,3 +97,27 @@ it("does not undo while preparing an annotation", async () => {
   await key(window);
   expect(api.undoAnnotation).not.toHaveBeenCalled();
 });
+
+it("routes undo only to the active reader when other document tabs remain mounted", async () => {
+  await act(async () =>
+    root.render(
+      <>
+        <Reader id="a" blocked />
+        <Reader id="b" />
+      </>,
+    ),
+  );
+  await key(window);
+  expect(api.undoAnnotation).toHaveBeenCalledExactlyOnceWith("b");
+  vi.mocked(api.undoAnnotation).mockClear();
+  await act(async () =>
+    root.render(
+      <>
+        <Reader id="a" />
+        <Reader id="b" blocked />
+      </>,
+    ),
+  );
+  await key(window);
+  expect(api.undoAnnotation).toHaveBeenCalledExactlyOnceWith("a");
+});

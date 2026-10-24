@@ -1,0 +1,115 @@
+.app[data-has-tabs] {
+  position: relative;
+  padding-top: 44px;
+}
+.document-tabbar {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 44px;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
+  -webkit-app-region: drag;
+}
+.document-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-app-region: no-drag;
+}
+.document-tabs-list {
+  height: 30px;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-start;
+  padding: 0;
+  gap: 4px;
+}
+.document-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 100px;
+  max-width: 220px;
+  border-radius: 6px;
+}
+.document-tab[data-active] {
+  background: var(--background);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 7%);
+}
+.document-tab-trigger {
+  min-width: 0;
+  height: 30px;
+  max-width: 190px;
+  justify-content: flex-start;
+  padding-inline: 10px 4px;
+  font-size: 12px;
+}
+.document-tab-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.document-tab-trigger::after,
+.document-library-tab::after {
+  display: none;
+}
+.document-library-tab {
+  flex: none;
+  height: 30px;
+  padding-inline: 10px;
+  font-size: 12px;
+}
+.document-library-tab[data-active] {
+  background: var(--background);
+}
+.document-tab-close {
+  flex: none;
+  margin-right: 4px;
+  color: var(--muted-foreground);
+}
+.document-tabbar button {
+  -webkit-app-region: no-drag;
+}
+.document-tabs-drag {
+  width: 20px;
+  flex: none;
+  align-self: stretch;
+}
+.reader-tab-panel {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+.reader-tab-panel[hidden] {
+  display: none;
+}
+.app[data-platform="darwin"][data-has-tabs] .document-tabbar {
+  padding-left: 104px;
+}
+.app[data-platform="darwin"][data-has-tabs]
+  :is(.window-top-drag, .window-drag-handle) {
+  display: none;
+}
+.app[data-platform="darwin"][data-has-tabs] .reader-toolbar,
+.app[data-platform="darwin"][data-has-tabs]
+  .library-sidebar.collapsed
+  + .library-main
+  .library-topbar {
+  padding-left: 17px;
+}
+
+.library-tab-panel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  outline: none;
+}
