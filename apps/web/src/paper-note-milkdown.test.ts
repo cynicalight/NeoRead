@@ -91,20 +91,26 @@ it("updates the shared draft synchronously, ignores selection changes, and never
   expect(change.mock.calls[0][0]).toContain("https://example.com/tracker.png");
 });
 
-it("preserves inert reader links, image metadata and math through the editor clipboard DOM", async () => {
-  const { view } = await create(
-    '[source](reader://document/p?annotation=a "Source title") ![private](https://example.com/tracker.png "Image title") $x_{1}$',
-  );
-  const dom = document.createElement("div");
-  dom.append(
-    DOMSerializer.fromSchema(view.state.schema).serializeFragment(
-      view.state.doc.content,
-    ),
-  );
-  expect(dom.querySelector("a[href], img[src]")).toBeNull();
-  const pasted = DOMParser.fromSchema(view.state.schema).parse(dom);
-  expect(pasted.toJSON()).toEqual(view.state.doc.toJSON());
-});
+it.each([
+  "reader://document/p?annotation=a",
+  "neoread://open?id=p&annotation=a",
+])(
+  "preserves inert links (%s), image metadata and math through the editor clipboard DOM",
+  async (url) => {
+    const { view } = await create(
+      `[source](${url} "Source title") ![private](https://example.com/tracker.png "Image title") $x_{1}$`,
+    );
+    const dom = document.createElement("div");
+    dom.append(
+      DOMSerializer.fromSchema(view.state.schema).serializeFragment(
+        view.state.doc.content,
+      ),
+    );
+    expect(dom.querySelector("a[href], img[src]")).toBeNull();
+    const pasted = DOMParser.fromSchema(view.state.schema).parse(dom);
+    expect(pasted.toJSON()).toEqual(view.state.doc.toJSON());
+  },
+);
 
 it("lets users toggle task checkboxes without losing their Markdown content", async () => {
   const { view, host, change } = await create("- [ ] Finish this");

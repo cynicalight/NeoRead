@@ -254,3 +254,19 @@ it("shares the raw draft with the expanded editor and preserves it on close", as
   expect(api.saveDocumentNote).toHaveBeenLastCalledWith("p", raw);
   expect(document.activeElement).toBe(expand);
 });
+
+it("uses NeoRead links for new excerpts while retaining legacy note content", async () => {
+  await act(async () => button("论文笔记").click());
+  const field = host.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="论文笔记"]',
+  )!;
+  const legacy =
+    "## Existing note\n\n[source](reader://open?id=old)\n\n$x_{1}$";
+  await act(async () => type(field, legacy));
+  await act(async () => button("摘录批注").click());
+  const body = field.value;
+  expect(body.startsWith(legacy + "\n\n")).toBe(true);
+  expect(body).toContain("neoread://open?id=p&annotation=note");
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith("p", body);
+  expect(button("摘录批注").disabled).toBe(true);
+});
