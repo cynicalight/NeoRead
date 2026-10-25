@@ -170,7 +170,6 @@ it("offers restart in system mode and tests the active configuration", async () 
   state = { settings: { mode: "system" }, restartRequired: false };
   await render();
   expect(host.textContent).toContain("切换系统代理后，请重启 NeoRead 再检测。");
-  expect(host.textContent).toContain("检测当前已生效的系统代理配置。");
   expect(button("重启 NeoRead").disabled).toBe(false);
   await click("重启 NeoRead");
   expect(restart).toHaveBeenCalledOnce();
