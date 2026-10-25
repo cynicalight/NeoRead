@@ -158,10 +158,46 @@ func prepareEPUB(ctx context.Context, filename, cache string) (map[string]any, m
 	return m, texts, err
 }
 
+// XHTML permits self-closing script/style elements. The HTML parser otherwise
+// treats everything after them as raw text, so removing a script loses the book.
+// Tokenize instead of replacing strings: apparent tags inside scripts/comments
+// must remain text, and normal non-empty scripts must still be removed in full.
+func expandEPUBSelfClosingRawText(data []byte) []byte {
+	var out bytes.Buffer
+	tokenizer := html.NewTokenizer(bytes.NewReader(data))
+	for {
+		kind := tokenizer.Next()
+		if kind == html.ErrorToken {
+			out.Write(tokenizer.Raw())
+			return out.Bytes()
+		}
+		raw := append([]byte(nil), tokenizer.Raw()...)
+		if kind == html.SelfClosingTagToken {
+			name, _ := tokenizer.TagName()
+			if epubRawTextElement(string(name)) {
+				tokenizer.NextIsNotRawText()
+				out.Write(raw[:len(raw)-2])
+				out.WriteByte('>')
+				out.WriteString("</" + string(name) + ">")
+				continue
+			}
+		}
+		out.Write(raw)
+	}
+}
+
+func epubRawTextElement(tag string) bool {
+	switch tag {
+	case "script", "style", "title", "textarea", "iframe", "xmp", "noembed", "noframes", "noscript":
+		return true
+	}
+	return false
+}
+
 // Book content is untrusted. Preserve typography but remove active HTML before
 // Readium creates its same-origin iframe and injects its own navigation code.
 func sanitizeContent(data []byte) ([]byte, string, error) {
-	doc, err := html.Parse(bytes.NewReader(data))
+	doc, err := html.Parse(bytes.NewReader(expandEPUBSelfClosingRawText(data)))
 	if err != nil {
 		return nil, "", err
 	}
@@ -257,7 +293,7 @@ func writeXML(out *bytes.Buffer, n *html.Node) {
 				out.WriteString(` xmlns="http://www.w3.org/1998/Math/MathML"`)
 			}
 		}
-		if n.FirstChild == nil {
+		if n.FirstChild == nil && !epubRawTextElement(n.Data) {
 			out.WriteString("/>")
 			return
 		}
