@@ -312,3 +312,22 @@ it("closes only the right-side tabs from a tab's context menu", async () => {
   expect(useReaderStore.getState().tabIds).toEqual(["a", "b"]);
   expect(useReaderStore.getState().active?.id).toBe("a");
 });
+it("moves a tab from its context menu and saves the new order", async () => {
+  const tab = document.getElementById("document-tab-a")!;
+  await act(async () =>
+    tab.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        button: 2,
+        cancelable: true,
+        clientX: 40,
+        clientY: 20,
+      }),
+    ),
+  );
+  await menuClick("向右移动");
+  const state = useReaderStore.getState();
+  expect(state.tabIds).toEqual(["b", "a", "c"]);
+  expect(state.active?.id).toBe("a");
+  expect(state.theme.readingSession?.documentIds).toEqual(["b", "a", "c"]);
+});

@@ -45,6 +45,8 @@ export const useReaderStore = create<{
   restoreSession: () => void;
   openMany: (documents: Document[]) => void;
   closeTab: (id: string) => void;
+  /** Move a tab to `index` in the tab order. */
+  moveTab: (id: string, index: number) => void;
   closeTabs: (ids: string[]) => void;
   reopenTabs: () => Document | null;
   closedTabGroups: ClosedTabGroup[];
@@ -102,6 +104,15 @@ export const useReaderStore = create<{
     });
   },
   closeTab: (id) => get().closeTabs([id]),
+  moveTab: (id, index) =>
+    set((state) => {
+      const from = state.tabIds.indexOf(id);
+      const to = Math.max(0, Math.min(index, state.tabIds.length - 1));
+      if (from < 0 || from === to) return state;
+      const ids = state.tabIds.filter((tab) => tab !== id);
+      ids.splice(to, 0, id);
+      return sessionPatch(state.theme, ids, state.active);
+    }),
   closeTabs: (requested) =>
     set((state) => {
       const removing = new Set(requested);

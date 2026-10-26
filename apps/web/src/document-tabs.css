@@ -15,13 +15,35 @@
   -webkit-app-region: drag;
 }
 .document-tabs-scroll {
+  --document-tab-gap: 2px;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--document-tab-gap);
   flex: 1;
   min-width: 0;
+  height: 100%;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   -webkit-app-region: no-drag;
+}
+.document-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+.document-tabs-scroll[data-overflow-start] {
+  mask-image: linear-gradient(to right, transparent, #000 24px);
+}
+.document-tabs-scroll[data-overflow-end] {
+  mask-image: linear-gradient(to left, transparent 0 28px, #000 56px);
+}
+.document-tabs-scroll[data-overflow-start][data-overflow-end] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 24px calc(100% - 56px),
+    transparent calc(100% - 28px)
+  );
 }
 .document-tabs-list {
   height: 30px;
@@ -32,30 +54,79 @@
   padding: 0;
   gap: 4px;
 }
+/* Tabs share the strip and shrink together, as in Chrome; past their
+   minimum width the strip scrolls instead. */
 .document-tab {
+  container: document-tab / inline-size;
+  position: relative;
   display: flex;
   align-items: center;
-  flex: 0 0 auto;
-  min-width: 100px;
+  flex: 0 1 220px;
+  min-width: 44px;
   max-width: 220px;
-  border-radius: 6px;
+  height: 30px;
+  border-radius: 8px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
+  transition:
+    background-color 120ms ease,
+    max-width 200ms ease;
 }
 .document-tab[data-active] {
+  min-width: 96px;
   background: var(--background);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 7%);
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 6%),
+    0 1px 3px rgb(0 0 0 / 8%);
+}
+.document-tab:not([data-active]):hover {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+/* Separators between resting tabs disappear next to highlighted ones. */
+.document-tab::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--document-tab-gap) / -2 - 0.5px);
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--border);
+  transition: opacity 120ms ease;
+}
+.document-tab:first-child::before,
+.document-tab:is([data-active], :hover, [data-dragging])::before,
+.document-tab:is([data-active], :hover, [data-dragging])
+  + .document-tab::before,
+.document-tabs-scroll[data-dragging] .document-tab::before {
+  opacity: 0;
+}
+.document-tabs-scroll[data-frozen] .document-tab {
+  max-width: var(--document-tab-frozen);
 }
 .document-tab-trigger {
+  flex: 1;
   min-width: 0;
   height: 30px;
-  max-width: 190px;
   justify-content: flex-start;
-  padding-inline: 10px 4px;
+  gap: 6px;
+  padding-inline: 10px 2px;
   font-size: 12px;
+  cursor: default;
+}
+.document-tab-trigger > svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
 }
 .document-tab-trigger > span {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
+  /* Fade long titles out instead of cutting them with an ellipsis. */
+  mask-image: linear-gradient(to left, transparent, #000 18px);
 }
 .document-tab-trigger::after,
 .document-library-tab::after {
@@ -72,8 +143,98 @@
 }
 .document-tab-close {
   flex: none;
-  margin-right: 4px;
+  margin-right: 5px;
+  border-radius: 50%;
   color: var(--muted-foreground);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.document-tab:is([data-active], :hover, :focus-within) .document-tab-close {
+  opacity: 1;
+}
+.document-tab-close:hover {
+  color: var(--foreground);
+  background: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+/* Narrow resting tabs give their room to the title, then to the icon. */
+@container document-tab (width < 84px) {
+  .document-tab-close {
+    display: none;
+  }
+  .document-tab-trigger {
+    padding-right: 6px;
+  }
+}
+@container document-tab (width < 60px) {
+  .document-tab-trigger {
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .document-tab-trigger > span {
+    display: none;
+  }
+}
+.document-tab[data-active] .document-tab-close,
+.document-tab:hover .document-tab-close {
+  display: inline-flex;
+}
+.document-tab-new {
+  position: sticky;
+  right: 0;
+  flex: none;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.document-tab-new::before {
+  content: "";
+  position: absolute;
+  inset: 0 100% 0 auto;
+  width: 12px;
+  background: linear-gradient(to right, transparent, var(--muted));
+  pointer-events: none;
+}
+.document-tabs-scroll[data-dragging] .document-tab {
+  cursor: grabbing;
+}
+.document-tabs-scroll[data-dragging] .document-tab:not([data-dragging]) {
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+.document-tab[data-dragging] {
+  z-index: 2;
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 8%),
+    0 6px 16px rgb(0 0 0 / 14%);
+}
+.document-tab[data-dragging]:not([data-active]) {
+  background: var(--background);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .document-tab:is([data-new], [data-leaving]) {
+    overflow: hidden;
+  }
+  .document-tab[data-new] {
+    animation: document-tab-open 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .document-tab[data-leaving] {
+    pointer-events: none;
+    animation: document-tab-close 150ms ease-in forwards;
+  }
+}
+@keyframes document-tab-open {
+  from {
+    min-width: 0;
+    max-width: 0;
+    opacity: 0;
+  }
+}
+@keyframes document-tab-close {
+  to {
+    min-width: 0;
+    max-width: 0;
+    margin-left: calc(var(--document-tab-gap) * -1);
+    opacity: 0;
+  }
 }
 .document-tabbar button {
   -webkit-app-region: no-drag;

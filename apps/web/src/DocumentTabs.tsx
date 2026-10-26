@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Plus, X, Check, ChevronDown } from "lucide-react";
+import {
+  BookOpen,
+  BookText,
+  FileText,
+  Plus,
+  X,
+  Check,
+  ChevronDown,
+} from "lucide-react";
 import { documentTabCommand, type Document } from "@neoread/core";
 import type { Processing, ReaderTheme } from "@neoread/core";
 import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
@@ -33,7 +41,12 @@ import { useReaderStore, refreshLibrary } from "./store";
 import { flushProgress } from "./progress";
 import { tabCloseWarning } from "./document-tab-guards";
 import { Workspace } from "./Workspace";
+import { useTabReorder } from "./useTabReorder";
 import "./document-tabs.css";
+
+const closeDuration = 150;
+const animated = () =>
+  !!window.matchMedia?.("(prefers-reduced-motion: no-preference)").matches;
 
 export function DocumentTabs({
   onSelect,
@@ -44,13 +57,18 @@ export function DocumentTabs({
   onLibrary: () => void;
   onNew: () => void;
 }) {
-  const { documents, tabIds, active, closeTabs, closedTabGroups } =
+  const { documents, tabIds, active, closeTabs, moveTab, closedTabGroups } =
     useReaderStore();
   const [confirming, setConfirming] = useState<string[] | null>(null);
   const [closing, setClosing] = useState(false);
+  const [leaving, setLeaving] = useState<string[]>([]);
+  // Tabs present at mount are restored, not opened, so only later ones animate in.
+  const known = useRef<Set<string> | null>(null);
+  known.current ??= new Set(tabIds);
   const pendingClose = useRef(false),
     restoreFocus = useRef(false);
   const strip = useRef<HTMLDivElement>(null);
+  const reorder = useTabReorder(strip, moveTab);
   const tabs = tabIds.flatMap(
     (id) => documents.find((doc) => doc.id === id) ?? [],
   );
@@ -81,8 +99,12 @@ export function DocumentTabs({
             .getElementById(`document-tab-${id}`)
             ?.parentElement?.contains(focused),
         );
-      closeTabs(ids);
       setConfirming(null);
+      if (animated()) {
+        setLeaving(ids);
+        await new Promise((done) => setTimeout(done, closeDuration));
+      }
+      closeTabs(ids);
       void refreshLibrary().catch((e) => toast.error(e.message));
     } catch (error) {
       toast.error(
@@ -91,6 +113,7 @@ export function DocumentTabs({
     } finally {
       pendingClose.current = false;
       setClosing(false);
+      setLeaving([]);
     }
   };
   const requestClose = (requested: string[]) => {
@@ -157,7 +180,11 @@ export function DocumentTabs({
       ? document.getElementById(`document-tab-${active.id}`)
       : document.getElementById("reader-library-tab");
     if (active)
-      selected?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+      selected?.scrollIntoView?.({
+        block: "nearest",
+        inline: "nearest",
+        behavior: animated() ? "smooth" : "auto",
+      });
     if (!restoreFocus.current) return;
     const frame = requestAnimationFrame(() => {
       restoreFocus.current = false;
@@ -172,6 +199,48 @@ export function DocumentTabs({
       ?.setDocumentTabActive?.(!!active)
       .catch((e: Error) => toast.error(e.message));
   }, [active?.id]);
+  useEffect(() => {
+    for (const id of tabIds) known.current!.add(id);
+  });
+  // Fade the strip edges only where tabs are scrolled out of view.
+  const hasTabs = tabIds.length > 0 || closedTabGroups.length > 0;
+  useEffect(() => {
+    const element = strip.current;
+    if (!element) return;
+    const update = () => {
+      const end = element.scrollWidth - element.clientWidth;
+      element.toggleAttribute("data-overflow-start", element.scrollLeft > 1);
+      element.toggleAttribute(
+        "data-overflow-end",
+        element.scrollLeft < end - 1,
+      );
+    };
+    update();
+    element.addEventListener("scroll", update, { passive: true });
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(update);
+    observer?.observe(element);
+    for (const child of element.children) observer?.observe(child);
+    return () => {
+      element.removeEventListener("scroll", update);
+      observer?.disconnect();
+    };
+  }, [hasTabs, tabOrder]);
+  // Like Chrome, closing with the mouse keeps tab widths until the pointer
+  // leaves the strip, so the next close button lands under the cursor.
+  const freezeWidths = (tab: HTMLElement | null) => {
+    if (!tab || !strip.current) return;
+    strip.current.style.setProperty(
+      "--document-tab-frozen",
+      `${tab.offsetWidth}px`,
+    );
+    strip.current.dataset.frozen = "";
+  };
+  const thaw = () => {
+    if (strip.current) delete strip.current.dataset.frozen;
+  };
   useEffect(() => {
     if (!confirming) return;
     const ids = confirming.filter((id) => tabIds.includes(id));
@@ -209,17 +278,30 @@ export function DocumentTabs({
             <BookOpen className="size-3.5" />
             书库
           </TabsTrigger>
-          <div className="document-tabs-scroll" ref={strip}>
+          <div
+            className="document-tabs-scroll"
+            ref={strip}
+            onPointerLeave={thaw}
+            onWheel={(event) => {
+              if (Math.abs(event.deltaY) > Math.abs(event.deltaX))
+                event.currentTarget.scrollLeft += event.deltaY;
+            }}
+          >
             {tabs.map((doc, index) => (
               <ContextMenu key={doc.id}>
                 <ContextMenuTrigger
                   render={
                     <div
                       className="document-tab"
+                      data-tab-id={doc.id}
                       data-active={active?.id === doc.id || undefined}
+                      data-new={!known.current!.has(doc.id) || undefined}
+                      data-leaving={leaving.includes(doc.id) || undefined}
+                      onPointerDown={reorder(doc.id)}
                       onAuxClick={(event) => {
                         if (event.button === 1) {
                           event.preventDefault();
+                          freezeWidths(event.currentTarget);
                           requestClose([doc.id]);
                         }
                       }}
@@ -233,6 +315,7 @@ export function DocumentTabs({
                     className="document-tab-trigger"
                     title={doc.title}
                   >
+                    {doc.type === "epub" ? <BookText /> : <FileText />}
                     <span>{doc.title}</span>
                   </TabsTrigger>
                   <Button
@@ -241,7 +324,11 @@ export function DocumentTabs({
                     size="icon-xs"
                     aria-label={`关闭标签页：${doc.title}`}
                     disabled={closing}
-                    onClick={() => requestClose([doc.id])}
+                    onClick={(event) => {
+                      if (event.detail)
+                        freezeWidths(event.currentTarget.parentElement);
+                      requestClose([doc.id]);
+                    }}
                   >
                     <X className="size-3" />
                   </Button>
@@ -269,6 +356,19 @@ export function DocumentTabs({
                   </ContextMenuItem>
                   <ContextMenuSeparator />
                   <ContextMenuItem
+                    disabled={!index}
+                    onClick={() => moveTab(doc.id, index - 1)}
+                  >
+                    向左移动
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={index === tabs.length - 1}
+                    onClick={() => moveTab(doc.id, index + 1)}
+                  >
+                    向右移动
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
                     disabled={closing || !closedTabGroups.length}
                     onClick={reopen}
                   >
@@ -277,17 +377,18 @@ export function DocumentTabs({
                 </ContextMenuContent>
               </ContextMenu>
             ))}
+            <Button
+              className="document-tab-new"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="打开其他文档"
+              title="打开其他文档"
+              onClick={onNew}
+            >
+              <Plus />
+            </Button>
           </div>
         </TabsList>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="打开其他文档"
-          title="打开其他文档"
-          onClick={onNew}
-        >
-          <Plus />
-        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger
             render={

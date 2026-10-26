@@ -102,8 +102,8 @@ it("routes undo only to the active reader when other document tabs remain mounte
   await act(async () =>
     root.render(
       <>
-        <Reader id="a" blocked />
-        <Reader id="b" />
+        <NeoRead id="a" blocked />
+        <NeoRead id="b" />
       </>,
     ),
   );
@@ -113,8 +113,8 @@ it("routes undo only to the active reader when other document tabs remain mounte
   await act(async () =>
     root.render(
       <>
-        <Reader id="a" />
-        <Reader id="b" blocked />
+        <NeoRead id="a" />
+        <NeoRead id="b" blocked />
       </>,
     ),
   );
