@@ -18,7 +18,7 @@ beforeEach(() =>
     visitedTabs: [],
     closedTabGroups: [],
     sessionReady: false,
-    theme: defaultTheme,
+    theme: { ...defaultTheme, documentTabs: true },
   }),
 );
 it("opens multiple documents once and retains tabs when returning to the library", () => {
@@ -51,6 +51,7 @@ it.each([true, false])(
   (settingsFirst) => {
     const saved = {
       ...defaultTheme,
+      documentTabs: true,
       readingSession: {
         documentIds: ["c", "a", "missing", "c"],
         activeId: "a",
@@ -122,4 +123,20 @@ it("never reopens deleted documents or duplicates tabs that were opened manually
   state().setDocuments([docs[0], docs[2]]);
   expect(state().reopenTabs()).toBeNull();
   expect(state().tabIds).toEqual(["c", "a"]);
+});
+it("replaces the current document and restores none when tabs are off", () => {
+  state().setTheme({
+    documentTabs: false,
+    readingSession: { documentIds: ["a", "b"], activeId: "b" },
+  });
+  useReaderStore.setState({ sessionReady: false });
+  state().restoreSession();
+  expect(state().tabIds).toEqual([]);
+  expect(state().active).toBeNull();
+  state().open(docs[0]);
+  state().open(docs[1]);
+  expect(state().tabIds).toEqual(["b"]);
+  expect(state().visitedTabs).toEqual(["b"]);
+  state().open(null);
+  expect(state().tabIds).toEqual([]);
 });

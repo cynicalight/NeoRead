@@ -37,7 +37,7 @@ import {
   ContextMenuSeparator,
 } from "@neoread/ui/components/context-menu";
 import { toast } from "sonner";
-import { useReaderStore, refreshLibrary } from "./store";
+import { useReaderStore, refreshLibrary, documentTabsShown } from "./store";
 import { flushProgress } from "./progress";
 import { tabCloseWarning } from "./document-tab-guards";
 import { Workspace } from "./Workspace";
@@ -57,8 +57,17 @@ export function DocumentTabs({
   onLibrary: () => void;
   onNew: () => void;
 }) {
-  const { documents, tabIds, active, closeTabs, moveTab, closedTabGroups } =
-    useReaderStore();
+  const {
+    documents,
+    tabIds,
+    active,
+    closeTabs,
+    moveTab,
+    closedTabGroups,
+    theme,
+    setTheme,
+  } = useReaderStore();
+  const enabled = theme.documentTabs === true;
   const [confirming, setConfirming] = useState<string[] | null>(null);
   const [closing, setClosing] = useState(false);
   const [leaving, setLeaving] = useState<string[]>([]);
@@ -107,6 +116,7 @@ export function DocumentTabs({
       closeTabs(ids);
       void refreshLibrary().catch((e) => toast.error(e.message));
     } catch (error) {
+      keepTabs();
       toast.error(
         `阅读进度保存失败，标签页已保留：${(error as Error).message}`,
       );
@@ -115,6 +125,11 @@ export function DocumentTabs({
       setClosing(false);
       setLeaving([]);
     }
+  };
+  // Turning tabs off closes the others; keeping any of them keeps tabs on.
+  const keepTabs = () => {
+    if (useReaderStore.getState().theme.documentTabs !== true)
+      setTheme({ documentTabs: true });
   };
   const requestClose = (requested: string[]) => {
     if (pendingClose.current) return;
@@ -132,9 +147,16 @@ export function DocumentTabs({
     if (doc) onSelect(doc);
     else restoreFocus.current = false;
   };
+  const extra = enabled
+    ? ""
+    : JSON.stringify(tabIds.filter((id) => id !== active?.id));
+  useEffect(() => {
+    if (!enabled && extra !== "[]") requestClose(JSON.parse(extra));
+  }, [enabled, extra]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (
+        !enabled ||
         event.defaultPrevented ||
         event.repeat ||
         document.querySelector(
@@ -196,14 +218,14 @@ export function DocumentTabs({
   }, [active?.id, tabOrder]);
   useEffect(() => {
     void window.neoreadDesktop
-      ?.setDocumentTabActive?.(!!active)
+      ?.setDocumentTabActive?.(enabled && !!active)
       .catch((e: Error) => toast.error(e.message));
-  }, [active?.id]);
+  }, [active?.id, enabled]);
   useEffect(() => {
     for (const id of tabIds) known.current!.add(id);
   });
   // Fade the strip edges only where tabs are scrolled out of view.
-  const hasTabs = tabIds.length > 0 || closedTabGroups.length > 0;
+  const hasTabs = documentTabsShown({ theme, tabIds, closedTabGroups });
   useEffect(() => {
     const element = strip.current;
     if (!element) return;
@@ -247,7 +269,7 @@ export function DocumentTabs({
     if (ids.length !== confirming.length)
       setConfirming(ids.length ? ids : null);
   }, [tabIds, confirming]);
-  if (!tabs.length && !closedTabGroups.length) return null;
+  if (!hasTabs) return null;
   const warning = confirming ? warningFor(confirming) : null;
   const targets = tabs.filter((doc) => confirming?.includes(doc.id));
   return (
@@ -441,7 +463,9 @@ export function DocumentTabs({
       <AlertDialog
         open={!!confirming}
         onOpenChange={(open) => {
-          if (!open && !closing) setConfirming(null);
+          if (open || closing) return;
+          setConfirming(null);
+          keepTabs();
         }}
       >
         <AlertDialogContent>

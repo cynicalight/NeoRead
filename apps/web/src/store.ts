@@ -36,6 +36,16 @@ function sessionPatch(
         : { ...theme, readingSession: { documentIds: tabIds, activeId } },
   };
 }
+const tabsEnabled = (theme: ReaderTheme) => theme.documentTabs === true;
+/** The tab bar also stays while turning tabs off closes the extra tabs. */
+export const documentTabsShown = (state: {
+  theme: ReaderTheme;
+  tabIds: string[];
+  closedTabGroups: ClosedTabGroup[];
+}) =>
+  tabsEnabled(state.theme)
+    ? state.tabIds.length > 0 || state.closedTabGroups.length > 0
+    : state.tabIds.length > 1;
 export const useReaderStore = create<{
   documents: Document[];
   active: Document | null;
@@ -75,10 +85,9 @@ export const useReaderStore = create<{
   restoreSession: () =>
     set((state) => {
       if (state.sessionReady) return state;
-      const session = readingSession(
-        state.theme.readingSession,
-        state.documents,
-      );
+      const session = tabsEnabled(state.theme)
+        ? readingSession(state.theme.readingSession, state.documents)
+        : { documentIds: [], activeId: null };
       const active =
         state.documents.find((d) => d.id === session.activeId) ?? null;
       return {
@@ -224,17 +233,29 @@ export const useReaderStore = create<{
     }),
   open: (active) => {
     ++openRevision;
-    set((state) => ({
-      ...sessionPatch(
-        state.theme,
-        active ? [...new Set([...state.tabIds, active.id])] : state.tabIds,
-        active,
-      ),
-      visitedTabs: active
-        ? [...new Set([...state.visitedTabs, active.id])]
-        : state.visitedTabs,
-      sessionReady: true,
-    }));
+    set((state) => {
+      // Without tabs, a document replaces the current one and the library
+      // releases it, as before tabs existed.
+      if (!tabsEnabled(state.theme)) {
+        const ids = active ? [active.id] : [];
+        return {
+          ...sessionPatch(state.theme, ids, active),
+          visitedTabs: ids,
+          sessionReady: true,
+        };
+      }
+      return {
+        ...sessionPatch(
+          state.theme,
+          active ? [...new Set([...state.tabIds, active.id])] : state.tabIds,
+          active,
+        ),
+        visitedTabs: active
+          ? [...new Set([...state.visitedTabs, active.id])]
+          : state.visitedTabs,
+        sessionReady: true,
+      };
+    });
   },
   setTheme: (patch) =>
     set((state) => ({ theme: { ...state.theme, ...patch } })),

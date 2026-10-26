@@ -81,7 +81,7 @@ beforeEach(async () => {
     active: null,
     closedTabGroups: [],
     sessionReady: true,
-    theme: defaultTheme,
+    theme: { ...defaultTheme, documentTabs: true },
   });
   useReaderStore.getState().openMany(docs);
   host = document.createElement("div");
@@ -330,4 +330,28 @@ it("moves a tab from its context menu and saves the new order", async () => {
   expect(state.tabIds).toEqual(["b", "a", "c"]);
   expect(state.active?.id).toBe("a");
   expect(state.theme.readingSession?.documentIds).toEqual(["b", "a", "c"]);
+});
+it("closes the other tabs when tabs are turned off and keeps them on if cancelled", async () => {
+  useReaderStore.getState().open(docs[0]);
+  await act(async () => root.render(<Harness />));
+  const input = document.querySelector<HTMLInputElement>('[aria-label="问题 a"]')!;
+  await act(async () => {
+    input.value = "draft";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  useReaderStore.getState().open(docs[1]);
+  await act(async () =>
+    useReaderStore.getState().setTheme({ documentTabs: false }),
+  );
+  expect(document.body.textContent).toContain("未发送内容");
+  await click("返回阅读");
+  expect(useReaderStore.getState().theme.documentTabs).toBe(true);
+  expect(useReaderStore.getState().tabIds).toEqual(["a", "b", "c"]);
+  await act(async () =>
+    useReaderStore.getState().setTheme({ documentTabs: false }),
+  );
+  await click("关闭标签页");
+  await act(async () => {});
+  expect(useReaderStore.getState().tabIds).toEqual(["b"]);
+  expect(document.querySelector(".document-tabbar")).toBeNull();
 });

@@ -51,6 +51,7 @@ import {
   refreshTrash,
   openLinkTarget,
   openLibraryDocument,
+  documentTabsShown,
 } from "./store";
 import { TrashView } from "./TrashView";
 import { PaperLibrary } from "./papers/PaperLibrary";
@@ -400,6 +401,7 @@ export function App() {
       .then(refreshLibrary)
       .catch((e) => toast.error(e.message));
   };
+  const tabsShown = documentTabsShown({ theme, tabIds, closedTabGroups });
   const openDocuments = (docs: Document[]) => {
     if (!docs.length) return;
     useReaderStore.getState().openMany(docs);
@@ -467,9 +469,7 @@ export function App() {
       <div
         className="app"
         data-platform={window.neoreadDesktop?.platform}
-        data-has-tabs={
-          tabIds.length > 0 || closedTabGroups.length > 0 || undefined
-        }
+        data-has-tabs={tabsShown || undefined}
         onDragOver={(e) => {
           e.preventDefault();
         }}
@@ -511,11 +511,7 @@ export function App() {
             id="reader-library-panel"
             className="library-tab-panel"
             role="tabpanel"
-            aria-labelledby={
-              tabIds.length || closedTabGroups.length
-                ? "reader-library-tab"
-                : undefined
-            }
+            aria-labelledby={tabsShown ? "reader-library-tab" : undefined}
             tabIndex={-1}
           >
             {/* Outside the sidebar, which is transformed while collapsed. */}
@@ -646,7 +642,7 @@ export function App() {
             </aside>
             {papers ? (
               <PaperLibrary
-                openDocuments={openDocuments}
+                openDocuments={theme.documentTabs ? openDocuments : undefined}
                 documents={documents}
                 trash={trash}
                 jobs={jobsById}
@@ -787,7 +783,7 @@ export function App() {
                         />
                       ) : filtered.length ? (
                         <LibraryDocuments
-                          openDocuments={openDocuments}
+                          openDocuments={theme.documentTabs ? openDocuments : undefined}
                           key={JSON.stringify([filter, query, filters])}
                           documents={filtered}
                           libraryView={libraryView}

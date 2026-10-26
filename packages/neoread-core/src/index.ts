@@ -361,6 +361,8 @@ export interface ReaderLayout {
 export interface ReaderTheme {
   /** Ordered open documents and the selected document; null selects the library. */
   readingSession?: { documentIds: string[]; activeId: string | null };
+  /** Open documents in tabs; otherwise opening one replaces the current document. */
+  documentTabs?: boolean;
   readerLayout?: Partial<ReaderLayout>;
   /** Opt in to copying text selections and selected annotations. */
   autoCopySelection?: boolean;
@@ -407,6 +409,7 @@ export interface HighlightColor {
   label: string;
 }
 export const defaultTheme: ReaderTheme = {
+  documentTabs: false,
   autoCopySelection: false,
   autoTranslatePDF: true,
   pdfDarkImageMode: "adaptive",
