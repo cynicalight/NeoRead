@@ -2,10 +2,17 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { DocumentNavigation, TOCItem } from "@neoread/core";
+import type {
+  DocumentLocation,
+  DocumentNavigation,
+  TOCItem,
+} from "@neoread/core";
 const mocks = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));
 vi.mock("@neoread/api", () => ({
   api: { navigation: mocks.load, saveNavigation: mocks.save },
+}));
+vi.mock("./epub-navigation-order", () => ({
+  epubNavigationOrders: vi.fn(async () => ({})),
 }));
 import { NavigationTree } from "./NavigationTree";
 let root: Root, host: HTMLDivElement;
@@ -53,6 +60,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 const render = () =>
@@ -277,4 +285,167 @@ it("selects collapsed descendants with select all and can deselect all", async (
     host.querySelector<HTMLButtonElement>('[aria-label="删除所选目录"]')!
       .disabled,
   ).toBe(true);
+});
+
+const followOutline: TOCItem[] = [
+  {
+    id: "intro",
+    label: "Intro",
+    location: { type: "pdf", page: 1 },
+    children: [],
+  },
+  {
+    id: "methods",
+    label: "Methods",
+    location: { type: "pdf", page: 5 },
+    children: [
+      {
+        id: "details",
+        label: "Details",
+        location: { type: "pdf", page: 7 },
+        children: [],
+      },
+    ],
+  },
+  {
+    id: "appendix",
+    label: "Appendix",
+    location: { type: "pdf", page: 20 },
+    children: [],
+  },
+];
+function followGeometry() {
+  const positions: Record<string, [number, number]> = {
+    Intro: [10, 30],
+    Methods: [150, 180],
+    Details: [220, 250],
+    Appendix: [300, 330],
+  };
+  vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(
+    function (this: Element) {
+      return this.getAttribute("data-slot") === "scroll-area-viewport"
+        ? 100
+        : 0;
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      const scroll = host.querySelector<HTMLDivElement>(
+        '[data-slot="scroll-area-viewport"]',
+      );
+      const isViewport = this === scroll;
+      const label = this.getAttribute("aria-label")?.replace("目录：", "");
+      const [top, bottom] = isViewport
+        ? [100, 200]
+        : (positions[label ?? ""] ?? [0, 0]).map(
+            (x) => 100 + x - (scroll?.scrollTop ?? 0),
+          );
+      return {
+        top,
+        bottom,
+        left: 0,
+        right: 200,
+        width: 200,
+        height: bottom - top,
+        x: 0,
+        y: top,
+        toJSON() {},
+      };
+    },
+  );
+  return () =>
+    host.querySelector<HTMLDivElement>('[data-slot="scroll-area-viewport"]')!;
+}
+const follow = (
+  location: DocumentLocation,
+  visible = true,
+  toc = followOutline,
+) =>
+  act(async () => {
+    root.render(
+      <NavigationTree
+        documentId="d"
+        type={location.type}
+        outline={toc}
+        blocks={[]}
+        annotations={[]}
+        go={go}
+        location={location}
+        visible={visible}
+      />,
+    );
+  });
+it("reveals the current heading in both directions without changing the reading location", async () => {
+  const scroll = followGeometry();
+  await follow({ type: "pdf", page: 25 });
+  expect(scroll().scrollTop).toBe(230);
+  expect(host.querySelector('[aria-current="location"]')?.textContent).toBe(
+    "Appendix20",
+  );
+  await follow({ type: "pdf", page: 1 });
+  expect(scroll().scrollTop).toBe(10);
+  expect(go).not.toHaveBeenCalled();
+});
+it("leaves manual browsing alone within a section and follows again after reopening", async () => {
+  const scroll = followGeometry();
+  await follow({ type: "pdf", page: 8 });
+  expect(scroll().scrollTop).toBe(150);
+  scroll().scrollTop = 0;
+  await follow({ type: "pdf", page: 9 });
+  expect(scroll().scrollTop).toBe(0);
+  await follow({ type: "pdf", page: 25 }, false);
+  expect(scroll().scrollTop).toBe(0);
+  await follow({ type: "pdf", page: 25 }, true);
+  expect(scroll().scrollTop).toBe(230);
+});
+it("reveals a collapsed ancestor without expanding it or writing navigation edits", async () => {
+  mocks.load.mockResolvedValue({
+    revision: 1,
+    entries: { methods: { collapsed: true } },
+  });
+  const scroll = followGeometry();
+  await follow({ type: "pdf", page: 8 });
+  expect(scroll().scrollTop).toBe(80);
+  expect(
+    host
+      .querySelector('[aria-label="展开 Methods"]')
+      ?.getAttribute("aria-expanded"),
+  ).toBe("false");
+  expect(mocks.save).not.toHaveBeenCalled();
+  expect(go).not.toHaveBeenCalled();
+});
+it("does not move the viewport while the user selects navigation entries", async () => {
+  const scroll = followGeometry();
+  await follow({ type: "pdf", page: 1 });
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="多选目录"]')!.click(),
+  );
+  await follow({ type: "pdf", page: 25 });
+  expect(scroll().scrollTop).toBe(0);
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="退出多选"]')!.click(),
+  );
+  expect(scroll().scrollTop).toBe(230);
+  expect(mocks.save).not.toHaveBeenCalled();
+});
+it("marks at most one EPUB entry current when multiple links share a chapter file", async () => {
+  const epub: TOCItem[] = [
+    {
+      id: "a",
+      label: "A",
+      location: { type: "epub", href: "chapter.xhtml#a" },
+      children: [],
+    },
+    {
+      id: "b",
+      label: "B",
+      location: { type: "epub", href: "chapter.xhtml#b" },
+      children: [],
+    },
+  ];
+  await follow({ type: "epub", href: "chapter.xhtml#body" }, true, epub);
+  expect(host.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
+  expect(host.querySelector('[aria-current="location"]')?.textContent).toBe(
+    "A",
+  );
 });

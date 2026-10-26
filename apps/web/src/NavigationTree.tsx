@@ -44,6 +44,7 @@ export function NavigationTree({
   annotations,
   go,
   location,
+  visible: panelVisible = true,
 }: {
   documentId: string;
   type: "pdf" | "epub";
@@ -52,7 +53,10 @@ export function NavigationTree({
   annotations: Annotation[];
   go: (location: DocumentLocation) => void;
   location?: DocumentLocation;
+  visible?: boolean;
 }) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const rowElements = useRef(new Map<string, HTMLElement>());
   const [state, setState] = useState<DocumentNavigation>(emptyNavigation);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -142,6 +146,35 @@ export function NavigationTree({
             .at(-1)?.id
         : flat.find(sameSection)?.id;
   const disabled = !loaded || saving;
+  let followTarget = active;
+  let parent = active ? byId.get(active)?.parentId : undefined;
+  while (parent) {
+    const item = byId.get(parent);
+    if (item?.collapsed) followTarget = parent;
+    parent = item?.parentId;
+  }
+  useEffect(() => {
+    if (
+      !panelVisible ||
+      !loaded ||
+      selecting ||
+      renaming ||
+      dragging ||
+      !followTarget
+    )
+      return;
+    const row = rowElements.current.get(followTarget);
+    const scroll = viewport.current;
+    if (!row || !scroll) return;
+    const bounds = scroll.getBoundingClientRect();
+    const item = row.getBoundingClientRect();
+    const top = bounds.top + scroll.clientTop;
+    const bottom = top + scroll.clientHeight;
+    // Move only the navigation viewport, without reopening collapsed sections
+    // or undoing manual browsing while reading within the same section.
+    if (item.top < top) scroll.scrollTop += item.top - top;
+    else if (item.bottom > bottom) scroll.scrollTop += item.bottom - bottom;
+  }, [followTarget, panelVisible, loaded, selecting, renaming, dragging]);
   async function change(id: string, patch: NavigationEdit) {
     return save(editNavigation(state, id, patch));
   }
@@ -242,6 +275,10 @@ export function NavigationTree({
           <ContextMenu>
             <ContextMenuTrigger
               render={<div />}
+              ref={(element) => {
+                if (element) rowElements.current.set(item.id, element);
+                else rowElements.current.delete(item.id);
+              }}
               className={`navigation-row ${selecting ? (checked.has(item.id) ? "multi-selected" : "") : active === item.id ? "selected" : ""} ${dropTarget === item.id ? (moveError ? "drop-invalid" : "drop-valid") : ""}`}
               style={{ paddingLeft: 8 + Math.min(depth, 12) * 14 }}
               tabIndex={0}
@@ -327,6 +364,7 @@ export function NavigationTree({
                   variant="ghost"
                   className="navigation-link"
                   title={item.label}
+                  aria-current={active === item.id ? "location" : undefined}
                   aria-pressed={selecting ? checked.has(item.id) : undefined}
                   onClick={(event) => {
                     if (
@@ -427,7 +465,7 @@ export function NavigationTree({
         }
       }}
     >
-      <ScrollArea className="h-full">
+      <ScrollArea className="h-full" viewportRef={viewport}>
         <div className="navigation-rows">
           {error && (
             <div role="alert" className="p-2 text-xs">

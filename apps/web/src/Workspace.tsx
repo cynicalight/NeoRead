@@ -1352,6 +1352,7 @@ export function Workspace({
                   annotations={annotations}
                   location={location}
                   go={move}
+                  visible={active && left && leftTab === "toc"}
                 />
               </TabsContent>
               <TabsContent value="search" className="min-h-0 flex-1 p-3">
