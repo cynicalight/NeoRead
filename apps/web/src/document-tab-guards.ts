@@ -1,14 +1,16 @@
 export type TabCloseWarning = { message: string; blocked?: boolean };
-const guards = new Map<string, () => TabCloseWarning | null>();
-export function registerTabCloseGuard(
-  id: string,
-  guard: () => TabCloseWarning | null,
-) {
-  guards.set(id, guard);
+type Guard = () => TabCloseWarning | null;
+// Several parts of a reader may hold unsaved state for the same document.
+const guards = new Map<string, Set<Guard>>();
+export function registerTabCloseGuard(id: string, guard: Guard) {
+  const set = guards.get(id) ?? new Set<Guard>();
+  guards.set(id, set.add(guard));
   return () => {
-    if (guards.get(id) === guard) guards.delete(id);
+    set.delete(guard);
+    if (!set.size && guards.get(id) === set) guards.delete(id);
   };
 }
 export function tabCloseWarning(id: string) {
-  return guards.get(id)?.() ?? null;
+  const warnings = [...(guards.get(id) ?? [])].flatMap((guard) => guard() ?? []);
+  return warnings.find((warning) => warning.blocked) ?? warnings[0] ?? null;
 }

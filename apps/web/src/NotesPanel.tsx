@@ -1,5 +1,6 @@
 import { AnnotationQuote } from "./AnnotationQuote";
 import { useEffect, useRef, useState } from "react";
+import { registerTabCloseGuard } from "./document-tab-guards";
 import {
   Check,
   ChevronDown,
@@ -138,12 +139,27 @@ function PaperNote({
   // Save on unmount so switching documents never drops the last edit.
   const latest = useRef(body);
   latest.current = body;
+  const saving = useRef(false);
+  saving.current = state === "saving";
   useEffect(
     () => () => {
       clearTimeout(timer.current);
       if (latest.current !== saved.current)
-        void api.saveDocumentNote(documentId, latest.current).catch(() => {});
+        void api
+          .saveDocumentNote(documentId, latest.current)
+          .catch((e) => toast.error(`论文笔记保存失败：${(e as Error).message}`));
     },
+    [documentId],
+  );
+  useEffect(
+    () =>
+      registerTabCloseGuard(documentId, () =>
+        saving.current
+          ? { blocked: true, message: "论文笔记正在保存，请保存完成后再关闭。" }
+          : latest.current !== saved.current
+            ? { message: "论文笔记还有未保存的修改，关闭后可能丢失。" }
+            : null,
+      ),
     [documentId],
   );
   return (
@@ -222,6 +238,19 @@ function NoteCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(a.note);
   const [saving, setSaving] = useState(false);
+  const closeState = useRef({ editing, saving, changed: false });
+  closeState.current = { editing, saving, changed: draft !== a.note };
+  useEffect(
+    () =>
+      registerTabCloseGuard(a.documentId, () =>
+        closeState.current.saving
+          ? { blocked: true, message: "批注正在保存，请保存完成后再关闭。" }
+          : closeState.current.editing && closeState.current.changed
+            ? { message: "正在编辑的批注尚未保存，关闭后会丢失。" }
+            : null,
+      ),
+    [a.documentId],
+  );
   const question = a.kind === "question";
   return (
     <article className="note-card" data-kind={a.kind}>

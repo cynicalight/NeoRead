@@ -6,6 +6,7 @@ import { api } from "@neoread/api";
 import type { Annotation, Message } from "@neoread/core";
 import { NotesPanel, documentOrder } from "./NotesPanel";
 import { paper } from "./papers/fixtures";
+import { tabCloseWarning } from "./document-tab-guards";
 vi.mock("@neoread/api", () => ({
   api: {
     documentNote: vi.fn(async () => ({ body: "" })),
@@ -190,4 +191,22 @@ it("saves the paper note after typing stops", async () => {
     "p",
     "Main contribution",
   );
+});
+
+it("warns before closing the tab with an unsaved inline note or paper note", async () => {
+  await act(async () => button("编辑批注").click());
+  expect(tabCloseWarning("p")).toBeNull();
+  const field = host.querySelector<HTMLTextAreaElement>('[aria-label="批注"]')!;
+  await act(async () => type(field, "Unsaved thought"));
+  expect(tabCloseWarning("p")?.message).toContain("批注尚未保存");
+  await act(async () => button("取消").click());
+  expect(tabCloseWarning("p")).toBeNull();
+  await act(async () => button("论文笔记").click());
+  const note = host.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="论文笔记"]',
+  )!;
+  await act(async () => type(note, "Pending"));
+  expect(tabCloseWarning("p")?.message).toContain("论文笔记");
+  await act(async () => vi.advanceTimersByTime(900));
+  expect(tabCloseWarning("p")).toBeNull();
 });
