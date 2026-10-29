@@ -261,11 +261,11 @@ it("uses NeoRead links for new excerpts while retaining legacy note content", as
     'textarea[aria-label="论文笔记"]',
   )!;
   const legacy =
-    "## Existing note\n\n[source](reader://open?id=old)\n\n$x_{1}$";
+    "## Existing note\n\n[source](reader://open?id=old)\n\n$x_{1}$\n\n  ";
   await act(async () => type(field, legacy));
   await act(async () => button("摘录批注").click());
   const body = field.value;
-  expect(body.startsWith(legacy + "\n\n")).toBe(true);
+  expect(body.startsWith(legacy.trimEnd() + "\n\n")).toBe(true);
   expect(body).toContain("neoread://open?id=p&annotation=note");
   expect(api.saveDocumentNote).toHaveBeenLastCalledWith("p", body);
   expect(button("摘录批注").disabled).toBe(true);

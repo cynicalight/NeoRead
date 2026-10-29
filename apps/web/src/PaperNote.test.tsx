@@ -238,7 +238,7 @@ it("isolates pending editor mounts under StrictMode and fast source switching", 
     document.querySelectorAll(".paper-note-rich .ProseMirror"),
   ).toHaveLength(0);
 });
-it("isolates editor keyboard commands from global window shortcuts", async () => {
+it("lets application shortcuts bubble from both the editor and toolbar", async () => {
   await mount();
   await act(async () => button("展开论文笔记").click());
   await act(async () => button("源码").click());
@@ -252,6 +252,42 @@ it("isolates editor keyboard commands from global window shortcuts", async () =>
       new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }),
     ),
   );
+  await act(async () =>
+    button("源码").dispatchEvent(
+      new KeyboardEvent("keydown", { key: "o", ctrlKey: true, bubbles: true }),
+    ),
+  );
   window.removeEventListener("keydown", globalShortcut);
-  expect(globalShortcut).not.toHaveBeenCalled();
+  expect(globalShortcut).toHaveBeenCalledTimes(2);
+});
+
+it("syncs an external draft into the rich document before subsequent typing", async () => {
+  await mount();
+  const note = getPaperNote(`editor-${id}`);
+  await act(async () => button("展开论文笔记").click());
+  await waitForRich();
+  const originalDOM = richField();
+  await act(async () => note.edit("## External change\n\nnew text\n\n$x_2$"));
+  expect(richField()).toBe(originalDOM);
+  expect(richField()!.querySelector("h2")?.textContent).toBe("External change");
+  expect(richField()!.querySelector(".katex")).not.toBeNull();
+  await act(async () => {
+    richField()!.querySelector("p")!.append(" appended");
+    await Promise.resolve();
+  });
+  expect(note.getSnapshot().body).toContain("External change");
+  expect(note.getSnapshot().body).toContain("appended");
+  expect(note.getSnapshot().body).toContain("$x_2$");
+});
+it("falls back to source when an external draft contains unsupported HTML", async () => {
+  await mount();
+  await act(async () => button("展开论文笔记").click());
+  await waitForRich();
+  const raw = "<div>external raw HTML</div>";
+  await act(async () => getPaperNote(`editor-${id}`).edit(raw));
+  expect(
+    document.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="编辑论文笔记"]',
+    )?.value,
+  ).toBe(raw);
 });

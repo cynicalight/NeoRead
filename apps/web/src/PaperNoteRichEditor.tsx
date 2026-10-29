@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@neoread/ui/components/button";
 import { Textarea } from "@neoread/ui/components/textarea";
 import "./chat/markdown.css";
@@ -18,8 +18,27 @@ export function PaperNoteRichEditor({
   const [loading, setLoading] = useState(true);
   const [reason, setReason] = useState("");
   const container = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<{ setMarkdown: (body: string) => void } | null>(
+    null,
+  );
+  const showError = (error: unknown) => {
+    setReason(
+      error instanceof Error && error.message.includes("源码")
+        ? error.message
+        : "编辑器加载失败，已保留在源码中编辑",
+    );
+    setLoading(false);
+    setSource(true);
+  };
   const latest = useRef({ body, onChange });
   latest.current = { body, onChange };
+  useLayoutEffect(() => {
+    try {
+      editorRef.current?.setMarkdown(body);
+    } catch (error) {
+      showError(error);
+    }
+  }, [body]);
   useEffect(() => {
     if (source || disabled) return;
     let active = true;
@@ -49,21 +68,18 @@ export function PaperNoteRichEditor({
           await editor.destroy();
           return;
         }
-        destroy = editor.destroy;
+        destroy = () => editor.destroy();
+        editorRef.current = editor;
+        editor.setMarkdown(latest.current.body);
         setLoading(false);
       })
       .catch((error: unknown) => {
         if (!active) return;
-        setReason(
-          error instanceof Error && error.message.includes("源码")
-            ? error.message
-            : "编辑器加载失败，已保留在源码中编辑",
-        );
-        setLoading(false);
-        setSource(true);
+        showError(error);
       });
     return () => {
       active = false;
+      editorRef.current = null;
       mount.remove();
       void destroy?.();
     };

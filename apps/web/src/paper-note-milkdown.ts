@@ -15,7 +15,7 @@ import {
 } from "@milkdown/kit/preset/commonmark";
 import { gfm, extendListItemSchemaForTask } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
-import { EditorState } from "@milkdown/kit/prose/state";
+import { EditorState, Selection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { $node, $remark } from "@milkdown/kit/utils";
 import katex from "katex";
@@ -189,6 +189,7 @@ export async function createPaperNoteEditor(
   onChange: (markdown: string) => void,
 ) {
   let ready = false;
+  let currentMarkdown = "";
   const editor = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, host);
@@ -230,8 +231,10 @@ export async function createPaperNoteEditor(
           this.updateState(next);
           // Selection, mount, and mode switches must never rewrite raw Markdown.
           // Do this synchronously: the shared autosave is the only debounce.
-          if (ready && !previous.eq(next.doc))
-            onChange(ctx.get(serializerCtx)(next.doc));
+          if (ready && !previous.eq(next.doc)) {
+            currentMarkdown = ctx.get(serializerCtx)(next.doc);
+            onChange(currentMarkdown);
+          }
         },
       });
     })
@@ -250,19 +253,37 @@ export async function createPaperNoteEditor(
     );
   await editor.create();
   try {
-    const initial = typeof markdown === "function" ? markdown() : markdown;
-    assertSupported(editor.ctx.get(remarkCtx).parse(initial));
-    const view = editor.ctx.get(editorViewCtx);
-    const doc = editor.ctx.get(parserCtx)(initial);
-    view.updateState(
-      EditorState.create({
-        doc,
-        schema: view.state.schema,
-        plugins: view.state.plugins,
-      }),
-    );
+    const setMarkdown = (value: string) => {
+      if (ready && value === currentMarkdown) return;
+      assertSupported(editor.ctx.get(remarkCtx).parse(value));
+      const view = editor.ctx.get(editorViewCtx);
+      const doc = editor.ctx.get(parserCtx)(value);
+      if (!view.state.doc.eq(doc)) {
+        // An external replacement is a new undo baseline. Never let undo restore
+        // an obsolete draft over another editor's changes. Local typing skips this.
+        const selection = Selection.near(
+          doc.resolve(Math.min(view.state.selection.head, doc.content.size)),
+        );
+        const wasReady = ready;
+        ready = false;
+        try {
+          view.updateState(
+            EditorState.create({
+              doc,
+              selection,
+              schema: view.state.schema,
+              plugins: view.state.plugins,
+            }),
+          );
+        } finally {
+          ready = wasReady;
+        }
+      }
+      currentMarkdown = value;
+    };
+    setMarkdown(typeof markdown === "function" ? markdown() : markdown);
     ready = true;
-    return editor;
+    return Object.assign(editor, { setMarkdown });
   } catch (error) {
     await editor.destroy();
     throw error;

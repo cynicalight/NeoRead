@@ -144,7 +144,11 @@ export function PaperNote({
             disabled={unavailable || !digest}
             title={digest ? undefined : "所有批注都已摘录"}
             onClick={() => {
-              note.edit(body ? `${body}\n\n${digest}\n` : `${digest}\n`);
+              note.edit(
+                body.trimEnd()
+                  ? `${body.trimEnd()}\n\n${digest}\n`
+                  : `${digest}\n`,
+              );
               save();
             }}
           >
@@ -153,14 +157,7 @@ export function PaperNote({
           </Button>
         </CollapsibleContent>
       </Collapsible>
-      <DialogContent
-        className="paper-note-dialog"
-        finalFocus={expandButton}
-        onKeyDown={(event) => {
-          // Keep native editing shortcuts, without triggering App commands.
-          if (event.metaKey || event.ctrlKey) event.stopPropagation();
-        }}
-      >
+      <DialogContent className="paper-note-dialog" finalFocus={expandButton}>
         <DialogHeader>
           <DialogTitle>论文笔记</DialogTitle>
           <DialogDescription>

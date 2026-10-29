@@ -191,3 +191,20 @@ it("binds bold, italic, undo and redo to real editor commands", async () => {
     view.state.doc.firstChild!.firstChild!.marks.map((mark) => mark.type.name),
   ).toContain("emphasis");
 });
+
+it("preserves selection on self-echo and makes external replacement the undo baseline", async () => {
+  const { editor, view, change } = await create("old text");
+  view.dispatch(view.state.tr.insertText("!", 4));
+  const echo = change.mock.calls.at(-1)![0];
+  const localState = view.state;
+  editor.setMarkdown(echo);
+  expect(view.state).toBe(localState);
+  const raw = "##  External\n\n$x_2$\n";
+  editor.setMarkdown(raw);
+  expect(view.state.doc.textContent).toContain("External");
+  const beforeUndo = view.state.doc;
+  const { undo } = await import("@milkdown/kit/prose/history");
+  expect(undo(view.state, view.dispatch)).toBe(false);
+  expect(view.state.doc.eq(beforeUndo)).toBe(true);
+  expect(change).toHaveBeenCalledTimes(1);
+});
