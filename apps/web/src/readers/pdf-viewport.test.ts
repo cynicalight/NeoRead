@@ -201,3 +201,17 @@ it("applies the final scale without animation for reduced motion", () => {
     vi.unstubAllGlobals();
   }
 });
+
+it("captures the live mode-switch center even before a height resize has committed", () => {
+  const s = setup();
+  s.host.scrollTop += 44;
+  s.size.height -= 20;
+  const before = s.point();
+  const position = s.viewport.position(true)!;
+  s.viewer.currentScaleValue = "2";
+  s.host.scrollLeft += 200;
+  s.host.scrollTop += 300;
+  expect(s.viewport.restorePosition(position)).toBe(true);
+  expect(s.point().x).toBeCloseTo(before.x, 8);
+  expect(s.point().y).toBeCloseTo(before.y, 8);
+});

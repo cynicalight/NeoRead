@@ -341,3 +341,120 @@ it("keeps the original zoom basis when a sidebar toggle reverses mid-animation",
     vi.useRealTimers();
   }
 });
+
+it.each(["width", 1.37] as const)(
+  "restores source zoom %s after repeated parallel focus and panel resizes",
+  async (initial) => {
+    let width = 800;
+    Object.defineProperties(host, {
+      clientWidth: { get: () => width },
+      clientHeight: { value: 600 },
+    });
+    await adapter.setTheme({ ...defaultTheme, zoom: initial });
+    for (let i = 0; i < 20; i++) {
+      adapter.captureSourceZoom();
+      width = 400;
+      state.scale = 2; // automatic block focus replaces the resize basis
+      adapter.captureSourceZoom(); // a reversed transition must retain the snapshot
+      width = 800;
+      adapter.restoreSourceZoom();
+      expect(state.scaleValue).toBe(
+        initial === "width" ? "page-width" : "1.37",
+      );
+      expect(zoom).toHaveBeenLastCalledWith(initial, "focus");
+    }
+    zoom.mockClear();
+    adapter.restoreSourceZoom();
+    expect(zoom).not.toHaveBeenCalled();
+  },
+);
+
+it("adapts the saved numeric zoom to a changed source panel width", async () => {
+  let width = 800;
+  Object.defineProperties(host, {
+    clientWidth: { get: () => width },
+    clientHeight: { value: 600 },
+  });
+  await adapter.setTheme({ ...defaultTheme, zoom: 1.6 });
+  adapter.captureSourceZoom();
+  width = 400;
+  state.scale = 2;
+  width = 1000;
+  adapter.restoreSourceZoom();
+  expect(state.scale).toBe(2);
+  expect(zoom).toHaveBeenLastCalledWith(2, "focus");
+});
+
+it.each([false, true])(
+  "restores the exact source center after parallel focus (manual navigation: %s)",
+  async (manualNavigation) => {
+    vi.useFakeTimers();
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    let width = 800;
+    Object.defineProperties(host, {
+      clientWidth: { get: () => width },
+      clientHeight: { value: 600 },
+    });
+    host.getBoundingClientRect = () => new DOMRect(30, 50, width, 600);
+    const page = document.createElement("div");
+    page.className = "page";
+    host.querySelector(".pdfViewer")!.append(page);
+    state.pageNode = page;
+    page.getBoundingClientRect = () =>
+      new DOMRect(
+        30 +
+          (host.classList.contains("pdf-block-reading") ? width / 2 : 0) -
+          host.scrollLeft,
+        50 +
+          (host.classList.contains("pdf-block-reading") ? 300 : 0) -
+          host.scrollTop,
+        1000 * state.scale,
+        1200 * state.scale,
+      );
+    const center = () => {
+      const r = page.getBoundingClientRect();
+      return {
+        x: (30 + width / 2 - r.left) / r.width,
+        y: (350 - r.top) / r.height,
+      };
+    };
+    adapter.setBlocks([
+      {
+        id: "center-block",
+        page: 1,
+        label: "text",
+        text: "A paragraph away from page center.",
+        bounds: { x: 0.6, y: 0.2, width: 0.3, height: 0.15 },
+      },
+    ]);
+    await adapter.setTheme({ ...defaultTheme, zoom: 1.6 });
+    host.scrollLeft = 170;
+    host.scrollTop = 300;
+    const before = center();
+    try {
+      for (let i = 0; i < 20; i++) {
+        adapter.captureSourceZoom();
+        width = 400;
+        const focus = adapter.focusBlock("center-block", "parallel");
+        await vi.advanceTimersByTimeAsync(500);
+        await focus;
+        if (manualNavigation) {
+          host.scrollLeft += 37;
+          host.scrollTop += 83;
+          host.dispatchEvent(new Event("scroll"));
+          await vi.advanceTimersByTimeAsync(32);
+        }
+        const expected = manualNavigation ? center() : before;
+        width = 800;
+        adapter.restoreSourceZoom(manualNavigation);
+        state.resize!(); // A late ResizeObserver callback must keep the restored center.
+        await vi.advanceTimersByTimeAsync(200);
+        expect(state.scale).toBe(1.6);
+        expect(center().x).toBeCloseTo(expected.x, 8);
+        expect(center().y).toBeCloseTo(expected.y, 8);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);

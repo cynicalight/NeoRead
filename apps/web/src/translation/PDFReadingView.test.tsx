@@ -90,6 +90,8 @@ const adapter = {
   getContext: vi.fn(async () => ""),
   destroy: vi.fn(async () => {}),
   focusBlock: vi.fn(async () => {}),
+  captureSourceZoom: vi.fn(),
+  restoreSourceZoom: vi.fn(),
   flashReference: vi.fn(),
   cancelBlockFocus: vi.fn(),
   followBlock: vi.fn(async () => {}),
@@ -320,7 +322,7 @@ it("keeps the translated selection and navigation metadata without marking the o
   document.dispatchEvent(new Event("selectionchange"));
   expect(highlights.has("neoread-translation-selection")).toBe(false);
 });
-it("focuses the visible middle translation once when entering parallel mode", async () => {
+it("follows the visible translation without block zoom when entering parallel mode", async () => {
   vi.stubGlobal("matchMedia", () => ({ matches: true }));
   await click("仅译文");
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
@@ -334,16 +336,17 @@ it("focuses the visible middle translation once when entering parallel mode", as
   });
   expect(adapter.followBlock).not.toHaveBeenCalled();
   await click("原文译文");
-  expect(adapter.focusBlock).toHaveBeenCalledExactlyOnceWith(
-    "p1-b1",
-    "parallel",
-  );
-  expect(adapter.followBlock).not.toHaveBeenCalled();
+  expect(adapter.focusBlock).not.toHaveBeenCalled();
+  expect(adapter.followBlock).toHaveBeenCalledExactlyOnceWith({
+    blockId: "p1-b1",
+    fraction: 0.55,
+  });
   await renderView({ ...defaultTheme, translationFontSize: 1.2 });
-  expect(adapter.focusBlock).toHaveBeenCalledTimes(1);
+  expect(adapter.followBlock).toHaveBeenCalledTimes(1);
   await click("仅译文");
   await click("原文译文");
-  expect(adapter.focusBlock).toHaveBeenCalledTimes(2);
+  expect(adapter.followBlock).toHaveBeenCalledTimes(2);
+  expect(adapter.focusBlock).not.toHaveBeenCalled();
 });
 
 it("chooses the source viewport's middle block before resizing, even with a stale reading anchor", async () => {
@@ -369,17 +372,24 @@ it("chooses the source viewport's middle block before resizing, even with a stal
   page.getBoundingClientRect = () => new DOMRect(0, -300, 1000, 1000);
   source.append(page);
   host.querySelector(".translation-source")!.append(source);
+  const measured = vi.fn();
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.translationBlock === "p1-b2") measured();
+      return originalRect.call(this);
+    });
   await click("原文译文");
-  expect(adapter.focusBlock).toHaveBeenCalledExactlyOnceWith(
-    "p1-b2",
-    "parallel",
-  );
+  expect(measured).toHaveBeenCalledTimes(1);
+  expect(adapter.focusBlock).not.toHaveBeenCalled();
   await click("交换原文和译文");
-  expect(adapter.focusBlock).toHaveBeenCalledTimes(1);
+  expect(measured).toHaveBeenCalledTimes(1);
   await click("仅原文");
   await click("原文译文");
-  expect(adapter.focusBlock).toHaveBeenCalledTimes(2);
-  expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b2", "parallel");
+  expect(measured.mock.calls.length).toBeGreaterThan(1);
+  expect(adapter.focusBlock).not.toHaveBeenCalled();
+  rect.mockRestore();
 });
 
 it("navigates to the matching bibliography block and restores the translated viewport fraction", async () => {
@@ -936,7 +946,7 @@ it.each([false, true])(
       await act(async () => {
         await vi.advanceTimersByTimeAsync(600);
       });
-      expect(adapter.focusBlock).toHaveBeenCalledWith("p1-b2", "parallel");
+      expect(adapter.focusBlock).not.toHaveBeenCalled();
       expect(top).toBe(800);
       expect(adapter.followBlock).not.toHaveBeenCalled();
     } finally {
@@ -1188,3 +1198,93 @@ it("strips legacy cross-side links when preparing a mark without losing its posi
     "parallel",
   );
 });
+
+it("captures zoom before leaving source and restores it after source geometry commits", async () => {
+  vi.useFakeTimers();
+  try {
+    for (let i = 0; i < 3; i++) {
+      await click("原文译文");
+      expect(adapter.captureSourceZoom).toHaveBeenCalledTimes(i + 1);
+      await act(async () => vi.advanceTimersByTimeAsync(600));
+      await click("仅原文");
+      expect(adapter.restoreSourceZoom).toHaveBeenCalledTimes(i);
+      await act(async () => vi.advanceTimersByTimeAsync(600));
+      expect(adapter.restoreSourceZoom).toHaveBeenCalledTimes(i + 1);
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it("does not automatically focus or save zoom when switching with synchronization disabled", async () => {
+  await click("取消同步效果");
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+  );
+  await click("原文译文");
+  expect(adapter.focusBlock).not.toHaveBeenCalled();
+  expect(adapter.captureSourceZoom).not.toHaveBeenCalled();
+});
+
+it("cancels a queued source restore when the mode reverses, including a translation detour", async () => {
+  vi.useFakeTimers();
+  try {
+    await click("原文译文");
+    await click("仅原文");
+    await click("原文译文");
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.restoreSourceZoom).not.toHaveBeenCalled();
+    await click("仅译文");
+    await click("仅原文");
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.restoreSourceZoom).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("does not overwrite an exact source viewport restore with paragraph following", async () => {
+  vi.mocked(adapter.restoreSourceZoom!).mockReturnValueOnce(true);
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.2 }),
+  );
+  await click("原文译文");
+  vi.mocked(adapter.followBlock!).mockClear();
+  vi.useFakeTimers();
+  try {
+    await click("仅原文");
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.followBlock).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("preserves the new reading center after manual input in parallel mode", async () => {
+  await click("原文译文");
+  await act(async () =>
+    host
+      .querySelector(".translation-source")!
+      .dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 80 })),
+  );
+  vi.useFakeTimers();
+  try {
+    await click("仅原文");
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.restoreSourceZoom).toHaveBeenCalledWith(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it.each([true, false])(
+  "does not replace panel fitting with block zoom on parallel entry (sync: %s)",
+  async (sync) => {
+    await act(async () =>
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.3 }),
+    );
+    if (!sync) await click("取消同步效果");
+    await click("原文译文");
+    expect(adapter.focusBlock).not.toHaveBeenCalled();
+    expect(adapter.followBlock).not.toHaveBeenCalled();
+  },
+);

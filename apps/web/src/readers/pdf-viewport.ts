@@ -1,6 +1,13 @@
 import type { PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
 
 type Anchor = { page: HTMLElement; x: number; y: number };
+type Position = {
+  anchor?: Anchor;
+  scroll: { left: number; top: number };
+  width: number;
+  height: number;
+  scale: number;
+};
 /** Preserve the page point under the viewport center through panel resizing. */
 export class PDFViewport {
   private animation?: Animation;
@@ -38,6 +45,55 @@ export class PDFViewport {
     )
       return;
     this.capture();
+  }
+  position(live = false): Position | undefined {
+    if (!this.visible()) return;
+    if (live) {
+      // Mode capture runs before layout mutation: read the actual current center,
+      // even if a scrollbar/resize notification has not committed yet.
+      this.cancelAnimation();
+      this.capture();
+    } else this.remember();
+    return {
+      anchor: this.anchor,
+      scroll: { ...this.scroll },
+      width: live ? this.host.clientWidth : this.size!.width,
+      height: live ? this.host.clientHeight : this.size!.height,
+      scale: this.viewer.currentScale,
+    };
+  }
+  restorePosition(position: Position) {
+    if (!this.visible()) return false;
+    const { anchor, scroll, width, height, scale } = position;
+    const view = this.host.getBoundingClientRect();
+    if (anchor?.page.isConnected) {
+      const page = anchor.page.getBoundingClientRect();
+      this.host.scrollLeft +=
+        page.left +
+        anchor.x * page.width -
+        view.left -
+        this.host.clientLeft -
+        this.host.clientWidth / 2;
+      this.host.scrollTop +=
+        page.top +
+        anchor.y * page.height -
+        view.top -
+        this.host.clientTop -
+        this.host.clientHeight / 2;
+    } else {
+      const ratio = this.viewer.currentScale / scale;
+      this.host.scrollLeft = Math.max(
+        0,
+        (scroll.left + width / 2) * ratio - this.host.clientWidth / 2,
+      );
+      this.host.scrollTop = Math.max(
+        0,
+        (scroll.top + height / 2) * ratio - this.host.clientHeight / 2,
+      );
+    }
+    // A queued ResizeObserver callback must see this restored point as its basis.
+    this.reset();
+    return true;
   }
   scaleChanged() {
     // Width is the zoom basis. A scrollbar changing available height must not
