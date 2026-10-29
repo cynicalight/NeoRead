@@ -134,12 +134,19 @@ it("keeps a single load and draft across a strict-mode unsubscribe/subscribe", a
   expect(entry.getSnapshot().status).toBe("saved");
   again();
 });
-it("preserves over-limit raw text and counts Unicode characters instead of UTF-16 units", async () => {
+it("surfaces server validation while retaining oversized Unicode drafts", async () => {
   const { entry, release } = await note();
+  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(
+    new Error("server limit: 100000"),
+  );
   entry.edit("😀".repeat(100001));
   await expect(entry.flush()).rejects.toThrow("100000");
   expect(entry.getSnapshot().body).toHaveLength(200002);
-  expect(api.saveDocumentNote).not.toHaveBeenCalled();
+  expect(api.saveDocumentNote).toHaveBeenCalledWith(
+    entry.id,
+    "😀".repeat(100001),
+  );
+  expect(entry.getSnapshot().error).toBe("server limit: 100000");
   entry.edit("😀".repeat(100000));
   await entry.flush();
   expect(entry.getSnapshot().status).toBe("saved");

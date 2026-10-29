@@ -107,12 +107,31 @@ it("waits for note writes and rejects the native close handshake on a save error
       }),
   );
   const closing = close();
-  await Promise.resolve();
-  expect(calls).not.toContain("settings");
+  await vi.waitFor(() => expect(calls).toContain("settings"));
   resolve();
   await closing;
   expect(calls).toContain("settings");
   vi.mocked(flushPaperNotes).mockRejectedValueOnce(new Error("note offline"));
+  calls.length = 0;
   await expect(close()).rejects.toThrow("note offline");
+  expect(calls).toContain("settings");
   uninstall();
+});
+
+it("starts saving when the browser becomes hidden and removes the listener", () => {
+  const uninstall = installCloseFlush();
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "hidden",
+  });
+  document.dispatchEvent(new Event("visibilitychange"));
+  expect(calls).toContain("notes");
+  uninstall();
+  calls.length = 0;
+  document.dispatchEvent(new Event("visibilitychange"));
+  expect(calls).toEqual([]);
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
 });

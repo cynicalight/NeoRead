@@ -247,7 +247,7 @@ it("blocks missing selected notes instead of silently exporting an incomplete fi
   await mount();
   expect(button("导出").disabled).toBe(true);
   expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    "笔记读取或保存失败",
+    "笔记读取失败",
   );
   await act(async () => button("重试读取").click());
   expect(button("导出").disabled).toBe(false);
@@ -327,17 +327,14 @@ it("exports only selected annotation kinds into the original PDF", async () => {
   expect(button("导出 PDF").disabled).toBe(false);
 });
 
-it("flushes the shared draft before loading counts and again at the actual export", async () => {
+it("reads the shared draft without writing on open and flushes at actual export", async () => {
   const { getPaperNote } = await import("./paper-note-state");
   const note = getPaperNote(doc.id);
   const release = note.subscribe(() => {});
   await note.load();
   note.edit("draft before dialog");
   await mount();
-  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(
-    doc.id,
-    "draft before dialog",
-  );
+  expect(api.saveDocumentNote).not.toHaveBeenCalled();
   note.edit("newer draft after dialog");
   await act(async () => button("导出").click());
   expect(api.exportTranslation).toHaveBeenLastCalledWith(
@@ -370,5 +367,44 @@ it("blocks stale exports on save failure and supports retry without losing the d
     expect.any(AbortSignal),
     expect.stringContaining("must not lose this draft"),
   );
+  release();
+});
+
+it("can explicitly export the saved version after a draft save failure", async () => {
+  const { getPaperNote } = await import("./paper-note-state");
+  const note = getPaperNote(doc.id);
+  const release = note.subscribe(() => {});
+  await note.load();
+  note.edit("unsaved draft");
+  await mount();
+  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
+  await act(async () => button("导出").click());
+  expect(api.exportTranslation).not.toHaveBeenCalled();
+  await act(async () => button("使用已保存笔记").click());
+  await act(async () => button("导出").click());
+  expect(api.exportTranslation).toHaveBeenLastCalledWith(
+    doc.id,
+    "markdown",
+    expect.any(AbortSignal),
+    expect.stringContaining("论文笔记正文"),
+  );
+  expect(note.getSnapshot().body).toBe("unsaved draft");
+  await note.flush();
+  release();
+});
+it("allows exporting other parts while an unselected paper note cannot be saved", async () => {
+  const { getPaperNote } = await import("./paper-note-state");
+  const note = getPaperNote(doc.id);
+  const release = note.subscribe(() => {});
+  await note.load();
+  note.edit("failed draft");
+  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
+  await expect(note.flush()).rejects.toThrow("offline");
+  await mount();
+  await act(async () => checkbox("论文笔记").click());
+  await act(async () => button("导出").click());
+  expect(api.exportTranslation).toHaveBeenCalled();
+  expect(note.getSnapshot().body).toBe("failed draft");
+  await note.flush();
   release();
 });

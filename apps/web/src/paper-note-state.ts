@@ -8,13 +8,6 @@ type NoteSnapshot = { body: string; status: NoteStatus; error: string };
 const notes = new Map<string, PaperNoteState>();
 const message = (error: unknown) =>
   error instanceof Error ? error.message : "笔记保存失败";
-export const paperNoteLimit = 100000;
-function exceedsLimit(body: string) {
-  if (body.length <= paperNoteLimit) return false;
-  let count = 0;
-  for (const _ of body) if (++count > paperNoteLimit) return true;
-  return false;
-}
 
 class PaperNoteState {
   private snapshot: NoteSnapshot = { body: "", status: "loading", error: "" };
@@ -104,8 +97,6 @@ class PaperNoteState {
     try {
       while (this.pending) {
         const body = this.snapshot.body;
-        if (exceedsLimit(body))
-          throw new Error(`笔记超过 ${paperNoteLimit} 字，请缩短后重试`);
         this.update({ status: "saving", error: "" });
         this.uncertain = true;
         await api.saveDocumentNote(this.id, body);
@@ -133,6 +124,13 @@ export function getPaperNote(id: string) {
     notes.set(id, note);
   }
   return note;
+}
+/** Read the shared draft without triggering a write when opening export. */
+export async function readPaperNote(id: string): Promise<string> {
+  const note = notes.get(id);
+  if (!note) return (await api.documentNote(id)).body;
+  await note.load();
+  return note.getSnapshot().body;
 }
 /** A fresh, saved snapshot for export, including edits made after opening it. */
 export async function flushPaperNote(id: string): Promise<string> {
