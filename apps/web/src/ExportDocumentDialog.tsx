@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@neoread/ui/components/dialog";
 import { copyText } from "./chat/clipboard";
+import { flushPaperNote, readPaperNote } from "./paper-note-state";
 import {
   defaultExportParts,
   exportCounts,
@@ -63,18 +64,25 @@ export function ExportDocumentDialog({
   const [images, setImages] = useState(false);
   const [busy, setBusy] = useState<"copy" | "download" | "pdf" | null>(null);
   const [error, setError] = useState("");
+  const [noteSaveFailed, setNoteSaveFailed] = useState(false);
+  const [savedNoteOnly, setSavedNoteOnly] = useState(false);
   const request = useRef<AbortController | null>(null);
   useEffect(() => () => request.current?.abort(), [doc.id]);
   useEffect(() => {
     let alive = true;
     setPaperNote(null);
+    setNoteSaveFailed(false);
+    setSavedNoteOnly(false);
     setTranslationCount(null);
     setReadErrors({ paperNote: "", translation: "" });
-    void api.documentNote(doc.id).then(
-      (note) => alive && setPaperNote(note.body),
+    void readPaperNote(doc.id).then(
+      (body) => alive && setPaperNote(body),
       () =>
         alive &&
-        setReadErrors((errors) => ({ ...errors, paperNote: "笔记读取失败" })),
+        setReadErrors((errors) => ({
+          ...errors,
+          paperNote: "笔记读取失败",
+        })),
     );
     void api.translations(doc.id).then(
       (items) =>
@@ -139,9 +147,34 @@ export function ExportDocumentDialog({
     setBusy(action);
     setError("");
     try {
-      const notes = notesMarkdown(doc, data, noteParts, link, {
-        includeTitle: !translation,
-      });
+      // The draft can change while this dialog is open. Export the snapshot
+      // acknowledged by the same serialized writer used by both editors.
+      let currentNote = data.paperNote;
+      if (parts.includes("paperNote")) {
+        try {
+          currentNote = savedNoteOnly
+            ? (await api.documentNote(doc.id)).body
+            : await flushPaperNote(doc.id);
+          setNoteSaveFailed(false);
+        } catch (error) {
+          setNoteSaveFailed(!savedNoteOnly);
+          throw error;
+        }
+      }
+      if (controller.signal.aborted) return;
+      const currentParts =
+        parts.includes("paperNote") && !noteParts.includes("paperNote")
+          ? [...noteParts, "paperNote" as const]
+          : noteParts;
+      const notes = notesMarkdown(
+        doc,
+        { ...data, paperNote: currentNote },
+        currentParts,
+        link,
+        {
+          includeTitle: !translation,
+        },
+      );
       const bundle = translation && images && action === "download";
       if (translation) {
         const blob = await api.exportTranslation(
@@ -269,6 +302,27 @@ export function ExportDocumentDialog({
             {busy === "download" ? "正在导出…" : "导出"}
           </Button>
         </div>
+        {noteSaveFailed && parts.includes("paperNote") && (
+          <div className="text-xs text-muted-foreground">
+            笔记保存失败，可重试导出，或取消勾选论文笔记后导出其他内容。
+            <Button
+              variant="link"
+              size="xs"
+              onClick={() => {
+                setSavedNoteOnly(true);
+                setNoteSaveFailed(false);
+                setError("");
+              }}
+            >
+              使用已保存笔记
+            </Button>
+          </div>
+        )}
+        {savedNoteOnly && parts.includes("paperNote") && (
+          <p className="text-xs text-muted-foreground" role="status">
+            将导出服务器已保存的笔记，不包含当前未保存修改。
+          </p>
+        )}
         {doc.type === "pdf" && (
           <div className="flex items-center gap-3 border-t pt-4">
             <p className="flex-1 text-xs leading-5 text-muted-foreground">

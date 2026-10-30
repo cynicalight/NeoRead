@@ -8,7 +8,7 @@ import type {
 declare module "unified" {
   interface Data {
     micromarkExtensions?: Extension[];
-    fromMarkdownExtensions?: MarkdownExtension[];
+    fromMarkdownExtensions?: (MarkdownExtension | MarkdownExtension[])[];
   }
 }
 

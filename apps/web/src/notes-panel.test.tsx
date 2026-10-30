@@ -193,6 +193,66 @@ it("saves the paper note after typing stops", async () => {
   );
 });
 
+it("shares the raw draft with the expanded editor and preserves it on close", async () => {
+  const expand = button("展开论文笔记");
+  expect(expand).toBeDefined();
+  await act(async () => expand.click());
+  const mode = (label: string) =>
+    [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        ".paper-note-toolbar button",
+      ),
+    ].find((node) => node.textContent?.trim() === label)!;
+  await act(async () => mode("源码").click());
+  const editor = document.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="编辑论文笔记"]',
+  )!;
+  expect(editor).not.toBeNull();
+  const raw = "# My note\n\n[原文](reader://document/p)\n\n**bold**";
+  await act(async () => type(editor, raw));
+  await act(async () => mode("编辑").click());
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(document.querySelector(".paper-note-rich h1")?.textContent).toBe(
+        "My note",
+      ),
+    );
+  });
+  expect(
+    document.querySelector(
+      '.paper-note-rich [data-note-link="reader://document/p"]',
+    )?.textContent,
+  ).toBe("原文");
+  expect(document.querySelector(".paper-note-rich a[href]")).toBeNull();
+  const close = document.querySelector<HTMLButtonElement>(
+    '[data-slot="dialog-close"]',
+  )!;
+  await act(async () => close.click());
+  await act(async () => vi.advanceTimersByTime(1000));
+  expect(
+    host.querySelector<HTMLTextAreaElement>('textarea[aria-label="论文笔记"]')
+      ?.value,
+  ).toBe(raw);
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith("p", raw);
+  expect(document.activeElement).toBe(expand);
+});
+
+it("uses NeoRead links for new excerpts while retaining legacy note content", async () => {
+  await act(async () => button("论文笔记").click());
+  const field = host.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="论文笔记"]',
+  )!;
+  const legacy =
+    "## Existing note\n\n[source](reader://open?id=old)\n\n$x_{1}$\n\n  ";
+  await act(async () => type(field, legacy));
+  await act(async () => button("摘录批注").click());
+  const body = field.value;
+  expect(body.startsWith(legacy.trimEnd() + "\n\n")).toBe(true);
+  expect(body).toContain("neoread://open?id=p&annotation=note");
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith("p", body);
+  expect(button("摘录批注").disabled).toBe(true);
+});
+
 it("warns before closing the tab with an unsaved inline note or paper note", async () => {
   await act(async () => button("编辑批注").click());
   expect(tabCloseWarning("p")).toBeNull();

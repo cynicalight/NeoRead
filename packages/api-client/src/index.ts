@@ -146,6 +146,23 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   return response.status === 204 ? (undefined as T) : response.json();
 }
+// Fetch keepalive has a shared 64 KiB in-flight body budget. Leave headroom,
+// and retain ordinary saving for large notes / concurrent requests.
+let noteKeepaliveBytes = 0;
+async function saveDocumentNote(id: string, body: string) {
+  const payload = JSON.stringify({ body });
+  const bytes = new TextEncoder().encode(payload).byteLength;
+  const keepalive = noteKeepaliveBytes + bytes <= 60 * 1024;
+  if (keepalive) noteKeepaliveBytes += bytes;
+  try {
+    return await request<{ body: string; updatedAt?: string }>(
+      `/api/documents/${encodeURIComponent(id)}/note`,
+      { method: "PUT", body: payload, keepalive },
+    );
+  } finally {
+    if (keepalive) noteKeepaliveBytes -= bytes;
+  }
+}
 // Keep annotation writes and undo in the same client order, including failures.
 let annotationQueue = Promise.resolve();
 let annotationSession = "";
@@ -687,11 +704,7 @@ export const api = {
     request<{ body: string; updatedAt?: string }>(
       `/api/documents/${encodeURIComponent(id)}/note`,
     ),
-  saveDocumentNote: (id: string, body: string) =>
-    request<{ body: string; updatedAt?: string }>(
-      `/api/documents/${encodeURIComponent(id)}/note`,
-      { method: "PUT", body: JSON.stringify({ body }) },
-    ),
+  saveDocumentNote,
   undoAnnotation: (id: string) =>
     annotationRequest<{ undone: boolean; annotations: Annotation[] }>(
       `/api/documents/${encodeURIComponent(id)}/annotations/undo`,
