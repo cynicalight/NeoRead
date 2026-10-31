@@ -205,6 +205,7 @@ afterEach(async () => {
   await reader?.destroy();
   document.body.replaceChildren();
   window.getSelection()?.removeAllRanges();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -867,4 +868,35 @@ it("loads intervening chapters when restoring a range whose endpoints are alread
   expect(window.getSelection()?.toString()).toBe(
     "Text 0.Text 1.Text 2.Text 3.",
   );
+});
+
+it("reports the fractional EPUB reading position at the viewport midpoint", async () => {
+  await open();
+  await reader.goTo({ type: "epub", href: "b.xhtml" });
+  host.scrollTop = 840;
+  events.epubReadingAnchor.mockClear();
+  host.dispatchEvent(new Event("wheel"));
+  host.dispatchEvent(new Event("scroll"));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(events.epubReadingAnchor).toHaveBeenLastCalledWith("c", 0.5);
+});
+
+it("smoothly follows EPUB fractions and stops immediately when the user takes over", async () => {
+  await open();
+  await reader.goTo({ type: "epub", href: "b.xhtml" });
+  host.scrollTop = 500;
+  vi.useFakeTimers();
+  const motion = reader.followBlock({ blockId: "c", fraction: 0.5 });
+  await vi.advanceTimersByTimeAsync(100);
+  expect(host.scrollTop).toBeGreaterThan(500);
+  expect(host.scrollTop).toBeLessThan(840);
+  host.dispatchEvent(new Event("wheel"));
+  const stopped = host.scrollTop;
+  await vi.advanceTimersByTimeAsync(300);
+  await motion;
+  expect(host.scrollTop).toBe(stopped);
+  const resumed = reader.followBlock({ blockId: "c", fraction: 0.75 });
+  await vi.advanceTimersByTimeAsync(300);
+  await resumed;
+  expect(host.scrollTop).toBeCloseTo(862);
 });

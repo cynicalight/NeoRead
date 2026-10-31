@@ -13,6 +13,7 @@ import type {
   EPUBLocation,
   EPUBReadingBlock,
   ReaderAdapter,
+  ReadingAnchor,
   ReaderEvents,
   ReaderSelection,
   ReaderTheme,
@@ -29,7 +30,8 @@ import {
   blockRange,
   resolveEPUBLocation,
 } from "./epub-web-location";
-import { EPUBBlockOverlay } from "./epub-block-focus";
+import { animatePDFScroll } from "./pdf-scroll";
+import { EPUBBlockOverlay, epubBlockRect } from "./epub-block-focus";
 import "./epub-web.css";
 
 let sequence = 0;
@@ -60,6 +62,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   private resize?: ResizeObserver;
   private frame = 0;
   private navigation = 0;
+  private followOperation = 0;
   private restoring = false;
   private anchor?: { node: HTMLElement; top: number; range?: Range };
   private unresolved = "";
@@ -92,10 +95,11 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       passive: true,
       signal,
     });
-    for (const name of ["wheel", "pointerdown", "keydown"])
+    for (const name of ["wheel", "pointerdown", "keydown", "touchstart"])
       container.addEventListener(
         name,
         () => {
+          this.cancelBlockFocus();
           if (name === "pointerdown") this.selecting = true;
           if (name === "wheel") this.clearSelection();
           this.interacted = true;
@@ -441,7 +445,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     if (!this.container.clientHeight) return;
     const top =
       this.container.getBoundingClientRect().top +
-      this.container.clientHeight * 0.25;
+      this.container.clientHeight * 0.5;
     const atEnd =
       this.container.scrollHeight > this.container.clientHeight &&
       this.container.scrollTop + this.container.clientHeight >=
@@ -482,7 +486,18 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       ...(block ? { blockId: block.id, start: offset, end: offset } : {}),
     };
     this.emitLocation();
-    if (block) this.events.epubReadingAnchor?.(block.id);
+    if (block) this.reportReadingAnchor(block.id);
+  }
+  private reportReadingAnchor(id: string) {
+    const rect = epubBlockRect(this.container, id);
+    if (!rect) return;
+    const middle =
+      this.container.getBoundingClientRect().top +
+      this.container.clientHeight / 2;
+    this.events.epubReadingAnchor?.(
+      id,
+      Math.max(0, Math.min(1, (middle - rect.top) / (rect.height || 1))),
+    );
   }
   private visibleOffset(block: EPUBReadingBlock, top: number) {
     let start = 0,
@@ -531,6 +546,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     return this.location;
   }
   async goTo(location: DocumentLocation) {
+    this.cancelBlockFocus();
     if (location.type !== "epub" || this.disposed) return;
     const chapter = this.chapter(location.href);
     if (!chapter) throw new Error("该章节不属于当前书籍");
@@ -651,7 +667,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       this.container.scrollTop +=
         top -
         this.container.getBoundingClientRect().top -
-        this.container.clientHeight * 0.25;
+        this.container.clientHeight * 0.5;
       if (!slices.length && !target && progression)
         this.container.scrollTop +=
           chapter.node.getBoundingClientRect().height * progression;
@@ -710,7 +726,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
           }
       }
       this.emitLocation();
-      if (slices[0]) this.events.epubReadingAnchor?.(slices[0].block.id);
+      if (slices[0]) this.reportReadingAnchor(slices[0].block.id);
     } finally {
       if (revision === this.navigation) {
         this.restoring = false;
@@ -1046,14 +1062,43 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   hoverBlock(blockId: string | null) {
     this.blockOverlay.setLinkedBlock(blockId);
   }
+  async followBlock(anchor: ReadingAnchor) {
+    const operation = ++this.followOperation;
+    this.blockOverlay.cancel();
+    const block = this.blocks.find((b) => b.id === anchor.blockId);
+    const chapter = block && this.chapter(block.location.href);
+    if (!chapter || this.disposed) return;
+    await this.load(chapter);
+    const cancelled = () => this.disposed || operation !== this.followOperation;
+    if (cancelled()) return;
+    const rect = epubBlockRect(this.container, anchor.blockId);
+    if (!rect) return;
+    const view = this.container.getBoundingClientRect();
+    await animatePDFScroll(
+      this.container,
+      this.container.scrollLeft,
+      this.container.scrollTop +
+        rect.top -
+        view.top +
+        rect.height * anchor.fraction -
+        this.container.clientHeight / 2,
+      cancelled,
+      () => {},
+    );
+    if (!cancelled()) this.rememberAnchor();
+  }
   async focusBlock(blockId: string) {
+    this.cancelBlockFocus();
+    const operation = this.followOperation;
     const block = this.blocks.find((b) => b.id === blockId);
     const chapter = block && this.chapter(block.location.href);
     if (!chapter || this.disposed) return;
     await this.load(chapter);
-    if (!this.disposed) await this.blockOverlay.focus(blockId);
+    if (!this.disposed && operation === this.followOperation)
+      await this.blockOverlay.focus(blockId);
   }
   cancelBlockFocus() {
+    this.followOperation++;
     this.blockOverlay.cancel();
   }
   setEPUBBlocks(_blocks: EPUBReadingBlock[]) {
@@ -1099,6 +1144,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   async destroy() {
     this.events.annotationHover?.(null);
     this.disposed = true;
+    this.followOperation++;
     this.navigation++;
     this.blockOverlay.destroy();
     this.abort.abort();

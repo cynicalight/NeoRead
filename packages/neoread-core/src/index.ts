@@ -446,10 +446,12 @@ export const defaultTheme: ReaderTheme = {
 };
 export type PDFBlockAction =
   "attach" | "preview" | "copy" | "explain" | "translate";
-export interface PDFReadingAnchor {
+export interface ReadingAnchor {
   blockId: string;
   fraction: number;
 }
+/** Kept for PDF consumers; the anchor itself has no page coordinates. */
+export type PDFReadingAnchor = ReadingAnchor;
 export interface PDFPassage {
   blockId: string;
   sources: string[];
@@ -479,7 +481,8 @@ export interface ReaderEvents {
   /** An internal link is about to move away from this location. */
   internalLink?: (origin: DocumentLocation) => void;
   epubInteraction?: () => void;
-  epubReadingAnchor?: (blockId: string) => void;
+  /** Block and fractional position at the vertical viewport midpoint. */
+  epubReadingAnchor?: (blockId: string, fraction?: number) => void;
   /** Only paragraphs retained by the EPUB reader window. */
   epubBlocksChanged?: (blocks: EPUBReadingBlock[]) => void;
   /** Pointer over an EPUB paragraph, or null when it leaves. */
@@ -533,7 +536,7 @@ export interface ReaderAdapter {
     signal: AbortSignal,
     width?: number,
   ): Promise<Blob>;
-  followBlock?(anchor: PDFReadingAnchor): Promise<void>;
+  followBlock?(anchor: ReadingAnchor): Promise<void>;
   previewCitation?(
     location: PDFLocation,
     anchor: HTMLAnchorElement,

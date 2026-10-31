@@ -60,13 +60,13 @@ export function epubBlocksAt(
   return chapter.slice(0, 1);
 }
 
-/** Retain the paragraph anchor and carry a UTF-16 slice for exact sentence focus. */
-export function epubSentenceLocation(
+/** Match exact UTF-16 offsets without depending on a serialized Readium locator. */
+export function epubSentenceSlice(
   block: EPUBReadingBlock,
   sentences: { source: string }[],
   indexes: number[],
-): EPUBLocation {
-  if (!indexes.length || !block.location.locator) return block.location;
+): { start: number; end: number } | undefined {
+  if (!indexes.length) return;
   const map: number[] = [];
   for (let i = 0; i < block.text.length; i++)
     if (!/\s/.test(block.text[i])) map.push(i);
@@ -74,7 +74,7 @@ export function epubSentenceLocation(
   if (
     normalize(sentences.map((s) => s.source).join("")) !== normalize(block.text)
   )
-    return block.location;
+    return;
   const first = Math.min(...indexes),
     last = Math.max(...indexes);
   const start = normalize(
@@ -89,15 +89,25 @@ export function epubSentenceLocation(
       .map((s) => s.source)
       .join(""),
   ).length;
-  if (map[start] === undefined || map[end - 1] === undefined)
-    return block.location;
+  if (map[start] === undefined || map[end - 1] === undefined) return;
+  return { start: map[start], end: map[end - 1] + 1 };
+}
+
+/** Retain the paragraph anchor and carry a UTF-16 slice for exact sentence focus. */
+export function epubSentenceLocation(
+  block: EPUBReadingBlock,
+  sentences: { source: string }[],
+  indexes: number[],
+): EPUBLocation {
+  if (!block.location.locator) return block.location;
+  const slice = epubSentenceSlice(block, sentences, indexes);
+  if (!slice) return block.location;
   const locator = JSON.parse(block.location.locator);
-  locator.locations.sourceSlice = { start: map[start], end: map[end - 1] + 1 };
+  locator.locations.sourceSlice = slice;
   return {
     ...block.location,
     blockId: block.id,
-    start: map[start],
-    end: map[end - 1] + 1,
+    ...slice,
     locator: JSON.stringify(locator),
   };
 }

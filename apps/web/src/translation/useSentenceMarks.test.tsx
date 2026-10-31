@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type {
   Annotation,
   PDFBlock,
+  EPUBReadingBlock,
   ReaderAdapter,
   SearchResult,
   TranslationBlock,
@@ -40,6 +41,14 @@ const blocks = [
     bounds: { x: 0, y: 0, width: 1, height: 1 },
   },
 ] as PDFBlock[];
+const epubBlocks: EPUBReadingBlock[] = [
+  {
+    id: t.blockId,
+    text: "Original sentence.",
+    label: "text",
+    location: { type: "epub", href: "chapter.xhtml", locator: "{}" },
+  },
+];
 const events = {
   location: vi.fn(),
   selection: vi.fn(),
@@ -58,12 +67,14 @@ const engine = {
 } as unknown as ReaderAdapter;
 function App({
   linked = true,
+  epub = false,
   annotations = [],
   translations = [t],
   searchQuery = "",
   searchResults = [],
 }: {
   linked?: boolean;
+  epub?: boolean;
   annotations?: Annotation[];
   translations?: TranslationBlock[];
   searchQuery?: string;
@@ -73,7 +84,7 @@ function App({
   useSentenceMarks(
     ref,
     engine,
-    blocks,
+    epub ? epubBlocks : blocks,
     translations,
     annotations,
     linked,
@@ -84,13 +95,24 @@ function App({
   );
   return (
     <div ref={ref}>
-      <div className="page" data-page-number="1">
-        <div className="textLayer">
-          <span data-source>Original sentence.</span>
+      {epub ? (
+        <div data-epub-block="p1-b1">
+          <span data-epub-run="p1-b1">Original </span>
+          <em>
+            <span data-epub-run="p1-b1">sentence.</span>
+          </em>
         </div>
-      </div>
+      ) : (
+        <div className="page" data-page-number="1">
+          <div className="textLayer">
+            <span data-source>Original sentence.</span>
+          </div>
+        </div>
+      )}
       <section data-translation-block="p1-b1">
-        <div data-sentence="0">翻译句子。</div>
+        {(!epub || translations.length > 0) && (
+          <div data-sentence="0">翻译句子。</div>
+        )}
       </section>
     </div>
   );
@@ -483,4 +505,42 @@ it("draws split source anchors independently of translation and linking settings
   );
   await pointer("[data-sentence]", "pointermove", 210);
   expect(events.annotationHover).toHaveBeenLastCalledWith(null);
+});
+
+it("links EPUB sentences across inline runs in both directions without changing selection", async () => {
+  await act(async () => root.render(<App epub />));
+  await pointer("[data-epub-run]", "pointermove", 5);
+  expect(texts(hover())).toEqual(["Original sentence.", "翻译句子。"]);
+  await pointer("[data-sentence]", "pointermove", 205);
+  expect(texts(hover())).toEqual(["Original sentence.", "翻译句子。"]);
+  expect(window.getSelection()?.toString()).toBe("");
+  await pointer("[data-epub-block]", "scroll", 5);
+  expect(hover()).toBeUndefined();
+});
+it("keeps EPUB hover on the current side when linking is disabled", async () => {
+  await act(async () => root.render(<App epub linked={false} />));
+  await pointer("[data-epub-run]", "pointermove", 5);
+  expect(texts(hover())).toEqual(["Original sentence."]);
+  await pointer("[data-sentence]", "pointermove", 205);
+  expect(texts(hover())).toEqual(["翻译句子。"]);
+});
+it("segments untranslated EPUB source and rejects mismatched translation anchors", async () => {
+  await act(async () => root.render(<App epub translations={[]} />));
+  await pointer("[data-epub-run]", "pointermove", 5);
+  expect(texts(hover())).toEqual(["Original sentence."]);
+  await act(async () =>
+    root.render(
+      <App
+        epub
+        translations={[
+          {
+            ...t,
+            sentences: [{ source: "Changed source.", target: "翻译句子。" }],
+          },
+        ]}
+      />,
+    ),
+  );
+  await pointer("[data-sentence]", "pointermove", 205);
+  expect(texts(hover())).toEqual(["翻译句子。"]);
 });
