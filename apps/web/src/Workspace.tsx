@@ -1642,20 +1642,6 @@ export function Workspace({
                 >
                   <ChartColumn />
                 </Button>
-                {rightTab === "ai" && provider === "codex" && (
-                  <CodexHandoffButton
-                    key={doc.id}
-                    documentId={doc.id}
-                    sessionId={currentSession?.id}
-                    disabled={
-                      sending ||
-                      !chat.loaded ||
-                      !chat.messages.some(
-                        (message) => message.role === "assistant",
-                      )
-                    }
-                  />
-                )}
               </TabsList>
               <TabsContent
                 value="ai"
@@ -1669,7 +1655,22 @@ export function Workspace({
                   sessions={sessions}
                   current={currentSession}
                   provider={provider}
-                  running={sending}
+                  continueAction={
+                    provider === "codex" && (
+                      <CodexHandoffButton
+                        key={doc.id}
+                        documentId={doc.id}
+                        sessionId={currentSession?.id}
+                        disabled={
+                          sending ||
+                          !chat.loaded ||
+                          !chat.messages.some(
+                            (message) => message.role === "assistant",
+                          )
+                        }
+                      />
+                    )
+                  }
                   onChange={selectSession}
                   onRefresh={refreshSessions}
                 />
@@ -1710,11 +1711,6 @@ export function Workspace({
                   )}
                   empty={
                     <div className="chat-empty">
-                      <p>
-                        选中原文，可以翻译、解释，
-                        <br />
-                        或引用多段文字一起讨论。
-                      </p>
                       <Button
                         variant="outline"
                         className="suggestion"
@@ -1749,10 +1745,6 @@ export function Workspace({
                         解释核心概念
                         <ArrowLeft className="ml-auto rotate-180" />
                       </Button>
-                      <p className="privacy-note">
-                        主动引用的文字和图片随问题发送；文档 Agent
-                        按需检索、读取原文。
-                      </p>
                     </div>
                   }
                   extras={(message) => (

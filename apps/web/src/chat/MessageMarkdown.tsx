@@ -1,7 +1,12 @@
 import { useReducedMotion } from "../motion";
 import { Button } from "@neoread/ui/components/button";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@neoread/ui/components/tooltip";
 import { copyText } from "./clipboard";
-import { Copy } from "lucide-react";
+import { ArrowUpLeft, Copy } from "lucide-react";
 import { CachedMarkdown, Streamdown } from "@lobehub/streamdown";
 import {
   memo,
@@ -45,20 +50,81 @@ function MarkdownLink({
 }) {
   const navigate = useContext(ReadingLinkNavigation);
   const evidence = useContext(ChatCitationNavigation);
+  const [previewOpen, setPreviewOpen] = useState(false);
   if (href?.startsWith("#neoread-evidence?")) {
-    const sourceId =
-      new URLSearchParams(href.split("?")[1]).get("source") ?? "";
-    if (!evidence?.sourceIds.includes(sourceId)) return <span>{children}</span>;
+    const sourceIds = [
+      ...new Set(new URLSearchParams(href.split("?")[1]).getAll("source")),
+    ];
+    if (
+      !sourceIds.length ||
+      !evidence ||
+      sourceIds.some((id) => !evidence.sourceIds.includes(id))
+    )
+      return <span>{children}</span>;
+    const multiple = sourceIds.length > 1;
     return (
-      <a
-        href={href}
-        onClick={(event) => {
-          event.preventDefault();
-          evidence.navigate(sourceId);
-        }}
-      >
-        {children}
-      </a>
+      <Tooltip open={previewOpen} onOpenChange={setPreviewOpen}>
+        <TooltipTrigger
+          delay={0}
+          closeOnClick={!multiple}
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="chat-source-jump"
+              aria-label={
+                multiple
+                  ? `查看 ${sourceIds.length} 处原文引用`
+                  : `跳转到原文段落 ${sourceIds[0]}`
+              }
+              onClick={() =>
+                multiple
+                  ? setPreviewOpen(true)
+                  : evidence.navigate(sourceIds[0])
+              }
+            />
+          }
+        >
+          <ArrowUpLeft className="size-3" aria-hidden="true" />
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          sideOffset={8}
+          className="chat-source-preview motion-reduce:animate-none"
+        >
+          <span
+            className="chat-source-preview-list"
+            role="list"
+            aria-label="原文引用"
+          >
+            {sourceIds.map((sourceId) => {
+              const preview = evidence.previews?.[sourceId];
+              return (
+                <span key={sourceId} role="listitem">
+                  <Button
+                    variant="ghost"
+                    className="chat-source-preview-card"
+                    aria-label={`跳转到原文段落 ${sourceId}`}
+                    onClick={() => {
+                      setPreviewOpen(false);
+                      evidence.navigate(sourceId);
+                    }}
+                  >
+                    {preview?.text && (
+                      <span className="chat-source-preview-excerpt">
+                        {preview.text}
+                      </span>
+                    )}
+                    <span className="chat-source-preview-location">
+                      跳转到{preview?.label ?? `原文段落 ${sourceId}`}
+                    </span>
+                  </Button>
+                </span>
+              );
+            })}
+          </span>
+        </TooltipContent>
+      </Tooltip>
     );
   }
   if (href?.startsWith("#"))

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Plus, Pencil, LoaderCircle } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Plus, Pencil } from "lucide-react";
 import { api } from "@neoread/api";
 import type { DocumentChatSession } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
@@ -31,7 +31,7 @@ export function SessionPicker({
   sessions,
   current,
   provider,
-  running = false,
+  continueAction,
   onChange,
   onRefresh,
 }: {
@@ -39,11 +39,10 @@ export function SessionPicker({
   sessions: DocumentChatSession[];
   current?: DocumentChatSession;
   provider: string;
-  running?: boolean;
+  continueAction?: ReactNode;
   onChange: (id: string) => void;
   onRefresh: () => Promise<void>;
 }) {
-  const status = running ? "running" : current?.latestRun?.status;
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -80,15 +79,18 @@ export function SessionPicker({
     }
   };
   return (
-    <div className="flex min-w-0 flex-col gap-1 border-b px-3 py-2">
-      <div className="flex min-w-0 items-center gap-1">
+    <div className="pointer-events-none absolute inset-x-3 top-2 z-10 min-w-0">
+      <div className="flex min-w-0 items-center gap-1 [&>button]:pointer-events-auto">
         <Select
           value={current?.id ?? null}
           onValueChange={(id) => {
             if (id) onChange(id);
           }}
         >
-          <SelectTrigger className="h-8 min-w-0 flex-1" aria-label="选择会话">
+          <SelectTrigger
+            className="h-8 min-w-0 flex-1 bg-background dark:bg-background dark:hover:bg-muted"
+            aria-label="选择会话"
+          >
             <SelectValue className="truncate">
               {current?.title ?? "加载会话…"}
             </SelectValue>
@@ -104,9 +106,11 @@ export function SessionPicker({
             ))}
           </SelectContent>
         </Select>
+        {continueAction}
         <Button
           variant="ghost"
           size="icon-xs"
+          className="bg-background dark:hover:bg-muted disabled:text-muted-foreground disabled:opacity-100"
           aria-label="重命名会话"
           disabled={!current || saving}
           onClick={() => {
@@ -119,6 +123,7 @@ export function SessionPicker({
         <Button
           variant="ghost"
           size="icon-xs"
+          className="bg-background dark:hover:bg-muted disabled:text-muted-foreground disabled:opacity-100"
           aria-label="新建会话"
           disabled={saving}
           onClick={() => void create()}
@@ -126,17 +131,6 @@ export function SessionPicker({
           <Plus />
         </Button>
       </div>
-      {status && (
-        <span
-          className="flex items-center justify-end gap-1 text-xs text-muted-foreground"
-          role="status"
-        >
-          {status === "running" && (
-            <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" />
-          )}
-          {statusLabels[status]}
-        </span>
-      )}
       <Dialog open={renaming} onOpenChange={setRenaming}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>

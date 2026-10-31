@@ -67,7 +67,9 @@ it("validates the saved source before navigating to its native location", async 
       }),
   );
   await render();
-  await act(async () => host.querySelector<HTMLAnchorElement>("a")!.click());
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>("button.chat-source-jump")!.click(),
+  );
   expect(api.validateEvidence).toHaveBeenCalledExactlyOnceWith(
     "doc",
     "answer",
@@ -87,7 +89,9 @@ it("does not navigate when the source expired or its message unmounted", async (
     new Error("原文版本已更新"),
   );
   await render();
-  await act(async () => host.querySelector<HTMLAnchorElement>("a")!.click());
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>("button.chat-source-jump")!.click(),
+  );
   expect(host.querySelector('[role="alert"]')?.textContent).toContain(
     "原文版本已更新",
   );
@@ -99,7 +103,9 @@ it("does not navigate when the source expired or its message unmounted", async (
         finish = resolve;
       }),
   );
-  await act(async () => host.querySelector<HTMLAnchorElement>("a")!.click());
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>("button.chat-source-jump")!.click(),
+  );
   await act(async () => root.render(null));
   await act(async () => finish({ valid: true }));
   expect(navigate).not.toHaveBeenCalled();
@@ -115,10 +121,14 @@ it("allows a fresh navigation after the reader changes during validation", async
       }),
   );
   await render();
-  await act(async () => host.querySelector<HTMLAnchorElement>("a")!.click());
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>("button.chat-source-jump")!.click(),
+  );
   await render({ ...adapter });
   vi.mocked(api.validateEvidence).mockResolvedValueOnce({ valid: true });
-  await act(async () => host.querySelector<HTMLAnchorElement>("a")!.click());
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>("button.chat-source-jump")!.click(),
+  );
   expect(navigate).toHaveBeenCalledTimes(1);
   await act(async () => finish({ valid: true }));
   expect(navigate).toHaveBeenCalledTimes(1);

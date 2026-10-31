@@ -5,6 +5,7 @@ import { SKIP, visit } from "unist-util-visit";
 export const ChatCitationNavigation = createContext<
   | {
       sourceIds: string[];
+      previews?: Record<string, { text: string; label: string }>;
       navigate: (sourceId: string) => void;
     }
   | undefined
@@ -16,6 +17,41 @@ const nativeCitation = String.raw`\[${sourceList}\]|【${sourceList}】|［${sou
 const citation = new RegExp(`${nativeCitation}|[^]*(?:|)`, "g");
 const sourceID = /^S[1-9][0-9]*$/;
 const text = (value: string): Text => ({ type: "text", value });
+
+function groupCitationLinks(parts: PhrasingContent[]): PhrasingContent[] {
+  const grouped: PhrasingContent[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const first = parts[i];
+    if (first.type !== "link") {
+      grouped.push(first);
+      continue;
+    }
+    const ids = new Set(
+      new URLSearchParams(first.url.split("?")[1]).getAll("source"),
+    );
+    let next = i + 1;
+    while (next < parts.length) {
+      const gap = parts[next];
+      const candidateIndex =
+        gap.type === "text" && /^\s*$/.test(gap.value) ? next + 1 : next;
+      const candidate = parts[candidateIndex];
+      if (candidate?.type !== "link") break;
+      new URLSearchParams(candidate.url.split("?")[1])
+        .getAll("source")
+        .forEach((id) => ids.add(id));
+      i = candidateIndex;
+      next = i + 1;
+    }
+    const params = new URLSearchParams();
+    ids.forEach((id) => params.append("source", id));
+    grouped.push({
+      ...first,
+      url: `#neoread-evidence?${params}`,
+      children: [...ids].map((id) => text(`[${id}]`)),
+    });
+  }
+  return grouped;
+}
 
 // Only saved, server-validated sources become links. Pending answers retain
 // readable labels until their message and evidence have been committed.
@@ -75,8 +111,8 @@ export function remarkChatCitations({
       }
       if (!start) return;
       parts.push(text(node.value.slice(start)));
-      const visible = parts.filter(
-        (part) => part.type !== "text" || part.value,
+      const visible = groupCitationLinks(
+        parts.filter((part) => part.type !== "text" || part.value),
       );
       (parent.children as PhrasingContent[]).splice(index, 1, ...visible);
       return [SKIP, index + visible.length];

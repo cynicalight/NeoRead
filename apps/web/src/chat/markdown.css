@@ -111,6 +111,89 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.message-markdown .chat-source-jump {
+  --source-jump-color: #2563eb;
+  position: relative;
+  top: -1px;
+  width: 16px;
+  height: 16px;
+  margin-inline: 1px;
+  vertical-align: middle;
+  color: var(--source-jump-color);
+  background: transparent;
+  cursor: pointer;
+}
+.dark .message-markdown .chat-source-jump {
+  --source-jump-color: #60a5fa;
+}
+.chat-source-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  width: 360px;
+  height: auto;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 8px 28px #00000024;
+  animation-duration: 100ms;
+  text-align: left;
+  white-space: normal;
+  font-weight: 400;
+  cursor: pointer;
+}
+.chat-source-preview > [aria-hidden="true"] {
+  display: none;
+}
+.chat-source-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(440px, var(--available-height, 70vh) - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.chat-source-preview-list::-webkit-scrollbar {
+  display: none;
+}
+.chat-source-preview-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  height: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  text-align: left;
+  white-space: normal;
+  font-weight: 400;
+  cursor: pointer;
+}
+.chat-source-preview-card:hover {
+  background: var(--muted);
+}
+.chat-source-preview-excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 10;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.chat-source-preview-location {
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
 .dark .markdown-code span[style] {
   color: var(--shiki-dark) !important;
 }
