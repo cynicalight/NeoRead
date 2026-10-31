@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -426,7 +427,7 @@ it("waits for flushed reading data, then copies once despite repeated quit event
   expect(migrate).toHaveBeenCalledWith(
     "/userdata",
     "/old/library",
-    "/destination/NeoRead Library",
+    join("/destination", "NeoRead Library"),
     expect.any(String),
     expect.any(Function),
   );

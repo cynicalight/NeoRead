@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
@@ -59,7 +60,7 @@ it("uses the fixed source directory and propagates migration errors", async () =
   ).rejects.toThrow("旧书库仍在使用中");
   expect(mocks.exec.mock.calls[0][1]).toEqual([
     "--migrate-reader-data",
-    "/data/Reader",
+    join("/data", "Reader"),
     "--data",
     "/data/NeoRead",
   ]);

@@ -27,7 +27,9 @@ it("migrates only on click, prevents repeated requests, and reports partial resu
   try {
     await act(async () => root.render(<LegacyAnnotationMigration />));
     expect(api.migrateLegacyAnnotations).not.toHaveBeenCalled();
-    const button = host.querySelector("button")!;
+    const button = [...host.querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === "开始",
+    )!;
     expect(button.textContent).toBe("开始");
     await act(async () => button.click());
     expect(button.disabled).toBe(true);

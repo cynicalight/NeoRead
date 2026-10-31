@@ -56,6 +56,11 @@ func TestPaperParsingRetryReturnsSavedProcessing(t *testing.T) {
 	if err := s.Store.saveProcessing(p); err != nil {
 		t.Fatal(err)
 	}
+	// A retry may share the previous clock tick on Windows. Seed an older record
+	// so this checks that the response contains the newly persisted timestamp.
+	if _, err := s.Store.DB.Exec("UPDATE document_processing SET body=json_set(body,'$.updatedAt',?) WHERE document_id=?", "2000-01-01T00:00:00Z", "doc"); err != nil {
+		t.Fatal(err)
+	}
 	failed, err := s.Store.processing("doc")
 	if err != nil {
 		t.Fatal(err)

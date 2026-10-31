@@ -38,6 +38,11 @@ vi.mock("node:fs/promises", () => ({
   rename: vi.fn(),
   rm: mocks.rm,
 }));
+// The mocked app uses a macOS filesystem even when the tests run on Windows.
+vi.mock("node:path", async (importOriginal) => {
+  const path = await importOriginal<typeof import("node:path")>();
+  return { ...path, join: path.posix.join, dirname: path.posix.dirname };
+});
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 vi.mock("./update-download", () => ({ downloadUpdate: mocks.download }));
 vi.mock("./mac-squirrel", () => ({

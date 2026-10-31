@@ -1,4 +1,4 @@
-import { win32 } from "node:path";
+import { posix, win32 } from "node:path";
 import { expect, it } from "vitest";
 import { documentArguments } from "./open-files";
 
@@ -37,6 +37,7 @@ it("skips the entry script of development runs", () => {
       ["/usr/bin/electron", "/repo/main.pdf", "/tmp/book.epub"],
       "/",
       true,
+      posix.resolve,
     ),
   ).toEqual(["/tmp/book.epub"]);
   expect(documentArguments(["/usr/bin/electron", "."], "/", true)).toEqual([]);
