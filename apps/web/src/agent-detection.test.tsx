@@ -196,3 +196,18 @@ it("defaults the card stack to Codex and preserves a saved choice", async () => 
   ).toBe("api");
   localStorage.removeItem("neoread.agent-deck-front");
 });
+
+it("preserves ready status while reopening settings refreshes metadata", async () => {
+  config.capabilities.codex = passed;
+  await render();
+  expect(
+    host.querySelector('[data-agent="codex"]')?.getAttribute("data-status"),
+  ).toBe("ready");
+  await render(false);
+  vi.mocked(api.aiConfig).mockReturnValue(new Promise(() => {}));
+  await render();
+  expect(
+    host.querySelector('[data-agent="codex"]')?.getAttribute("data-status"),
+  ).toBe("ready");
+  expect(api.testAI).not.toHaveBeenCalled();
+});

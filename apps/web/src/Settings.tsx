@@ -283,7 +283,8 @@ export function Settings({
   const refresh = async (force = false) => {
     if (refreshing.current) return;
     refreshing.current = true;
-    setLoading(true);
+    // Reopening refreshes metadata silently; preserve the last confirmed UI.
+    if (force || !probed) setLoading(true);
     try {
       const [providers, config] = await Promise.all([
         api.providers(false),
@@ -350,7 +351,6 @@ export function Settings({
   };
   useEffect(() => {
     if (open) void refresh();
-    else setProbed(false);
   }, [open]);
   const checkModel = async (model: AgentModel) => {
     const snapshot = useReaderStore.getState().aiConfig;

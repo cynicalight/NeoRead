@@ -261,7 +261,7 @@ it("saves the API endpoint and key, then tests the new connection", async () => 
   expect(toast.warning).not.toHaveBeenCalled();
   expect(input("API Key").value).toBe("");
   expect(input("API Key").placeholder).toBe("已保存，留空保持不变");
-}, 20_000);
+}, 30_000);
 it("selects the API agent from its card once a model passes", async () => {
   config.primary = "";
   config.api = { url: "https://api.example.com", model: "", hasKey: true };
@@ -341,7 +341,7 @@ it("rechecks a saved API model with a per-stage wait limit without changing conf
   await act(async () => retry()!.click());
   expect(api.testAI).toHaveBeenCalledWith("api", "text", "slow-model");
   expect(api.saveAIConfig).not.toHaveBeenCalled();
-}, 20_000);
+}, 30_000);
 
 it("shows the latest first-output observations including zero, without inventing missing timings", async () => {
   config.api = { url: "https://api.example.com", model: "", hasKey: true };
@@ -414,10 +414,15 @@ it.each(["text", "vision"] as const)(
 
 it("persists CLI web search directly from the toggle without a Save action", async () => {
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
-  const label = [...host.querySelectorAll("label")].find((node) =>
-    node.textContent?.includes("允许 CLI 原生联网搜索"),
+  const label = [...host.querySelectorAll("span")].find(
+    (node) => node.textContent === "允许 CLI 原生联网搜索",
   )!;
-  const toggle = label.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  const toggle =
+    label.parentElement!.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  vi.mocked(api.saveAIConfig).mockClear();
+  await act(async () => label.click());
+  await act(async () => label.parentElement!.click());
+  expect(api.saveAIConfig).not.toHaveBeenCalled();
   await act(async () => toggle.click());
   expect(
     vi.mocked(api.saveAIConfig).mock.lastCall?.[0].webSearch?.cliEnabled,

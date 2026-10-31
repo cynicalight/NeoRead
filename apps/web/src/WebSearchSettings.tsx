@@ -121,14 +121,15 @@ export function WebSearchSettings({
         联网搜索
       </h3>
       <div className="space-y-3">
-        <label className="flex items-center justify-between gap-4 text-sm">
-          <span>允许 CLI 原生联网搜索</span>
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <span id={`${id}-cli`}>允许 CLI 原生联网搜索</span>
           <Switch
+            aria-labelledby={`${id}-cli`}
             checked={cliEnabled}
             disabled={disabled}
             onCheckedChange={(checked) => saveCLI(checked === true)}
           />
-        </label>
+        </div>
         <p className="text-xs leading-5 text-muted-foreground">
           目前支持 Codex，使用 CLI 自身的联网能力。
         </p>
