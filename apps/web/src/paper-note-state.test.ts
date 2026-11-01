@@ -4,6 +4,7 @@ import { reportDiagnostic } from "./diagnostics";
 import { api } from "@neoread/api";
 import {
   getPaperNote,
+  importWithPaperNotes,
   flushPaperNotes,
   hasPendingPaperNotes,
   mergePaperNotes,
@@ -408,5 +409,33 @@ it("reports discarded writes without leaking note text or exception messages", a
   expect(entry.hasPending()).toBe(false);
   await vi.advanceTimersByTimeAsync(15000);
   expect(api.saveDocumentNote).toHaveBeenCalledTimes(1);
+  release();
+});
+
+it("refreshes an open note after import and holds autosave during import", async () => {
+  const note = getPaperNote("import-" + ++id);
+  const release = note.subscribe(() => {});
+  await note.load();
+  const gate = deferred();
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const importing = importWithPaperNotes(async () => {
+    started();
+    await gate.promise;
+    vi.mocked(api.documentNote).mockResolvedValue({
+      body: "long imported note from Zotero",
+    });
+    return "imported";
+  });
+  await ready;
+  note.edit("local edit");
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(api.saveDocumentNote).not.toHaveBeenCalled();
+  gate.resolve();
+  expect(await importing).toBe("imported");
+  expect(await note.flush()).toBe("long imported note from Zotero");
+  expect(api.saveDocumentNote).not.toHaveBeenCalled();
   release();
 });
