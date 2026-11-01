@@ -11,6 +11,7 @@ import {
 import {
   commonmark,
   imageSchema,
+  htmlSchema,
   linkSchema,
 } from "@milkdown/kit/preset/commonmark";
 import { gfm, extendListItemSchemaForTask } from "@milkdown/kit/preset/gfm";
@@ -22,6 +23,14 @@ import katex from "katex";
 import remarkMath from "remark-math";
 import type { Root, RootContent } from "mdast";
 import "katex/dist/katex.min.css";
+
+const isLineBreak = (value: string) => /^<br\s*\/?\s*>$/i.test(value.trim());
+// Keep the original HTML spelling in Markdown, but show a real inline break.
+const lineBreakHTML = htmlSchema.extendSchema((previous) => (ctx) => ({
+  ...previous(ctx),
+  toDOM: (node) =>
+    isLineBreak(node.attrs.value) ? ["br"] : previous(ctx).toDOM!(node),
+}));
 
 const mathPlugin = $remark("paperNoteMath", () => remarkMath);
 const mathNode = (display: boolean) => {
@@ -177,6 +186,9 @@ const supported = new Set([
   "inlineMath",
 ]);
 function assertSupported(tree: Root | RootContent) {
+  // Milkdown emits <br /> for empty paragraphs and parses bare br as breaks.
+  // Allow these before its HTML transformer, without admitting arbitrary HTML.
+  if (tree.type === "html" && isLineBreak(tree.value)) return;
   if (!supported.has(tree.type) || ("meta" in tree && tree.meta))
     throw new Error("笔记包含暂不支持的格式，已保留在源码中编辑");
   if ("children" in tree) tree.children.forEach(assertSupported);
@@ -249,6 +261,7 @@ export async function createPaperNoteEditor(
         inertLink,
         inertImage,
         taskCheckbox,
+        lineBreakHTML,
       ].flat(),
     );
   await editor.create();

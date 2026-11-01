@@ -403,3 +403,28 @@ it("closes expanded editing when its document becomes inactive without rewriting
   expect(richField()).toBeNull();
   expect(api.saveDocumentNote).not.toHaveBeenCalled();
 });
+
+it("returns from source containing br to rich editing and saves subsequent typing", async () => {
+  await mount();
+  await act(async () => button("源码").click());
+  await act(async () => type(field(), "first<br>second\n\n<br />\n\nlast"));
+  await act(async () => button("编辑").click());
+  await waitForRich();
+  expect(document.body.textContent).not.toContain("暂不支持");
+  await act(async () => {
+    richField()!.querySelector("p")!.append(" edited");
+    await Promise.resolve();
+  });
+  await act(async () => button("源码").click());
+  expect(field().value).toContain("edited");
+  await act(async () => button("编辑").click());
+  await waitForRich();
+  expect(richField()!.textContent).toContain("edited");
+  await act(async () => {
+    await flushPaperNote(`editor-${id}`);
+  });
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(
+    `editor-${id}`,
+    expect.stringContaining("edited"),
+  );
+});

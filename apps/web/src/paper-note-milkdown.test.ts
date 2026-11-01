@@ -125,6 +125,8 @@ it("lets users toggle task checkboxes without losing their Markdown content", as
 
 it.each([
   "before\n\n<div>keep me</div>\n\nafter",
+  'before<br onclick="alert(1)">after',
+  "before<br class=custom>after",
   "[link][id]\n\n[id]: https://example.com",
   "```js filename=file.js\nconst x = 1\n```",
   "$$ numbered\nx_{1}\n$$",
@@ -207,4 +209,34 @@ it("preserves selection on self-echo and makes external replacement the undo bas
   expect(undo(view.state, view.dispatch)).toBe(false);
   expect(view.state.doc.eq(beforeUndo)).toBe(true);
   expect(change).toHaveBeenCalledTimes(1);
+});
+
+it.each(["<br>", "<br/>", "<br />", "<BR >"])(
+  "accepts %s through source and rich round trips",
+  async (br) => {
+    const raw = `first${br}second\n\n${br}\n\nlast`;
+    const { editor, view, change } = await create(raw);
+    expect(change).not.toHaveBeenCalled();
+    expect(view.state.doc.childCount).toBe(3);
+    expect(view.state.doc.child(1).textContent).toBe("");
+    expect(view.dom.querySelector("p br")).not.toBeNull();
+    expect(view.dom.querySelector("[data-type=html]")).toBeNull();
+    view.dispatch(view.state.tr.insertText("!", 2));
+    const saved = change.mock.calls.at(-1)![0];
+    const reopened = await create(saved);
+    expect(reopened.view.state.doc.toJSON()).toEqual(view.state.doc.toJSON());
+    editor.setMarkdown(raw);
+    expect(view.state.doc.child(0).textContent).toBe("firstsecond");
+  },
+);
+it("preserves br inside code and roundtrips table cell breaks", async () => {
+  const raw =
+    "`<br>`\n\n```html\n<br />\n```\n\n| a | b |\n| - | - |\n| first<br>second | x |";
+  const { editor, view } = await create(raw);
+  const saved = editor.ctx.get(serializerCtx)(view.state.doc);
+  expect(saved).toContain("`<br>`");
+  expect(saved).toContain("```html\n<br />\n```");
+  expect((await create(saved)).view.state.doc.toJSON()).toEqual(
+    view.state.doc.toJSON(),
+  );
 });
