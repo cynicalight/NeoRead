@@ -762,6 +762,9 @@ app
         event.preventDefault();
         if (closing) return;
         closing = true;
+        // Close the visible UI immediately, but keep its renderer and local
+        // server alive until the final save acknowledges completion.
+        if (!pendingLibraryMove) window!.hide();
         window!.webContents.send("neoread:flush");
         const timer = setTimeout(() => {
           void finish("保存超时，请重试。");
@@ -769,16 +772,20 @@ app
         const handler = (
           event: Electron.IpcMainEvent,
           error: string | null,
+          noteSaveDiscarded?: boolean,
         ) => {
           if (
             event.sender !== window?.webContents ||
             event.senderFrame !== window.webContents.mainFrame
           )
             return;
-          void finish(error);
+          void finish(error, noteSaveDiscarded === true);
         };
         let finished = false;
-        const finish = async (error: string | null) => {
+        const finish = async (
+          error: string | null,
+          noteSaveDiscarded = false,
+        ) => {
           if (finished) return;
           finished = true;
           clearTimeout(timer);
@@ -788,6 +795,7 @@ app
             pendingLibraryMove?.resolve(false);
             pendingLibraryMove = undefined;
             diagnostics?.record("reading.flush_failed", new Error(error));
+            window?.show();
             const result = await dialog.showMessageBox(window!, {
               type: "warning",
               message: "阅读数据尚未保存",
@@ -803,6 +811,15 @@ app
               showMainWindow();
               return;
             }
+          }
+          if (noteSaveDiscarded) {
+            window?.show();
+            await dialog.showMessageBox(window!, {
+              type: "warning",
+              message: "论文笔记保存失败",
+              detail: "本次未保存的修改已丢弃。",
+              buttons: ["知道了"],
+            });
           }
           if (pendingLibraryMove) {
             const move = pendingLibraryMove;

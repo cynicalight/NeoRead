@@ -3771,29 +3771,29 @@ textarea.citation-preview {
   resize: vertical;
   field-sizing: fixed;
 }
+.paper-note-panel {
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px 14px;
+}
 .paper-note {
-  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
 }
-.paper-note-toggle {
-  width: 100%;
-  justify-content: flex-start;
-  gap: 6px;
-  padding-inline: 4px;
-  font-size: 12px;
+.paper-note > .paper-note-workspace {
+  flex: 1;
 }
-.paper-note-toggle svg[data-open="false"] {
-  transform: rotate(-90deg);
+.paper-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
 }
-:root:not([data-reduced-motion="true"]) {
-  .paper-note-toggle svg {
-    transition: transform 150ms ease;
-  }
-}
-textarea.paper-note-input {
-  min-height: 84px;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.7;
+.paper-note .paper-note-rich .ProseMirror {
+  padding: 12px 14px;
 }
 .notes-filter.notes-filter {
   width: 100%;
@@ -4229,5 +4229,165 @@ textarea.paper-note-input {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* The note tab and expanded editor share one Markdown draft. */
+.paper-note-status {
+  min-height: 20px;
+  padding-inline: 4px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.paper-note-status [role="alert"] {
+  color: var(--destructive);
+}
+.paper-note-dialog[data-slot="dialog-content"] {
+  width: min(1100px, calc(100vw - 2rem));
+  max-width: none;
+  height: min(780px, calc(100dvh - 2rem));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+.paper-note-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.paper-note-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.paper-note-editor-message {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.paper-note-editor-message {
+  margin: 0;
+}
+.paper-note-rich {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: text;
+  background: var(--background);
+}
+.paper-note-rich[hidden] {
+  display: none;
+}
+.paper-note-rich .ProseMirror {
+  min-height: 100%;
+  padding: 20px 24px;
+  outline: none;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.8;
+}
+.paper-note-rich > div,
+.paper-note-rich .milkdown {
+  min-height: 100%;
+}
+.paper-note-rich:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 18%, transparent);
+}
+.paper-note-rich [data-note-link] {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.paper-note-rich li[data-item-type="task"] {
+  position: relative;
+  list-style: none;
+}
+.paper-note-rich li[data-item-type="task"] > input {
+  position: absolute;
+  top: 0.45em;
+  left: -1.4em;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.paper-note-rich .ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+}
+.paper-note-rich table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.paper-note-rich td,
+.paper-note-rich th {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+}
+.paper-note-rich .markdown-math.display {
+  overflow-x: auto;
+}
+.paper-note-rich .ProseMirror-separator,
+.paper-note-rich .ProseMirror-trailingBreak {
+  display: inline;
+}
+.paper-note-rich .ProseMirror-separator {
+  margin: 0;
+  border: 0;
+}
+textarea.paper-note-editor-input {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  resize: none;
+  field-sizing: fixed;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.8;
+  padding: 16px;
+}
+.paper-note-markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.paper-note-markdown pre {
+  background: var(--muted);
+  border-radius: 6px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .paper-note button,
+  .paper-note-dialog button {
+    transition:
+      transform 150ms ease,
+      background-color 150ms ease;
+  }
+  .paper-note button:not(.paper-note-toggle):active,
+  .paper-note-dialog button:active {
+    transform: scale(0.97);
+  }
+  .paper-note button:not(.paper-note-toggle):hover,
+  .paper-note-dialog button:hover {
+    transform: scale(1.02);
+  }
+  .paper-note-rich,
+  .paper-note-editor-input {
+    animation: paper-tag-enter 150ms ease;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paper-note-dialog,
+  .paper-note-dialog *,
+  .paper-note,
+  .paper-note * {
+    animation: none !important;
+    transition: none !important;
   }
 }

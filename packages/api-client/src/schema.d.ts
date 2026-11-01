@@ -3926,7 +3926,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Fold duplicates into this document: categories, star, the furthest reading status, missing metadata and paper notes move over; the duplicates go to the trash with their files, annotations and chats */
+        /** Fold duplicates into this document: categories, star, the furthest reading status, missing metadata move over, and the longest paper note is kept (ties favor this document); the duplicates go to the trash with their files, annotations and chats */
         post: {
             parameters: {
                 query?: never;

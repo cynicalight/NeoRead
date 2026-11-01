@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
 import type { Document } from "@neoread/core";
+import { discardPaperNotes } from "./paper-note-state";
 import { TrashView } from "./TrashView";
 import { useReaderStore } from "./store";
 vi.mock("@neoread/api", () => ({
@@ -15,6 +16,7 @@ vi.mock("@neoread/api", () => ({
     documents: vi.fn(async () => []),
   },
 }));
+vi.mock("./paper-note-state", () => ({ discardPaperNotes: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const trashed = (id: string, title: string) =>
   ({
@@ -60,10 +62,20 @@ it("purges only after confirmation", async () => {
   expect(dialog.textContent).toContain("彻底删除 1 份");
   await act(async () => button("彻底删除", dialog)[0].click());
   expect(api.removeDocument).toHaveBeenCalledExactlyOnceWith("a");
+  expect(discardPaperNotes).toHaveBeenCalledExactlyOnceWith(["a"]);
 });
 it("empties the current library's trash in one request", async () => {
   await act(async () => button("清空回收站")[0].click());
   const dialog = document.querySelector('[role="alertdialog"]')!;
   await act(async () => button("彻底删除", dialog)[0].click());
   expect(api.emptyTrash).toHaveBeenCalledExactlyOnceWith("papers");
+  expect(discardPaperNotes).toHaveBeenCalledExactlyOnceWith(["a", "b"]);
+});
+
+it("retains pending notes if permanent deletion fails", async () => {
+  vi.mocked(api.removeDocument).mockRejectedValueOnce(new Error("disk error"));
+  await act(async () => button("彻底删除")[0].click());
+  const dialog = document.querySelector('[role="alertdialog"]')!;
+  await act(async () => button("彻底删除", dialog)[0].click());
+  expect(discardPaperNotes).not.toHaveBeenCalled();
 });

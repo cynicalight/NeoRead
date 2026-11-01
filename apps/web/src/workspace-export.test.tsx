@@ -56,6 +56,11 @@ vi.mock("./ProcessingUsage", () => ({ ProcessingUsageDialog: () => null }));
 vi.mock("./annotated-pdf-export", () => ({
   exportAnnotatedPDFWithToast: vi.fn(),
 }));
+vi.mock("./PaperNote", () => ({
+  PaperNote: ({ active }: { active: boolean }) => (
+    <div data-testid="paper-note" data-active={active} />
+  ),
+}));
 vi.mock("./NotesPanel", () => ({
   NotesPanel: ({ onExport }: { onExport: () => void }) => (
     <button onClick={onExport}>导出</button>
@@ -212,4 +217,18 @@ it("loads saved annotations without running recovery on open or progress updates
   expect(api.recoverAnnotations).not.toHaveBeenCalled();
   await act(async () => render(1));
   expect(api.recoverAnnotations).not.toHaveBeenCalled();
+});
+
+it("activates the independent note tab separately from annotations", async () => {
+  await act(async () => render(0));
+  const note = () => host.querySelector('[data-testid="paper-note"]');
+  expect(note()?.getAttribute("data-active")).toBe("false");
+  const tab = (name: string) =>
+    [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+      (el) => el.textContent === name,
+    )!;
+  await act(async () => tab("笔记").click());
+  expect(note()?.getAttribute("data-active")).toBe("true");
+  await act(async () => tab("批注").click());
+  expect(note()?.getAttribute("data-active")).toBe("false");
 });
