@@ -6,9 +6,12 @@ import {
   flushPaperNote,
   flushPaperNotes,
   hasPendingPaperNotes,
+  mergePaperNotes,
+  readPaperNote,
 } from "./paper-note-state";
 vi.mock("@neoread/api", () => ({
   api: {
+    mergeDocuments: vi.fn(async () => ({ trashed: [] })),
     documentNote: vi.fn(async () => ({ body: "original" })),
     saveDocumentNote: vi.fn(async (_id: string, body: string) => ({ body })),
   },
@@ -209,4 +212,139 @@ it("flushes documents that become dirty while an earlier flush batch is awaiting
   expect(hasPendingPaperNotes()).toBe(false);
   a.release();
   b.release();
+});
+
+it("refreshes a cached master after merging so later edits do not overwrite the winner", async () => {
+  const { entry, release } = await note();
+  vi.mocked(api.documentNote).mockResolvedValueOnce({
+    body: "longer merged note",
+    updatedAt: "",
+  });
+  await mergePaperNotes(entry.id, ["duplicate"]);
+  expect(entry.getSnapshot()).toMatchObject({
+    body: "longer merged note",
+    status: "saved",
+  });
+  expect(await readPaperNote(entry.id)).toBe("longer merged note");
+  expect(api.saveDocumentNote).not.toHaveBeenCalled();
+  entry.edit(entry.getSnapshot().body + " edited");
+  await entry.flush();
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(
+    entry.id,
+    "longer merged note edited",
+  );
+  release();
+});
+it("saves participating drafts before the merge request", async () => {
+  const a = await note(),
+    b = await note();
+  a.entry.edit("master draft");
+  b.entry.edit("longer duplicate draft");
+  vi.mocked(api.mergeDocuments).mockImplementationOnce(async () => {
+    expect(api.saveDocumentNote).toHaveBeenCalledWith(
+      a.entry.id,
+      "master draft",
+    );
+    expect(api.saveDocumentNote).toHaveBeenCalledWith(
+      b.entry.id,
+      "longer duplicate draft",
+    );
+    return {} as Awaited<ReturnType<typeof api.mergeDocuments>>;
+  });
+  vi.mocked(api.documentNote).mockResolvedValueOnce({
+    body: "longer duplicate draft",
+    updatedAt: "",
+  });
+  await mergePaperNotes(a.entry.id, [b.entry.id]);
+  expect(a.entry.getSnapshot().body).toBe("longer duplicate draft");
+  a.release();
+  b.release();
+});
+it("does not merge when saving a participating draft fails", async () => {
+  const { entry, release } = await note();
+  entry.edit("pending");
+  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
+  await expect(mergePaperNotes(entry.id, ["duplicate"])).rejects.toThrow(
+    "offline",
+  );
+  expect(api.mergeDocuments).not.toHaveBeenCalled();
+  expect(entry.getSnapshot().body).toBe("pending");
+  await entry.flush();
+  release();
+});
+it("blocks stale autosave after a failed refresh and retries the read first", async () => {
+  const { entry, release } = await note();
+  vi.mocked(api.documentNote).mockRejectedValueOnce(new Error("offline"));
+  await mergePaperNotes(entry.id, ["duplicate"]);
+  expect(entry.getSnapshot().status).toBe("load-error");
+  expect(api.saveDocumentNote).not.toHaveBeenCalled();
+  vi.mocked(api.documentNote).mockResolvedValueOnce({
+    body: "longer merged note",
+    updatedAt: "",
+  });
+  expect(await entry.flush()).toBe("longer merged note");
+  expect(api.saveDocumentNote).not.toHaveBeenCalled();
+  expect(entry.hasPending()).toBe(false);
+  release();
+});
+it("waits for merge reconciliation before saving a longer concurrent draft", async () => {
+  const { entry, release } = await note();
+  const merging = deferred();
+  vi.mocked(api.mergeDocuments).mockReturnValueOnce(
+    merging.promise as unknown as ReturnType<typeof api.mergeDocuments>,
+  );
+  vi.mocked(api.documentNote).mockResolvedValueOnce({
+    body: "server winner",
+    updatedAt: "",
+  });
+  const work = mergePaperNotes(entry.id, ["duplicate"]);
+  await vi.waitFor(() => expect(api.mergeDocuments).toHaveBeenCalled());
+  entry.edit("a much longer local draft typed while merging");
+  await vi.advanceTimersByTimeAsync(900);
+  expect(api.saveDocumentNote).not.toHaveBeenCalled();
+  merging.resolve();
+  await work;
+  await entry.flush();
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(
+    entry.id,
+    "a much longer local draft typed while merging",
+  );
+  release();
+});
+it.each([
+  ["中文", "abc", "abc"],
+  ["other", "first", "first"],
+  ["longer local draft", "short", "longer local draft"],
+])(
+  "reconciles local %s and remote %s by Unicode length, preferring the server on ties",
+  async (local, remote, expected) => {
+    const { entry, release } = await note();
+    entry.edit(local);
+    vi.mocked(api.documentNote).mockResolvedValueOnce({
+      body: remote,
+      updatedAt: "",
+    });
+    await mergePaperNotes(entry.id, ["duplicate"]);
+    expect(entry.getSnapshot().body).toBe(expected);
+    await entry.flush();
+    expect(entry.hasPending()).toBe(false);
+    release();
+  },
+);
+it("refreshes before writing again after an uncertain merge failure", async () => {
+  const { entry, release } = await note();
+  vi.mocked(api.mergeDocuments).mockRejectedValueOnce(
+    new Error("response lost"),
+  );
+  await expect(mergePaperNotes(entry.id, ["duplicate"])).rejects.toThrow(
+    "response lost",
+  );
+  vi.mocked(api.documentNote).mockResolvedValueOnce({
+    body: "longer result already on server",
+    updatedAt: "",
+  });
+  await entry.flush();
+  expect(entry.getSnapshot().body).toBe("longer result already on server");
+  expect(api.saveDocumentNote).not.toHaveBeenCalled();
+  release();
 });

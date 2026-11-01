@@ -18,6 +18,8 @@ class PaperNoteState {
   private timer?: ReturnType<typeof setTimeout>;
   private loading?: Promise<void>;
   private saving?: Promise<string>;
+  private merging?: Promise<void>;
+  private needsRefresh = false;
   constructor(readonly id: string) {}
   getSnapshot = () => this.snapshot;
   private update(patch: Partial<NoteSnapshot>) {
@@ -43,11 +45,15 @@ class PaperNoteState {
       !this.pending &&
       !this.loading &&
       !this.saving &&
+      !this.merging &&
+      !this.needsRefresh &&
       notes.get(this.id) === this
     )
       notes.delete(this.id);
   }
   load = (): Promise<void> => {
+    if (this.merging) return this.merging.then(() => this.load());
+    if (this.needsRefresh) return this.refresh();
     if (this.saved !== undefined) return Promise.resolve();
     if (this.loading) return this.loading;
     this.update({ status: "loading", error: "" });
@@ -83,6 +89,8 @@ class PaperNoteState {
   };
   flush = (): Promise<string> => {
     clearTimeout(this.timer);
+    if (this.merging) return this.merging.then(() => this.flush());
+    if (this.needsRefresh) return this.refresh().then(() => this.flush());
     if (this.saving) return this.saving;
     if (this.saved === undefined)
       return this.load().then(() => this.snapshot.body);
@@ -92,6 +100,63 @@ class PaperNoteState {
       this.release();
     });
     return this.saving;
+  };
+  private refresh = (): Promise<void> => {
+    if (this.loading) return this.loading;
+    clearTimeout(this.timer);
+    this.update({ status: "loading", error: "" });
+    this.loading = api
+      .documentNote(this.id)
+      .then((remote) => {
+        // Count Unicode characters, matching the server's note selection rule.
+        const body =
+          [...this.snapshot.body].length > [...remote.body].length
+            ? this.snapshot.body
+            : remote.body;
+        this.saved = remote.body;
+        this.needsRefresh = false;
+        this.uncertain = false;
+        this.pending = body !== remote.body;
+        this.update({
+          body,
+          status: this.pending ? "dirty" : "saved",
+          error: "",
+        });
+        if (this.pending && !this.merging)
+          this.timer = setTimeout(() => void this.flush().catch(() => {}), 800);
+      })
+      .catch((error) => {
+        // A failed refresh must block stale writes until a successful retry.
+        this.update({ status: "load-error", error: message(error) });
+        throw error;
+      })
+      .finally(() => {
+        this.loading = undefined;
+        this.release();
+      });
+    return this.loading;
+  };
+  merge = (from: string[]): Promise<void> => {
+    if (this.merging) return this.merging;
+    clearTimeout(this.timer);
+    this.merging = Promise.resolve()
+      .then(async () => {
+        if (this.saving) await this.saving;
+        if (this.pending) await this.write();
+        // Even a lost merge response may mean the server already changed the note.
+        this.needsRefresh = true;
+        await api.mergeDocuments(this.id, from);
+        await this.refresh().catch(() => {
+          toast.error("论文已合并，但笔记刷新失败，请在笔记页重试");
+        });
+      })
+      .finally(() => {
+        this.merging = undefined;
+        if (this.pending && !this.needsRefresh)
+          this.timer = setTimeout(() => void this.flush().catch(() => {}), 800);
+        this.release();
+      });
+    return this.merging;
   };
   private async write() {
     try {
@@ -114,7 +179,8 @@ class PaperNoteState {
       throw error;
     }
   }
-  hasPending = () => this.pending || !!this.saving;
+  hasPending = () =>
+    this.pending || !!this.saving || !!this.merging || this.needsRefresh;
 }
 
 export function getPaperNote(id: string) {
@@ -149,3 +215,16 @@ export async function flushPaperNotes() {
 }
 export const hasPendingPaperNotes = () =>
   [...notes.values()].some((note) => note.hasPending());
+
+/** Persist participating drafts before merging, then reconcile the open editor. */
+export async function mergePaperNotes(master: string, from: string[]) {
+  const entry = getPaperNote(master);
+  const release = entry.subscribe(() => {});
+  try {
+    await entry.load();
+    await Promise.all([master, ...from].map((id) => notes.get(id)?.flush()));
+    await entry.merge(from);
+  } finally {
+    release();
+  }
+}
