@@ -179,21 +179,7 @@ it("edits a note in place", async () => {
   expect(host.querySelector('[aria-label="批注"]')).toBeNull();
 });
 
-it("saves the paper note after typing stops", async () => {
-  await act(async () => button("论文笔记").click());
-  const field = host.querySelector<HTMLTextAreaElement>(
-    'textarea[aria-label="论文笔记"]',
-  )!;
-  await act(async () => type(field, "Main contribution"));
-  expect(api.saveDocumentNote).not.toHaveBeenCalled();
-  await act(async () => vi.advanceTimersByTime(900));
-  expect(api.saveDocumentNote).toHaveBeenCalledExactlyOnceWith(
-    "p",
-    "Main contribution",
-  );
-});
-
-it("warns before closing the tab with an unsaved inline note or paper note", async () => {
+it("warns before closing the tab with an unsaved inline note", async () => {
   await act(async () => button("编辑批注").click());
   expect(tabCloseWarning("p")).toBeNull();
   const field = host.querySelector<HTMLTextAreaElement>('[aria-label="批注"]')!;
@@ -201,12 +187,8 @@ it("warns before closing the tab with an unsaved inline note or paper note", asy
   expect(tabCloseWarning("p")?.message).toContain("批注尚未保存");
   await act(async () => button("取消").click());
   expect(tabCloseWarning("p")).toBeNull();
-  await act(async () => button("论文笔记").click());
-  const note = host.querySelector<HTMLTextAreaElement>(
-    'textarea[aria-label="论文笔记"]',
-  )!;
-  await act(async () => type(note, "Pending"));
-  expect(tabCloseWarning("p")?.message).toContain("论文笔记");
-  await act(async () => vi.advanceTimersByTime(900));
-  expect(tabCloseWarning("p")).toBeNull();
+});
+
+it("keeps paper notes out of the annotation panel", () => {
+  expect(host.querySelector(".paper-note")).toBeNull();
 });

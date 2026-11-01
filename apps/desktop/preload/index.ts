@@ -50,10 +50,17 @@ contextBridge.exposeInMainWorld("neoreadDesktop", {
     ipcRenderer.invoke("neoread:clipboard-write", text),
   writeClipboardImage: (data: Uint8Array, text: string) =>
     ipcRenderer.invoke("neoread:clipboard-write-image", data, text),
-  onBeforeClose: (callback: () => Promise<void>) => {
+  onBeforeClose: (
+    callback: () => Promise<void | { noteSaveDiscarded: boolean }>,
+  ) => {
     const listener = () => {
       void callback().then(
-        () => ipcRenderer.send("neoread:flushed", null),
+        (result) =>
+          ipcRenderer.send(
+            "neoread:flushed",
+            null,
+            result?.noteSaveDiscarded === true,
+          ),
         (error) => ipcRenderer.send("neoread:flushed", String(error)),
       );
     };

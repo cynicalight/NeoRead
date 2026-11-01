@@ -35,6 +35,7 @@ vi.mock("@neoread/api", () => ({
     saveLibraryPreferences: vi.fn(async (value) => value),
     changeLibraryTag: vi.fn(async () => ({ changed: 1 })),
     changeLibraryFolder: vi.fn(async () => ({ changed: 1 })),
+    documentNote: vi.fn(async () => ({ body: "" })),
     mergeDocuments: vi.fn(async () => ({ trashed: [] })),
     relateDocuments: vi.fn(async () => ({})),
     unrelateDocuments: vi.fn(async () => ({})),
