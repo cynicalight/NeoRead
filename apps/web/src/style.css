@@ -3790,9 +3790,6 @@ textarea.citation-preview {
   gap: 2px;
   margin-left: auto;
 }
-.paper-note .paper-note-shortcuts {
-  display: none;
-}
 .paper-note .paper-note-rich .ProseMirror {
   padding: 12px 14px;
 }
@@ -4264,7 +4261,6 @@ textarea.citation-preview {
   flex-wrap: wrap;
   gap: 8px;
 }
-.paper-note-shortcuts,
 .paper-note-editor-message {
   color: var(--muted-foreground);
   font-size: 11px;

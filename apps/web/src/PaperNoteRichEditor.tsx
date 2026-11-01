@@ -115,12 +115,6 @@ export function PaperNoteRichEditor({
           </Button>
         </div>
         {actions && <div className="paper-note-actions">{actions}</div>}
-        <span
-          className="paper-note-shortcuts"
-          title="⌘/Ctrl+B 加粗，I 斜体，Z 撤销，Shift+Z 或 Ctrl+Y 重做；列表 Enter 续写，空项 Enter 退出，Tab/Shift+Tab 调整层级；公式在源码中编辑"
-        >
-          ⌘/Ctrl B · I · Z / ⇧Z　列表 Enter · Tab / ⇧Tab
-        </span>
       </div>
       {(reason || (!source && loading && !disabled)) && (
         <p className="paper-note-editor-message" role="status">
