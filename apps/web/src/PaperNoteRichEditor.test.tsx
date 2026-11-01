@@ -2,8 +2,10 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
+import { reportDiagnostic } from "./diagnostics";
 import { PaperNoteRichEditor } from "./PaperNoteRichEditor";
 
+vi.mock("./diagnostics", () => ({ reportDiagnostic: vi.fn() }));
 vi.mock("./paper-note-milkdown", () => {
   throw new Error("chunk unavailable");
 });
@@ -27,6 +29,11 @@ it("retains an editable source draft when the rich editor chunk fails to load", 
     );
     await act(async () => {
       await vi.waitFor(() => expect(host.textContent).toContain("加载失败"));
+    });
+    expect(reportDiagnostic).toHaveBeenCalledExactlyOnceWith({
+      level: "error",
+      event: "paper_note.editor.import_fallback",
+      detail: "Error",
     });
     const source = host.querySelector("textarea")!;
     expect(source.value).toBe("原始 draft $x_{1}$");

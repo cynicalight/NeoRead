@@ -7,6 +7,8 @@ import {
 } from "react";
 import { Button } from "@neoread/ui/components/button";
 import { Textarea } from "@neoread/ui/components/textarea";
+import { reportDiagnostic } from "./diagnostics";
+import { diagnosticError } from "../../../packages/neoread-core/src/diagnostics";
 import "./chat/markdown.css";
 
 export function PaperNoteRichEditor({
@@ -29,7 +31,26 @@ export function PaperNoteRichEditor({
   const editorRef = useRef<{ setMarkdown: (body: string) => void } | null>(
     null,
   );
-  const showError = (error: unknown) => {
+  const showError = (
+    error: unknown,
+    stage: "import" | "initialize" | "synchronize",
+  ) => {
+    const unsupported =
+      error instanceof Error &&
+      error.message === "笔记包含暂不支持的格式，已保留在源码中编辑";
+    try {
+      reportDiagnostic({
+        level: unsupported ? "warn" : "error",
+        event: `paper_note.editor.${stage}_fallback`,
+        // Parser errors can contain Markdown in their message and stack.
+        // Log only the controlled cause/type, never the exception text.
+        detail: unsupported
+          ? "unsupported_format"
+          : diagnosticError(error).detail,
+      });
+    } catch {
+      // A diagnostic transport failure must not prevent source-mode recovery.
+    }
     setReason(
       error instanceof Error && error.message.includes("源码")
         ? error.message
@@ -44,7 +65,7 @@ export function PaperNoteRichEditor({
     try {
       editorRef.current?.setMarkdown(body);
     } catch (error) {
-      showError(error);
+      showError(error, "synchronize");
     }
   }, [body]);
   useEffect(() => {
@@ -56,9 +77,11 @@ export function PaperNoteRichEditor({
     let destroy: (() => Promise<unknown>) | undefined;
     setLoading(true);
     setReason("");
+    let stage: "import" | "initialize" | "synchronize" = "import";
     void import("./paper-note-milkdown")
-      .then(({ createPaperNoteEditor }) =>
-        active
+      .then(({ createPaperNoteEditor }) => {
+        stage = "initialize";
+        return active
           ? createPaperNoteEditor(
               mount,
               () => latest.current.body,
@@ -68,8 +91,8 @@ export function PaperNoteRichEditor({
                 latest.current.onChange(markdown);
               },
             )
-          : undefined,
-      )
+          : undefined;
+      })
       .then(async (editor) => {
         if (!editor) return;
         if (!active) {
@@ -78,12 +101,13 @@ export function PaperNoteRichEditor({
         }
         destroy = () => editor.destroy();
         editorRef.current = editor;
+        stage = "synchronize";
         editor.setMarkdown(latest.current.body);
         setLoading(false);
       })
       .catch((error: unknown) => {
         if (!active) return;
-        showError(error);
+        showError(error, stage);
       });
     return () => {
       active = false;
