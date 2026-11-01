@@ -374,14 +374,14 @@ it("uses NeoRead links for excerpts while retaining legacy content", async () =>
   expect(button("摘录批注").disabled).toBe(true);
 });
 
-it("autosaves source edits after typing stops", async () => {
+it("autosaves source edits after five seconds", async () => {
   await mount();
   await act(async () => button("源码").click());
   vi.useFakeTimers();
   try {
     await act(async () => type(field(), "Main contribution"));
     expect(api.saveDocumentNote).not.toHaveBeenCalled();
-    await act(async () => vi.advanceTimersByTime(900));
+    await act(async () => vi.advanceTimersByTime(5000));
     expect(api.saveDocumentNote).toHaveBeenCalledExactlyOnceWith(
       `editor-${id}`,
       "Main contribution",

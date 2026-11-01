@@ -70,7 +70,7 @@ it("saves edits made while settings are saving, including another document edite
   await started;
   a.edit("typed during settings save");
   finishSettings();
-  // Drain promises without firing the 800ms autosave timer.
+  // Drain promises without firing the five-second autosave timer.
   for (let i = 0; i < 10; i++) await Promise.resolve();
   expect(closed).toBe(false);
   expect(api.saveDocumentNote).toHaveBeenCalledWith(

@@ -4,7 +4,8 @@ import { toast } from "sonner";
 type NoteStatus =
   "loading" | "load-error" | "dirty" | "saving" | "saved" | "save-error";
 type NoteSnapshot = { body: string; status: NoteStatus; error: string };
-// One renderer session / library. Failed drafts stay here when React unmounts.
+// One renderer session / library. Pending writes retry automatically.
+const autosaveInterval = 5000;
 const notes = new Map<string, PaperNoteState>();
 const message = (error: unknown) =>
   error instanceof Error ? error.message : "笔记保存失败";
@@ -20,6 +21,7 @@ class PaperNoteState {
   private saving?: Promise<string>;
   private merging?: Promise<void>;
   private needsRefresh = false;
+  private discarded = false;
   constructor(readonly id: string) {}
   getSnapshot = () => this.snapshot;
   private update(patch: Partial<NoteSnapshot>) {
@@ -52,6 +54,7 @@ class PaperNoteState {
       notes.delete(this.id);
   }
   load = (): Promise<void> => {
+    if (this.discarded) return Promise.resolve();
     if (this.merging) return this.merging.then(() => this.load());
     if (this.needsRefresh) return this.refresh();
     if (this.saved !== undefined) return Promise.resolve();
@@ -60,10 +63,12 @@ class PaperNoteState {
     this.loading = api
       .documentNote(this.id)
       .then((note) => {
+        if (this.discarded) return;
         this.saved = note.body;
         this.update({ body: note.body, status: "saved" });
       })
       .catch((error) => {
+        if (this.discarded) return;
         this.update({ status: "load-error", error: message(error) });
         throw error;
       })
@@ -74,8 +79,7 @@ class PaperNoteState {
     return this.loading;
   };
   edit = (body: string) => {
-    if (this.saved === undefined) return;
-    clearTimeout(this.timer);
+    if (this.discarded || this.saved === undefined) return;
     // A failed PUT may already have reached the server; rewriting also repairs
     // that uncertainty when the user reverts to the previously saved text.
     this.pending = body !== this.saved || this.uncertain;
@@ -84,11 +88,12 @@ class PaperNoteState {
       status: this.saving ? "saving" : this.pending ? "dirty" : "saved",
       error: "",
     });
-    if (this.pending)
-      this.timer = setTimeout(() => void this.flush().catch(() => {}), 800);
+    if (this.pending) this.scheduleSave();
+    else this.clearTimer();
   };
   flush = (): Promise<string> => {
-    clearTimeout(this.timer);
+    if (this.discarded) return Promise.resolve(this.snapshot.body);
+    this.clearTimer();
     if (this.merging) return this.merging.then(() => this.flush());
     if (this.needsRefresh) return this.refresh().then(() => this.flush());
     if (this.saving) return this.saving;
@@ -97,17 +102,40 @@ class PaperNoteState {
     if (!this.pending) return Promise.resolve(this.snapshot.body);
     this.saving = this.write().finally(() => {
       this.saving = undefined;
+      this.scheduleSave();
       this.release();
     });
     return this.saving;
   };
+  private clearTimer() {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+  private scheduleSave() {
+    // A fixed deadline from the first edit: continuous typing must not postpone it.
+    if (
+      this.discarded ||
+      this.timer !== undefined ||
+      this.saving ||
+      this.merging ||
+      !this.hasPending()
+    )
+      return;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.flush()
+        .catch(() => {})
+        .finally(() => this.scheduleSave());
+    }, autosaveInterval);
+  }
   private refresh = (): Promise<void> => {
     if (this.loading) return this.loading;
-    clearTimeout(this.timer);
+    this.clearTimer();
     this.update({ status: "loading", error: "" });
     this.loading = api
       .documentNote(this.id)
       .then((remote) => {
+        if (this.discarded) return;
         // Count Unicode characters, matching the server's note selection rule.
         const body =
           [...this.snapshot.body].length > [...remote.body].length
@@ -122,10 +150,10 @@ class PaperNoteState {
           status: this.pending ? "dirty" : "saved",
           error: "",
         });
-        if (this.pending && !this.merging)
-          this.timer = setTimeout(() => void this.flush().catch(() => {}), 800);
+        this.scheduleSave();
       })
       .catch((error) => {
+        if (this.discarded) return;
         // A failed refresh must block stale writes until a successful retry.
         this.update({ status: "load-error", error: message(error) });
         throw error;
@@ -138,7 +166,7 @@ class PaperNoteState {
   };
   merge = (from: string[]): Promise<void> => {
     if (this.merging) return this.merging;
-    clearTimeout(this.timer);
+    this.clearTimer();
     this.merging = Promise.resolve()
       .then(async () => {
         if (this.saving) await this.saving;
@@ -146,14 +174,14 @@ class PaperNoteState {
         // Even a lost merge response may mean the server already changed the note.
         this.needsRefresh = true;
         await api.mergeDocuments(this.id, from);
+        if (this.discarded) return;
         await this.refresh().catch(() => {
           toast.error("论文已合并，但笔记刷新失败，请在笔记页重试");
         });
       })
       .finally(() => {
         this.merging = undefined;
-        if (this.pending && !this.needsRefresh)
-          this.timer = setTimeout(() => void this.flush().catch(() => {}), 800);
+        this.scheduleSave();
         this.release();
       });
     return this.merging;
@@ -165,6 +193,7 @@ class PaperNoteState {
         this.update({ status: "saving", error: "" });
         this.uncertain = true;
         await api.saveDocumentNote(this.id, body);
+        if (this.discarded) return this.snapshot.body;
         this.uncertain = false;
         this.saved = body;
         this.pending = this.snapshot.body !== body;
@@ -172,15 +201,22 @@ class PaperNoteState {
       this.update({ status: "saved", error: "" });
       return this.snapshot.body;
     } catch (error) {
-      clearTimeout(this.timer);
+      if (this.discarded) return this.snapshot.body;
+      this.clearTimer();
       this.update({ status: "save-error", error: message(error) });
-      if (!this.listeners.size)
-        toast.error(`论文笔记未保存：${message(error)}`);
       throw error;
     }
   }
+  discard = () => {
+    this.discarded = true;
+    this.clearTimer();
+    this.pending = false;
+    this.needsRefresh = false;
+    this.update({ status: "saved", error: "" });
+  };
   hasPending = () =>
-    this.pending || !!this.saving || !!this.merging || this.needsRefresh;
+    !this.discarded &&
+    (this.pending || !!this.saving || !!this.merging || this.needsRefresh);
 }
 
 export function getPaperNote(id: string) {
@@ -226,5 +262,13 @@ export async function mergePaperNotes(master: string, from: string[]) {
     await entry.merge(from);
   } finally {
     release();
+  }
+}
+
+/** Only call after permanent deletion succeeds; trash/restore keeps pending work. */
+export function discardPaperNotes(ids: string[]) {
+  for (const id of ids) {
+    notes.get(id)?.discard();
+    notes.delete(id);
   }
 }

@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
-import { toast } from "sonner";
 import {
   getPaperNote,
-  flushPaperNote,
   flushPaperNotes,
   hasPendingPaperNotes,
   mergePaperNotes,
   readPaperNote,
+  discardPaperNotes,
 } from "./paper-note-state";
 vi.mock("@neoread/api", () => ({
   api: {
@@ -44,12 +43,12 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 afterEach(() => vi.useRealTimers());
-it("debounces edits and flushes the latest text", async () => {
+it("automatically saves the latest text every five seconds", async () => {
   const { entry, release } = await note();
   entry.edit("one");
   entry.edit("two");
   expect(entry.getSnapshot().status).toBe("dirty");
-  await vi.advanceTimersByTimeAsync(799);
+  await vi.advanceTimersByTimeAsync(4999);
   expect(api.saveDocumentNote).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);
   expect(api.saveDocumentNote).toHaveBeenCalledExactlyOnceWith(entry.id, "two");
@@ -82,29 +81,36 @@ it("serializes writes and persists a revert made while an earlier write is in fl
   });
   release();
 });
-it("retains failed unmounted drafts without automatic retry and retries explicitly", async () => {
+it("automatically retries failed writes after the editor unmounts", async () => {
   const { entry, release } = await note();
-  const request = deferred();
-  vi.mocked(api.saveDocumentNote).mockReturnValueOnce(request.promise);
+  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
   entry.edit("unsaved");
   release();
-  await Promise.resolve();
-  request.reject(new Error("offline"));
-  await vi.advanceTimersByTimeAsync(5000);
-  expect(toast.error).toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(0);
   expect(api.saveDocumentNote).toHaveBeenCalledTimes(1);
-  expect(getPaperNote(entry.id)).toBe(entry);
-  const again = entry.subscribe(() => {});
-  await entry.load();
-  expect(api.documentNote).toHaveBeenCalledTimes(1);
+  expect(entry.getSnapshot().status).toBe("save-error");
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(api.saveDocumentNote).toHaveBeenCalledTimes(2);
   expect(entry.getSnapshot()).toMatchObject({
     body: "unsaved",
-    status: "save-error",
+    status: "saved",
   });
-  expect(hasPendingPaperNotes()).toBe(true);
-  expect(await flushPaperNote(entry.id)).toBe("unsaved");
-  expect(entry.getSnapshot().status).toBe("saved");
-  again();
+  expect(hasPendingPaperNotes()).toBe(false);
+});
+it("saves during continuous typing without restarting the five-second deadline", async () => {
+  const { entry, release } = await note();
+  entry.edit("first");
+  await vi.advanceTimersByTimeAsync(4000);
+  entry.edit("still typing");
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(
+    entry.id,
+    "still typing",
+  );
+  entry.edit("next batch");
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(entry.id, "next batch");
+  release();
 });
 it("does not write an empty note after a failed initial read", async () => {
   vi.mocked(api.documentNote).mockRejectedValueOnce(new Error("offline"));
@@ -346,5 +352,32 @@ it("refreshes before writing again after an uncertain merge failure", async () =
   await entry.flush();
   expect(entry.getSnapshot().body).toBe("longer result already on server");
   expect(api.saveDocumentNote).not.toHaveBeenCalled();
+  release();
+});
+
+it("removes a permanently deleted note from retry and shutdown queues", async () => {
+  const { entry, release } = await note();
+  entry.edit("pending deletion");
+  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
+  await expect(entry.flush()).rejects.toThrow();
+  discardPaperNotes([entry.id]);
+  await vi.advanceTimersByTimeAsync(15000);
+  await flushPaperNotes();
+  expect(api.saveDocumentNote).toHaveBeenCalledTimes(1);
+  expect(hasPendingPaperNotes()).toBe(false);
+  release();
+});
+it("ignores an in-flight write failure after permanent deletion", async () => {
+  const { entry, release } = await note();
+  const request = deferred();
+  vi.mocked(api.saveDocumentNote).mockReturnValueOnce(request.promise);
+  entry.edit("pending");
+  const saving = entry.flush();
+  discardPaperNotes([entry.id]);
+  request.reject(new Error("document deleted"));
+  await saving;
+  await vi.advanceTimersByTimeAsync(15000);
+  expect(entry.hasPending()).toBe(false);
+  expect(api.saveDocumentNote).toHaveBeenCalledTimes(1);
   release();
 });
