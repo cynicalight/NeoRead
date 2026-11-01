@@ -87,7 +87,9 @@ interface Window {
         large: Array<{ id: string; name: string; pages: number }>;
       }) => void,
     ) => () => void;
-    onBeforeClose: (callback: () => Promise<void>) => () => void;
+    onBeforeClose: (
+      callback: () => Promise<void | { noteSaveDiscarded: boolean }>,
+    ) => () => void;
     setDocumentTabActive?: (active: boolean) => Promise<void>;
     onLibraryChanged: (callback: () => void) => () => void;
   };

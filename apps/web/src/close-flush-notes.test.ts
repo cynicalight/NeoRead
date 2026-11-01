@@ -89,3 +89,50 @@ it("saves edits made while settings are saving, including another document edite
   releaseB();
   uninstall();
 });
+
+it("discards a failed note, waits for other writes, and acknowledges close with a warning", async () => {
+  vi.useFakeTimers();
+  let close!: () => Promise<unknown>;
+  Object.defineProperty(window, "neoreadDesktop", {
+    configurable: true,
+    value: {
+      onBeforeClose: (callback: () => Promise<unknown>) => {
+        close = callback;
+      },
+    },
+  });
+  const uninstall = installCloseFlush();
+  const a = getPaperNote("close-discard-a"),
+    b = getPaperNote("close-discard-b");
+  const releaseA = a.subscribe(() => {}),
+    releaseB = b.subscribe(() => {});
+  await Promise.all([a.load(), b.load()]);
+  a.edit("discard this");
+  b.edit("save this");
+  let finish!: (result: { body: string; updatedAt: string }) => void;
+  vi.mocked(api.saveDocumentNote)
+    .mockRejectedValueOnce(new Error("disk error"))
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+  let closed = false;
+  const closing = close().then((result) => {
+    closed = true;
+    return result;
+  });
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+  expect(closed).toBe(false);
+  finish({ body: "save this", updatedAt: "" });
+  await expect(closing).resolves.toEqual({ noteSaveDiscarded: true });
+  expect(a.getSnapshot().body).toBe("");
+  expect(b.getSnapshot().body).toBe("save this");
+  expect(hasPendingPaperNotes()).toBe(false);
+  await vi.advanceTimersByTimeAsync(15000);
+  expect(api.saveDocumentNote).toHaveBeenCalledTimes(2);
+  releaseA();
+  releaseB();
+  uninstall();
+});

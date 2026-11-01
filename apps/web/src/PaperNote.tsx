@@ -27,7 +27,6 @@ const statusLabels = {
   dirty: "待保存",
   saving: "保存中…",
   saved: "已保存",
-  "save-error": "保存失败",
 };
 
 export function PaperNote({

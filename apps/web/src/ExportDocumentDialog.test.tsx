@@ -346,7 +346,7 @@ it("reads the shared draft without writing on open and flushes at actual export"
   release();
 });
 
-it("blocks stale exports on save failure and supports retry without losing the draft", async () => {
+it("blocks stale exports on save failure and exports the last saved note on a later attempt", async () => {
   const { getPaperNote } = await import("./paper-note-state");
   const note = getPaperNote(doc.id);
   const release = note.subscribe(() => {});
@@ -365,7 +365,7 @@ it("blocks stale exports on save failure and supports retry without losing the d
     doc.id,
     "markdown",
     expect.any(AbortSignal),
-    expect.stringContaining("must not lose this draft"),
+    expect.stringContaining("论文笔记正文"),
   );
   release();
 });
@@ -388,7 +388,7 @@ it("can explicitly export the saved version after a draft save failure", async (
     expect.any(AbortSignal),
     expect.stringContaining("论文笔记正文"),
   );
-  expect(note.getSnapshot().body).toBe("unsaved draft");
+  expect(note.getSnapshot().body).toBe("论文笔记正文");
   await note.flush();
   release();
 });
@@ -404,7 +404,7 @@ it("allows exporting other parts while an unselected paper note cannot be saved"
   await act(async () => checkbox("论文笔记").click());
   await act(async () => button("导出").click());
   expect(api.exportTranslation).toHaveBeenCalled();
-  expect(note.getSnapshot().body).toBe("failed draft");
+  expect(note.getSnapshot().body).toBe("论文笔记正文");
   await note.flush();
   release();
 });

@@ -5,6 +5,7 @@ const pending = vi.hoisted(() => ({ value: false }));
 vi.mock("./paper-note-state", () => ({
   flushPaperNotes: vi.fn(async () => void calls.push("notes")),
   hasPendingPaperNotes: () => pending.value,
+  takePaperNoteSaveWarning: vi.fn(() => false),
 }));
 const calls = vi.hoisted(() => [] as string[]);
 vi.mock("./progress", () => ({
@@ -87,8 +88,9 @@ it("leaves Electron close decisions to the existing native flow", () => {
   uninstall();
 });
 
-it("waits for note writes and rejects the native close handshake on a save error", async () => {
-  const { flushPaperNotes } = await import("./paper-note-state");
+it("waits for note writes and reports discarded notes without blocking close", async () => {
+  const { flushPaperNotes, takePaperNoteSaveWarning } =
+    await import("./paper-note-state");
   let close!: () => Promise<void>;
   Object.defineProperty(window, "neoreadDesktop", {
     configurable: true,
@@ -113,7 +115,8 @@ it("waits for note writes and rejects the native close handshake on a save error
   expect(calls).toContain("settings");
   vi.mocked(flushPaperNotes).mockRejectedValueOnce(new Error("note offline"));
   calls.length = 0;
-  await expect(close()).rejects.toThrow("note offline");
+  vi.mocked(takePaperNoteSaveWarning).mockReturnValueOnce(true);
+  await expect(close()).resolves.toEqual({ noteSaveDiscarded: true });
   expect(calls).toContain("settings");
   uninstall();
 });

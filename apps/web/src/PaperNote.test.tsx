@@ -83,25 +83,17 @@ it("keeps a failed read disabled and allows retrying without writing an empty no
   expect(field().value).toBe("original");
   expect(api.saveDocumentNote).not.toHaveBeenCalled();
 });
-it("shows an unsaved draft on failure and retries it explicitly", async () => {
+it("discards unsaved edits on failure and restores the last saved note", async () => {
   await mount();
   await act(async () => button("源码").click());
   vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
-  await act(async () => type(field(), "retained draft"));
-  expect(host.textContent).toContain("待保存");
+  await act(async () => type(field(), "discard this draft"));
   await act(async () =>
     field().dispatchEvent(new FocusEvent("focusout", { bubbles: true })),
   );
-  expect(field().value).toBe("retained draft");
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain(
-    "保存失败",
-  );
-  await act(async () => button("重试").click());
-  expect(host.textContent).toContain("已保存");
-  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(
-    expect.any(String),
-    "retained draft",
-  );
+  expect(field().value).toBe("original");
+  expect(tabCloseWarning(`editor-${id}`)).toBeNull();
+  expect(button("重试")).toBeUndefined();
 });
 it("opens the rich editor by default and preserves exact Markdown through source switching", async () => {
   vi.mocked(api.documentNote).mockResolvedValueOnce({
@@ -299,7 +291,7 @@ it("falls back to source when an external draft contains unsupported HTML", asyn
   ).toBe(raw);
 });
 
-it("flushes the shared draft when the note tab becomes inactive and keeps a close guard on failure", async () => {
+it("flushes the shared draft when the note tab becomes inactive and clears the close guard after discarding a failed write", async () => {
   await mount();
   const noteId = `editor-${id}`;
   await act(async () => button("源码").click());
@@ -316,13 +308,12 @@ it("flushes the shared draft when the note tab becomes inactive and keeps a clos
     noteId,
     "Pending tab draft",
   );
-  expect(tabCloseWarning(noteId)?.message).toContain("论文笔记");
+  expect(tabCloseWarning(noteId)).toBeNull();
   await act(async () =>
     root.render(<PaperNote documentId={noteId} annotations={[]} />),
   );
   await act(async () => button("源码").click());
-  expect(field().value).toBe("Pending tab draft");
-  await act(async () => button("重试").click());
+  expect(field().value).toBe("original");
   expect(tabCloseWarning(noteId)).toBeNull();
 });
 it("preserves the exact draft and returns focus after expanded editing", async () => {

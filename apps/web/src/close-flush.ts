@@ -1,6 +1,10 @@
 import { saveReaderSettings } from "./neoread-settings";
 import { flushProgress } from "./progress";
-import { flushPaperNotes, hasPendingPaperNotes } from "./paper-note-state";
+import {
+  flushPaperNotes,
+  hasPendingPaperNotes,
+  takePaperNoteSaveWarning,
+} from "./paper-note-state";
 import { useReaderStore } from "./store";
 
 /** Save reading state when the window closes. Installed outside React so a crashed UI still answers the desktop close request. */
@@ -28,11 +32,15 @@ export function installCloseFlush() {
       flushPaperNotes(),
       saveReaderSettings(useReaderStore.getState().theme),
     ]);
-    // Wait for every independent save, but never acknowledge a failed close.
-    const failed = results.find((result) => result.status === "rejected");
+    // Note write failures are already reported and discarded. Other reading
+    // state failures retain the existing close protection.
+    const failed = [results[0], results[2]].find(
+      (result) => result.status === "rejected",
+    );
     if (failed?.status === "rejected") throw failed.reason;
     // Editing can continue while progress/settings requests are in flight.
-    await flushPaperNotes();
+    await flushPaperNotes().catch(() => {});
+    if (takePaperNoteSaveWarning()) return { noteSaveDiscarded: true };
   });
   return () => {
     window.removeEventListener("pagehide", flush);

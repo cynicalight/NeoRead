@@ -1,10 +1,17 @@
 import { api } from "@neoread/api";
 import { toast } from "sonner";
+import { reportDiagnostic } from "./diagnostics";
+import { diagnosticError } from "../../../packages/neoread-core/src/diagnostics";
 
-type NoteStatus =
-  "loading" | "load-error" | "dirty" | "saving" | "saved" | "save-error";
+type NoteStatus = "loading" | "load-error" | "dirty" | "saving" | "saved";
 type NoteSnapshot = { body: string; status: NoteStatus; error: string };
-// One renderer session / library. Pending writes retry automatically.
+// One renderer session / library. Failed writes discard pending edits.
+let saveWarning = false;
+export function takePaperNoteSaveWarning() {
+  const warning = saveWarning;
+  saveWarning = false;
+  return warning;
+}
 const autosaveInterval = 5000;
 const notes = new Map<string, PaperNoteState>();
 const message = (error: unknown) =>
@@ -35,8 +42,7 @@ class PaperNoteState {
       // Strict Mode's immediate remount keeps the same entry and request.
       queueMicrotask(() => {
         if (this.listeners.size) return;
-        if (this.pending && this.snapshot.status !== "save-error")
-          void this.flush().catch(() => {});
+        if (this.pending) void this.flush().catch(() => {});
         else this.release();
       });
     };
@@ -80,8 +86,8 @@ class PaperNoteState {
   };
   edit = (body: string) => {
     if (this.discarded || this.saved === undefined) return;
-    // A failed PUT may already have reached the server; rewriting also repairs
-    // that uncertainty when the user reverts to the previously saved text.
+    // An in-flight PUT may replace the saved text; a concurrent revert must
+    // still be written after that request finishes.
     this.pending = body !== this.saved || this.uncertain;
     this.update({
       body,
@@ -203,7 +209,21 @@ class PaperNoteState {
     } catch (error) {
       if (this.discarded) return this.snapshot.body;
       this.clearTimer();
-      this.update({ status: "save-error", error: message(error) });
+      this.pending = false;
+      this.uncertain = false;
+      this.needsRefresh = false;
+      this.update({ body: this.saved ?? "", status: "saved", error: "" });
+      saveWarning = true;
+      try {
+        reportDiagnostic({
+          level: "error",
+          event: "paper_note.save_failed_discarded",
+          detail: diagnosticError(error).detail,
+        });
+      } catch {
+        /* Diagnostic transport cannot prevent discarding the failed write. */
+      }
+      toast.error("论文笔记保存失败，本次未保存的修改已丢弃");
       throw error;
     }
   }
@@ -242,11 +262,13 @@ export async function flushPaperNote(id: string): Promise<string> {
 export async function flushPaperNotes() {
   // Another document may become dirty while the current batch is saving.
   while (hasPendingPaperNotes()) {
-    await Promise.all(
+    const results = await Promise.allSettled(
       [...notes.values()]
         .filter((note) => note.hasPending())
         .map((note) => note.flush()),
     );
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
   }
 }
 export const hasPendingPaperNotes = () =>

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { toast } from "sonner";
+import { reportDiagnostic } from "./diagnostics";
 import { api } from "@neoread/api";
 import {
   getPaperNote,
@@ -7,6 +9,7 @@ import {
   mergePaperNotes,
   readPaperNote,
   discardPaperNotes,
+  takePaperNoteSaveWarning,
 } from "./paper-note-state";
 vi.mock("@neoread/api", () => ({
   api: {
@@ -15,6 +18,7 @@ vi.mock("@neoread/api", () => ({
     saveDocumentNote: vi.fn(async (_id: string, body: string) => ({ body })),
   },
 }));
+vi.mock("./diagnostics", () => ({ reportDiagnostic: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 let id = 0;
 const deferred = () => {
@@ -41,6 +45,7 @@ async function note() {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  takePaperNoteSaveWarning();
 });
 afterEach(() => vi.useRealTimers());
 it("automatically saves the latest text every five seconds", async () => {
@@ -81,18 +86,18 @@ it("serializes writes and persists a revert made while an earlier write is in fl
   });
   release();
 });
-it("automatically retries failed writes after the editor unmounts", async () => {
+it("discards failed writes after unmount and never retries them", async () => {
   const { entry, release } = await note();
   vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
   entry.edit("unsaved");
   release();
   await vi.advanceTimersByTimeAsync(0);
   expect(api.saveDocumentNote).toHaveBeenCalledTimes(1);
-  expect(entry.getSnapshot().status).toBe("save-error");
+  expect(entry.getSnapshot().status).toBe("saved");
   await vi.advanceTimersByTimeAsync(5000);
-  expect(api.saveDocumentNote).toHaveBeenCalledTimes(2);
+  expect(api.saveDocumentNote).toHaveBeenCalledTimes(1);
   expect(entry.getSnapshot()).toMatchObject({
-    body: "unsaved",
+    body: "original",
     status: "saved",
   });
   expect(hasPendingPaperNotes()).toBe(false);
@@ -143,26 +148,26 @@ it("keeps a single load and draft across a strict-mode unsubscribe/subscribe", a
   expect(entry.getSnapshot().status).toBe("saved");
   again();
 });
-it("surfaces server validation while retaining oversized Unicode drafts", async () => {
+it("discards rejected oversized edits and allows fresh edits", async () => {
   const { entry, release } = await note();
   vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(
     new Error("server limit: 100000"),
   );
   entry.edit("😀".repeat(100001));
   await expect(entry.flush()).rejects.toThrow("100000");
-  expect(entry.getSnapshot().body).toHaveLength(200002);
+  expect(entry.getSnapshot().body).toBe("original");
   expect(api.saveDocumentNote).toHaveBeenCalledWith(
     entry.id,
     "😀".repeat(100001),
   );
-  expect(entry.getSnapshot().error).toBe("server limit: 100000");
+  expect(entry.getSnapshot().error).toBe("");
   entry.edit("😀".repeat(100000));
   await entry.flush();
   expect(entry.getSnapshot().status).toBe("saved");
   release();
 });
 
-it("rewrites the previous saved text after an uncertain failed PUT and further edits", async () => {
+it("does not retry discarded text even when subsequent edits revert to the saved text", async () => {
   const { entry, release } = await note();
   vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(
     new Error("response lost"),
@@ -172,7 +177,7 @@ it("rewrites the previous saved text after an uncertain failed PUT and further e
   entry.edit("another edit");
   entry.edit("original");
   await entry.flush();
-  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(entry.id, "original");
+  expect(api.saveDocumentNote).toHaveBeenCalledTimes(1);
   expect(entry.getSnapshot().status).toBe("saved");
   release();
 });
@@ -274,7 +279,7 @@ it("does not merge when saving a participating draft fails", async () => {
     "offline",
   );
   expect(api.mergeDocuments).not.toHaveBeenCalled();
-  expect(entry.getSnapshot().body).toBe("pending");
+  expect(entry.getSnapshot().body).toBe("original");
   await entry.flush();
   release();
 });
@@ -378,6 +383,30 @@ it("ignores an in-flight write failure after permanent deletion", async () => {
   await saving;
   await vi.advanceTimersByTimeAsync(15000);
   expect(entry.hasPending()).toBe(false);
+  expect(api.saveDocumentNote).toHaveBeenCalledTimes(1);
+  release();
+});
+
+it("reports discarded writes without leaking note text or exception messages", async () => {
+  const { entry, release } = await note();
+  entry.edit("private note text");
+  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(
+    new TypeError("private note text"),
+  );
+  await expect(entry.flush()).rejects.toThrow();
+  expect(reportDiagnostic).toHaveBeenCalledExactlyOnceWith({
+    level: "error",
+    event: "paper_note.save_failed_discarded",
+    detail: "TypeError",
+  });
+  expect(toast.error).toHaveBeenCalledWith(
+    "论文笔记保存失败，本次未保存的修改已丢弃",
+  );
+  expect(takePaperNoteSaveWarning()).toBe(true);
+  expect(takePaperNoteSaveWarning()).toBe(false);
+  expect(entry.getSnapshot().body).toBe("original");
+  expect(entry.hasPending()).toBe(false);
+  await vi.advanceTimersByTimeAsync(15000);
   expect(api.saveDocumentNote).toHaveBeenCalledTimes(1);
   release();
 });

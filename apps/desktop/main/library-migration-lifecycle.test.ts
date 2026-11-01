@@ -1040,3 +1040,17 @@ it("continues startup if the refusal marker cannot be saved", async () => {
   expect(serverSpawn).toHaveBeenCalledOnce();
   expect(diagnostics.record).toHaveBeenCalledWith("migration.decline_save_failed", expect.any(Error));
 });
+
+it("acknowledges a discarded note warning and continues closing without a retry choice", async () => {
+  const quit = vi.spyOn(app, "quit");
+  window.close();
+  ipc.emit("neoread:flushed", event(), null, true);
+  await vi.waitFor(() => expect(quit).toHaveBeenCalled());
+  expect(showMessageBox).toHaveBeenCalledWith(
+    window,
+    expect.objectContaining({
+      message: "论文笔记保存失败",
+      buttons: ["知道了"],
+    }),
+  );
+});

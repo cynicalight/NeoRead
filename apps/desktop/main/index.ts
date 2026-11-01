@@ -772,16 +772,20 @@ app
         const handler = (
           event: Electron.IpcMainEvent,
           error: string | null,
+          noteSaveDiscarded?: boolean,
         ) => {
           if (
             event.sender !== window?.webContents ||
             event.senderFrame !== window.webContents.mainFrame
           )
             return;
-          void finish(error);
+          void finish(error, noteSaveDiscarded === true);
         };
         let finished = false;
-        const finish = async (error: string | null) => {
+        const finish = async (
+          error: string | null,
+          noteSaveDiscarded = false,
+        ) => {
           if (finished) return;
           finished = true;
           clearTimeout(timer);
@@ -807,6 +811,15 @@ app
               showMainWindow();
               return;
             }
+          }
+          if (noteSaveDiscarded) {
+            window?.show();
+            await dialog.showMessageBox(window!, {
+              type: "warning",
+              message: "论文笔记保存失败",
+              detail: "本次未保存的修改已丢弃。",
+              buttons: ["知道了"],
+            });
           }
           if (pendingLibraryMove) {
             const move = pendingLibraryMove;
