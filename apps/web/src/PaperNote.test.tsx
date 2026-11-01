@@ -3,6 +3,8 @@ import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
+import { tabCloseWarning } from "./document-tab-guards";
+import type { Annotation } from "@neoread/core";
 import { PaperNote } from "./PaperNote";
 import {
   getPaperNote,
@@ -34,7 +36,9 @@ const type = (field: HTMLTextAreaElement, body: string) => {
   field.dispatchEvent(new Event("input", { bubbles: true }));
 };
 const field = () =>
-  host.querySelector<HTMLTextAreaElement>('textarea[aria-label="论文笔记"]')!;
+  host.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="编辑论文笔记"]',
+  )!;
 const richField = () =>
   document.querySelector<HTMLDivElement>(".paper-note-rich .ProseMirror");
 const waitForRich = async () =>
@@ -69,7 +73,7 @@ afterEach(async () => {
 it("keeps a failed read disabled and allows retrying without writing an empty note", async () => {
   vi.mocked(api.documentNote).mockRejectedValueOnce(new Error("offline"));
   await mount();
-  await act(async () => button("论文笔记").click());
+  await act(async () => button("源码").click());
   expect(field().disabled).toBe(true);
   expect(host.querySelector('[role="alert"]')?.textContent).toContain(
     "offline",
@@ -81,6 +85,7 @@ it("keeps a failed read disabled and allows retrying without writing an empty no
 });
 it("shows an unsaved draft on failure and retries it explicitly", async () => {
   await mount();
+  await act(async () => button("源码").click());
   vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
   await act(async () => type(field(), "retained draft"));
   expect(host.textContent).toContain("待保存");
@@ -140,6 +145,7 @@ it("does not save or normalize a note merely by opening, switching modes, focusi
   await act(async () => button("编辑").click());
   await waitForRich();
   await act(async () => button("Close").click());
+  await act(async () => button("源码").click());
   expect(field().value).toBe(original);
   expect(api.saveDocumentNote).not.toHaveBeenCalled();
 });
@@ -234,9 +240,10 @@ it("isolates pending editor mounts under StrictMode and fast source switching", 
   ).toHaveLength(1);
   expect(richField()!.textContent).toContain("latest 快速切换");
   await act(async () => button("Close").click());
+  await waitForRich();
   expect(
     document.querySelectorAll(".paper-note-rich .ProseMirror"),
-  ).toHaveLength(0);
+  ).toHaveLength(1);
 });
 it("lets application shortcuts bubble from both the editor and toolbar", async () => {
   await mount();
@@ -290,4 +297,109 @@ it("falls back to source when an external draft contains unsupported HTML", asyn
       'textarea[aria-label="编辑论文笔记"]',
     )?.value,
   ).toBe(raw);
+});
+
+it("flushes the shared draft when the note tab becomes inactive and keeps a close guard on failure", async () => {
+  await mount();
+  const noteId = `editor-${id}`;
+  await act(async () => button("源码").click());
+  await act(async () => type(field(), "Pending tab draft"));
+  expect(tabCloseWarning(noteId)?.message).toContain("论文笔记");
+  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
+  await act(async () =>
+    root.render(
+      <PaperNote documentId={noteId} annotations={[]} active={false} />,
+    ),
+  );
+  expect(richField()).toBeNull();
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(
+    noteId,
+    "Pending tab draft",
+  );
+  expect(tabCloseWarning(noteId)?.message).toContain("论文笔记");
+  await act(async () =>
+    root.render(<PaperNote documentId={noteId} annotations={[]} />),
+  );
+  await act(async () => button("源码").click());
+  expect(field().value).toBe("Pending tab draft");
+  await act(async () => button("重试").click());
+  expect(tabCloseWarning(noteId)).toBeNull();
+});
+it("preserves the exact draft and returns focus after expanded editing", async () => {
+  await mount();
+  await act(async () => button("展开论文笔记").click());
+  await act(async () => button("源码").click());
+  const raw = "# My note\n\n[原文](reader://document/p)\n\n**bold**";
+  const editor = document.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="编辑论文笔记"]',
+  )!;
+  await act(async () => type(editor, raw));
+  await act(async () => button("Close").click());
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(button("展开论文笔记")),
+    );
+  });
+  await act(async () => button("源码").click());
+  expect(field().value).toBe(raw);
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(`editor-${id}`, raw);
+});
+it("uses NeoRead links for excerpts while retaining legacy content", async () => {
+  const noteId = `editor-${++id}`;
+  const annotations: Annotation[] = [
+    {
+      id: "mark",
+      documentId: noteId,
+      kind: "highlight",
+      location: { type: "pdf", page: 1 },
+      quote: "Evidence",
+      note: "",
+      color: "yellow",
+      createdAt: "2026-10-01",
+    },
+  ];
+  await act(async () =>
+    root.render(<PaperNote documentId={noteId} annotations={annotations} />),
+  );
+  await act(async () => button("源码").click());
+  const legacy =
+    "## Existing note\n\n[source](reader://open?id=old)\n\n$x_{1}$\n\n  ";
+  await act(async () => type(field(), legacy));
+  await act(async () => button("摘录批注").click());
+  expect(field().value.startsWith(legacy.trimEnd() + "\n\n")).toBe(true);
+  expect(field().value).toContain(
+    `neoread://open?id=${noteId}&annotation=mark`,
+  );
+  expect(api.saveDocumentNote).toHaveBeenLastCalledWith(noteId, field().value);
+  expect(button("摘录批注").disabled).toBe(true);
+});
+
+it("autosaves source edits after typing stops", async () => {
+  await mount();
+  await act(async () => button("源码").click());
+  vi.useFakeTimers();
+  try {
+    await act(async () => type(field(), "Main contribution"));
+    expect(api.saveDocumentNote).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTime(900));
+    expect(api.saveDocumentNote).toHaveBeenCalledExactlyOnceWith(
+      `editor-${id}`,
+      "Main contribution",
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it("closes expanded editing when its document becomes inactive without rewriting Markdown", async () => {
+  await mount();
+  await act(async () => button("展开论文笔记").click());
+  await waitForRich();
+  await act(async () =>
+    root.render(
+      <PaperNote documentId={`editor-${id}`} annotations={[]} active={false} />,
+    ),
+  );
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(richField()).toBeNull();
+  expect(api.saveDocumentNote).not.toHaveBeenCalled();
 });

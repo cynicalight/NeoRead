@@ -42,7 +42,6 @@ import { annotationLabels } from "./AnnotationToolbar";
 import { copyText } from "./chat/clipboard";
 import { colorLabel, documentOrder, highlightPalette } from "./annotations";
 import { useReaderStore } from "./store";
-import { PaperNote } from "./PaperNote";
 
 export { documentOrder };
 
@@ -331,11 +330,6 @@ export function NotesPanel({
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="notes-list">
-          <PaperNote
-            key={doc.id}
-            documentId={doc.id}
-            annotations={annotations}
-          />
           <Tabs
             value={filter}
             onValueChange={(value) => setFilter(value as NotesFilter)}

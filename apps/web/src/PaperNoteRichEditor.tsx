@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Button } from "@neoread/ui/components/button";
 import { Textarea } from "@neoread/ui/components/textarea";
 import "./chat/markdown.css";
@@ -8,11 +14,13 @@ export function PaperNoteRichEditor({
   disabled,
   onChange,
   onBlur,
+  actions,
 }: {
   body: string;
   disabled: boolean;
   onChange: (body: string) => void;
   onBlur: () => void;
+  actions?: ReactNode;
 }) {
   const [source, setSource] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -106,6 +114,7 @@ export function PaperNoteRichEditor({
             源码
           </Button>
         </div>
+        {actions && <div className="paper-note-actions">{actions}</div>}
         <span
           className="paper-note-shortcuts"
           title="⌘/Ctrl+B 加粗，I 斜体，Z 撤销，Shift+Z 或 Ctrl+Y 重做；列表 Enter 续写，空项 Enter 退出，Tab/Shift+Tab 调整层级；公式在源码中编辑"

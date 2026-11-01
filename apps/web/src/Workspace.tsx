@@ -132,6 +132,7 @@ import { ColorSwatches } from "./ColorSwatches";
 import { useSelectionClipboard } from "./useSelectionClipboard";
 import { copyImage, copyText } from "./chat/clipboard";
 import { NotesPanel } from "./NotesPanel";
+import { PaperNote } from "./PaperNote";
 import { ExportDocumentDialog } from "./ExportDocumentDialog";
 import { EPUBReadingView } from "./translation/EPUBReadingView";
 import { PDFReadingView } from "./translation/PDFReadingView";
@@ -1633,6 +1634,10 @@ export function Workspace({
                   <StickyNote className="size-3.5" />
                   批注<small>{annotations.length || ""}</small>
                 </TabsTrigger>
+                <TabsTrigger value="paper-note">
+                  <BookOpen className="size-3.5" />
+                  笔记
+                </TabsTrigger>
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -1874,6 +1879,18 @@ export function Workspace({
                   onResolve={(a, resolved) => void resolveQuestion(a, resolved)}
                   onShowAnswer={showAnswer}
                   onExport={() => setExportingNotes(true)}
+                />
+              </TabsContent>
+              <TabsContent
+                value="paper-note"
+                keepMounted
+                className="paper-note-panel"
+              >
+                <PaperNote
+                  key={doc.id}
+                  documentId={doc.id}
+                  annotations={annotations}
+                  active={active && rightTab === "paper-note"}
                 />
               </TabsContent>
             </Tabs>

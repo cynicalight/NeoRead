@@ -5,15 +5,9 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { ChevronDown, ListPlus, Maximize2 } from "lucide-react";
+import { ListPlus, Maximize2 } from "lucide-react";
 import { neoreadLink, type Annotation } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
-import { Textarea } from "@neoread/ui/components/textarea";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@neoread/ui/components/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +17,7 @@ import {
   DialogTrigger,
 } from "@neoread/ui/components/dialog";
 import { annotationDigest } from "./notes-export";
+import { registerTabCloseGuard } from "./document-tab-guards";
 import { getPaperNote } from "./paper-note-state";
 import { PaperNoteRichEditor } from "./PaperNoteRichEditor";
 
@@ -38,31 +33,39 @@ const statusLabels = {
 export function PaperNote({
   documentId,
   annotations,
+  active = true,
 }: {
   documentId: string;
   annotations: Annotation[];
+  active?: boolean;
 }) {
   const note = useMemo(() => getPaperNote(documentId), [documentId]);
   const { body, status, error } = useSyncExternalStore(
     note.subscribe,
     note.getSnapshot,
   );
-  const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const expandButton = useRef<HTMLButtonElement>(null);
   const unavailable = status === "loading" || status === "load-error";
   useEffect(() => {
-    let active = true;
-    void note
-      .load()
-      .then(() => {
-        if (active) setOpen(!!note.getSnapshot().body);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
+    void note.load().catch(() => {});
   }, [note]);
+  useEffect(() => {
+    if (active) return;
+    setExpanded(false);
+    if (note.hasPending()) void note.flush().catch(() => {});
+  }, [active, note]);
+  useEffect(
+    () =>
+      registerTabCloseGuard(documentId, () =>
+        note.getSnapshot().status === "saving"
+          ? { blocked: true, message: "论文笔记正在保存，请保存完成后再关闭。" }
+          : note.hasPending()
+            ? { message: "论文笔记还有未保存的修改，关闭后可能丢失。" }
+            : null,
+      ),
+    [documentId, note],
+  );
   const save = () => void note.flush().catch(() => {});
   const digest = unavailable
     ? ""
@@ -93,70 +96,61 @@ export function PaperNote({
       )}
     </div>
   );
-  return (
-    <Dialog
-      open={expanded}
-      onOpenChange={(value) => {
-        setExpanded(value);
-        if (value) setOpen(true);
-        else save();
+  const excerpt = (
+    <Button
+      size="xs"
+      variant="ghost"
+      disabled={unavailable || !digest}
+      title={digest ? undefined : "所有批注都已摘录"}
+      onClick={() => {
+        note.edit(
+          body.trimEnd() ? `${body.trimEnd()}\n\n${digest}\n` : `${digest}\n`,
+        );
+        save();
       }}
     >
-      <Collapsible open={open} onOpenChange={setOpen} className="paper-note">
-        <div className="flex items-center gap-1">
-          <CollapsibleTrigger
-            render={
-              <Button variant="ghost" size="sm" className="paper-note-toggle" />
-            }
-          >
-            <ChevronDown data-open={open} />
-            论文笔记
-          </CollapsibleTrigger>
-          <DialogTrigger
-            render={
-              <Button
-                ref={expandButton}
-                variant="ghost"
-                size="icon-xs"
-                aria-label="展开论文笔记"
-                title="展开编辑"
-              />
-            }
-          >
-            <Maximize2 />
-          </DialogTrigger>
-        </div>
-        {!expanded && feedback}
-        <CollapsibleContent>
-          <Textarea
-            aria-label="论文笔记"
-            placeholder="记下整篇的要点、疑问和启发…"
+      <ListPlus />
+      摘录批注
+    </Button>
+  );
+  return (
+    <Dialog
+      open={expanded && active}
+      onOpenChange={(value) => {
+        setExpanded(value);
+        if (!value) save();
+      }}
+    >
+      <div className="paper-note">
+        {active && !expanded && (
+          <PaperNoteRichEditor
+            key={documentId}
+            body={body}
             disabled={unavailable}
-            value={body}
-            onChange={(event) => note.edit(event.target.value)}
+            onChange={note.edit}
             onBlur={save}
-            className="paper-note-input"
+            actions={
+              <>
+                {excerpt}
+                <DialogTrigger
+                  render={
+                    <Button
+                      ref={expandButton}
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="展开论文笔记"
+                      title="展开编辑"
+                    />
+                  }
+                >
+                  <Maximize2 />
+                </DialogTrigger>
+              </>
+            }
           />
-          <Button
-            size="xs"
-            variant="ghost"
-            className="mt-1 text-muted-foreground"
-            disabled={unavailable || !digest}
-            title={digest ? undefined : "所有批注都已摘录"}
-            onClick={() => {
-              note.edit(
-                body.trimEnd()
-                  ? `${body.trimEnd()}\n\n${digest}\n`
-                  : `${digest}\n`,
-              );
-              save();
-            }}
-          >
-            <ListPlus />
-            摘录批注
-          </Button>
-        </CollapsibleContent>
-      </Collapsible>
+        )}
+        {!expanded && feedback}
+      </div>
       <DialogContent className="paper-note-dialog" finalFocus={expandButton}>
         <DialogHeader>
           <DialogTitle>论文笔记</DialogTitle>
@@ -164,13 +158,14 @@ export function PaperNote({
             Markdown 笔记 · 公式可在源码中编辑
           </DialogDescription>
         </DialogHeader>
-        {expanded && (
+        {expanded && active && (
           <PaperNoteRichEditor
             key={documentId}
             body={body}
             disabled={unavailable}
             onChange={note.edit}
             onBlur={save}
+            actions={excerpt}
           />
         )}
         {feedback}

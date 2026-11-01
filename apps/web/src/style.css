@@ -3769,29 +3769,32 @@ textarea.citation-preview {
   resize: vertical;
   field-sizing: fixed;
 }
+.paper-note-panel {
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px 14px;
+}
 .paper-note {
-  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
 }
-.paper-note-toggle {
-  width: 100%;
-  justify-content: flex-start;
-  gap: 6px;
-  padding-inline: 4px;
-  font-size: 12px;
+.paper-note > .paper-note-workspace {
+  flex: 1;
 }
-.paper-note-toggle svg[data-open="false"] {
-  transform: rotate(-90deg);
+.paper-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
 }
-:root:not([data-reduced-motion="true"]) {
-  .paper-note-toggle svg {
-    transition: transform 150ms ease;
-  }
+.paper-note .paper-note-shortcuts {
+  display: none;
 }
-textarea.paper-note-input {
-  min-height: 84px;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.7;
+.paper-note .paper-note-rich .ProseMirror {
+  padding: 12px 14px;
 }
 .notes-filter.notes-filter {
   width: 100%;
@@ -4230,11 +4233,7 @@ textarea.paper-note-input {
   }
 }
 
-/* Paper notes share one draft between the quick entry and the large editor. */
-.paper-note-toggle {
-  min-width: 0;
-  flex: 1;
-}
+/* The note tab and expanded editor share one Markdown draft. */
 .paper-note-status {
   min-height: 20px;
   padding-inline: 4px;
