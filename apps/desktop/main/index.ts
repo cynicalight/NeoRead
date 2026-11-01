@@ -762,6 +762,9 @@ app
         event.preventDefault();
         if (closing) return;
         closing = true;
+        // Close the visible UI immediately, but keep its renderer and local
+        // server alive until the final save acknowledges completion.
+        if (!pendingLibraryMove) window!.hide();
         window!.webContents.send("neoread:flush");
         const timer = setTimeout(() => {
           void finish("保存超时，请重试。");
@@ -788,6 +791,7 @@ app
             pendingLibraryMove?.resolve(false);
             pendingLibraryMove = undefined;
             diagnostics?.record("reading.flush_failed", new Error(error));
+            window?.show();
             const result = await dialog.showMessageBox(window!, {
               type: "warning",
               message: "阅读数据尚未保存",

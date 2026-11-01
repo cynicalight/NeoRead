@@ -10,6 +10,7 @@ let app: EventEmitter & {
 };
 let window: EventEmitter & {
   close: () => void;
+  hide: ReturnType<typeof vi.fn>;
   webContents: EventEmitter & {
     send: ReturnType<typeof vi.fn>;
     mainFrame: { url: string };
@@ -172,6 +173,7 @@ beforeEach(async ({ task }) => {
         loadURL(url);
       }
       show = vi.fn();
+      hide = vi.fn();
       setBounds = vi.fn();
       maximize = vi.fn();
       focus = vi.fn();
@@ -671,6 +673,8 @@ it("exits after saving the main window even with an auxiliary window open", asyn
   auxiliaryWindowOpen = true;
   const quit = vi.spyOn(app, "quit");
   window.close();
+  expect(window.hide).toHaveBeenCalledOnce();
+  expect(serverSpawn.mock.results[0].value.kill).not.toHaveBeenCalled();
   expect(quit).not.toHaveBeenCalled();
   ipc.emit("neoread:flushed", event(), null);
   await vi.waitFor(() => expect(quit).toHaveBeenCalled());
