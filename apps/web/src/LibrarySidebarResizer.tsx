@@ -44,6 +44,7 @@ export function LibrarySidebarResizer() {
       className="library-sidebar-resizer"
       onPointerDown={(event) => {
         const start = measure();
+        resize(start);
         dragHorizontally(event, (dx) => resize(start + dx), save);
       }}
       onKeyDown={(event) => {
