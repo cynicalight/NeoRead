@@ -8,6 +8,9 @@ import { toast } from "sonner";
 import { Settings } from "./Settings";
 import { useReaderStore } from "./store";
 
+// Use the multi-step integration limit only for this real Settings UI suite.
+vi.setConfig({ testTimeout: 30_000 });
+
 vi.mock("@neoread/api", () => ({
   api: {
     connectorStatus: vi.fn(async () => ({ available: true })),
@@ -66,7 +69,7 @@ vi.mock("@neoread/ui/components/tabs", async (importOriginal) => {
     TabsContent: (props: ComponentProps<typeof actual.TabsContent>) =>
       props.value === "display" ||
       (props.value === "papers" && !libraryPanel.visible) ? null : (
-        <actual.TabsContent {...props} />
+        <actual.TabsContent {...props} keepMounted={false} />
       ),
   };
 });
@@ -276,6 +279,40 @@ it("selects the API agent from its card once a model passes", async () => {
     expect.objectContaining({ primary: "api" }),
   );
   expect(host.querySelector(apiCard)?.hasAttribute("data-selected")).toBe(true);
+});
+it("switches from Codex to a ready API agent while Codex is still being checked", async () => {
+  config.primary = "codex";
+  config.api = { url: "https://api.example.com", model: "", hasKey: true };
+  config.capabilities = {
+    "api:deepseek-flash": { text: true, vision: true, checkedAt: "saved" },
+    "api:deepseek-v4-pro": { text: true, vision: false, checkedAt: "saved" },
+  };
+  vi.mocked(api.providers).mockResolvedValue([
+    { id: "codex", installed: true, authenticated: true, status: "已登录" },
+    { id: "api", installed: true, authenticated: true, status: "已配置" },
+  ]);
+  let finishCodex!: (value: {
+    text: boolean;
+    vision: boolean;
+    checkedAt: string;
+  }) => void;
+  vi.mocked(api.testAI).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishCodex = resolve;
+      }),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  expect(api.testAI).toHaveBeenCalledWith("codex", "text");
+  await selectAPI();
+  expect(api.saveAIConfig).toHaveBeenLastCalledWith(
+    expect.objectContaining({ primary: "api" }),
+  );
+  expect(host.querySelector(apiCard)?.hasAttribute("data-selected")).toBe(true);
+  await act(async () =>
+    finishCodex({ text: false, vision: false, checkedAt: "done" }),
+  );
+  expect(useReaderStore.getState().aiConfig?.primary).toBe("api");
 });
 it("opens the API settings from an unconfigured card", async () => {
   config.primary = "";

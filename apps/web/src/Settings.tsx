@@ -543,10 +543,6 @@ export function Settings({
       rememberCard(name);
       return;
     }
-    if (testing.size) {
-      toast.info("正在检测 Agent，请稍候");
-      return;
-    }
     setSaving(true);
     try {
       const latest = await api.aiConfig();
