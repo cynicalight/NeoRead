@@ -7,6 +7,7 @@ import { ReaderView } from "./ReaderView";
 const fixture = vi.hoisted(() => ({
   events: new Map<string, ReaderEvents>(),
   destroyed: [] as string[],
+  visible: new Map<string, boolean>(),
 }));
 vi.mock("./readers/pdf", () => ({
   PDFReaderAdapter: class {
@@ -21,6 +22,9 @@ vi.mock("./readers/pdf", () => ({
       this.events.location({ type: "pdf", page: 1 }, 0.1);
     }
     async setTheme() {}
+    setVisible(value: boolean) {
+      fixture.visible.set(this.id, value);
+    }
     async highlight() {}
     async getTOC() {
       return [];
@@ -64,6 +68,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   fixture.events.clear();
+  fixture.visible.clear();
   fixture.destroyed.length = 0;
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -83,6 +88,8 @@ it("does not let hidden reader events change progress or zoom, and reuses its en
     );
   });
   location.mockClear();
+  expect(fixture.visible.get("a")).toBe(false);
+  expect(fixture.visible.get("b")).toBe(true);
   fixture.events.get("a")!.zoom?.(2);
   fixture.events.get("a")!.zoom?.(2.5, "focus");
   fixture.events.get("a")!.zoom?.(1, "layout", 0.5);
@@ -91,6 +98,8 @@ it("does not let hidden reader events change progress or zoom, and reuses its en
   expect(location).not.toHaveBeenCalled();
   const previous = fixture.events.get("a");
   await act(async () => root.render(readers("a")));
+  expect(fixture.visible.get("a")).toBe(true);
+  expect(fixture.visible.get("b")).toBe(false);
   fixture.events.get("a")!.location({ type: "pdf", page: 7 }, 0.7);
   fixture.events.get("a")!.zoom?.(1.5);
   expect(location).toHaveBeenLastCalledWith("a", { type: "pdf", page: 7 });

@@ -13,6 +13,7 @@ import { toast } from "sonner";
 export function ReaderView({
   document: doc,
   active = true,
+  visible = active,
   theme,
   annotations,
   blocks = [],
@@ -21,6 +22,7 @@ export function ReaderView({
 }: {
   document: Document;
   active?: boolean;
+  visible?: boolean;
   theme: ReaderTheme;
   annotations: Annotation[];
   blocks?: PDFBlock[];
@@ -36,8 +38,17 @@ export function ReaderView({
     events,
     onReady,
     active,
+    visible,
   });
-  latest.current = { theme, annotations, blocks, events, onReady, active };
+  latest.current = {
+    theme,
+    annotations,
+    blocks,
+    events,
+    onReady,
+    active,
+    visible,
+  };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -128,6 +139,7 @@ export function ReaderView({
         },
       });
       engine.preferTheme?.(latest.current.theme);
+      engine.setVisible?.(latest.current.visible);
       await engine.open(doc);
       if (disposed) return;
       await engine.setTheme(latest.current.theme);
@@ -135,6 +147,7 @@ export function ReaderView({
         if (!disposed) toast.error(e.message);
       });
       engine.setBlocks?.(latest.current.blocks);
+      engine.setVisible?.(latest.current.visible);
       const toc = await engine.getTOC();
       if (disposed) return;
       adapter.current = engine;
@@ -158,6 +171,9 @@ export function ReaderView({
         .catch(() => {});
     };
   }, [doc.id]);
+  useEffect(() => {
+    adapter.current?.setVisible?.(visible);
+  }, [visible]);
   useEffect(() => {
     if (!active) return;
     void adapter.current?.setTheme(theme).catch((e) => toast.error(e.message));

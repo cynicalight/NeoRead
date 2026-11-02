@@ -2,16 +2,20 @@ import { useEffect, useRef } from "react";
 import { api, reportDiagnostic } from "@neoread/api";
 import type { Annotation } from "@neoread/core";
 
-// One subscription per open document, independent of the chapter/translation view.
+// Hidden tabs release passive SSE connections; activation loads the latest revision.
 export function useAnnotationUpdates(
   documentId: string,
   onUpdate: (items: Annotation[]) => void,
   onReset: () => void,
+  active = true,
 ) {
   const callbacks = useRef({ onUpdate, onReset });
   callbacks.current = { onUpdate, onReset };
   useEffect(() => {
     callbacks.current.onReset();
+  }, [documentId]);
+  useEffect(() => {
+    if (!active) return;
     const controller = new AbortController();
     let revision: string | undefined;
     let loadedRevision: string | undefined;
@@ -77,5 +81,5 @@ export function useAnnotationUpdates(
       clearTimeout(refreshTimer);
       clearTimeout(reconnectTimer);
     };
-  }, [documentId]);
+  }, [documentId, active]);
 }

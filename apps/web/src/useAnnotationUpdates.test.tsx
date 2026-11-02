@@ -4,8 +4,13 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
 import { useAnnotationUpdates } from "./useAnnotationUpdates";
+import { useTranslations } from "./translation/useTranslations";
 vi.mock("@neoread/api", () => ({
-  api: { annotationStream: vi.fn(), annotations: vi.fn(async () => []) },
+  api: {
+    annotationStream: vi.fn(),
+    annotations: vi.fn(async () => []),
+    translationStream: vi.fn(),
+  },
   reportDiagnostic: vi.fn(),
 }));
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -121,6 +126,62 @@ it("serializes reloads and discards a response superseded by a newer revision", 
     });
     expect(api.annotations).toHaveBeenCalledTimes(2);
     expect(update).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("aborts both passive streams in hidden tabs and reloads on activation", async () => {
+  vi.useFakeTimers();
+  const annotationSignals: AbortSignal[] = [],
+    translationSignals: AbortSignal[] = [];
+  const revisions: ((revision: string) => void)[] = [];
+  vi.mocked(api.annotationStream).mockImplementation((_id, signal, receive) => {
+    annotationSignals.push(signal);
+    revisions.push(receive);
+    return new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    );
+  });
+  vi.mocked(api.translationStream).mockImplementation(
+    (_id, signal, receive) => {
+      translationSignals.push(signal);
+      receive({ event: "snapshot", data: [] });
+      return new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+    },
+  );
+  const updated = vi.fn();
+  function Fixture({ active }: { active: boolean }) {
+    useAnnotationUpdates("doc", updated, () => {}, active);
+    useTranslations("doc", undefined, active);
+    return null;
+  }
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<Fixture active />));
+    await act(async () => {
+      revisions[0]("initial");
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(updated).toHaveBeenCalledOnce();
+    await act(async () => root.render(<Fixture active={false} />));
+    expect(annotationSignals[0].aborted).toBe(true);
+    expect(translationSignals[0].aborted).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(annotationSignals).toHaveLength(1);
+    expect(translationSignals).toHaveLength(1);
+    await act(async () => root.render(<Fixture active />));
+    expect(annotationSignals).toHaveLength(2);
+    expect(translationSignals).toHaveLength(2);
+    await act(async () => {
+      revisions[1]("latest");
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(updated).toHaveBeenCalledTimes(2);
   } finally {
     await act(async () => root.unmount());
   }

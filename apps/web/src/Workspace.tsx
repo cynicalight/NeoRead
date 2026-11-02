@@ -411,6 +411,7 @@ export function Workspace({
     } catch {}
   };
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -427,7 +428,7 @@ export function Workspace({
       alive = false;
       clearTimeout(timer);
     };
-  }, [refreshSessions]);
+  }, [refreshSessions, active]);
   const [prompt, setPrompt] = useState("");
   const [quotes, setQuotes] = useState<ReaderSelection[]>([]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -508,6 +509,7 @@ export function Workspace({
       setAnnotations([]);
       setAnnotationsLoaded(false);
     },
+    active,
   );
   useShortcut("readerLeft", () => setLeft(!left), active);
   useShortcut("readerRight", () => setRight(!right), active);
