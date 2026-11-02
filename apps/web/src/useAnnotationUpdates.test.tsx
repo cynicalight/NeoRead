@@ -152,9 +152,10 @@ it("aborts both passive streams in hidden tabs and reloads on activation", async
       );
     },
   );
-  const updated = vi.fn();
+  const updated = vi.fn(),
+    reset = vi.fn();
   function Fixture({ active }: { active: boolean }) {
-    useAnnotationUpdates("doc", updated, () => {}, active);
+    useAnnotationUpdates("doc", updated, reset, active);
     useTranslations("doc", undefined, active);
     return null;
   }
@@ -166,7 +167,9 @@ it("aborts both passive streams in hidden tabs and reloads on activation", async
       await vi.advanceTimersByTimeAsync(50);
     });
     expect(updated).toHaveBeenCalledOnce();
+    expect(reset).toHaveBeenLastCalledWith(true);
     await act(async () => root.render(<Fixture active={false} />));
+    expect(reset).toHaveBeenLastCalledWith(false);
     expect(annotationSignals[0].aborted).toBe(true);
     expect(translationSignals[0].aborted).toBe(true);
     await act(async () => {
@@ -177,6 +180,7 @@ it("aborts both passive streams in hidden tabs and reloads on activation", async
     await act(async () => root.render(<Fixture active />));
     expect(annotationSignals).toHaveLength(2);
     expect(translationSignals).toHaveLength(2);
+    expect(updated).toHaveBeenCalledOnce();
     await act(async () => {
       revisions[1]("latest");
       await vi.advanceTimersByTimeAsync(50);

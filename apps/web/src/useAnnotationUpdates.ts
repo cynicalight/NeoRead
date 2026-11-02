@@ -6,16 +6,21 @@ import type { Annotation } from "@neoread/core";
 export function useAnnotationUpdates(
   documentId: string,
   onUpdate: (items: Annotation[]) => void,
-  onReset: () => void,
+  onReset: (clear: boolean) => void,
   active = true,
 ) {
   const callbacks = useRef({ onUpdate, onReset });
   callbacks.current = { onUpdate, onReset };
   useEffect(() => {
-    callbacks.current.onReset();
+    callbacks.current.onReset(true);
   }, [documentId]);
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      // Keep cached marks while hidden, but don't consume links until the next
+      // active subscription has delivered a fresh snapshot.
+      callbacks.current.onReset(false);
+      return;
+    }
     const controller = new AbortController();
     let revision: string | undefined;
     let loadedRevision: string | undefined;

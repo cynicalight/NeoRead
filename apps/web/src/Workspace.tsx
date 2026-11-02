@@ -505,8 +505,8 @@ export function Workspace({
       setAnnotations(items);
       setAnnotationsLoaded(true);
     },
-    () => {
-      setAnnotations([]);
+    (clear) => {
+      if (clear) setAnnotations([]);
       setAnnotationsLoaded(false);
     },
     active,
@@ -566,7 +566,8 @@ export function Workspace({
   };
   useEffect(() => {
     // Follow a neoread:// link once the reader and annotations are ready.
-    if (linkTarget?.id !== doc.id || !adapter || !annotationsLoaded) return;
+    if (!active || linkTarget?.id !== doc.id || !adapter || !annotationsLoaded)
+      return;
     useReaderStore.getState().setLinkTarget(null);
     if (linkTarget.annotation) {
       const target = annotations.find((a) => a.id === linkTarget.annotation);
@@ -579,7 +580,15 @@ export function Workspace({
       void adapter
         .goTo({ type: "pdf", page: linkTarget.page })
         .catch((e) => toast.error(e.message));
-  }, [linkTarget, adapter, annotationsLoaded, annotations, doc.id, doc.type]);
+  }, [
+    active,
+    linkTarget,
+    adapter,
+    annotationsLoaded,
+    annotations,
+    doc.id,
+    doc.type,
+  ]);
   const saveLocation = (next: DocumentLocation, percent: number) => {
     if (!active) return;
     lastReadingLocation.current = next;
