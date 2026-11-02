@@ -153,6 +153,7 @@ export type PaperColumn =
   | "published"
   | "tags"
   | "progress"
+  | "bodyProgress"
   | "doi"
   | "arxiv"
   | "size"
@@ -257,6 +258,9 @@ export interface TagBoard {
   match: "all" | "any";
 }
 export interface Document {
+  bodyEnd?: { page: number; y: number };
+  /** Furthest PDF position, in completed pages plus the fraction of the next page. */
+  bodyReadPosition?: number;
   category: DocumentCategory;
   categorySource: "default" | "ai" | "manual";
   classificationStatus: "idle" | "pending" | "running" | "failed" | "done";

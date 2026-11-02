@@ -1771,6 +1771,8 @@
                                       "$ref": "#/components/schemas/DocumentLocation",
                                     },
                                   "percentage": { "type": "number" },
+                                  "bodyReadPosition":
+                                    { "type": "number", "minimum": 0 },
                                   "title":
                                     {
                                       "type": "string",
@@ -6127,9 +6129,21 @@
                   "lastOpenedAt": { "type": "string" },
                   "favorite": { "type": "boolean" },
                   "percentage": { "type": "number" },
+                  "bodyReadPosition": { "type": "number", "minimum": 0 },
                   "progress":
                     { "$ref": "#/components/schemas/DocumentLocation" },
                   "library": { "enum": ["books", "papers"] },
+                  "bodyEnd":
+                    {
+                      "type": "object",
+                      "description": "Reference-section start; absent before layout parsing",
+                      "required": ["page", "y"],
+                      "properties":
+                        {
+                          "page": { "type": "integer", "minimum": 1 },
+                          "y": { "type": "number", "minimum": 0, "maximum": 1 },
+                        },
+                    },
                   "deletedAt":
                     {
                       "type": "string",

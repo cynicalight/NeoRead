@@ -631,17 +631,18 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var v struct {
-		Title      json.RawMessage            `json:"title"`
-		Author     json.RawMessage            `json:"author"`
-		Category   json.RawMessage            `json:"category"`
-		Tags       json.RawMessage            `json:"tags"`
-		Folders    json.RawMessage            `json:"folders"`
-		Favorite   *bool                      `json:"favorite"`
-		Progress   json.RawMessage            `json:"progress"`
-		Percentage *float64                   `json:"percentage"`
-		Library    *string                    `json:"library"`
-		Metadata   map[string]json.RawMessage `json:"metadata"`
-		Status     *string                    `json:"readingStatus"`
+		Title            json.RawMessage            `json:"title"`
+		Author           json.RawMessage            `json:"author"`
+		Category         json.RawMessage            `json:"category"`
+		Tags             json.RawMessage            `json:"tags"`
+		Folders          json.RawMessage            `json:"folders"`
+		Favorite         *bool                      `json:"favorite"`
+		Progress         json.RawMessage            `json:"progress"`
+		Percentage       *float64                   `json:"percentage"`
+		BodyReadPosition *float64                   `json:"bodyReadPosition"`
+		Library          *string                    `json:"library"`
+		Metadata         map[string]json.RawMessage `json:"metadata"`
+		Status           *string                    `json:"readingStatus"`
 	}
 	if !decode(w, r, &v) {
 		return
@@ -764,10 +765,19 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		openedAt = now()
 	}
 	var progress any
+	bodyReadPosition := pdfReadPosition(d.Progress)
+	if v.BodyReadPosition != nil {
+		if *v.BodyReadPosition < 0 || d.Type != "pdf" {
+			fail(w, 400, "正文阅读位置无效")
+			return
+		}
+		bodyReadPosition = max(bodyReadPosition, *v.BodyReadPosition)
+	}
 	if v.Progress != nil {
 		progress = string(v.Progress)
+		bodyReadPosition = max(bodyReadPosition, pdfReadPosition(v.Progress))
 	}
-	_, err = s.Store.DB.Exec("UPDATE documents SET title=COALESCE(?,title),author=COALESCE(?,author),favorite=COALESCE(?,favorite),progress=COALESCE(?,progress),percentage=COALESCE(?,percentage),last_opened_at=COALESCE(?,last_opened_at),category=COALESCE(?,category),tags=COALESCE(?,tags),folders=COALESCE(?,folders),library=COALESCE(?,library),metadata=COALESCE(?,metadata),reading_status=COALESCE(?,reading_status),category_source=CASE WHEN ? IS NOT NULL THEN 'manual' ELSE category_source END,classification_status=CASE WHEN ? IS NOT NULL THEN 'done' ELSE classification_status END,classification_error=CASE WHEN ? IS NOT NULL THEN '' ELSE classification_error END WHERE id=?", title, author, v.Favorite, progress, v.Percentage, openedAt, category, tags, folders, library, metadata, status, category, category, category, d.ID)
+	_, err = s.Store.DB.Exec("UPDATE documents SET title=COALESCE(?,title),author=COALESCE(?,author),favorite=COALESCE(?,favorite),progress=COALESCE(?,progress),percentage=COALESCE(?,percentage),body_read_position=MAX(body_read_position,?),last_opened_at=COALESCE(?,last_opened_at),category=COALESCE(?,category),tags=COALESCE(?,tags),folders=COALESCE(?,folders),library=COALESCE(?,library),metadata=COALESCE(?,metadata),reading_status=COALESCE(?,reading_status),category_source=CASE WHEN ? IS NOT NULL THEN 'manual' ELSE category_source END,classification_status=CASE WHEN ? IS NOT NULL THEN 'done' ELSE classification_status END,classification_error=CASE WHEN ? IS NOT NULL THEN '' ELSE classification_error END WHERE id=?", title, author, v.Favorite, progress, v.Percentage, bodyReadPosition, openedAt, category, tags, folders, library, metadata, status, category, category, category, d.ID)
 	if err != nil {
 		fail(w, 500, "保存失败")
 		return

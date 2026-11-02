@@ -604,6 +604,9 @@ func (s *Server) learnPDF(ctx context.Context, p *Processing) error {
 		_ = s.Store.queueDocumentCorpus(d.ID)
 	}
 	p.PagesDone = m.Pages
+	if e = s.Store.saveBodyEnd(d.ID, m); e != nil {
+		return e
+	}
 	p.PagesTotal = m.Pages
 	p.Warning = strings.Join(m.Warnings, " ")
 	p.Incomplete = false

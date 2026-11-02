@@ -1735,6 +1735,7 @@ export interface paths {
                         favorite?: boolean;
                         progress?: components["schemas"]["DocumentLocation"];
                         percentage?: number;
+                        bodyReadPosition?: number;
                         title?: string;
                         author?: string;
                         /** @enum {unknown} */
@@ -5092,9 +5093,15 @@ export interface components {
             lastOpenedAt: string;
             favorite: boolean;
             percentage: number;
+            bodyReadPosition?: number;
             progress?: components["schemas"]["DocumentLocation"];
             /** @enum {unknown} */
             library: "books" | "papers";
+            /** @description Reference-section start; absent before layout parsing */
+            bodyEnd?: {
+                page: number;
+                y: number;
+            };
             /** @description Set while the document is in the trash */
             deletedAt?: string;
             metadata: components["schemas"]["PaperMetadata"];

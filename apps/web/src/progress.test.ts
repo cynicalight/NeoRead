@@ -1,6 +1,27 @@
 import { afterEach, expect, it, vi } from "vitest";
 const update = vi.hoisted(() => vi.fn());
 vi.mock("@neoread/api", () => ({ api: { update } }));
+it("keeps the furthest PDF position even when the reader goes back before the debounce fires", async () => {
+  vi.useFakeTimers();
+  update.mockResolvedValue({});
+  const { scheduleProgress, flushProgress } = await import("./progress");
+  scheduleProgress(
+    "pdf",
+    { progress: { type: "pdf", page: 7, y: 0.6 }, percentage: 0.7 },
+    () => {},
+  );
+  scheduleProgress(
+    "pdf",
+    { progress: { type: "pdf", page: 2, y: 0.2 }, percentage: 0.2 },
+    () => {},
+  );
+  await flushProgress();
+  expect(update).toHaveBeenLastCalledWith("pdf", {
+    progress: { type: "pdf", page: 2, y: 0.2 },
+    percentage: 0.2,
+    bodyReadPosition: 6.6,
+  });
+});
 afterEach(() => {
   vi.resetModules();
   update.mockReset();
@@ -96,6 +117,48 @@ it("never retries an older failed location after a newer save succeeds", async (
   expect(update.mock.calls.map((call) => call[1].progress.page)).toEqual([
     1, 2,
   ]);
+});
+it("retains the furthest read position when an in-flight save fails after the reader scrolls back", async () => {
+  vi.useFakeTimers();
+  let fail!: (error: Error) => void;
+  update
+    .mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+    )
+    .mockResolvedValue({});
+  const { scheduleProgress, flushProgress, forgetProgress } =
+    await import("./progress");
+  scheduleProgress(
+    "pdf",
+    { progress: { type: "pdf", page: 7, y: 0.6 }, percentage: 0.7 },
+    () => {},
+  );
+  const first = flushProgress().catch(() => {});
+  await vi.advanceTimersByTimeAsync(0);
+  scheduleProgress(
+    "pdf",
+    { progress: { type: "pdf", page: 1 }, percentage: 0.1 },
+    () => {},
+  );
+  const second = flushProgress();
+  fail(new Error("offline"));
+  await Promise.all([first, second]);
+  expect(update).toHaveBeenLastCalledWith("pdf", {
+    progress: { type: "pdf", page: 1 },
+    percentage: 0.1,
+    bodyReadPosition: 6.6,
+  });
+  forgetProgress(["pdf"]);
+  scheduleProgress(
+    "pdf",
+    { progress: { type: "pdf", page: 1 }, percentage: 0.1 },
+    () => {},
+  );
+  await flushProgress();
+  expect(update.mock.calls.at(-1)![1].bodyReadPosition).toBe(0);
 });
 
 it("keeps the latest position of every document when tabs change before the debounce", async () => {
