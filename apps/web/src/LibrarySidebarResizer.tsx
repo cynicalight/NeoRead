@@ -12,6 +12,8 @@ export function LibrarySidebarResizer() {
   const saved = useReaderStore((state) => state.theme.librarySidebarWidth);
   const handle = useRef<HTMLButtonElement>(null);
   const current = useRef(238);
+  const endDrag = useRef<(() => void) | undefined>(undefined);
+  useLayoutEffect(() => () => endDrag.current?.(), []);
   const resize = (width: number) => {
     current.current = clamp(width);
     handle.current?.setAttribute("aria-valuenow", String(current.current));
@@ -43,9 +45,17 @@ export function LibrarySidebarResizer() {
       aria-valuenow={typeof saved === "number" ? clamp(saved) : current.current}
       className="library-sidebar-resizer"
       onPointerDown={(event) => {
+        endDrag.current?.();
         const start = measure();
         resize(start);
-        dragHorizontally(event, (dx) => resize(start + dx), save);
+        endDrag.current = dragHorizontally(
+          event,
+          (dx) => resize(start + dx),
+          () => {
+            endDrag.current = undefined;
+            save();
+          },
+        );
       }}
       onKeyDown={(event) => {
         const width = measure();
