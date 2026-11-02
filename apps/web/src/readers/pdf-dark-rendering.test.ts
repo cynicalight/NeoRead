@@ -8,6 +8,10 @@ const styles = readFileSync("apps/web/src/style.css", "utf8");
 const fixture = vi.hoisted(() => ({
   dispatch: undefined as ((name: string, event?: unknown) => void) | undefined,
   reset: vi.fn(),
+  render: vi.fn(),
+  update: vi.fn(),
+  queue: undefined as
+    { renderHighestPriority: (...args: unknown[]) => void } | undefined,
   refresh: vi.fn(),
   diagnostic: vi.fn(),
   viewerOptions: undefined as Record<string, unknown> | undefined,
@@ -43,18 +47,22 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
     setDocument() {}
   },
   PDFViewer: class {
+    pagesCount = 1;
+    renderingQueue = { renderHighestPriority: fixture.render };
     currentScale = 1;
     currentScaleValue = "page-width";
     constructor(options: Record<string, unknown>) {
       fixture.viewerOptions = options;
+      fixture.queue = this.renderingQueue;
     }
     setDocument(doc: unknown) {
       if (doc) fixture.dispatch!("pagesinit");
     }
     getPageView() {
-      return { reset: fixture.reset };
+      return { reset: fixture.reset, renderingState: 3 };
     }
     refresh = fixture.refresh;
+    update = fixture.update;
   },
 }));
 
@@ -91,6 +99,22 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 const doc = { id: "test", type: "pdf" } as Document;
+
+it("releases hidden canvases and pauses rendering until the reader is visible again", async () => {
+  await adapter.open(doc);
+  const location = adapter.getLocation();
+  adapter.setVisible(false);
+  expect(fixture.reset).toHaveBeenCalledOnce();
+  fixture.queue!.renderHighestPriority();
+  expect(fixture.render).not.toHaveBeenCalled();
+  adapter.setVisible(false);
+  expect(fixture.reset).toHaveBeenCalledOnce();
+  adapter.setVisible(true);
+  expect(fixture.update).toHaveBeenCalledOnce();
+  fixture.queue!.renderHighestPriority();
+  expect(fixture.render).toHaveBeenCalledOnce();
+  expect(adapter.getLocation()).toEqual(location);
+});
 
 it("uses object colors and never reads back or hides a completed canvas", async () => {
   adapter.preferTheme({ ...defaultTheme, mode: "dark" });

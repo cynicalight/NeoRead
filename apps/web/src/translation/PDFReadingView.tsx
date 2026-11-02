@@ -91,7 +91,7 @@ export function PDFReadingView({
   const { swapped, sourceWidth } = readerLayout(theme.readerLayout);
   const [mode, setMode] = useState<Mode>("source"),
     [syncEnabled, setSyncEnabled] = useState(true);
-  const { translations, error } = useTranslations(doc.id);
+  const { translations, error } = useTranslations(doc.id, undefined, active);
   const [popup, setPopup] = useState<{ block: PDFBlock; rect: DOMRect }>();
   const [engine, setEngine] = useState<ReaderAdapter>();
   const [hoveredBlock, setHoveredBlock] = useState<string>();
@@ -795,6 +795,7 @@ export function PDFReadingView({
           >
             <ReaderView
               active={active}
+              visible={active && mode !== "translation"}
               document={doc}
               theme={theme}
               annotations={annotations.filter(

@@ -63,6 +63,10 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private wheelScale?: number;
   private wheelAppliedScale?: number;
   private disposed = false;
+  private visible = true;
+  private renderVisible?: NonNullable<
+    PDFViewer["renderingQueue"]
+  >["renderHighestPriority"];
   private renderErrorReported = false;
   private navigationRequest = 0;
   private blocks: PDFBlockOverlay;
@@ -363,11 +367,13 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.clearState();
   };
   private onScroll = () => {
+    if (this.container.closest("[inert]")) return;
     this.clearSelection();
     cancelAnimationFrame(this.viewportFrame);
     this.viewportFrame = requestAnimationFrame(() => this.viewport.remember());
   };
   private onPointerDown = (event: PointerEvent) => {
+    if (this.container.closest("[inert]")) return;
     this.viewport.cancelAnimation();
     if (isSelectionToolbar(event.target)) return;
     this.locationHighlight.clear();
@@ -379,6 +385,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     else this.clearSelection();
   };
   private onKeyDown = (event: KeyboardEvent) => {
+    if (this.container.closest("[inert]")) return;
     this.selecting = false;
     this.pointer = undefined;
     if (event.key === "Escape") this.clearSelection();
@@ -473,6 +480,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.wheelAppliedScale = this.viewer.currentScale;
   };
   private onMouseUp = (event: MouseEvent) => {
+    if (this.container.closest("[inert]")) return;
     this.selecting = false;
     if (!isSelectionToolbar(event.target)) {
       // A double click selects the whole sentence instead of one word.
@@ -487,6 +495,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     }
   };
   private onSelectionChange = () => {
+    if (this.container.closest("[inert]")) return;
     if (!this.selecting) this.onSelection();
   };
   private onSelection = () => {
@@ -536,6 +545,31 @@ export class PDFReaderAdapter implements ReaderAdapter {
   };
   getSelection() {
     return this.selection;
+  }
+  setVisible(visible: boolean) {
+    if (this.disposed || this.visible === visible) return;
+    this.visible = visible;
+    const queue = this.viewer.renderingQueue!;
+    if (!this.renderVisible) {
+      this.renderVisible = queue.renderHighestPriority.bind(queue);
+      queue.renderHighestPriority = (pages) => {
+        if (this.visible && !this.disposed) this.renderVisible?.(pages);
+      };
+    }
+    if (visible) {
+      this.viewer.update();
+      return;
+    }
+    this.viewport.cancelAnimation();
+    this.navigation.cancelMotion();
+    this.linkPreview.hide();
+    // PDF.js otherwise retains the canvas buffer of every visited tab. Reset
+    // page views through PDF.js so showing the source renders only its viewport.
+    for (let i = 0; i < this.viewer.pagesCount; i++) {
+      const page = this.viewer.getPageView(i);
+      if (page?.renderingState) page.reset();
+      page?.pdfPage?.cleanup();
+    }
   }
   async highlight(annotations: Annotation[]) {
     this.annotationLayer.setAnnotations(annotations);

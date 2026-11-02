@@ -411,6 +411,7 @@ export function Workspace({
     } catch {}
   };
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -427,7 +428,7 @@ export function Workspace({
       alive = false;
       clearTimeout(timer);
     };
-  }, [refreshSessions]);
+  }, [refreshSessions, active]);
   const [prompt, setPrompt] = useState("");
   const [quotes, setQuotes] = useState<ReaderSelection[]>([]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -504,10 +505,11 @@ export function Workspace({
       setAnnotations(items);
       setAnnotationsLoaded(true);
     },
-    () => {
-      setAnnotations([]);
+    (clear) => {
+      if (clear) setAnnotations([]);
       setAnnotationsLoaded(false);
     },
+    active,
   );
   useShortcut("readerLeft", () => setLeft(!left), active);
   useShortcut("readerRight", () => setRight(!right), active);
@@ -564,7 +566,8 @@ export function Workspace({
   };
   useEffect(() => {
     // Follow a neoread:// link once the reader and annotations are ready.
-    if (linkTarget?.id !== doc.id || !adapter || !annotationsLoaded) return;
+    if (!active || linkTarget?.id !== doc.id || !adapter || !annotationsLoaded)
+      return;
     useReaderStore.getState().setLinkTarget(null);
     if (linkTarget.annotation) {
       const target = annotations.find((a) => a.id === linkTarget.annotation);
@@ -577,7 +580,15 @@ export function Workspace({
       void adapter
         .goTo({ type: "pdf", page: linkTarget.page })
         .catch((e) => toast.error(e.message));
-  }, [linkTarget, adapter, annotationsLoaded, annotations, doc.id, doc.type]);
+  }, [
+    active,
+    linkTarget,
+    adapter,
+    annotationsLoaded,
+    annotations,
+    doc.id,
+    doc.type,
+  ]);
   const saveLocation = (next: DocumentLocation, percent: number) => {
     if (!active) return;
     lastReadingLocation.current = next;
