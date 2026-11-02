@@ -1,3 +1,4 @@
+import { Switch } from "@neoread/ui/components/switch";
 import { PaperServiceSettings } from "./papers/PaperServiceSettings";
 import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
 import { TranslationPromptSettings } from "./TranslationPromptSettings";
@@ -20,9 +21,10 @@ import {
 } from "lucide-react";
 import { LegacyAnnotationMigration } from "./LegacyAnnotationMigration";
 import { DiagnosticExport } from "./DiagnosticExport";
+import { PaperRefreshSettings } from "./PaperRefreshSettings";
 import { LibraryLocationSettings } from "./LibraryLocationSettings";
 import { CommandLineSettings } from "./CommandLineSettings";
-import { ProviderIdentity, providerLabel } from "./ProviderIdentity";
+import { ProviderIcon, providerLabel } from "./ProviderIdentity";
 import { TaskModels } from "./TaskModels";
 import { APIAgentForm, APIModelForm } from "./APIAgentForm";
 import { api } from "@neoread/api";
@@ -48,13 +50,6 @@ import {
 } from "@neoread/ui/components/dialog";
 import { Badge } from "@neoread/ui/components/badge";
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@neoread/ui/components/select";
-import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
@@ -69,6 +64,7 @@ import { CitePluginSettings } from "./cite/CitePluginSettings";
 import { HighlightColorsEditor } from "./HighlightColorsEditor";
 import { ProxySettings } from "./ProxySettings";
 import {
+  libraryMode,
   primaryLibraryMode,
   updateLibraryPreferences,
   useReaderStore,
@@ -79,14 +75,25 @@ import { toast } from "sonner";
 import { columnLabels, defaultColumns, toggleColumn } from "./papers/model";
 import { savePaperPreferences } from "./papers/actions";
 import { AppearancePicker } from "./AppearancePicker";
+import { AgentDeck, type DeckItem } from "./AgentDeck";
+import { recentAgentCalls } from "./agentUsage";
 // Checks run automatically for this many API models; the rest on demand.
 const autoAPIChecks = 12;
+// Terminal commands that sign each CLI agent in.
+const cliLogin: Record<string, string> = {
+  codex: "codex login",
+  claude: "claude auth login",
+  kimi: "kimi",
+};
+
 export function Settings({
   open,
   onOpenChange,
+  onOpenGuide,
 }: {
   open: boolean;
   onOpenChange: (value: boolean) => void;
+  onOpenGuide?: () => void;
 }) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [testing, setTesting] = useState<Map<string, "text" | "vision">>(
@@ -96,6 +103,26 @@ export function Settings({
   const checked = useRef(new Set<string>());
   const refreshing = useRef(false);
   const [saving, setSaving] = useState(false);
+  const [deckOpen, setDeckOpen] = useState(false);
+  // This is a presentation preference, independent of asynchronous detection.
+  const [deckFront, setDeckFront] = useState(() => {
+    try {
+      const saved = localStorage.getItem("neoread.agent-deck-front");
+      return saved && ["codex", "claude", "kimi", "api"].includes(saved)
+        ? saved
+        : "codex";
+    } catch {
+      return "codex";
+    }
+  });
+  const rememberCard = (id: string) => {
+    setDeckFront(id);
+    try {
+      localStorage.setItem("neoread.agent-deck-front", id);
+    } catch {
+      /* Storage may be unavailable. */
+    }
+  };
   const [searchSaving, setSearchSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   // Whether a detection has finished since the dialog opened.
@@ -150,7 +177,10 @@ export function Settings({
     }
   };
   useEffect(() => {
-    if (!open) setAPIDetails(false);
+    if (!open) {
+      setAPIDetails(false);
+      setDeckOpen(false);
+    }
   }, [open]);
   const {
     theme,
@@ -159,7 +189,9 @@ export function Settings({
     setAIConfig,
     aiModelSaving,
     libraryPreferences,
+    documents,
   } = useReaderStore();
+  const currentLibrary = libraryMode(libraryPreferences);
   const paperPreferences =
     useReaderStore((s) => s.libraryPreferences.papers) || {};
   // Run the text check, then the vision check, for an agent or an API model
@@ -251,7 +283,8 @@ export function Settings({
   const refresh = async (force = false) => {
     if (refreshing.current) return;
     refreshing.current = true;
-    setLoading(true);
+    // Reopening refreshes metadata silently; preserve the last confirmed UI.
+    if (force || !probed) setLoading(true);
     try {
       const [providers, config] = await Promise.all([
         api.providers(false),
@@ -318,7 +351,6 @@ export function Settings({
   };
   useEffect(() => {
     if (open) void refresh();
-    else setProbed(false);
   }, [open]);
   const checkModel = async (model: AgentModel) => {
     const snapshot = useReaderStore.getState().aiConfig;
@@ -377,7 +409,9 @@ export function Settings({
     // A new address or key is a new connection: test its models again.
     for (const key of checked.current)
       if (key.startsWith('["api"')) checked.current.delete(key);
-    await saveConfig((latest) => ({ ...latest, api: connection }));
+    if (await saveConfig((latest) => ({ ...latest, api: connection }), false)) {
+      await refresh();
+    }
   };
   const saveAPIModels = async (change: (models: string[]) => string[]) => {
     await saveConfig((latest) => ({
@@ -505,7 +539,10 @@ export function Settings({
       toast.warning(`${providerLabel(name)} 未配置好：${blocker}`);
       return;
     }
-    if (config?.primary === name) return;
+    if (config?.primary === name) {
+      rememberCard(name);
+      return;
+    }
     if (testing.size) {
       toast.info("正在检测 Agent，请稍候");
       return;
@@ -514,6 +551,7 @@ export function Settings({
     try {
       const latest = await api.aiConfig();
       setAIConfig(await api.saveAIConfig({ ...latest, primary: name }));
+      rememberCard(name);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -550,6 +588,96 @@ export function Settings({
       })}
     </span>
   );
+  const installed = (name: string) =>
+    !!providers.find((p) => p.id === name)?.installed;
+  // Explains why a CLI agent cannot be used and points at the guide.
+  const cliHint = (name: string) => {
+    const label = providerLabel(name);
+    toast.warning(
+      installed(name) ? `${label} 还不能使用` : `未安装 ${label} CLI`,
+      {
+        description: installed(name)
+          ? `请在终端运行 ${cliLogin[name]} 完成登录，然后重新检测。`
+          : `请先安装 ${label} CLI，在终端运行 ${cliLogin[name]} 登录，然后重新检测。`,
+        action: onOpenGuide && { label: "查看指南", onClick: onOpenGuide },
+      },
+    );
+  };
+  const openAPIConfig = () => {
+    setDeckOpen(true);
+    setAPIDetails(true);
+  };
+  // Handles a card click in the open deck; true moves the card to the middle.
+  const pickCard = (id: string) => {
+    if (!config || saving || aiModelSaving) return false;
+    const status = agentStatus(id);
+    if (id === "api" && status === "missing") {
+      openAPIConfig();
+      return false;
+    }
+    if (status === "pending") {
+      toast.info("正在检测 Agent，请稍候");
+      return false;
+    }
+    if (id !== "api" && status !== "ready") {
+      cliHint(id);
+      return false;
+    }
+    void selectAgent(id);
+    return status === "ready";
+  };
+  const openDetail = (id: string) => {
+    const status = agentStatus(id);
+    if (status === "ready") return true;
+    if (status === "pending") toast.info("正在检测 Agent，请稍候");
+    else if (id === "api") toast.warning("请先配置 API Key");
+    else cliHint(id);
+    return false;
+  };
+  const deckItems: DeckItem[] = [
+    ...(["codex", "claude", "kimi", "api"] as const).map((name): DeckItem => {
+      const capability = config?.capabilities[name];
+      const ready = installed(name);
+      const selected = config?.primary === name;
+      return {
+        id: name,
+        title: providerLabel(name),
+        subtitle:
+          !loading && !ready
+            ? name === "api"
+              ? "未配置"
+              : "未安装"
+            : undefined,
+        icon: <ProviderIcon provider={name} size={40} />,
+        status: agentStatus(name),
+        selected,
+        checks:
+          name === "api"
+            ? ready && apiCardStatus()
+            : (testing.has(name) || ready || capability) &&
+              checkStatus(name, capability),
+        passed:
+          name === "api"
+            ? ready && apiReady("text") && apiReady("vision")
+            : !testing.has(name) &&
+              cliReady(name, "text") &&
+              cliReady(name, "vision"),
+        tour: "agent-card",
+        extra: name === "api" && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="pointer-events-auto -mb-1"
+            aria-label="配置 API Key"
+            title="配置 API Key"
+            onClick={openAPIConfig}
+          >
+            <Pencil />
+          </Button>
+        ),
+      };
+    }),
+  ];
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -557,179 +685,12 @@ export function Settings({
         className="settings-dialog p-6 sm:max-w-3xl"
       >
         <DialogHeader>
-          <DialogTitle>
-            {apiDetails ? (
-              <Button
-                variant="ghost"
-                className="-ml-2 gap-1 px-2 text-base"
-                onClick={() => setAPIDetails(false)}
-                aria-label="返回 Agent 设置"
-                data-tour="api-back"
-              >
-                <ChevronLeft />
-                API 配置
-              </Button>
-            ) : (
-              "设置"
-            )}
-          </DialogTitle>
+          <DialogTitle>设置</DialogTitle>
           <DialogDescription className="sr-only">
-            Agent 连接、显示、阅读、诊断与论文库
+            Agent 连接、显示、阅读、诊断与{libraryModes[currentLibrary].label}
           </DialogDescription>
         </DialogHeader>
-        {apiDetails && (
-          <div className="settings-panel" data-tour="api-details">
-            <section data-tour="api-form">
-              {config && (
-                <APIAgentForm
-                  connection={config.api}
-                  disabled={saving || testing.size > 0}
-                  onSave={saveAPI}
-                />
-              )}
-              {config &&
-                providers.some((p) => p.id === "api" && p.installed) && (
-                  <div className="mt-6">
-                    <h3 className="mb-1 text-sm font-medium">模型</h3>
-                    <label className="mb-1 flex items-center gap-3 text-xs text-muted-foreground">
-                      检测等待上限（秒）
-                      <Input
-                        type="number"
-                        min={0}
-                        max={600}
-                        step={1}
-                        value={probeWait}
-                        onChange={(event) => setProbeWait(event.target.value)}
-                        aria-label="检测等待上限（秒）"
-                        aria-describedby="api-probe-wait-help"
-                        aria-invalid={!validProbeWait}
-                        placeholder="默认"
-                        className="h-7 w-24"
-                      />
-                    </label>
-                    <p
-                      id="api-probe-wait-help"
-                      className="mb-3 text-xs text-muted-foreground"
-                    >
-                      仅用于手动检测，每阶段最多 600 秒；留空或 0 使用文本 45
-                      秒、图片 90 秒
-                    </p>
-                    {!validProbeWait && (
-                      <p className="mb-2 text-xs text-destructive" role="alert">
-                        请输入 0–600 的整数
-                      </p>
-                    )}
-                    <ul className="api-model-list">
-                      {apiModels.map((model) => {
-                        const id = `api:${model.id}`;
-                        const result = config.capabilities[id];
-                        const error =
-                          errors[`${id}:vision`] ||
-                          errors[`${id}:text`] ||
-                          result?.error;
-                        const retry = result || error;
-                        const timings = [
-                          !errors[`${id}:text`] &&
-                          result?.textFirstOutputMs != null
-                            ? `文本首输出 ${(result.textFirstOutputMs / 1000).toFixed(2)} s`
-                            : "",
-                          !errors[`${id}:text`] &&
-                          !errors[`${id}:vision`] &&
-                          result?.visionFirstOutputMs != null
-                            ? `图片首输出 ${(result.visionFirstOutputMs / 1000).toFixed(2)} s`
-                            : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" · ");
-                        return (
-                          <li
-                            key={model.id}
-                            className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 py-1"
-                          >
-                            <span
-                              className="min-w-0 flex-1 truncate text-sm"
-                              title={model.id}
-                            >
-                              {model.name}
-                            </span>
-                            {(testing.has(id) || result || error) &&
-                              checkStatus(id, result)}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={
-                                saving || testing.has(id) || !validProbeWait
-                              }
-                              aria-label={`${retry ? "重新检测" : "检测"} ${model.id}`}
-                              onClick={() => void checkModel(model)}
-                            >
-                              {retry ? "重新检测" : "检测"}
-                            </Button>
-                            {result?.text && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={saving || testing.has(id)}
-                                onClick={() => void checkTools(model)}
-                                title={result.toolError}
-                              >
-                                {result.tools === "passed"
-                                  ? "检索工具已通过"
-                                  : "检测检索工具"}
-                              </Button>
-                            )}
-                            {model.custom && (
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={`移除 ${model.name}`}
-                                title="移除"
-                                disabled={saving || testing.has(id)}
-                                onClick={() =>
-                                  void saveAPIModels((models) =>
-                                    models.filter((item) => item !== model.id),
-                                  )
-                                }
-                              >
-                                <X />
-                              </Button>
-                            )}
-                            {!testing.has(id) && (timings || error) && (
-                              <div className="w-full break-words text-xs text-muted-foreground">
-                                {timings && (
-                                  <p title="本次首次收到思考或正文的耗时，不含模型列表加载，受网络和服务负载影响">
-                                    {timings}
-                                  </p>
-                                )}
-                                {error && <p>{error}</p>}
-                              </div>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    {apiModelsError && (
-                      <p
-                        className="mt-1 text-xs text-muted-foreground"
-                        role="alert"
-                      >
-                        {apiModelsError}
-                      </p>
-                    )}
-                    <APIModelForm
-                      disabled={saving}
-                      onAdd={(id) => saveAPIModels((models) => [...models, id])}
-                    />
-                  </div>
-                )}
-            </section>
-          </div>
-        )}
-        <Tabs
-          defaultValue="agent"
-          className="settings-tabs"
-          style={{ display: apiDetails ? "none" : undefined }}
-        >
+        <Tabs defaultValue="agent" className="settings-tabs">
           <TabsList aria-label="设置分类" className="settings-nav">
             <TabsTrigger value="agent" data-tour="settings-agent-tab">
               <Bot />
@@ -749,7 +710,7 @@ export function Settings({
             </TabsTrigger>
             <TabsTrigger value="papers">
               <Library />
-              论文库
+              {libraryModes[currentLibrary].label}
             </TabsTrigger>
           </TabsList>
           <TabsContent
@@ -760,6 +721,9 @@ export function Settings({
             {window.neoreadDesktop?.proxySettings && (
               <ProxySettings open={open} />
             )}
+            <section>
+              <PaperRefreshSettings open={open} />
+            </section>
             <section>
               <LegacyAnnotationMigration />
             </section>
@@ -776,51 +740,63 @@ export function Settings({
           </TabsContent>
           <TabsContent value="display" className="settings-panel" keepMounted>
             <section>
-              <h3
-                id="primary-library-label"
-                className="mb-3 text-sm font-medium"
-              >
-                主要模式
-              </h3>
-              <Select
-                value={primaryLibraryMode(libraryPreferences)}
-                onValueChange={(value) => {
-                  if (value !== "papers" && value !== "books") return;
-                  void updateLibraryPreferences({ primaryMode: value }).catch(
-                    (error) => toast.error((error as Error).message),
-                  );
-                }}
-              >
-                <SelectTrigger
-                  aria-labelledby="primary-library-label"
-                  className="w-48"
+              <div className="flex items-center justify-between gap-3">
+                <h3
+                  id="primary-library-label"
+                  className="shrink-0 text-sm font-medium"
                 >
-                  <SelectValue>
-                    {libraryModes[primaryLibraryMode(libraryPreferences)].label}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(libraryModes) as LibraryMode[]).map((mode) => (
-                    <SelectItem key={mode} value={mode}>
-                      {libraryModes[mode].label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="mt-2 text-xs text-muted-foreground">
-                下次启动时默认进入此模式。
-              </p>
+                  主要模式
+                </h3>
+                <Tabs
+                  className="min-w-0"
+                  value={primaryLibraryMode(libraryPreferences)}
+                  onValueChange={(value) => {
+                    if (value !== "papers" && value !== "books") return;
+                    void updateLibraryPreferences({ primaryMode: value }).catch(
+                      (error) => toast.error((error as Error).message),
+                    );
+                  }}
+                >
+                  <TabsList
+                    aria-labelledby="primary-library-label"
+                    className="w-full"
+                  >
+                    {(Object.keys(libraryModes) as LibraryMode[]).map(
+                      (mode) => (
+                        <TabsTrigger key={mode} value={mode}>
+                          {libraryModes[mode].label}
+                        </TabsTrigger>
+                      ),
+                    )}
+                  </TabsList>
+                </Tabs>
+              </div>
             </section>
             <section>
-              <h3 className="mb-3 text-sm font-medium">界面主题</h3>
-              <AppearancePicker theme={theme} setTheme={setTheme} buttons />
+              <AppearancePicker
+                theme={theme}
+                setTheme={setTheme}
+                layout="settings"
+              />
+            </section>
+            <section>
+              <div className="flex items-center justify-between gap-3">
+                <h3 id="motion-label" className="text-sm font-medium">
+                  动态效果
+                </h3>
+                <Switch
+                  id="motion-enabled"
+                  aria-labelledby="motion-label"
+                  checked={theme.reducedMotion !== true}
+                  onCheckedChange={(enabled) =>
+                    setTheme({ reducedMotion: !enabled })
+                  }
+                />
+              </div>
             </section>
             <section>
               <fieldset>
                 <legend className="mb-1 text-sm font-medium">表格显示列</legend>
-                <p className="mb-3 text-xs text-muted-foreground">
-                  标题始终显示。以下选择应用于论文库的表格视图。
-                </p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                   {(Object.keys(columnLabels) as PaperColumn[]).map(
                     (column) => (
@@ -853,21 +829,21 @@ export function Settings({
             </section>
             <section>
               <h3 className="mb-3 text-sm font-medium">期刊指标</h3>
-              <label className="flex items-start gap-2 text-sm">
-                <Checkbox
-                  className="mt-0.5"
-                  checked={journalRank?.enabled ?? true}
-                  disabled={!journalRank || journalSaving}
-                  onCheckedChange={(checked) =>
-                    void saveJournalRank({ enabled: !!checked })
-                  }
-                />
+              <label className="flex items-center justify-between gap-4 text-sm">
                 <span>
                   在论文库显示 easyScholar 期刊指标
                   <span className="block text-xs text-muted-foreground">
                     默认开启；配置 SecretKey 后按论文出处查询。
                   </span>
                 </span>
+                <Switch
+                  aria-label="在论文库显示 easyScholar 期刊指标"
+                  checked={journalRank?.enabled ?? true}
+                  disabled={!journalRank || journalSaving}
+                  onCheckedChange={(checked) =>
+                    void saveJournalRank({ enabled: !!checked })
+                  }
+                />
               </label>
               {journalRank?.enabled && (
                 <>
@@ -896,8 +872,9 @@ export function Settings({
                   </div>
                   <div className="mt-4 flex items-center gap-2 text-xs">
                     <span id="journal-rank-filter-label">指标筛选</span>
-                    <Select
+                    <Tabs
                       value={journalRank.filterMode}
+                      className="min-w-0 flex-1"
                       onValueChange={(value) => {
                         if (value !== "include" && value !== "exclude") return;
                         void saveJournalRank({
@@ -908,25 +885,19 @@ export function Settings({
                               : [],
                         });
                       }}
-                      disabled={journalSaving}
                     >
-                      <SelectTrigger
+                      <TabsList
                         aria-labelledby="journal-rank-filter-label"
-                        className="w-48"
+                        className="w-full"
                       >
-                        <SelectValue>
-                          {journalRank.filterMode === "include"
-                            ? "只显示选中的指标"
-                            : "隐藏选中的指标"}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="include">
+                        <TabsTrigger value="include" disabled={journalSaving}>
                           只显示选中的指标
-                        </SelectItem>
-                        <SelectItem value="exclude">隐藏选中的指标</SelectItem>
-                      </SelectContent>
-                    </Select>
+                        </TabsTrigger>
+                        <TabsTrigger value="exclude" disabled={journalSaving}>
+                          隐藏选中的指标
+                        </TabsTrigger>
+                      </TabsList>
+                    </Tabs>
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {journalRank.filterMode === "include"
@@ -980,84 +951,75 @@ export function Settings({
           </TabsContent>
           <TabsContent value="reading" className="settings-panel" keepMounted>
             <section>
-              <h3
-                id="document-context-label"
-                className="mb-3 text-sm font-medium"
-              >
-                文档上下文上限
-              </h3>
-              <Input
-                aria-labelledby="document-context-label"
-                className="max-w-48"
-                type="number"
-                min={8192}
-                max={1048576}
-                step={1024}
-                defaultValue={theme.documentContextTokens || ""}
-                placeholder="自动获取"
-                key={theme.documentContextTokens}
-                onBlur={(e) => {
-                  const n = Number(e.currentTarget.value);
-                  if (
-                    Number.isInteger(n) &&
-                    (n === 0 || n >= 8192) &&
-                    n <= 1048576
-                  )
-                    setTheme({ documentContextTokens: n });
-                  else
-                    e.currentTarget.value = String(
-                      theme.documentContextTokens || "",
-                    );
-                }}
-              />
-              <p className="mt-2 text-xs text-muted-foreground">
-                优先读取模型信息或 Codex 配置；留空为自动，未知时采用
-                64K。填写后只限制上限。
-              </p>
+              <div className="flex items-center justify-between gap-3">
+                <h3
+                  id="document-context-label"
+                  className="min-w-0 text-sm font-medium"
+                >
+                  文档上下文上限
+                </h3>
+                <Input
+                  aria-labelledby="document-context-label"
+                  className="w-48 shrink-0"
+                  type="number"
+                  min={8192}
+                  max={1048576}
+                  step={1024}
+                  defaultValue={theme.documentContextTokens || ""}
+                  placeholder="自动获取"
+                  key={theme.documentContextTokens}
+                  onBlur={(e) => {
+                    const n = Number(e.currentTarget.value);
+                    if (
+                      Number.isInteger(n) &&
+                      (n === 0 || n >= 8192) &&
+                      n <= 1048576
+                    )
+                      setTheme({ documentContextTokens: n });
+                    else
+                      e.currentTarget.value = String(
+                        theme.documentContextTokens || "",
+                      );
+                  }}
+                />
+              </div>
             </section>
             <section className="space-y-4">
               <h3 className="text-sm font-medium">阅读交互</h3>
-              <label className="flex items-start gap-2 text-sm">
-                <Checkbox
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>多文档标签页</span>
+                <Switch
+                  aria-label="多文档标签页"
                   checked={theme.documentTabs === true}
                   onCheckedChange={(checked) =>
                     setTheme({ documentTabs: !!checked })
                   }
                 />
-                <span>
-                  多文档标签页
-                  <span className="block text-xs text-muted-foreground">
-                    在标签页中同时打开多份文档，切换时保留阅读位置和对话；关闭后打开文档会替换当前文档
-                  </span>
-                </span>
               </label>
-              <label className="flex items-start gap-2 text-sm">
-                <Checkbox
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>自动复制选中文字</span>
+                <Switch
+                  aria-label="自动复制选中文字"
                   checked={theme.autoCopySelection === true}
                   onCheckedChange={(checked) =>
                     setTheme({ autoCopySelection: !!checked })
                   }
                 />
-                <span>
-                  自动复制选中文字
-                  <span className="block text-xs text-muted-foreground">
-                    选中文字或点击高亮、划线等批注时，自动复制到剪贴板
-                  </span>
-                </span>
               </label>
-              <label className="flex items-start gap-2 text-sm">
-                <Checkbox
-                  checked={theme.linkTranslationAnnotations !== false}
-                  onCheckedChange={(checked) =>
-                    setTheme({ linkTranslationAnnotations: !!checked })
-                  }
-                />
+              <label className="flex items-center justify-between gap-4 text-sm">
                 <span>
                   原文译文悬停关联
                   <span className="block text-xs text-muted-foreground">
                     悬停时提示另一侧对应的完整句子
                   </span>
                 </span>
+                <Switch
+                  aria-label="原文译文悬停关联"
+                  checked={theme.linkTranslationAnnotations !== false}
+                  onCheckedChange={(checked) =>
+                    setTheme({ linkTranslationAnnotations: !!checked })
+                  }
+                />
               </label>
             </section>
             <section>
@@ -1068,161 +1030,314 @@ export function Settings({
             {window.neoreadDesktop?.libraryLocation && (
               <LibraryLocationSettings open={open} />
             )}
-            <CitePluginSettings open={open} />
-            <section>
-              <h3 className="mb-3 text-sm font-medium">导入设置</h3>
-              <label className="flex items-start gap-2 text-sm">
-                <Checkbox
-                  className="mt-0.5"
-                  checked={paperPreferences.autoLookup !== false}
-                  onCheckedChange={(checked) =>
-                    void updateLibraryPreferences({
-                      papers: { ...paperPreferences, autoLookup: !!checked },
-                    }).catch((e) => toast.error(e.message))
-                  }
-                />
-                <span>
-                  导入 PDF 后自动补全论文信息
-                  <span className="block text-xs text-muted-foreground">
-                    通过文中的 DOI 或 arXiv 编号向 arXiv、Crossref 与 Semantic
-                    Scholar 查询
-                  </span>
-                </span>
-              </label>
-              <label className="mt-4 flex items-start gap-2 text-sm">
-                <Checkbox
-                  className="mt-0.5"
-                  checked={theme.autoGenerateOverview ?? false}
-                  onCheckedChange={(checked) =>
-                    setTheme({ autoGenerateOverview: !!checked })
-                  }
-                />
-                <span>
-                  导入后生成文档概要
-                  <span className="block text-xs text-muted-foreground">
-                    使用已配置的文字模型，单独记录用量；已有文档按需生成。
-                  </span>
-                </span>
-              </label>
-              <AutoTranslationSettings theme={theme} setTheme={setTheme} />
-            </section>
-            <PaperServiceSettings open={open} />
+            {currentLibrary === "papers" && (
+              <>
+                <CitePluginSettings open={open} />
+                <section>
+                  <h3 className="mb-3 text-sm font-medium">显示设置</h3>
+                  <label className="flex items-center justify-between gap-4 text-sm">
+                    <span>
+                      论文显示作者名字
+                      <span className="block text-xs text-muted-foreground">
+                        在表格和卡片中的标题下方显示
+                      </span>
+                    </span>
+                    <Switch
+                      aria-label="论文显示作者名字"
+                      checked={paperPreferences.showAuthors !== false}
+                      onCheckedChange={(checked) =>
+                        void updateLibraryPreferences({
+                          papers: {
+                            ...paperPreferences,
+                            showAuthors: !!checked,
+                          },
+                        }).catch((e) => toast.error(e.message))
+                      }
+                    />
+                  </label>
+                </section>
+                <section>
+                  <h3 className="mb-3 text-sm font-medium">导入设置</h3>
+                  <label className="flex items-center justify-between gap-4 text-sm">
+                    <span>
+                      导入 PDF 后自动补全论文信息
+                      <span className="block text-xs text-muted-foreground">
+                        通过文中的 DOI 或 arXiv 编号向 arXiv、Crossref 与
+                        Semantic Scholar 查询
+                      </span>
+                    </span>
+                    <Switch
+                      aria-label="导入 PDF 后自动补全论文信息"
+                      checked={paperPreferences.autoLookup !== false}
+                      onCheckedChange={(checked) =>
+                        void updateLibraryPreferences({
+                          papers: {
+                            ...paperPreferences,
+                            autoLookup: !!checked,
+                          },
+                        }).catch((e) => toast.error(e.message))
+                      }
+                    />
+                  </label>
+                  <label className="mt-4 flex items-center justify-between gap-4 text-sm">
+                    <span>
+                      导入后生成文档概要
+                      <span className="block text-xs text-muted-foreground">
+                        使用已配置的文字模型，单独记录用量；已有文档按需生成。
+                      </span>
+                    </span>
+                    <Switch
+                      aria-label="导入后生成文档概要"
+                      checked={theme.autoGenerateOverview ?? false}
+                      onCheckedChange={(checked) =>
+                        setTheme({ autoGenerateOverview: !!checked })
+                      }
+                    />
+                  </label>
+                  <AutoTranslationSettings theme={theme} setTheme={setTheme} />
+                </section>
+                <PaperServiceSettings open={open} />
+              </>
+            )}
           </TabsContent>
           <TabsContent value="agent" className="settings-panel" keepMounted>
             <section
               data-tour="agent-section"
+              data-deck-open={deckOpen}
               data-detecting={!probed || loading || testing.size > 0}
             >
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-medium">Agent 连接</h3>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="重新检测 Agent"
-                  title="重新检测 Agent"
-                  data-tour="agent-refresh"
-                  disabled={loading || testing.size > 0}
-                  onClick={() => void refresh(true)}
-                >
-                  <RefreshCw className={loading ? "animate-spin" : ""} />
-                </Button>
-              </div>
-              <div
-                data-tour="agent-cards"
-                role="radiogroup"
-                aria-label="Agent"
-                className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2"
-              >
-                {(["codex", "claude", "kimi", "api"] as const).map((name) => {
-                  const p = providers.find((p) => p.id === name);
-                  const capability = config?.capabilities[name];
-                  const pending = testing.has(name);
-                  const selected = config?.primary === name;
-                  const blocked = !!agentBlocker(name);
-
-                  return (
-                    <div
-                      key={name}
-                      className={cn(
-                        "relative min-h-28 min-w-0 rounded-xl border p-4 transition-[box-shadow,background-color,border-color] duration-200 ease-out motion-reduce:transition-none",
-                        selected
-                          ? "border-primary/40 bg-primary/5 shadow-md"
-                          : !blocked &&
-                              "hover:shadow-sm has-[[data-slot=agent-select]:active]:shadow-none",
-                      )}
-                      data-tour="agent-card"
-                      data-agent={name}
-                      data-status={agentStatus(name)}
-                      data-selected={selected || undefined}
-                    >
-                      {/* The whole card selects the agent; controls inside sit above it. */}
-                      <Button
-                        variant="ghost"
-                        data-slot="agent-select"
-                        role="radio"
-                        aria-checked={selected}
-                        aria-disabled={blocked}
-                        aria-label={`使用 ${providerLabel(name)}`}
-                        className="absolute inset-0 h-auto rounded-xl p-0 hover:bg-transparent dark:hover:bg-transparent"
-                        disabled={!config || saving || aiModelSaving}
-                        onClick={() => void selectAgent(name)}
-                      />
-                      <div className="pointer-events-none relative flex items-center gap-3">
-                        <span className="flex-1 text-base font-medium">
-                          <ProviderIdentity provider={name} size={36} />
-                        </span>
-                        {!loading && !p?.installed && (
-                          <Badge variant="outline">
-                            {name === "api" ? "未配置" : "未安装"}
-                          </Badge>
-                        )}
-                        {name === "api" && (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="pointer-events-auto -my-1 -mr-1"
-                            aria-label="配置 API Key"
-                            title="配置 API Key"
-                            data-tour="api-edit"
-                            onClick={() => setAPIDetails(true)}
-                          >
-                            <Pencil />
-                          </Button>
-                        )}
+              <div data-tour="agent-connection">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-medium">Agent 连接</h3>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="重新检测 Agent"
+                    title="重新检测 Agent"
+                    data-tour="agent-refresh"
+                    disabled={loading || testing.size > 0}
+                    onClick={() => void refresh(true)}
+                  >
+                    <RefreshCw className={loading ? "animate-spin" : ""} />
+                  </Button>
+                </div>
+                <AgentDeck
+                  items={deckItems}
+                  front={deckFront}
+                  open={deckOpen}
+                  onOpenChange={setDeckOpen}
+                  panel={
+                    apiDetails ? (
+                      <div className="p-5" data-tour="api-panel">
+                        <Button
+                          variant="ghost"
+                          aria-label="返回 Agent 设置"
+                          data-tour="api-back"
+                          onClick={() => setAPIDetails(false)}
+                        >
+                          <ChevronLeft />
+                          API 配置
+                        </Button>
+                        <div className="settings-panel" data-tour="api-details">
+                          <section data-tour="api-form">
+                            {config && (
+                              <APIAgentForm
+                                connection={config.api}
+                                disabled={saving || testing.size > 0}
+                                onSave={saveAPI}
+                              />
+                            )}
+                            {config &&
+                              providers.some(
+                                (p) => p.id === "api" && p.installed,
+                              ) && (
+                                <div className="mt-6">
+                                  <h3 className="mb-1 text-sm font-medium">
+                                    模型
+                                  </h3>
+                                  <label className="mb-1 flex items-center gap-3 text-xs text-muted-foreground">
+                                    检测等待上限（秒）
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      max={600}
+                                      step={1}
+                                      value={probeWait}
+                                      onChange={(event) =>
+                                        setProbeWait(event.target.value)
+                                      }
+                                      aria-label="检测等待上限（秒）"
+                                      aria-describedby="api-probe-wait-help"
+                                      aria-invalid={!validProbeWait}
+                                      placeholder="默认"
+                                      className="h-7 w-24"
+                                    />
+                                  </label>
+                                  <p
+                                    id="api-probe-wait-help"
+                                    className="mb-3 text-xs text-muted-foreground"
+                                  >
+                                    仅用于手动检测，每阶段最多 600 秒；留空或 0
+                                    使用文本 45 秒、图片 90 秒
+                                  </p>
+                                  {!validProbeWait && (
+                                    <p
+                                      className="mb-2 text-xs text-destructive"
+                                      role="alert"
+                                    >
+                                      请输入 0–600 的整数
+                                    </p>
+                                  )}
+                                  <ul className="api-model-list">
+                                    {apiModels.map((model) => {
+                                      const id = `api:${model.id}`;
+                                      const result = config.capabilities[id];
+                                      const error =
+                                        errors[`${id}:vision`] ||
+                                        errors[`${id}:text`] ||
+                                        result?.error;
+                                      const retry = result || error;
+                                      const timings = [
+                                        !errors[`${id}:text`] &&
+                                        result?.textFirstOutputMs != null
+                                          ? `文本首输出 ${(result.textFirstOutputMs / 1000).toFixed(2)} s`
+                                          : "",
+                                        !errors[`${id}:text`] &&
+                                        !errors[`${id}:vision`] &&
+                                        result?.visionFirstOutputMs != null
+                                          ? `图片首输出 ${(result.visionFirstOutputMs / 1000).toFixed(2)} s`
+                                          : "",
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" · ");
+                                      return (
+                                        <li
+                                          key={model.id}
+                                          className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 py-1"
+                                        >
+                                          <span
+                                            className="min-w-0 flex-1 truncate text-sm"
+                                            title={model.id}
+                                          >
+                                            {model.name}
+                                          </span>
+                                          {(testing.has(id) ||
+                                            result ||
+                                            error) &&
+                                            checkStatus(id, result)}
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={
+                                              saving ||
+                                              testing.has(id) ||
+                                              !validProbeWait
+                                            }
+                                            aria-label={`${retry ? "重新检测" : "检测"} ${model.id}`}
+                                            onClick={() =>
+                                              void checkModel(model)
+                                            }
+                                          >
+                                            {retry ? "重新检测" : "检测"}
+                                          </Button>
+                                          {result?.text && (
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              disabled={
+                                                saving || testing.has(id)
+                                              }
+                                              onClick={() =>
+                                                void checkTools(model)
+                                              }
+                                              title={result.toolError}
+                                            >
+                                              {result.tools === "passed"
+                                                ? "检索工具已通过"
+                                                : "检测检索工具"}
+                                            </Button>
+                                          )}
+                                          {model.custom && (
+                                            <Button
+                                              variant="ghost"
+                                              size="icon-sm"
+                                              aria-label={`移除 ${model.name}`}
+                                              title="移除"
+                                              disabled={
+                                                saving || testing.has(id)
+                                              }
+                                              onClick={() =>
+                                                void saveAPIModels((models) =>
+                                                  models.filter(
+                                                    (item) => item !== model.id,
+                                                  ),
+                                                )
+                                              }
+                                            >
+                                              <X />
+                                            </Button>
+                                          )}
+                                          {!testing.has(id) &&
+                                            (timings || error) && (
+                                              <div className="w-full break-words text-xs text-muted-foreground">
+                                                {timings && (
+                                                  <p title="本次首次收到思考或正文的耗时，不含模型列表加载，受网络和服务负载影响">
+                                                    {timings}
+                                                  </p>
+                                                )}
+                                                {error && <p>{error}</p>}
+                                              </div>
+                                            )}
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                  {apiModelsError && (
+                                    <p
+                                      className="mt-1 text-xs text-muted-foreground"
+                                      role="alert"
+                                    >
+                                      {apiModelsError}
+                                    </p>
+                                  )}
+                                  <APIModelForm
+                                    disabled={saving}
+                                    onAdd={(id) =>
+                                      saveAPIModels((models) => [...models, id])
+                                    }
+                                  />
+                                </div>
+                              )}
+                          </section>
+                        </div>
                       </div>
-                      <div className="pointer-events-none relative">
-                        {name === "api" ? (
-                          p?.installed ? (
-                            apiCardStatus()
-                          ) : (
-                            <span className="mt-3 block text-xs text-muted-foreground">
-                              点击右上角配置你的 API Key
-                            </span>
-                          )
-                        ) : (
-                          (pending || p?.installed || capability) &&
-                          checkStatus(name, capability)
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                    ) : null
+                  }
+                  onPanelClose={() => {
+                    setAPIDetails(false);
+                  }}
+                  usable={(id) => agentStatus(id) === "ready"}
+                  onPick={pickCard}
+                  onDetail={openDetail}
+                  onRefresh={() => {
+                    void refresh(true);
+                  }}
+                  refreshing={loading || testing.size > 0}
+                  loadCalls={(id, signal) =>
+                    recentAgentCalls(id, documents, signal)
+                  }
+                />
               </div>
               {config && (
                 <div className="mt-4 flex flex-col gap-2">
                   <div data-tour="task-models">
                     <TaskModels disabled={saving || testing.size > 0} />
                   </div>
-                  {config.primary === "api" && (
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      只列出通过检测的模型：问答与翻译需通过文本推理，图片需通过图片理解。公式转换与主动图片提问使用图片模型。
-                    </p>
-                  )}
                 </div>
               )}
               <p className="mt-4 flex gap-2 text-xs leading-5 text-muted-foreground">
                 <CircleHelp className="mt-0.5 size-4 shrink-0" />
-                NeoRead 调用已安装的 CLI，不读取账号凭据。
+                NeoRead 调用已安装的 CLI，不读取账号凭据，保护您的隐私。
               </p>
             </section>
             {config && (

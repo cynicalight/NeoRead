@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -33,6 +34,73 @@ func (s *Server) scholarClient() *scholar.Client {
 	return &client
 }
 
+const paperLookupAttempts = 10
+const paperLookupInterval = 500 * time.Millisecond
+
+// retryPaperLookup waits between failed external lookups and respects cancellation.
+func retryPaperLookup(ctx context.Context, interval time.Duration, lookup func(context.Context) (scholar.Metadata, error)) (scholar.Metadata, int, error) {
+	var found scholar.Metadata
+	var err error
+	for attempt := 1; attempt <= paperLookupAttempts; attempt++ {
+		if ctx.Err() != nil {
+			return found, attempt - 1, ctx.Err()
+		}
+		found, err = lookup(ctx)
+		if err == nil {
+			return found, attempt, nil
+		}
+		if ctx.Err() != nil {
+			return found, attempt, ctx.Err()
+		}
+		if attempt == paperLookupAttempts {
+			return found, attempt, err
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return found, attempt, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return found, paperLookupAttempts, err
+}
+
+func (s *Server) lookupScholar(ctx context.Context, id string, ids scholar.Identifiers) (scholar.Metadata, error) {
+	return s.lookupScholarCandidates(ctx, id, []scholar.Identifiers{ids}, false)
+}
+
+func (s *Server) lookupScholarCandidates(ctx context.Context, id string, candidates []scholar.Identifiers, requireTitle bool) (scholar.Metadata, error) {
+	client := s.scholarClient()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	found, attempts, err := retryPaperLookup(ctx, paperLookupInterval, func(ctx context.Context) (scholar.Metadata, error) {
+		var found scholar.Metadata
+		var err error
+		for _, ids := range candidates {
+			found, err = client.Lookup(ctx, ids)
+			if err == nil && (!requireTitle || strings.TrimSpace(found.Title) != "") {
+				return found, nil
+			}
+			if err == nil {
+				err = scholar.ErrNotFound
+			}
+			if ctx.Err() != nil {
+				return found, ctx.Err()
+			}
+		}
+		return found, err
+	})
+	outcome := "success"
+	level := slog.LevelInfo
+	if err != nil {
+		outcome = "failed"
+		level = slog.LevelWarn
+	}
+	s.diagnosticEvent(level, "paper.metadata.lookup", "documentId", id, "outcome", outcome, "attempts", attempts, "maxAttempts", paperLookupAttempts, "intervalMs", 500)
+	return found, err
+}
+
 func fromScholar(m scholar.Metadata) PaperMetadata {
 	out := PaperMetadata{ItemType: m.ItemType, Date: m.Date, Venue: m.Venue, Volume: m.Volume, Issue: m.Issue, Pages: m.Pages, Publisher: m.Publisher, DOI: m.DOI, ArXiv: m.ArXiv, ISBN: m.ISBN, URL: m.URL, Abstract: m.Abstract}
 	for _, c := range m.Creators {
@@ -56,10 +124,21 @@ func (s *Server) applyFound(id string, found PaperMetadata, title, source, looku
 		}
 		changed := m.Merge(found, source)
 		nextTitle := d.Title
-		if title = strings.TrimSpace(title); title != "" && m.Sources["title"] != "manual" && (source == "lookup" || m.Sources["title"] == "") {
+		if title = strings.TrimSpace(title); source == "ai" {
+			if t, e := cleanText(title, 300, false); e == nil {
+				if t == d.Title {
+					m.SuggestedTitle = ""
+				} else {
+					m.SuggestedTitle = t
+				}
+			}
+		} else if title != "" && m.Sources["title"] != "manual" && (source == "lookup" || m.Sources["title"] == "") {
 			if t, e := cleanText(title, 300, false); e == nil && t != "" {
 				nextTitle, m.Sources["title"] = t, source
 			}
+		}
+		if m.SuggestedTitle == nextTitle {
+			m.SuggestedTitle = ""
 		}
 		author := d.Author
 		for _, key := range changed {
@@ -76,6 +155,9 @@ func (s *Server) applyFound(id string, found PaperMetadata, title, source, looku
 			return d, err
 		}
 		if n, _ := result.RowsAffected(); n == 1 {
+			if nextTitle != d.Title || string(after) != string(before) {
+				s.connectorRevision.Add(1)
+			}
 			return s.Store.Document(id)
 		}
 	}
@@ -119,7 +201,7 @@ var errNoIdentifier = errors.New("没有找到 DOI 或 arXiv 编号，可以在�
 
 // lookupDocument finds metadata from the paper's identifiers, its first pages
 // or (when asked by the user) a close title match.
-func (s *Server) lookupDocument(ctx context.Context, id string, byTitle bool) (Document, error) {
+func (s *Server) lookupDocument(ctx context.Context, id string, byTitle bool, forceTitle ...bool) (Document, error) {
 	d, err := s.Store.Document(id)
 	if err != nil {
 		return d, err
@@ -129,7 +211,9 @@ func (s *Server) lookupDocument(ctx context.Context, id string, byTitle bool) (D
 	if ids.DOI == "" && ids.ArXiv == "" {
 		ids = scholar.Detect(text)
 	}
-	if ids.DOI == "" && ids.ArXiv == "" && byTitle {
+	if len(forceTitle) > 0 && forceTitle[0] {
+		ids = scholar.Identifiers{Title: d.Title}
+	} else if ids.DOI == "" && ids.ArXiv == "" && byTitle {
 		ids.Title = d.Title
 	}
 	if ids == (scholar.Identifiers{}) {
@@ -141,7 +225,7 @@ func (s *Server) lookupDocument(ctx context.Context, id string, byTitle bool) (D
 		}
 		return d, errNoIdentifier
 	}
-	found, err := s.scholarClient().Lookup(ctx, ids)
+	found, err := s.lookupScholar(ctx, id, ids)
 	if err != nil {
 		return d, err
 	}
@@ -167,7 +251,7 @@ func (s *Server) lookupMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
-	d, err = s.lookupDocument(ctx, d.ID, true)
+	d, err = s.lookupDocument(ctx, d.ID, true, r.URL.Query().Get("by") == "title")
 	if err != nil {
 		status := 502
 		if errors.Is(err, errNoIdentifier) || errors.Is(err, scholar.ErrNotFound) {
@@ -265,8 +349,7 @@ func (s *Server) autoLookupEnabled() bool {
 	return *prefs.Papers.AutoLookup
 }
 
-// metadataWorker looks up papers imported from files once their first pages are
-// parsed. It sends only identifiers printed in the paper.
+// metadataWorker processes pending paper lookups independently of full parsing.
 func (s *Server) metadataWorker(ctx context.Context) {
 	tick := time.NewTicker(3 * time.Second)
 	defer tick.Stop()
@@ -280,9 +363,8 @@ func (s *Server) metadataWorker(ctx context.Context) {
 			continue
 		}
 		var id string
-		err := s.Store.DB.QueryRow(`SELECT d.id FROM documents d LEFT JOIN document_processing p ON p.document_id=d.id
+		err := s.Store.DB.QueryRow(`SELECT d.id FROM documents d
    WHERE d.library='papers' AND d.deleted_at='' AND json_extract(d.metadata,'$.lookup')='pending'
-   AND (p.document_id IS NULL OR p.phase!='learning' OR p.status='failed')
    ORDER BY d.created_at LIMIT 1`).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) || err != nil {
 			continue
@@ -292,7 +374,7 @@ func (s *Server) metadataWorker(ctx context.Context) {
 			continue
 		}
 		lookupCtx, cancel := context.WithTimeout(work, time.Minute)
-		_, err = s.lookupDocument(lookupCtx, id, false)
+		_, err = s.autoPaperLookup(lookupCtx, id)
 		cancel()
 		finish()
 		if ctx.Err() != nil || work.Err() != nil {

@@ -2,26 +2,16 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useReaderStore } from "../store";
 import { MessageMarkdown } from "./MessageMarkdown";
 import { markdownFixture, sizedFixture, splitFixture } from "./fixtures";
 import { useChatScroll } from "./useChatScroll";
 let root: Root, host: HTMLDivElement;
-let reduced = false,
-  hidden = false;
-let mediaListeners = new Set<() => void>();
+let hidden = false;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  reduced = false;
+  useReaderStore.getState().setTheme({ reducedMotion: false });
   hidden = false;
-  mediaListeners = new Set();
-  vi.stubGlobal("matchMedia", () => ({
-    get matches() {
-      return reduced;
-    },
-    addEventListener: (_: string, fn: () => void) => mediaListeners.add(fn),
-    removeEventListener: (_: string, fn: () => void) =>
-      mediaListeners.delete(fn),
-  }));
   vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
   host = document.createElement("div");
   document.body.append(host);
@@ -30,6 +20,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  useReaderStore.getState().setTheme({ reducedMotion: false });
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -54,14 +45,12 @@ describe("Markdown display lifecycle", () => {
       root.render(<MessageMarkdown content="开头" generating />),
     );
     act(() => {
-      reduced = true;
-      mediaListeners.forEach((fn) => fn());
+      useReaderStore.getState().setTheme({ reducedMotion: true });
     });
     expect(host.textContent).toBe("开头");
     expect(host.querySelector('[data-animated="false"]')).not.toBeNull();
     act(() => {
-      reduced = false;
-      mediaListeners.forEach((fn) => fn());
+      useReaderStore.getState().setTheme({ reducedMotion: false });
       hidden = true;
       document.dispatchEvent(new Event("visibilitychange"));
     });
@@ -160,5 +149,4 @@ it("scroll pauses on upward intent, ignores resizes until resumed and cleans obs
   root = createRoot(host);
   expect(disconnected).toBe(1);
   expect(frames.size).toBe(0);
-  expect(mediaListeners.size).toBe(0);
 });

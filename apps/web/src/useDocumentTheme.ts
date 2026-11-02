@@ -13,7 +13,7 @@ export function documentZoom(
       value >= 0.1 &&
       value <= 5)
     ? value
-    : theme.zoom;
+    : 1;
 }
 
 /** Manual preferences persist; layout and passage-focus zoom stay local to this tab. */
@@ -33,7 +33,7 @@ export function useDocumentTheme(
     state.setTheme({
       documentZooms: {
         ...state.theme.documentZooms,
-        [doc.id]: state.theme.zoom,
+        [doc.id]: 1,
       },
     });
   }, [active, doc.id, doc.type]);

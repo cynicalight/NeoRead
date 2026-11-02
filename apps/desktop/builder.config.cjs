@@ -5,6 +5,8 @@ module.exports = {
   files: ["dist/**/*", "package.json"],
   extraResources: [{ from: "staging", to: ".", filter: ["**/*"] }],
   asar: true,
+  // Electron UI translations only; document languages and fonts are unaffected.
+  electronLanguages: ["en", "zh-CN", "zh-TW"],
   // Keep maximum compression for Windows NSIS.
   compression: "maximum",
   npmRebuild: false,
@@ -15,6 +17,18 @@ module.exports = {
     // The zip is the Squirrel.Mac in-place update payload.
     target: ["dmg", "zip"],
     category: "public.app-category.books",
+    // Lists NeoRead under Open With without claiming PDF or EPUB by default.
+    extendInfo: {
+      CFBundleDocumentTypes: [
+        ["PDF Document", "com.adobe.pdf"],
+        ["EPUB Book", "org.idpf.epub-container"],
+      ].map(([name, type]) => ({
+        CFBundleTypeName: name,
+        CFBundleTypeRole: "Viewer",
+        LSHandlerRank: "Alternate",
+        LSItemContentTypes: [type],
+      })),
+    },
     icon: "../../assets/icons/macos/icon.icns",
     identity: "-",
     // Replaces the ad-hoc identity with the fixed release certificate when available.
@@ -45,5 +59,7 @@ module.exports = {
     perMachine: false,
     allowToChangeInstallationDirectory: true,
     deleteAppDataOnUninstall: false,
+    // build/installer.nsh lists NeoRead under Open With for PDF and EPUB.
+    include: "installer.nsh",
   },
 };

@@ -269,7 +269,7 @@ export function readingRegions(
         intersection(r.bounds, bounds) / (r.bounds.width * r.bounds.height) >
           0.8,
     );
-    const members = [...assets, ...parts, caption];
+    const members = [...assets, ...parts];
     bounds = union(members.map((r) => r.bounds));
     members.forEach((r) => consumed.add(r));
     const text = assignText([{ ...assets[0], bounds }], spans).texts[0];
@@ -277,7 +277,6 @@ export function readingRegions(
       ...assets[0],
       bounds,
       text,
-      caption: caption.text,
       order: Math.min(...members.map((r) => r.order)),
       confidence: Math.min(...assets.map((r) => r.confidence)),
       members: members.map((r) => r.order),

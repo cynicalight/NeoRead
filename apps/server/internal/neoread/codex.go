@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"neoread.local/server/internal/runtimeenv"
 	"os"
 	"os/exec"
 	"strings"
@@ -61,7 +62,7 @@ func startCodexSession(work, model string, overrides []string, token string) (*c
 		args = append(args, "-c", setting)
 		addCodexOverride(effectiveOverrides, setting)
 	}
-	cmd := exec.Command("codex", args...)
+	cmd := runtimeenv.Command("codex", args...)
 	for _, setting := range overrides {
 		cmd.Args = append(cmd.Args, "-c", setting)
 		addCodexOverride(effectiveOverrides, setting)
@@ -124,6 +125,8 @@ func (s *codexSession) generate(ctx context.Context, in AIInput, delta func(stri
 	toolSerial, candidateToolSerial := 0, 0
 	threadID, turnID := s.threadID, ""
 	completed := false
+	webBudgetNotified := false
+	webBudgetNoticeID := 0
 	providerError := errors.New("Codex 未完成回答，请检查登录、网络、模型或额度")
 	appendText := func(itemID, part string) error {
 		if ctx.Err() != nil {
@@ -168,6 +171,13 @@ func (s *codexSession) generate(ctx context.Context, in AIInput, delta func(stri
 	// Notifications can interleave with RPC responses, including turn/start.
 	handle := func(msg message) error {
 		if completed {
+			return nil
+		}
+		var responseID int
+		if webBudgetNoticeID != 0 && msg.Method == "" && json.Unmarshal(msg.ID, &responseID) == nil && responseID == webBudgetNoticeID {
+			if len(msg.Error) > 0 && string(msg.Error) != "null" {
+				slog.WarnContext(ctx, "web.search.budget_notice_rejected", "requestId", requestID(ctx))
+			}
 			return nil
 		}
 		if len(msg.ID) > 0 && msg.Method != "" {
@@ -242,6 +252,21 @@ func (s *codexSession) generate(ctx context.Context, in AIInput, delta func(stri
 		if in.Chat != nil {
 			if err := in.Chat.codexToolEvent(msg.Method, msg.Params); err != nil {
 				return err
+			}
+			in.Chat.toolMu.Lock()
+			webCalls := in.Chat.webCalls
+			in.Chat.toolMu.Unlock()
+			if !webBudgetNotified && webCalls >= webToolCalls-10 && id != "" {
+				webBudgetNotified = true
+				s.serial++
+				webBudgetNoticeID = s.serial
+				slog.InfoContext(ctx, "web.search.budget_reached", "requestId", requestID(ctx), "limit", webToolCalls)
+				if err := lifecycle.send(map[string]any{"id": webBudgetNoticeID, "method": "turn/steer", "params": map[string]any{
+					"threadId": threadID, "expectedTurnId": id,
+					"input": []any{map[string]string{"type": "text", "text": "本轮网页搜索和读取已接近预算，请优先补充必要证据并尽快完成回答，说明尚未核实的内容。"}},
+				}}); err != nil {
+					slog.WarnContext(ctx, "web.search.budget_notice_failed", "requestId", requestID(ctx))
+				}
 			}
 		}
 		switch msg.Method {

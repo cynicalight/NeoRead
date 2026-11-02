@@ -21,12 +21,16 @@ vi.mock("@neoread/api", () => ({
   },
 }));
 vi.mock("./shortcuts/shortcuts", () => ({
+  isMac: () => false,
   useShortcut: vi.fn(),
   loadBindings: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./ProcessingStatus", () => ({ useProcessing: () => ({ jobs: [] }) }));
 vi.mock("./update-progress", () => ({ useUpdateProgress: vi.fn() }));
-vi.mock("./appearance", () => ({ useResolvedTheme: () => defaultTheme }));
+vi.mock("./appearance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./appearance")>()),
+  useResolvedTheme: () => defaultTheme,
+}));
 vi.mock("./Settings", () => ({ Settings: () => null }));
 vi.mock("./Workspace", () => ({ Workspace: () => null }));
 vi.mock("./guide/GuideHost", () => ({ GuideHost: () => null }));

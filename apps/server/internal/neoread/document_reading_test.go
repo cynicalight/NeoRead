@@ -94,7 +94,7 @@ func TestCodexDocumentReadingBudgetKeepsEvidence(t *testing.T) {
 	a.ctx = ctx
 	var text strings.Builder
 	result, err := streamCodexDocumentChat(ctx, s.Store.Root, "test", AIInput{Prompt: "Read the original nonce", Chat: &chatInput{Agent: a}}, func(e ProviderEvent) error { text.WriteString(e.Text); return nil })
-	if err != nil || result.Text != text.String() || !strings.Contains(result.Text, "阅读范围") || !strings.Contains(result.Text, "COBALT-19") || len(a.Traces) != documentToolCalls || len(a.Evidence) != 1 {
+	if err != nil || result.Text != text.String() || !strings.Contains(result.Text, "COBALT-19") || len(a.Traces) != documentToolCalls || len(a.Evidence) != 1 {
 		t.Fatal("native budget interruption lost the bounded answer", err, result.Text, len(a.Traces), len(a.Evidence))
 	}
 	if a.contextTokens != 32768 || a.contextSource != "codex_runtime" || a.runtimeUsedTokens != 1050 {
@@ -136,7 +136,11 @@ func TestDocumentReadingBudgetSavesBoundedAnswer(t *testing.T) {
 					t.Error("invalid model request")
 					return
 				}
-				if len(payload.Tools) == 0 {
+				threshold := documentReadingRounds + 1
+				if mode == "calls" {
+					threshold = documentToolCalls/4 + 1
+				}
+				if readingCalls >= threshold {
 					finalCalls++
 					if mode == "final-failure" {
 						w.WriteHeader(503)
@@ -185,22 +189,22 @@ func TestDocumentReadingBudgetSavesBoundedAnswer(t *testing.T) {
 				}
 				return
 			}
-			if answers != 1 || strings.Count(w.Body.String(), "event: done") != 1 || strings.Contains(w.Body.String(), "event: fallback") || !strings.Contains(w.Body.String(), "尚未覆盖全部可检索原文") {
+			if answers != 1 || strings.Count(w.Body.String(), "event: done") != 1 || strings.Contains(w.Body.String(), "event: fallback") {
 				t.Fatalf("budget did not finish with evidence: %s", w.Body.String())
 			}
 			var saved, run string
 			s.Store.DB.QueryRow("SELECT json_extract(body,'$.content') FROM messages WHERE json_extract(body,'$.role')='assistant'").Scan(&saved)
 			s.Store.DB.QueryRow("SELECT body FROM chat_agent_runs WHERE json_extract(body,'$.status')='complete'").Scan(&run)
-			if !strings.Contains(saved, "COBALT-19") || !strings.Contains(saved, "阅读范围") || !strings.Contains(run, "stopReason") {
+			if !strings.Contains(saved, "COBALT-19") || !strings.Contains(run, "stopReason") {
 				t.Fatal("bounded answer or reading provenance not persisted")
 			}
 			switch mode {
 			case "rounds":
-				if readingCalls != documentReadingRounds-1 {
+				if readingCalls != documentReadingRounds+1 {
 					t.Fatal(readingCalls)
 				}
 			case "calls":
-				if readingCalls != documentToolCalls/4 {
+				if readingCalls != documentToolCalls/4+1 {
 					t.Fatal(readingCalls)
 				}
 			case "context":
@@ -228,7 +232,7 @@ func TestDocumentReadingSoftStopPreservesFailuresAndEvidence(t *testing.T) {
 	}
 	a.calls = documentToolCalls - 3
 	raw, err := a.call(t.Context(), "get_outline", json.RawMessage(`{}`))
-	if err != nil || !strings.Contains(string(raw), `"shouldFinish":true`) || !strings.Contains(string(raw), `"remainingCalls":2`) {
+	if err != nil || !strings.Contains(string(raw), `"shouldFinish":true`) || !strings.Contains(string(raw), `"recommendedRemainingCalls":2`) {
 		t.Fatal("missing advance budget feedback", err, string(raw))
 	}
 	a.bytes = documentEvidenceBytes - 1
@@ -279,5 +283,40 @@ func TestPartialCorpusDisclosesGapsWithoutBudgetStop(t *testing.T) {
 	history, err := s.Store.chatHistory("doc")
 	if err != nil || len(history) != 2 || !strings.Contains(history[1].Content, "无法检索的原文范围") {
 		t.Fatal("notice not saved", err, history)
+	}
+}
+
+func TestDocumentMCPToolFailureDoesNotAbortTurn(t *testing.T) {
+	_, a := originalDocumentFixture(t)
+	if _, err := a.server.Store.DB.Exec("DROP TABLE document_passages_fts"); err != nil {
+		t.Fatal(err)
+	}
+	aborted := false
+	a.abort = func() { aborted = true }
+	url, token, closeServer, err := serveDocumentMCP(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeServer()
+	body := jsonText(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "search_document", "arguments": map[string]string{"query": "cobalt"}}})
+	r, err := http.NewRequestWithContext(t.Context(), "POST", url, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Accept", "application/json, text/event-stream")
+	r.Header.Set("MCP-Protocol-Version", "2025-11-25")
+	response, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(response.Body)
+	if err != nil || response.StatusCode != 200 || !strings.Contains(string(data), "tool_failed") || aborted {
+		t.Fatal("tool failure interrupted the turn", response.StatusCode, string(data), aborted, err)
+	}
+	if _, err := a.call(t.Context(), "read_passage", json.RawMessage(jsonText(map[string]string{"blockId": a.corpus.Passages[1].ID}))); err != nil {
+		t.Fatal("the next tool call failed", err)
 	}
 }

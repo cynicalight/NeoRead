@@ -55,6 +55,22 @@ func TestBlockImageAuthorizationAndBoundaries(t *testing.T) {
 }
 func TestImageChatSendsPixelsAndRecordsAttachmentWithFallback(t *testing.T) {
 	s, data := imageFixture(t)
+	layout, err := s.readLayout("doc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, after := layout.Blocks[0], layout.Blocks[0]
+	before.ID, before.Label, before.Image, before.Text = "p1-b2", "text", "", "PREVIOUS: experimental conditions"
+	after.ID, after.Label, after.Image, after.Text = "p1-b3", "text", "", "FOLLOWING: Figure 5 caption"
+	layout.Blocks = []PDFBlock{before, layout.Blocks[0], after}
+	encoded, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.analysisDir("doc"), "manifest.json"), encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+
 	calls := 0
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -81,6 +97,11 @@ func TestImageChatSendsPixelsAndRecordsAttachmentWithFallback(t *testing.T) {
 			t.Error(err)
 			return
 		}
+		for _, want := range []string{"PREVIOUS: experimental conditions", "FOLLOWING: Figure 5 caption"} {
+			if !strings.Contains(string(body.Messages[1].Content), want) {
+				t.Errorf("missing image neighbor in provider request: %s", want)
+			}
+		}
 		if len(content) != 2 || content[1].ImageURL.URL != imageData(data) {
 			t.Error("original image pixels missing")
 		}
@@ -104,6 +125,11 @@ func TestImageChatSendsPixelsAndRecordsAttachmentWithFallback(t *testing.T) {
 	}
 	if len(stored) != 2 || len(stored[0].Attachments) != 1 || stored[0].Attachments[0].ID != "p1-b1" || stored[1].Content != "Image explanation" {
 		t.Fatalf("attachment not persisted: %+v", stored)
+	}
+	for _, want := range []string{"PREVIOUS: experimental conditions", "FOLLOWING: Figure 5 caption"} {
+		if strings.Count(stored[0].Context, want) != 1 {
+			t.Fatalf("neighbor not persisted exactly once: %s", stored[0].Context)
+		}
 	}
 }
 func TestImageChatRejectsInvalidOrUnverifiedInput(t *testing.T) {
@@ -163,5 +189,43 @@ func TestImageAPIKeepsMultipleAttachments(t *testing.T) {
 	_, err = invokeAPI(t.Context(), APIConnection{URL: api.URL, Model: "vision"}, AIInput{Prompt: "Compare", Images: [][]byte{data, second}}, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestImageParagraphsUseReadingOrderWithoutCaptionClassification(t *testing.T) {
+	blocks := []PDFBlock{
+		{ID: "far", Page: 1, Label: "text", Text: "too far"},
+		{ID: "before", Page: 1, Label: "text", Text: "Table 5: experimental conditions"},
+		{ID: "footer", Page: 1, Label: "footer", Text: "footer"},
+		{ID: "image", Page: 2, Label: "chart", Image: "asset.png"},
+		{ID: "formula", Page: 2, Label: "display_formula", Text: "formula"},
+		{ID: "number", Page: 2, Label: "formula_number", Text: "(1)"},
+		{ID: "other", Page: 2, Label: "image", Text: "other image text"},
+		{ID: "empty", Page: 2, Label: "text", Text: " "},
+		{ID: "after", Page: 2, Label: "text", Text: "Figure 5: interpretation"},
+		{ID: "last", Page: 2, Label: "text", Text: "also too far"},
+	}
+	got := imageParagraphs(blocks, "image")
+	for _, want := range []string{"图片前一段原文：\n第 1 页：Table 5: experimental conditions", "图片后一段原文：\n第 2 页：Figure 5: interpretation"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing neighboring paragraph: %s", got)
+		}
+	}
+	for _, excluded := range []string{"too far", "footer", "formula", "other image text", "(1)"} {
+		if strings.Contains(got, excluded) {
+			t.Fatalf("unexpected context: %s", got)
+		}
+	}
+	if imageParagraphs(blocks, "missing") != "" {
+		t.Fatal("invented context for missing block")
+	}
+	if got := imageParagraphs(blocks[3:4], "image"); got != "" {
+		t.Fatal("invented missing neighbors", got)
+	}
+	if got := imageParagraphs(blocks[3:], "image"); strings.Contains(got, "图片前一段") || !strings.Contains(got, "图片后一段") {
+		t.Fatal("incorrect start boundary", got)
+	}
+	if got := imageParagraphs(blocks[:4], "image"); !strings.Contains(got, "图片前一段") || strings.Contains(got, "图片后一段") {
+		t.Fatal("incorrect end boundary", got)
 	}
 }

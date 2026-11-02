@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+import { useReaderStore } from "../store";
 import { afterEach, expect, it, vi } from "vitest";
 import type { PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
 import { PDFViewport } from "./pdf-viewport";
 afterEach(() => {
+  useReaderStore.getState().setTheme({ reducedMotion: false });
   document.body.replaceChildren();
   vi.restoreAllMocks();
 });
@@ -191,7 +193,7 @@ it("applies the final scale without animation for reduced motion", () => {
   const animate = vi.fn();
   Object.defineProperty(element, "animate", { value: animate });
   s.viewer.viewer = element;
-  vi.stubGlobal("matchMedia", () => ({ matches: true }));
+  useReaderStore.getState().setTheme({ reducedMotion: true });
   try {
     s.size.width = 400;
     s.resize();

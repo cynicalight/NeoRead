@@ -339,6 +339,24 @@ func readValidatedLayout(path string) (layoutManifest, error) {
 	return m, nil
 }
 
+// StartProcessingAsync exposes settings and assets before background recovery.
+// The returned stop waits for initialization and all workers before DB closure.
+func (s *Server) StartProcessingAsync(parent context.Context) func() {
+	ctx, cancel := context.WithCancel(parent)
+	ready, done := make(chan struct{}), make(chan struct{})
+	s.processingReady = ready
+	go func() {
+		defer close(done)
+		started := time.Now()
+		stop := s.StartProcessing(ctx)
+		close(ready)
+		s.diagnosticEvent(slog.LevelInfo, "startup.processing_ready", "durationMs", time.Since(started).Milliseconds())
+		<-ctx.Done()
+		stop()
+	}()
+	return func() { cancel(); <-done }
+}
+
 // A layout queue keeps imports responsive; the post-layout queue translates.
 // Stop waits for children before the library database is closed.
 func (s *Server) StartProcessing(parent context.Context) func() {
@@ -359,10 +377,17 @@ func (s *Server) StartProcessing(parent context.Context) func() {
 		log.Printf("cannot prepare EPUB processing: %v", err)
 		return cancel
 	}
-	if err := s.fillEPUBBookMetadata(); err != nil {
-		log.Printf("cannot read EPUB book details: %v", err)
-	}
 	var workers sync.WaitGroup
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		if ctx.Err() != nil {
+			return
+		}
+		if err := s.fillEPUBBookMetadataContext(ctx); err != nil {
+			log.Printf("cannot read EPUB book details: %v", err)
+		}
+	}()
 	if _, e := s.Store.DB.Exec("UPDATE document_overview_jobs SET status='queued' WHERE status='running'"); e != nil {
 		log.Printf("cannot recover document overviews: %v", e)
 	}
@@ -497,6 +522,8 @@ func (s *Server) StartProcessing(parent context.Context) func() {
 	go func() { defer workers.Done(); s.classificationWorker(ctx) }()
 	workers.Add(1)
 	go func() { defer workers.Done(); s.metadataWorker(ctx) }()
+	workers.Add(1)
+	go func() { defer workers.Done(); s.paperRefreshWorker(ctx) }()
 	return func() { cancel(); workers.Wait() }
 }
 func (s *Server) wakeProcessing() {

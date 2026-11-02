@@ -1,15 +1,11 @@
-import { app, BrowserWindow, ipcMain, screen } from "electron";
+import { BrowserWindow, ipcMain, screen } from "electron";
 
-/**
- * The hidden renderer owns the citation stream; the library never subscribes.
- * The window shows only the dialog, floating over the word processor. On macOS
- * it is a non-activating panel, like EndNote's in-process dialog: Word stays
- * the active app and NeoRead's other windows never come forward.
- */
-export async function createCitationWindow(options: {
+/** One request's renderer. The main process owns the long-lived subscription. */
+export function createCitationWindow(options: {
   url: string;
   token: string;
   preload: string;
+  onFailure: () => void;
 }) {
   const window = new BrowserWindow({
     title: "引注",
@@ -37,21 +33,21 @@ export async function createCitationWindow(options: {
   });
   window.setMenu(null);
   window.setAlwaysOnTop(true, "floating");
-  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // Do not let Electron change the entire app into a macOS accessory app.
+  window.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    ...(process.platform === "darwin"
+      ? { skipTransformProcessType: true }
+      : {}),
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.webContents.on("will-attach-webview", (event) =>
     event.preventDefault(),
   );
-  window.on("close", (event) => {
-    if (quitting) return;
-    event.preventDefault();
-    window.hide();
-    window.webContents.send("neoread:citation-close");
-  });
-  let quitting = false;
-  app.once("before-quit", () => {
-    quitting = true;
+  window.once("closed", () => {
+    ipcMain.removeHandler("neoread:citation-visible");
+    ipcMain.removeHandler("neoread:citation-size");
   });
   const own = (event: Electron.IpcMainInvokeEvent) => {
     if (
@@ -105,8 +101,8 @@ export async function createCitationWindow(options: {
       });
     },
   );
-  await window.loadURL(
-    `${options.url}/?citationWindow=1#token=${options.token}`,
-  );
+  void window
+    .loadURL(`${options.url}/?citationWindow=1#token=${options.token}`)
+    .catch(options.onFailure);
   return window;
 }

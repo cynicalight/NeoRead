@@ -1,4 +1,5 @@
 import {
+  access,
   copyFile,
   mkdir,
   mkdtemp,
@@ -11,6 +12,8 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   citePluginStatus,
+  wordAccessFolder,
+  authorizeWordPluginAccess,
   installCitePlugin,
   parseWindowsWordFolders,
   registerWPS,
@@ -21,6 +24,9 @@ import {
 
 vi.mock("node:fs/promises", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:fs/promises")>()),
+  access: vi.fn(
+    (await importOriginal<typeof import("node:fs/promises")>()).access,
+  ),
   copyFile: vi.fn(
     (await importOriginal<typeof import("node:fs/promises")>()).copyFile,
   ),
@@ -99,6 +105,42 @@ HKEY_CURRENT_USER\Software\Microsoft\Office\17.0\Word\Options
       ).folders,
     ).toEqual([String.raw`C:\Roaming\Microsoft\Word\Startup`]);
   });
+});
+
+it("reports permission errors instead of treating Word as absent", async () => {
+  const { options } = await setup("darwin");
+  vi.mocked(access).mockRejectedValueOnce(
+    Object.assign(new Error("denied"), { code: "EACCES" }),
+  );
+  await expect(citePluginStatus(options)).rejects.toMatchObject({
+    code: "EACCES",
+  });
+});
+
+it("only offers authorization for a denied Word folder on macOS", async () => {
+  const { options, root } = await setup("darwin");
+  const office = join(
+    options.home,
+    "Library/Group Containers/UBF8T346G9.Office",
+  );
+  await mkdir(office, { recursive: true });
+  const denied = (path: string) =>
+    Object.assign(new Error("denied"), { code: "EACCES", path });
+  expect(wordAccessFolder(denied(office), options)).toBe(office);
+  expect(wordAccessFolder(denied(join(office, "NeoRead.dotm")), options)).toBe(
+    office,
+  );
+  expect(wordAccessFolder(denied(join(root, "elsewhere")), options)).toBeNull();
+  expect(
+    wordAccessFolder(denied(office), { ...options, platform: "win32" }),
+  ).toBeNull();
+  options.requestFolderAccess = vi.fn(async (folder) => folder);
+  await authorizeWordPluginAccess(office, options);
+  expect(options.requestFolderAccess).toHaveBeenCalledWith(office);
+  options.requestFolderAccess = vi.fn(async () => null);
+  await expect(authorizeWordPluginAccess(office, options)).rejects.toThrow(
+    "已取消",
+  );
 });
 
 describe("installing", () => {

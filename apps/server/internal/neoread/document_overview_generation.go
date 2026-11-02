@@ -261,7 +261,7 @@ func (s *Server) overviewWorker(ctx context.Context) {
 			s.overviewMu.Unlock()
 			continue
 		}
-		work, cancel := context.WithTimeout(work, 30*time.Minute)
+		work, cancel := context.WithTimeout(work, time.Hour)
 		result, e := s.Store.DB.ExecContext(ctx, "UPDATE document_overview_jobs SET status='running',error='' WHERE document_id=? AND job_id=? AND status='queued'", job.DocumentID, job.ID)
 		var n int64
 		if e == nil {

@@ -3,6 +3,7 @@
 interface Window {
   neoreadDesktop?: {
     platform: string;
+    startupAppearance?: Partial<import("@neoread/core").ReaderTheme>;
     exportDiagnostics?: () => Promise<boolean>;
     recordDiagnostic?: (
       event: import("../../../packages/neoread-core/src/diagnostics").DiagnosticEvent,
@@ -56,7 +57,7 @@ interface Window {
       ids: string[],
       library: "books" | "papers",
       folder?: string,
-    ) => Promise<void>;
+    ) => Promise<string[]>;
     showDocumentFile: (id: string, type: "pdf" | "epub") => Promise<void>;
     openDocumentFile: (id: string, type: "pdf" | "epub") => Promise<void>;
     openExternal: (url: string) => Promise<void>;
@@ -64,8 +65,12 @@ interface Window {
     focusWindow?: () => Promise<void>;
     setCitationVisible?: (visible: boolean) => Promise<void>;
     setCitationSize?: (width: number, height: number) => Promise<void>;
-    onCitationClose?: (callback: () => void) => () => void;
+    onCitationEvent?: (
+      callback: (event: import("@neoread/api").CiteEvent) => void,
+    ) => () => void;
+    completeCitation?: (transaction: string, error: string) => Promise<void>;
     citePlugins?: () => Promise<import("./cite/plugins").CitePluginStatus[]>;
+    authorizeWordPluginAccess?: () => Promise<void>;
     installCitePlugin?: (
       kind: "word" | "wps",
     ) => Promise<import("./cite/plugins").CitePluginStatus[]>;
@@ -75,7 +80,16 @@ interface Window {
     onOpenLink?: (
       callback: (target: import("@neoread/core").NeoReadLinkTarget) => void,
     ) => () => void;
-    onBeforeClose: (callback: () => Promise<void>) => () => void;
+    /** Documents chosen with the system Open With menu, already imported. */
+    onOpenFiles?: (
+      callback: (opened: {
+        documents: string[];
+        large: Array<{ id: string; name: string; pages: number }>;
+      }) => void,
+    ) => () => void;
+    onBeforeClose: (
+      callback: () => Promise<void | { noteSaveDiscarded: boolean }>,
+    ) => () => void;
     setDocumentTabActive?: (active: boolean) => Promise<void>;
     onLibraryChanged: (callback: () => void) => () => void;
   };

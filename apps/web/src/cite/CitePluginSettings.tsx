@@ -24,14 +24,48 @@ export function CitePluginSettings({ open }: { open: boolean }) {
   const desktop = window.neoreadDesktop;
   const [plugins, setPlugins] = useState<CitePluginStatus[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [authorizing, setAuthorizing] = useState(false);
   useEffect(() => {
     if (!open || !desktop?.citePlugins) return;
+    let active = true;
+    setPlugins(null);
+    setError(null);
     void desktop
       .citePlugins()
-      .then(setPlugins)
-      .catch(() => setPlugins(null));
-  }, [open, desktop]);
-  if (!desktop?.citePlugins || !plugins) return null;
+      .then((result) => {
+        if (active) setPlugins(result);
+      })
+      .catch((reason: unknown) => {
+        if (active)
+          setError(
+            reason instanceof Error && reason.message
+              ? reason.message
+              : "请重试；如果仍然失败，请从设置中导出诊断包。",
+          );
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, desktop, attempt]);
+  if (!desktop?.citePlugins) return null;
+
+  const needsWordAccess = !!error?.startsWith("WORD_ACCESS_REQUIRED:");
+  const authorize = async () => {
+    if (!desktop.authorizeWordPluginAccess) return;
+    setAuthorizing(true);
+    try {
+      await desktop.authorizeWordPluginAccess();
+      setAttempt((value) => value + 1);
+    } catch (reason) {
+      toast.error(
+        reason instanceof Error ? reason.message : "授权失败，请重试。",
+      );
+    } finally {
+      setAuthorizing(false);
+    }
+  };
 
   const change = async (plugin: CitePluginStatus, install: boolean) => {
     const action = install
@@ -55,12 +89,42 @@ export function CitePluginSettings({ open }: { open: boolean }) {
 
   return (
     <section className="text-sm">
-      <h3 className="mb-3 font-medium">Word / WPS 引用插件</h3>
+      <h3 className="mb-3 font-medium">引用插件</h3>
       <p className="text-xs text-muted-foreground">
         在文档中插入论文库中的引注和参考文献表。使用时需保持 NeoRead 运行。
       </p>
+      {error ? (
+        <div className="mt-3 flex items-start gap-3">
+          <p
+            role="alert"
+            className="min-w-0 flex-1 break-words text-destructive"
+          >
+            无法检测引用插件：{error.replace(/^WORD_ACCESS_REQUIRED:/, "")}
+          </p>
+          {needsWordAccess && desktop.authorizeWordPluginAccess && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={authorizing}
+              onClick={() => void authorize()}
+            >
+              授权访问
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={authorizing}
+            onClick={() => setAttempt((value) => value + 1)}
+          >
+            重试
+          </Button>
+        </div>
+      ) : !plugins ? (
+        <p className="mt-3 text-muted-foreground">正在检测引用插件…</p>
+      ) : null}
       <ul className="mt-3 flex flex-col gap-3">
-        {plugins.map((plugin) => (
+        {plugins?.map((plugin) => (
           <li key={plugin.kind} className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <div>{names[plugin.kind]}</div>

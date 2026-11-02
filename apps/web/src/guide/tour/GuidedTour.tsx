@@ -15,6 +15,7 @@ import { useReaderStore } from "../../store";
 import {
   blockedRects,
   center,
+  frameRect,
   inflate,
   placeCard,
   rectsPath,
@@ -34,7 +35,7 @@ import "./tour.css";
 
 // Floating layers opened from an allowed area stay usable and lit.
 const popups =
-  '[data-slot="select-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="combobox-content"], [data-sonner-toast]';
+  '[data-slot="select-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="combobox-content"], [data-sonner-toast], [data-slot="agent-deck"]';
 const open = (name: string) => `[data-tour="${name}"]:not([data-closed])`;
 
 const shown = (el: Element | null): el is HTMLElement =>
@@ -42,6 +43,12 @@ const shown = (el: Element | null): el is HTMLElement =>
 
 const rectOf = (el: Element | null): Rect | null => {
   if (!shown(el)) return null;
+  // Stacked cards still have rectangles, even when covered or inert.
+  if (
+    el.closest(".agent-stack-card[inert]") ||
+    getComputedStyle(el).visibility === "hidden"
+  )
+    return null;
   const r = el.getBoundingClientRect();
   if (r.width < 1 || r.height < 1) return null;
   if (r.right < 0 || r.bottom < 0 || r.left > innerWidth || r.top > innerHeight)
@@ -82,6 +89,8 @@ function readState(
     agentPanel: shown(section),
     detecting: (section as HTMLElement | null)?.dataset.detecting === "true",
     apiDetails: shown(q('[data-tour="api-details"]')),
+    agentDetails: shown(q('[data-tour="agent-detail"]')),
+    deckOpen: (section as HTMLElement | null)?.dataset.deckOpen === "true",
     agents: [
       ...document.querySelectorAll<HTMLElement>('[data-tour="agent-card"]'),
     ].map((el) => ({
@@ -117,6 +126,7 @@ function readState(
 
 interface Layout {
   step: number;
+  deckExpanded: boolean;
   view: TourView;
   viewport: { width: number; height: number };
   /** Lit areas of the shade. */
@@ -125,14 +135,20 @@ interface Layout {
   passes: Rect[];
   frames: { rect: Rect; clickable: boolean }[];
   pointer: { x: number; y: number; gesture: string; key: string } | null;
-  card: { x: number; y: number };
-  /** In its slot on the first card, then in the window's top-right corner. */
-  skip: { x: number; y: number; inCard: boolean };
+  card: ReturnType<typeof placeCard>;
+  /** Always in the bottom-left corner, outside the guide card. */
+  skip: { x: number; y: number };
 }
 
+const targetElement = (selector: string) =>
+  [...document.querySelectorAll<HTMLElement>(selector)].find((el) =>
+    rectOf(el),
+  );
+const targetRect = (selector: string) =>
+  rectOf(targetElement(selector) ?? null);
 const first = (selectors: string[] = []) =>
-  selectors.flatMap((s) => {
-    const r = rectOf(document.querySelector(s));
+  selectors.flatMap((selector) => {
+    const r = targetRect(selector);
     return r ? [r] : [];
   });
 
@@ -141,7 +157,7 @@ function measure(
   steps: TourStep[],
   state: TourState,
   card: { width: number; height: number },
-  skip: { slot: Rect | null; width: number },
+  skip: { width: number; height: number },
 ): Layout {
   const view = steps[step].view(state);
   const viewport = { width: innerWidth, height: innerHeight };
@@ -158,7 +174,7 @@ function measure(
       p.gesture === "wander"
         ? p.targets[Math.floor(performance.now() / 1400) % p.targets.length]
         : p.target;
-    const r = rectOf(document.querySelector(target));
+    const r = targetRect(target);
     if (r) {
       const c = center(r);
       const x =
@@ -175,30 +191,51 @@ function measure(
   }
   const lit = [...focus, ...click];
   const anchor =
-    (view.anchor && rectOf(document.querySelector(view.anchor))) ||
-    click[0] ||
-    focus[0] ||
-    null;
+    (view.anchor && targetRect(view.anchor)) || click[0] || focus[0] || null;
   return {
     step,
+    deckExpanded: !!document.querySelector(
+      '[data-tour="agent-deck"][data-spread]',
+    ),
     view,
     viewport,
     holes: [...lit.map((r) => inflate(r, 6)), ...floating],
     passes: [...click.map((r) => inflate(r, 2)), ...floating],
-    frames: [
-      ...focus.map((rect) => ({ rect: inflate(rect, 5), clickable: false })),
-      ...click.map((rect) => ({ rect: inflate(rect, 5), clickable: true })),
-    ],
+    // Explicit focus controls the breathing frame; click areas only control
+    // interaction. A deck can stay scrollable while exactly one card is framed.
+    frames: (view.focus !== undefined ? focus : click).map((rect) => ({
+      rect: frameRect(rect, viewport),
+      clickable: !focus.length,
+    })),
     pointer,
-    skip: skip.slot
-      ? { x: skip.slot.x, y: skip.slot.y, inCard: true }
-      : { x: viewport.width - skip.width - 16, y: 14, inCard: false },
+    skip: { x: 16, y: Math.max(14, viewport.height - skip.height - 16) },
     card: placeCard(
       anchor && inflate(anchor, 6),
       card,
       viewport,
       lit.map((r) => inflate(r, 8)),
       view.side,
+      [
+        ...(p && (p.gesture === "click" || p.gesture === "double")
+          ? first([p.target]).map((r) => {
+              // Large rows, cards and document blocks can fill the viewport.
+              // Reserve the actual indicated click area, not the entire container.
+              if (r.width <= 64 && r.height <= 64) return inflate(r, 8);
+              return {
+                x: (pointer?.x ?? center(r).x) - 28,
+                y: (pointer?.y ?? center(r).y) - 28,
+                width: 56,
+                height: 56,
+              };
+            })
+          : []),
+        {
+          x: 12,
+          y: Math.max(10, viewport.height - skip.height - 20),
+          width: skip.width + 8,
+          height: skip.height + 8,
+        },
+      ],
     ),
   };
 }
@@ -279,7 +316,6 @@ export function GuidedTour({
   methodRef.current = method;
   const [confirmSkip, setConfirmSkip] = useState(false);
   const skipRef = useRef<HTMLButtonElement>(null);
-  const slotRef = useRef<HTMLButtonElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const finish = useRef(onFinish);
   finish.current = onFinish;
@@ -338,13 +374,15 @@ export function GuidedTour({
         finish.current();
         return;
       }
-      const size = cardRef.current?.getBoundingClientRect() ?? {
-        width: 320,
-        height: 160,
+      const size = {
+        // Use unconstrained width and scroll height so a compact card can grow
+        // back after resize without alternating between compact and full sizes.
+        width: Math.min(300, Math.max(1, innerWidth - 32)),
+        height: cardRef.current?.scrollHeight || 160,
       };
       const next = measure(index, steps, state, size, {
-        slot: index === 0 ? rectOf(slotRef.current) : null,
-        width: skipRef.current?.offsetWidth ?? 140,
+        width: skipRef.current?.offsetWidth || 140,
+        height: skipRef.current?.offsetHeight || 32,
       });
       const viewKey = `${index}:${next.view.title}`;
       if (viewKey !== shownView) {
@@ -375,6 +413,20 @@ export function GuidedTour({
     }
   }, [running]);
 
+  const revealAgent = layout?.view.revealAgent;
+  const deckExpanded = layout?.deckExpanded;
+  useEffect(() => {
+    if (!running || !revealAgent || !deckExpanded) return;
+    const selector = `[data-tour="agent-card"][data-agent="${revealAgent}"]`;
+    // Focus centres the deck through its normal keyboard navigation, without
+    // selecting a provider or opening an API panel.
+    document
+      .querySelector<HTMLElement>(
+        `[data-tour="agent-deck"][data-spread] ${selector} [data-slot="agent-select"]`,
+      )
+      ?.focus({ preventScroll: true });
+  }, [running, revealAgent, deckExpanded]);
+
   const activeStep = layout ? steps[layout.step]?.id : undefined;
   const advanceOn = layout?.view.advanceOn;
   const advanceAfter = layout?.view.advanceAfter;
@@ -403,8 +455,13 @@ export function GuidedTour({
   if (!running || !root || !layout) return null;
   const step = steps[layout.step];
   const { view, viewport } = layout;
-  const confirm = () =>
+  const confirm = () => {
+    if (view.nextTarget) {
+      targetElement(view.nextTarget)?.click();
+      return;
+    }
     setAcknowledged((current) => new Set(current).add(step.id));
+  };
   const progress = (layout.step + 1) / steps.length;
   return createPortal(
     <>
@@ -473,6 +530,16 @@ export function GuidedTour({
         aria-labelledby={`${mask}-title`}
         style={{
           transform: `translate(${layout.card.x}px, ${layout.card.y}px)`,
+          maxWidth: layout.card.maxWidth,
+          maxHeight:
+            layout.card.maxHeight ?? Math.max(48, viewport.height - 68),
+          // Interpolation between safe positions can cross the required control.
+          transition:
+            view.pointer &&
+            (view.pointer.gesture === "click" ||
+              view.pointer.gesture === "double")
+              ? "none"
+              : undefined,
         }}
       >
         <div aria-live="polite">
@@ -515,19 +582,6 @@ export function GuidedTour({
           </div>
         )}
         <div className="tour-actions">
-          {layout.step === 0 && (
-            // Holds the skip button's place; the button itself moves out later.
-            <Button
-              ref={slotRef}
-              variant="ghost"
-              size="sm"
-              className="invisible -ml-2"
-              tabIndex={-1}
-              aria-hidden="true"
-            >
-              {skipLabel}
-            </Button>
-          )}
           <div
             className="tour-progress"
             role="progressbar"
@@ -550,7 +604,6 @@ export function GuidedTour({
         variant="ghost"
         size="sm"
         className="tour-skip"
-        data-place={layout.skip.inCard ? "card" : "corner"}
         style={{
           transform: `translate(${layout.skip.x}px, ${layout.skip.y}px)`,
         }}

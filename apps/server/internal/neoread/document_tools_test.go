@@ -94,8 +94,8 @@ func TestDocumentToolsScopeBudgetsAndInvalidation(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	if _, e := a.call(t.Context(), "get_outline", json.RawMessage(`{}`)); errorKind(e) != ErrorLimit {
-		t.Fatal("unbounded calls", e)
+	if raw, e := a.call(t.Context(), "get_outline", json.RawMessage(`{}`)); e != nil || !strings.Contains(string(raw), `"shouldFinish":true`) {
+		t.Fatal("budget should warn without blocking", string(raw), e)
 	}
 	a.calls = 0
 	a.fatal = nil
@@ -284,5 +284,29 @@ func TestDocumentAttemptBudgetResetsForFallback(t *testing.T) {
 	raw, err := a.call(t.Context(), "read_passage", json.RawMessage(jsonText(map[string]string{"blockId": a.corpus.Passages[1].ID})))
 	if err != nil || !strings.Contains(string(raw), "COBALT-19") || a.readingStopped() {
 		t.Fatal("fallback inherited the previous attempt's exhausted call budget", err, string(raw))
+	}
+}
+
+func TestDocumentToolFailureDoesNotAbortValidAttempt(t *testing.T) {
+	_, a := originalDocumentFixture(t)
+	_, err := a.server.Store.DB.Exec("DROP TABLE document_passages_fts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.call(t.Context(), "search_document", json.RawMessage(`{"query":"cobalt"}`))
+	if err == nil {
+		t.Fatal("missing search failure")
+	}
+	raw, fatal := a.toolFailure(t.Context(), err)
+	if fatal != nil || !strings.Contains(string(raw), `"tool_failed"`) || strings.Contains(string(raw), "document_passages_fts") {
+		t.Fatal("failure was not safely returned to the model", string(raw), fatal)
+	}
+	if raw, err = a.call(t.Context(), "read_passage", json.RawMessage(jsonText(map[string]string{"blockId": a.corpus.Passages[1].ID}))); err != nil || !strings.Contains(string(raw), "COBALT-19") {
+		t.Fatal("a failed search prevented later reading", string(raw), err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, fatal = a.toolFailure(ctx, ctx.Err()); fatal == nil {
+		t.Fatal("user cancellation was swallowed")
 	}
 }

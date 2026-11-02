@@ -13,10 +13,10 @@ import (
 	"image/color"
 	"image/png"
 	"log/slog"
+	"neoread.local/server/internal/runtimeenv"
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -184,7 +184,7 @@ func configPrint(c AIConfig, p string) string {
 		// Checked per model, never as a whole.
 		return ""
 	} else {
-		path, _ := exec.LookPath(p)
+		path, _ := runtimeenv.LookPath(context.Background(), p)
 		value = []string{p, path, c.Models[p]}
 	}
 	b, _ := json.Marshal(value)

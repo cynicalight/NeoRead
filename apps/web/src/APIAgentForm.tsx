@@ -3,13 +3,7 @@ import type { APIConnection } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
 import { Input } from "@neoread/ui/components/input";
 
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@neoread/ui/components/select";
+import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
 const protocols = {
   auto: "默认使用 OpenAI 格式",
   openai: "OpenAI Chat Completions",
@@ -85,23 +79,34 @@ export function APIAgentForm({
         disabled={disabled || saving}
         onChange={(event) => setURL(event.target.value)}
       />
-      <span className="text-sm">API 格式</span>
-      <Select
+      <span id={`${id}-protocol`} className="text-sm">
+        API 格式
+      </span>
+      <Tabs
         value={protocol}
-        disabled={disabled || saving}
-        onValueChange={(value) => value && setProtocol(value)}
+        onValueChange={(value) => {
+          if (value === "auto" || value === "openai" || value === "anthropic")
+            setProtocol(value);
+        }}
       >
-        <SelectTrigger aria-label="API 格式" className="w-full">
-          <SelectValue>{protocols[protocol]}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
+        <TabsList aria-labelledby={`${id}-protocol`} className="w-full">
           {Object.entries(protocols).map(([value, label]) => (
-            <SelectItem key={value} value={value}>
-              {label}
-            </SelectItem>
+            <TabsTrigger
+              key={value}
+              value={value}
+              type="button"
+              title={label}
+              disabled={disabled || saving}
+            >
+              {value === "auto"
+                ? "自动（OpenAI）"
+                : value === "openai"
+                  ? "OpenAI"
+                  : "Anthropic"}
+            </TabsTrigger>
           ))}
-        </SelectContent>
-      </Select>
+        </TabsList>
+      </Tabs>
       <label htmlFor={`${id}-key`} className="text-sm">
         API Key
       </label>

@@ -6,6 +6,12 @@ import type { Message } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
 import { ScrollArea } from "@neoread/ui/components/scroll-area";
 import {
+  Trace,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from "@neoread/ui/components/trace";
+import {
   ChatSession,
   chatRetryAction,
   type ChatSnapshot,
@@ -122,36 +128,29 @@ export function AssistantPanel({
                   tools={answer?.tools ?? message?.tools}
                   sources={message?.webSources}
                 />
-                {waiting && (
-                  <div
-                    className="chat-waiting"
-                    role="status"
-                    aria-label={answer.notice ? undefined : "正在等待回答"}
-                  >
-                    <span
-                      className={`chat-waiting-icon${answer.activity ? " chat-waiting-icon--activity" : ""}`}
-                      aria-hidden="true"
-                    >
-                      {answer.activity ? (
-                        <BookOpen size={16} strokeWidth={1.5} />
-                      ) : answer.fallback ||
-                        !["codex", "claude", "kimi", "api"].includes(
-                          answer.input.provider,
-                        ) ? (
-                        <LoaderCircle size={16} />
-                      ) : (
-                        <ProviderGlyph
-                          provider={answer.input.provider}
-                          size={16}
-                        />
-                      )}
-                    </span>
-                    {answer.notice && (
-                      <span className="chat-status" title={answer.notice}>
-                        {answer.notice}
-                      </span>
-                    )}
-                  </div>
+                {(waiting || answer?.activity) && (
+                  <Trace className="mb-2" role="status">
+                    <TraceLine status="running">
+                      <TraceIcon>
+                        {answer.activity ? (
+                          <BookOpen size={16} strokeWidth={1.5} />
+                        ) : answer.fallback ||
+                          !["codex", "claude", "kimi", "api"].includes(
+                            answer.input.provider,
+                          ) ? (
+                          <LoaderCircle size={16} />
+                        ) : (
+                          <ProviderGlyph
+                            provider={answer.input.provider}
+                            size={16}
+                          />
+                        )}
+                      </TraceIcon>
+                      <TraceTitle title={answer.notice}>
+                        {answer.notice || "正在等待回答…"}
+                      </TraceTitle>
+                    </TraceLine>
+                  </Trace>
                 )}
                 {assistant && reasoning && (
                   <Thinking
@@ -180,7 +179,7 @@ export function AssistantPanel({
                 {answer?.fallback && (
                   <p className="chat-status">{answer.fallback}</p>
                 )}
-                {answer?.notice && !waiting && (
+                {answer?.notice && !waiting && !answer.activity && (
                   <p role="status" className="chat-status">
                     {answer.notice}
                   </p>

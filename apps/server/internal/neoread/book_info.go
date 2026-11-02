@@ -2,6 +2,7 @@ package neoread
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"image"
@@ -268,6 +269,9 @@ const epubMetadataMigration = "migration:epub-book-metadata"
 // fillEPUBBookMetadata reads publication details for EPUBs imported before
 // they were recorded. Values only fill empty, non-manual fields.
 func (s *Server) fillEPUBBookMetadata() error {
+	return s.fillEPUBBookMetadataContext(context.Background())
+}
+func (s *Server) fillEPUBBookMetadataContext(ctx context.Context) error {
 	var done string
 	if s.Store.DB.QueryRow("SELECT value FROM settings WHERE key=?", epubMetadataMigration).Scan(&done) == nil {
 		return nil
@@ -289,6 +293,9 @@ func (s *Server) fillEPUBBookMetadata() error {
 	}
 	filled := 0
 	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		data, e := os.ReadFile(filepath.Join(s.Store.Root, "cache", id, "manifest.json"))
 		var manifest map[string]any
 		if e != nil || json.Unmarshal(data, &manifest) != nil {

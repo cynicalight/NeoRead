@@ -3,8 +3,8 @@ package neoread
 import (
 	"context"
 	"encoding/json"
+	"neoread.local/server/internal/runtimeenv"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -19,7 +19,7 @@ type Provider struct {
 
 func providerStatus(ctx context.Context, name string) Provider {
 	p := Provider{ID: name, Status: "未安装"}
-	exe, err := exec.LookPath(name)
+	exe, err := runtimeenv.LookPath(ctx, name)
 	if err != nil {
 		return p
 	}
@@ -34,7 +34,7 @@ func providerStatus(ctx context.Context, name string) Provider {
 	}
 	child, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(child, exe, args...)
+	cmd := runtimeenv.CommandContext(child, exe, args...)
 	output, err := cmd.Output()
 	p.Authenticated = err == nil
 	if name == "claude" && err == nil {
@@ -56,7 +56,7 @@ func (s *Server) providers(w http.ResponseWriter, r *http.Request) {
 	out := []Provider{}
 	for _, name := range []string{"codex", "claude", "kimi"} {
 		if r.URL.Query().Get("auth") == "skip" {
-			_, err := exec.LookPath(name)
+			_, err := runtimeenv.LookPath(r.Context(), name)
 			status := "未安装"
 			if err == nil {
 				status = "待检测"

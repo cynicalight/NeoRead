@@ -300,7 +300,7 @@ func TestTranslationDeadlineDoesNotChangeChatDeadline(t *testing.T) {
 			deadline, ok := ctx.Deadline()
 			want := timeout
 			if want == 0 {
-				want = 3 * time.Minute
+				want = 15 * time.Minute
 			}
 			if !ok || time.Until(deadline) > want || time.Until(deadline) < want-time.Second {
 				t.Errorf("unexpected timeout: %v", time.Until(deadline))

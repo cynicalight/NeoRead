@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dedupeOnnxLibraries } from "./dedupe-onnx.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const desktop = join(root, "apps/desktop");
@@ -108,6 +109,12 @@ for (const platform of await readdir(nativeRoot)) {
       if (arch !== process.arch)
         await rm(join(nativeRoot, platform, arch), { recursive: true });
     }
+}
+if (process.platform === "darwin") {
+  const savedBytes = await dedupeOnnxLibraries(
+    join(nativeRoot, process.platform, process.arch),
+  );
+  console.log(`ONNX library deduplication saved ${savedBytes} bytes.`);
 }
 run(
   process.execPath,

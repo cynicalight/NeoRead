@@ -83,7 +83,7 @@ type generationConnection struct {
 }
 type GenerationService struct {
 	translationInstructions string
-	timeout                 time.Duration // Zero keeps the normal three-minute request limit.
+	timeout                 time.Duration // Zero uses the standard generation timeout.
 	primary                 string
 	connections             map[string]generationConnection
 	usageSink               func(UsageCall) error
@@ -327,10 +327,10 @@ func (g *GenerationService) attempt(ctx context.Context, provider string, in AII
 func (g *GenerationService) generate(ctx context.Context, in AIInput, interactive, exposeText bool, emit func(ProviderEvent) error) (AIResult, error) {
 	timeout := g.timeout
 	if timeout <= 0 {
-		timeout = 3 * time.Minute
+		timeout = 15 * time.Minute
 	}
-	if in.Chat != nil && in.Chat.Agent != nil {
-		timeout = 10 * time.Minute
+	if in.Chat != nil {
+		timeout = time.Hour
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"neoread.local/server/internal/runtimeenv"
 	"net"
 	"net/http"
 	"net/url"
@@ -94,7 +95,7 @@ func New(maxPDF int64) *Client {
 	}
 	c.HTTP = &http.Client{
 		Timeout:   90 * time.Second,
-		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSHandshakeTimeout: 15 * time.Second, ResponseHeaderTimeout: 30 * time.Second},
+		Transport: &http.Transport{Proxy: runtimeenv.Proxy, TLSHandshakeTimeout: 15 * time.Second, ResponseHeaderTimeout: 30 * time.Second},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 8 {
 				return errors.New("too many redirects")

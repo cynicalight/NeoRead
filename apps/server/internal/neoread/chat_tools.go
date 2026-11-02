@@ -122,7 +122,7 @@ func (c *chatInput) recordTool(v ToolActivity) error {
 	}
 	if index < 0 {
 		if len(c.Tools) >= 256 {
-			return generationError(ErrorLimit, "工具执行记录超过限制")
+			return nil
 		}
 		v.StartedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
@@ -204,7 +204,7 @@ func (c *chatInput) addWebSource(v WebSource) WebSource {
 			return v
 		}
 	}
-	if len(c.WebSources) >= 24 {
+	if len(c.WebSources) >= webSourceLimit {
 		return WebSource{}
 	}
 	v.ID = "W" + strconv.Itoa(len(c.WebSources)+1)
@@ -240,7 +240,7 @@ func inChatHasWebTools(c *chatInput) bool {
 func (c *chatInput) webSourceBudgetFull(rawURL string) bool {
 	c.toolMu.Lock()
 	defer c.toolMu.Unlock()
-	if len(c.WebSources) < 24 {
+	if len(c.WebSources) < webSourceLimit {
 		return false
 	}
 	url := displayWebURL(rawURL)

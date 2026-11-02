@@ -66,6 +66,16 @@ func runWebEventsProcess() {
 			if web == "live" {
 				emit("item/started", map[string]any{"id": "search", "type": "webSearch", "query": "official docs", "action": map[string]string{"type": "search", "query": "official docs"}})
 				emit("item/completed", map[string]any{"id": "search", "type": "webSearch", "query": "official docs", "results": []any{map[string]string{"url": "https://example.com/docs", "title": "Official docs", "snippet": "A public source"}}})
+				if os.Getenv("NEOREAD_WEB_BUDGET_FIXTURE") == "1" {
+					if !scanner.Scan() {
+						os.Exit(5)
+					}
+					var steer codexRPCMessage
+					if json.Unmarshal(scanner.Bytes(), &steer) != nil || steer.Method != "turn/steer" || !strings.Contains(string(steer.Params), "预算") || !strings.Contains(string(steer.Params), "尽快") {
+						os.Exit(6)
+					}
+					encoder.Encode(map[string]any{"id": steer.ID, "result": map[string]any{}})
+				}
 				emit("item/started", map[string]any{"id": "read", "type": "webSearch", "query": "", "action": map[string]string{"type": "openPage", "url": "https://example.com/docs"}})
 				emit("item/completed", map[string]any{"id": "read", "type": "webSearch", "query": "", "action": map[string]string{"type": "openPage", "url": "https://example.com/docs"}})
 			}
@@ -76,6 +86,22 @@ func runWebEventsProcess() {
 			}
 			encoder.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": "thread", "turn": map[string]string{"id": "turn", "status": "completed"}}})
 		}
+	}
+}
+
+func TestCodexWebBudgetSteersAndCompletes(t *testing.T) {
+	fakeAgent(t, "codex", "web-events")
+	t.Setenv("NEOREAD_WEB_BUDGET_FIXTURE", "1")
+	session, err := isolatedDocumentCodex(t.Context(), t.TempDir(), "test", "", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.close()
+	session.finalMessagesOnly = true
+	chat := &chatInput{WebSearch: true, webCalls: webToolCalls - 11}
+	text, err := session.generate(t.Context(), AIInput{Prompt: "question", Chat: chat}, nil)
+	if err != nil || !strings.Contains(text, "Official docs") {
+		t.Fatal("budget notice should allow final answer", err, text)
 	}
 }
 func TestCodexWebSearchIPCToChatHistory(t *testing.T) {

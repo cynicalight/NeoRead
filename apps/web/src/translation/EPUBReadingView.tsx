@@ -1,4 +1,4 @@
-import { annotationsInRects, sentenceRectsAtPoint } from "./annotation-hover";
+import { useSentenceMarks } from "./useSentenceMarks";
 import { useTranslations } from "./useTranslations";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
 import {
@@ -15,6 +15,7 @@ import type {
   EPUBLocation,
   EPUBReadingBlock,
   ReaderAdapter,
+  ReadingAnchor,
   ReaderSelection,
   Processing,
 } from "@neoread/core";
@@ -27,12 +28,10 @@ import { AssistanceControls } from "./AssistanceControls";
 import { TranslationPanes } from "./TranslationPanes";
 import { TranslationText } from "./TranslationText";
 import { translatedSelection } from "./selection";
-import {
-  paintTranslatedAnnotations,
-  translatedAnnotationRanges,
-} from "./annotations";
+import { translatedAnnotationRanges } from "./annotations";
 import { installTranslationSelectionHighlight } from "./selection-highlight";
 import { epubBlocksAt } from "./epub-links";
+import { ReadingSync } from "../readers/pdf-reading";
 import { animatePDFScroll } from "../readers/pdf-scroll";
 import { isSelectionToolbar } from "../readers/selection-anchor";
 import { defaultTheme } from "@neoread/core";
@@ -64,7 +63,9 @@ export function EPUBReadingView({
   const { translations, error: streamError } = useTranslations(doc.id, [
     ...new Set(blocks.map((b) => b.location.href)),
   ]);
+  const root = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLDivElement>(null);
+  const [sentenceEngine, setSentenceEngine] = useState<ReaderAdapter>();
   const viewportAnchor = useRef<{ id: string; top: number } | undefined>(
     undefined,
   );
@@ -76,7 +77,9 @@ export function EPUBReadingView({
   const side = useRef<"source" | "translation">("source");
   const navigating = useRef(false);
   const syncTarget = useRef<EPUBLocation | undefined>(undefined);
-  const pendingFollow = useRef<string | undefined>(undefined);
+  const pendingFollow = useRef<ReadingAnchor | undefined>(undefined);
+  const sync = useRef(new ReadingSync());
+  const translationMotion = useRef(0);
   const scrollFrame = useRef(0);
   const modeFrame = useRef(0);
   const dragging = useRef(false);
@@ -95,27 +98,51 @@ export function EPUBReadingView({
     chapter,
   });
   live.current = { mode, blocks, translations, events, annotations, chapter };
+  useSentenceMarks(
+    root,
+    sentenceEngine,
+    blocks,
+    translations,
+    annotations,
+    theme.linkTranslationAnnotations !== false,
+    mode,
+    events,
+  );
   const visible = blocks;
   const targetNode = (id: string) =>
     Array.from(
       pane.current?.querySelectorAll<HTMLElement>("[data-translation-block]") ??
         [],
     ).find((n) => n.dataset.translationBlock === id);
-  const follow = (id: string) => {
+  const follow = (id: string, fraction = 0.5) => {
     const block = live.current.blocks.find((b) => b.id === id);
     if (!block) return;
-    pendingFollow.current = id;
+    pendingFollow.current = { blockId: id, fraction };
     if (block.location.href !== live.current.chapter)
       setChapter(block.location.href);
     else {
       const node = targetNode(id),
         host = pane.current;
       if (node && host) {
-        host.scrollTop +=
-          node.getBoundingClientRect().top -
-          host.getBoundingClientRect().top -
-          host.clientHeight * 0.25;
         pendingFollow.current = undefined;
+        const operation = ++translationMotion.current;
+        const rect = node.getBoundingClientRect();
+        sync.current.following("translation");
+        void animatePDFScroll(
+          host,
+          host.scrollLeft,
+          host.scrollTop +
+            rect.top -
+            host.getBoundingClientRect().top +
+            rect.height * fraction -
+            host.clientHeight / 2,
+          () =>
+            operation !== translationMotion.current || pane.current !== host,
+          () => {},
+        ).finally(() => {
+          if (operation === translationMotion.current)
+            sync.current.following("translation");
+        });
       }
     }
   };
@@ -148,9 +175,7 @@ export function EPUBReadingView({
   const focusBlock = (id: string, origin: "source" | "translation") => {
     const block = live.current.blocks.find((b) => b.id === id);
     if (!block) return;
-    side.current = origin;
-    syncTarget.current = undefined;
-    pendingFollow.current = undefined;
+    input(origin);
     const motion = focusMotion.current;
     const operation = ++motion.operation;
     motion.moving = true;
@@ -173,7 +198,10 @@ export function EPUBReadingView({
         setFocusedBlock(undefined);
         // Let the last programmatic scroll event pass before syncing resumes.
         requestAnimationFrame(() => {
-          if (!cancelled()) motion.moving = false;
+          if (!cancelled()) {
+            motion.moving = false;
+            sync.current.following(origin);
+          }
         });
       });
   };
@@ -184,6 +212,16 @@ export function EPUBReadingView({
     motion.moving = false;
     setFocusedBlock(undefined);
     engine.current?.cancelBlockFocus?.();
+  };
+  const input = (origin: "source" | "translation") => {
+    translationMotion.current++;
+    pendingFollow.current = undefined;
+    syncTarget.current = undefined;
+    cancelAnimationFrame(scrollFrame.current);
+    cancelFocus();
+    engine.current?.cancelBlockFocus?.();
+    side.current = origin;
+    sync.current.input(origin);
   };
   const updateLocation = (location: EPUBLocation) => {
     position.current = location;
@@ -217,8 +255,7 @@ export function EPUBReadingView({
   const go = async (location: DocumentLocation) => {
     if (location.type !== "epub") return;
     clear();
-    side.current =
-      live.current.mode === "translation" ? "translation" : "source";
+    input(live.current.mode === "translation" ? "translation" : "source");
     await engine.current?.goTo(location);
     const resolved = engine.current?.getLocation();
     if (
@@ -234,7 +271,7 @@ export function EPUBReadingView({
   };
   const step = async (direction: number) => {
     if (live.current.mode !== "translation") {
-      side.current = "source";
+      input("source");
       clear();
       return direction > 0
         ? engine.current?.next()
@@ -276,6 +313,8 @@ export function EPUBReadingView({
   useEffect(() => {
     return () => {
       syncTarget.current = undefined;
+      translationMotion.current++;
+      focusMotion.current.operation++;
       cancelAnimationFrame(scrollFrame.current);
       cancelAnimationFrame(modeFrame.current);
     };
@@ -288,30 +327,14 @@ export function EPUBReadingView({
       pane.current.scrollTop += node.getBoundingClientRect().top - anchor.top;
   }, [blocks]);
   useEffect(() => {
-    if (pendingFollow.current) follow(pendingFollow.current);
+    if (pendingFollow.current)
+      follow(pendingFollow.current.blockId, pendingFollow.current.fraction);
   }, [chapter, blocks, mode]);
   useEffect(() => {
     const host = pane.current;
     if (!host) return;
-    const compact = installTranslationSelectionHighlight(host);
-    let clean: (() => void) | undefined;
-    const paint = () => {
-      clean?.();
-      clean = paintTranslatedAnnotations(host, annotations, translations);
-    };
-    paint();
-    const observer = new MutationObserver(paint);
-    observer.observe(host, {
-      subtree: true,
-      childList: true,
-      characterData: true,
-    });
-    return () => {
-      observer.disconnect();
-      clean?.();
-      compact?.();
-    };
-  }, [annotations, translations, chapter]);
+    return installTranslationSelectionHighlight(host);
+  }, [chapter, mode]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (
@@ -372,7 +395,7 @@ export function EPUBReadingView({
     scrollFrame.current = requestAnimationFrame(() => {
       if (
         focusMotion.current.moving ||
-        side.current !== "translation" ||
+        !sync.current.canFollow("translation") ||
         dragging.current ||
         selection.current ||
         !pane.current
@@ -380,7 +403,7 @@ export function EPUBReadingView({
         return;
       const top =
         pane.current.getBoundingClientRect().top +
-        pane.current.clientHeight * 0.25;
+        pane.current.clientHeight * 0.5;
       const node = Array.from(
         pane.current.querySelectorAll<HTMLElement>("[data-translation-block]"),
       ).find((n) => n.getBoundingClientRect().bottom > top);
@@ -396,13 +419,26 @@ export function EPUBReadingView({
             ?.goTo(block.location)
             .catch((e) => toast.error(e.message));
         updateLocation(block.location);
-        void syncSource(block.location);
+        if (live.current.mode === "parallel" && node) {
+          const rect = node.getBoundingClientRect();
+          const anchor = {
+            blockId: block.id,
+            fraction: Math.max(
+              0,
+              Math.min(1, (top - rect.top) / (rect.height || 1)),
+            ),
+          };
+          sync.current.following("source");
+          void engine.current
+            ?.followBlock?.(anchor)
+            .catch((e) => toast.error(e.message));
+        }
       }
     });
   };
   const changeMode = (value: Mode) => {
     clear();
-    cancelFocus();
+    input(value === "translation" ? "translation" : "source");
     hover("source");
     hover("translation");
     setMode(value);
@@ -439,7 +475,7 @@ export function EPUBReadingView({
     </div>
   );
   return (
-    <div className="epub-reading" data-theme={theme.mode}>
+    <div ref={root} className="epub-reading" data-theme={theme.mode}>
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       <TranslationPanes
         mode={mode}
@@ -458,6 +494,7 @@ export function EPUBReadingView({
               annotations={annotations}
               onReady={(adapter, toc) => {
                 engine.current = adapter;
+                setSentenceEngine(adapter);
                 const initial = adapter.getLocation();
                 if (initial?.type === "epub") {
                   position.current = initial;
@@ -513,8 +550,7 @@ export function EPUBReadingView({
                   setBlocks(items);
                 },
                 epubInteraction: () => {
-                  side.current = "source";
-                  syncTarget.current = undefined;
+                  input("source");
                   void engine.current?.focusEPUBLocations?.([]);
                   if (selection.current?.location.translation) {
                     selection.current = null;
@@ -537,13 +573,14 @@ export function EPUBReadingView({
                     hover("source", id ?? undefined);
                 },
                 epubBlockFocus: (id) => focusBlock(id, "source"),
-                epubReadingAnchor: (id) => {
+                epubReadingAnchor: (id, fraction = 0.5) => {
                   if (
                     !focusMotion.current.moving &&
-                    side.current === "source" &&
+                    sync.current.canFollow("source") &&
+                    !selection.current &&
                     live.current.mode === "parallel"
                   )
-                    follow(id);
+                    follow(id, fraction);
                 },
                 selection: (value) => {
                   if (
@@ -581,60 +618,16 @@ export function EPUBReadingView({
                   : undefined,
               lineHeight: theme.lineHeight,
             }}
-            onPointerMove={(event) => {
-              const target =
-                event.target instanceof Element ? event.target : null;
-              if (
-                !pane.current ||
-                !target ||
-                event.buttons ||
-                window.getSelection()?.toString().trim() ||
-                target.closest("a,button,input,textarea")
-              ) {
-                live.current.events.annotationHover?.(null);
-                return;
-              }
-              const rects = sentenceRectsAtPoint(
-                target,
-                event.clientX,
-                event.clientY,
-              );
-              const marks = translatedAnnotationRanges(
-                pane.current,
-                annotations,
-                translations,
-              );
-              const matches = annotationsInRects(
-                pane.current,
-                annotations,
-                marks,
-                rects,
-              );
-              live.current.events.annotationHover?.(
-                matches.length
-                  ? {
-                      ids: matches.map((a) => a.id),
-                      anchor: {
-                        x: event.clientX,
-                        top: Math.min(...rects.map((r) => r.top)),
-                        bottom: Math.max(...rects.map((r) => r.bottom)),
-                      },
-                    }
-                  : null,
-              );
-            }}
-            onPointerLeave={() => live.current.events.annotationHover?.(null)}
             onPointerDown={() => {
               live.current.events.annotationHover?.(null);
-              side.current = "translation";
+              input("translation");
               dragging.current = true;
             }}
             onPointerUp={capture}
             onKeyUp={capture}
-            onWheel={() => {
-              side.current = "translation";
-              cancelFocus();
-            }}
+            onWheel={() => input("translation")}
+            onTouchStart={() => input("translation")}
+            onKeyDown={() => input("translation")}
             onScroll={scroll}
             onClick={(event) => {
               if (window.getSelection()?.toString().trim() || !pane.current)

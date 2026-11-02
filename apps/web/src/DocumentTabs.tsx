@@ -1,3 +1,4 @@
+import { reducedMotion } from "./motion";
 import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
@@ -45,8 +46,7 @@ import { useTabReorder } from "./useTabReorder";
 import "./document-tabs.css";
 
 const closeDuration = 150;
-const animated = () =>
-  !!window.matchMedia?.("(prefers-reduced-motion: no-preference)").matches;
+const animated = () => !reducedMotion();
 
 export function DocumentTabs({
   onSelect,

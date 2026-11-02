@@ -27,6 +27,8 @@ jobs:
     timeout-minutes: 45
     env:
       RELEASE_TAG: ${{ inputs.release-tag }}
+      # Vite chunk rendering exceeds Node's default heap on macOS runners.
+      NODE_OPTIONS: --max-old-space-size=4096
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
       # No Apple or Windows credentials. macOS uses the fixed self-signed
       # certificate (apps/desktop/mac-sign.cjs) so in-place updates verify.

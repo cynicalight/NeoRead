@@ -152,7 +152,7 @@ it("exports only the active library's failure files, including after startup fai
       mocks.save.mockResolvedValue({ canceled: false, filePath: output });
       expect(await service.export()).toBe(true);
       const names = execFileSync(
-        "python3",
+        process.platform === "win32" ? "python" : "python3",
         [
           "-c",
           "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; print('\\n'.join(z.namelist()))",
@@ -203,7 +203,7 @@ it("exports migration logs before a library exists and retains them after log ac
       mocks.save.mockResolvedValue({ canceled: false, filePath: output });
       expect(await service.export()).toBe(true);
       const content = execFileSync(
-        "python3",
+        process.platform === "win32" ? "python" : "python3",
         [
           "-c",
           "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; print('\\n'.join(z.read(n).decode() for n in z.namelist() if n.endswith('.jsonl')))",

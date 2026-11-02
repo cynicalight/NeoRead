@@ -11,6 +11,8 @@
 
 **更新插件**：升级 NeoRead 后，退出 Word，在此处点击“重新安装”即可直接覆盖已有的 `NeoRead.dotm` 和 macOS 脚本，再启动 Word。无需先卸载。WPS 通过重新安装更新登记信息，插件页面由正在运行的 NeoRead 提供。
 
+**检测失败**：设置页会保留插件区域，显示错误和“重试”按钮；macOS 上检测 Word 文件夹时若访问被拒绝，可点击“授权访问”，选择指定文件夹后重新检测；关闭后重新打开设置也会再次检测。若持续失败，请从设置导出诊断包。桌面日志中的 `cite_plugin.status_failed` 记录检测耗时和错误分类，可区分查询超时、输出超限、访问失败等情况，不记录注册表原文。检测失败期间不提供安装操作，避免在启动目录尚未确认时写入文件。
+
 macOS 的默认启动目录为 `~/Library/Group Containers/UBF8T346G9.Office/User Content.localized/Startup.localized/Word/`。安装或卸载遇到访问限制时，会打开系统文件夹选择窗口；选择当前指定的文件夹并点“允许访问”，随后重试操作。模板与 AppleScript 目录可能分别请求授权，取消授权后可再次点击安装。Finder 中可能隐藏目录名称的 `.localized` 后缀。
 
 Windows 优先读取 Office 注册表中的 Word 启动目录设置（包含 32/64 位注册表视图）；没有自定义配置时使用 `%APPDATA%\Microsoft\Word\STARTUP`，并检查商店版 Office 已存在的启动目录。安装、状态检测和卸载使用相同的目录解析。权限不足时不会自动提权或修改目录权限；先退出 Word，再检查该目录的写入权限。

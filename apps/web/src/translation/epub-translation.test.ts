@@ -11,7 +11,12 @@ import {
   resolveEPUBRange,
   sliceEPUBRange,
 } from "../readers/selection-locator";
-import { epubSentenceLocation, epubBlocksAt, epubOffsets } from "./epub-links";
+import {
+  epubSentenceLocation,
+  epubSentenceSlice,
+  epubBlocksAt,
+  epubOffsets,
+} from "./epub-links";
 import { translatedSelection } from "./selection";
 import { translatedAnnotationRanges } from "./annotations";
 function blocks() {
@@ -130,4 +135,23 @@ it("persists cross-paragraph translated marks and rejects stale source versions"
     ),
   ).toEqual([]);
   expect(translatedAnnotationRanges(host, [], translations)).toEqual([]);
+});
+
+it("resolves repeated sentences by UTF-16 offset without a legacy locator", () => {
+  const block: EPUBReadingBlock = {
+    id: "repeat",
+    label: "text",
+    text: "Repeat.  😀 Repeat.",
+    location: { type: "epub", href: "chapter.xhtml", start: 0, end: 19 },
+  };
+  const slice = epubSentenceSlice(
+    block,
+    [{ source: "Repeat." }, { source: "😀 Repeat." }],
+    [1],
+  );
+  expect(slice).toEqual({ start: 9, end: 19 });
+  expect(block.text.slice(slice!.start, slice!.end)).toBe("😀 Repeat.");
+  expect(
+    epubSentenceSlice(block, [{ source: "Changed text." }], [0]),
+  ).toBeUndefined();
 });

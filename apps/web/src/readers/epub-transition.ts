@@ -1,3 +1,4 @@
+import { reducedMotion } from "../motion";
 const nextFrame = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
@@ -20,8 +21,7 @@ export class EPUBTransition {
     // Nested changes (a page turn that crosses a chapter) reuse the outer fade.
     if (this.hidden || typeof this.surface.animate !== "function")
       return change();
-    const reduced = !!window.matchMedia?.("(prefers-reduced-motion: reduce)")
-      .matches;
+    const reduced = reducedMotion();
     const distance = reduced ? 0 : 16 * Math.sign(direction);
     const shift = (d: number) =>
       axis === "x" ? `translate3d(${d}px, 0, 0)` : `translate3d(0, ${d}px, 0)`;

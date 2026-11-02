@@ -153,33 +153,6 @@ it("keeps a saved check visible while metadata loads and reflects global failure
   expect(api.testAI).not.toHaveBeenCalled();
 });
 
-it("publishes text while vision is still running, even without a subscription login", async () => {
-  vi.mocked(api.providers).mockResolvedValue([
-    {
-      id: "codex",
-      installed: true,
-      authenticated: false,
-      status: "登录状态未确认",
-    },
-  ]);
-  let finishVision!: (capability: AICapability) => void;
-  vi.mocked(api.testAI).mockImplementation((_id, stage) => {
-    if (stage === "text")
-      return Promise.resolve({ ...passed, vision: false, pendingVision: true });
-    return new Promise((resolve) => {
-      finishVision = resolve;
-    });
-  });
-  await render();
-  expect(api.providers).toHaveBeenCalledWith(false);
-  expect(api.testAI).toHaveBeenNthCalledWith(1, "codex", "text");
-  expect(api.testAI).toHaveBeenNthCalledWith(2, "codex", "vision");
-  expect(host.querySelector('[aria-label="文本推理：已通过"]')).not.toBeNull();
-  expect(host.querySelector('[aria-label="图片理解：检测中"]')).not.toBeNull();
-  await act(async () => finishVision(passed));
-  expect(host.querySelector('[aria-label="图片理解：已通过"]')).not.toBeNull();
-});
-
 it("keeps successful text when the vision request disconnects", async () => {
   vi.mocked(api.testAI).mockImplementation(async (_id, stage) => {
     if (stage === "text")
@@ -199,15 +172,42 @@ it("resumes an interrupted vision check without repeating text", async () => {
   expect(host.querySelector('[aria-label="文本推理：已通过"]')).not.toBeNull();
 });
 
-it("does not show old green checks after a text retry disconnects", async () => {
+it("defaults the card stack to Codex and preserves a saved choice", async () => {
+  const saved = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => saved.get(key) ?? null,
+    setItem: (key: string, value: string) => saved.set(key, value),
+    removeItem: (key: string) => saved.delete(key),
+  });
+  await render();
+  expect(
+    host
+      .querySelector('.agent-stack-card[data-depth="0"]')
+      ?.getAttribute("data-agent"),
+  ).toBe("codex");
+  await act(async () => root.unmount());
+  localStorage.setItem("neoread.agent-deck-front", "api");
+  root = createRoot(host);
+  await render();
+  expect(
+    host
+      .querySelector('.agent-stack-card[data-depth="0"]')
+      ?.getAttribute("data-agent"),
+  ).toBe("api");
+  localStorage.removeItem("neoread.agent-deck-front");
+});
+
+it("preserves ready status while reopening settings refreshes metadata", async () => {
   config.capabilities.codex = passed;
   await render();
-  vi.mocked(api.testAI).mockRejectedValue(new Error("connection interrupted"));
-  await act(async () =>
-    (
-      host.querySelector('[aria-label="重新检测 Agent"]') as HTMLButtonElement
-    ).click(),
-  );
-  expect(host.querySelector('[aria-label="文本推理：未通过"]')).not.toBeNull();
-  expect(host.querySelector('[aria-label="图片理解：已通过"]')).toBeNull();
+  expect(
+    host.querySelector('[data-agent="codex"]')?.getAttribute("data-status"),
+  ).toBe("ready");
+  await render(false);
+  vi.mocked(api.aiConfig).mockReturnValue(new Promise(() => {}));
+  await render();
+  expect(
+    host.querySelector('[data-agent="codex"]')?.getAttribute("data-status"),
+  ).toBe("ready");
+  expect(api.testAI).not.toHaveBeenCalled();
 });

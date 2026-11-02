@@ -19,7 +19,7 @@ func probeAPIDocumentTools(ctx context.Context, c APIConnection, model string) (
 	if e != nil {
 		return "failed", e
 	}
-	if len(result.Calls) != 1 || result.Calls[0].Function.Name != "neoread_probe" || strings.TrimSpace(result.Calls[0].Function.Arguments) != "{}" {
+	if len(result.Calls) != 1 || result.Calls[0].InvalidArguments || result.Calls[0].Function.Name != "neoread_probe" || strings.TrimSpace(result.Calls[0].Function.Arguments) != "{}" {
 		return "unsupported", fmt.Errorf("模型未返回合法工具调用")
 	}
 	nonce := "neoread-" + id()

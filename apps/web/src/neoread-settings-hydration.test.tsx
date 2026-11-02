@@ -24,7 +24,11 @@ it("saves restored settings once hydration finishes even without another theme c
     );
     await act(async () => vi.advanceTimersByTimeAsync(500));
     expect(api.saveSettings).not.toHaveBeenCalled();
-    const restored = { ...defaultTheme, documentZooms: { paper: 1.16 } };
+    const restored = {
+      ...defaultTheme,
+      documentZooms: { paper: 1.16 },
+      reducedMotion: true,
+    };
     await act(async () =>
       root.render(<Settings theme={restored} ready={false} />),
     );

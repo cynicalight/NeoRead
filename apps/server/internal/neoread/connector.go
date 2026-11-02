@@ -137,6 +137,13 @@ func (s *Server) ConnectorHandler() http.Handler {
 				return
 			}
 		}
+		if s.processingReady != nil && (r.URL.Path == "/v1/import" || r.URL.Path == "/v1/cite/execCommand") {
+			select {
+			case <-s.processingReady:
+			case <-r.Context().Done():
+				return
+			}
+		}
 		mux.ServeHTTP(w, r)
 	}))
 }

@@ -1,10 +1,10 @@
 {
   "name": "@neoread/desktop",
   "productName": "NeoRead",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
-  "main": "dist/main.cjs",
+  "main": "dist/entry.cjs",
   "scripts": {
     "build": "node build.mjs",
     "start": "electron ."

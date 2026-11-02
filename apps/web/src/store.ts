@@ -347,6 +347,47 @@ export async function openLinkTarget(target: NeoReadLinkTarget) {
   return true;
 }
 
+let parsedRevision = 0;
+/**
+ * Open a document chosen with the system Open With menu. Papers still open only
+ * once parsed: the papers library shows progress meanwhile, and a paper that
+ * cannot finish is reported instead. A later Open With replaces the wait.
+ */
+export async function openWhenParsed(id: string, onWaiting: () => void) {
+  const revision = ++parsedRevision;
+  let doc = useReaderStore.getState().documents.find((d) => d.id === id);
+  if (!doc) {
+    await refreshLibrary();
+    doc = useReaderStore.getState().documents.find((d) => d.id === id);
+  }
+  if (!doc) return false;
+  let waiting = false;
+  while (doc.library === "papers") {
+    const job = (await api.processing()).find((job) => job.documentId === id);
+    if (revision !== parsedRevision) return true;
+    if (job && job.phase !== "learning") {
+      if (job.incomplete)
+        throw new Error(
+          job.warning || job.detail || "论文正文不完整，无法打开",
+        );
+      break;
+    }
+    if (job && ["failed", "waiting", "paused"].includes(job.status))
+      throw new Error(job.detail || "论文解析没有完成，无法打开");
+    if (!waiting) {
+      waiting = true;
+      onWaiting();
+      const state = useReaderStore.getState();
+      if (libraryMode(state.libraryPreferences) !== "papers")
+        void updateLibraryPreferences({ mode: "papers" }).catch(() => {});
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    if (revision !== parsedRevision) return true;
+  }
+  await openLibraryDocument(doc, { id });
+  return true;
+}
+
 // Cache only safe reproducibility settings in the shell, available after sidecar failure.
 useReaderStore.subscribe((state, previous) => {
   if (

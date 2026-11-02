@@ -108,16 +108,10 @@ export function CiteHost({ standalone = false }: { standalone?: boolean }) {
       current: {
         transaction: string;
         cancel: () => void;
-        dismiss: () => void;
         asking: () => boolean;
       } | null;
     } = { current: null };
 
-    const removeClose = standalone
-      ? window.neoreadDesktop?.onCitationClose?.(() =>
-          active.current?.dismiss(),
-        )
-      : undefined;
     // The standalone window shows itself once the dialog is measured.
     const show = () =>
       standalone
@@ -132,7 +126,6 @@ export function CiteHost({ standalone = false }: { standalone?: boolean }) {
       let pending: (() => void) | null = null;
       active.current = {
         transaction,
-        dismiss: () => pending?.(),
         asking: () => pending !== null,
         cancel: () => {
           cancelled = true;
@@ -212,14 +205,15 @@ export function CiteHost({ standalone = false }: { standalone?: boolean }) {
       } finally {
         active.current = null;
         setRequest(null);
-        if (standalone)
+        if (standalone) {
           await window.neoreadDesktop
-            ?.setCitationVisible?.(false)
+            ?.completeCitation?.(transaction, error)
             .catch(() => {});
-        if (!cancelled)
+        } else if (!cancelled) {
           await api
             .citeComplete(transaction, { activate: true, error })
             .catch(() => {});
+        }
       }
     };
 
@@ -234,6 +228,13 @@ export function CiteHost({ standalone = false }: { standalone?: boolean }) {
       } else void run(event);
     };
 
+    if (standalone) {
+      const unsubscribe = window.neoreadDesktop?.onCitationEvent?.(onEvent);
+      return () => {
+        unsubscribe?.();
+        active.current?.cancel();
+      };
+    }
     void (async () => {
       while (!controller.signal.aborted) {
         try {
@@ -247,7 +248,6 @@ export function CiteHost({ standalone = false }: { standalone?: boolean }) {
     })();
     return () => {
       controller.abort();
-      removeClose?.();
       active.current?.cancel();
     };
   }, [standalone]);

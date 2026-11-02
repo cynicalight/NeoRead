@@ -48,6 +48,7 @@ export function CodexHandoffButton({
     <Button
       variant="ghost"
       size="icon-xs"
+      className="bg-background dark:hover:bg-muted disabled:text-muted-foreground disabled:opacity-100"
       title="在 Codex 中继续（独立副本）"
       aria-label="在 Codex 中继续"
       disabled={disabled || busy}

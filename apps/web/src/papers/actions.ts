@@ -303,9 +303,9 @@ export async function importReference(ref: string, target = "") {
   return doc;
 }
 
-export async function lookupPaper(doc: Document) {
+export async function lookupPaper(doc: Document, byTitle = false) {
   try {
-    await api.lookupMetadata(doc.id);
+    await api.lookupMetadata(doc.id, byTitle);
     await refreshLibrary().catch(() => {});
     toast.success("已更新论文信息");
   } catch (e) {

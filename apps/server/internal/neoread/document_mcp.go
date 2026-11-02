@@ -48,14 +48,29 @@ func serveBoundDocumentMCP(binding *documentToolBinding) (string, string, func()
 			if agent == nil {
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "No active NeoRead turn"}}}, nil
 			}
+			agent.mu.Lock()
+			stale := attempt != "" && attempt != agent.ID
+			agent.mu.Unlock()
+			if stale {
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "文档工具尝试已结束"}}}, nil
+			}
 			ctx, cancel := context.WithCancel(ctx)
 			stop := context.AfterFunc(agent.ctx, cancel)
 			defer cancel()
 			defer stop()
 			raw, err := agent.callAttempt(ctx, attempt, d.Name, req.Params.Arguments)
 			if err != nil {
+				if errors.Is(err, errDocumentAttemptEnded) {
+					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "文档工具尝试已结束"}}}, nil
+				}
 				if errors.Is(err, errDocumentReadingBudget) {
-					return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"shouldFinish":true,"message":"Stop retrieving and answer using available context; disclose any gaps."}`}}}, nil
+					return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"shouldFinish":true,"message":"Prioritize essential evidence and complete the answer promptly; disclose gaps."}`}}}, nil
+				}
+				if ctx.Err() != nil && agent.ctx.Err() == nil {
+					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "Tool request was interrupted; use available evidence or try another approach."}}}, nil
+				}
+				if result, fatal := agent.toolFailure(ctx, err); fatal == nil {
+					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(result)}}}, nil
 				}
 				agent.mu.Lock()
 				abort := agent.abort
@@ -70,7 +85,11 @@ func serveBoundDocumentMCP(binding *documentToolBinding) (string, string, func()
 			for _, page := range resultPageImages(raw) {
 				data, err := agent.pageImageData(page)
 				if err != nil {
-					return nil, err
+					failure, fatal := agent.toolFailure(ctx, err)
+					if fatal != nil {
+						return nil, fatal
+					}
+					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(failure)}}}, nil
 				}
 				content = append(content, &mcp.TextContent{Text: "[" + page.SourceID + "] " + pageEvidence(page).Text}, &mcp.ImageContent{Data: data, MIMEType: "image/png"})
 			}

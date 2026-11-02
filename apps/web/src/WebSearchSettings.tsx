@@ -1,15 +1,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { WebSearchConfig } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
-import { Checkbox } from "@neoread/ui/components/checkbox";
+import { Switch } from "@neoread/ui/components/switch";
 import { Input } from "@neoread/ui/components/input";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@neoread/ui/components/select";
+import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
 
 const defaultURL = "https://api.deepseek.com";
 const defaults: WebSearchConfig = {
@@ -61,7 +55,7 @@ export function WebSearchSettings({
   }, [value?.url]);
 
   // Serialize patches against the last accepted configuration, so a blur save
-  // and a checkbox click cannot overwrite one another or reuse a stale key.
+  // and a switch click cannot overwrite one another or reuse a stale key.
   const persist = (change: (latest: WebSearchConfig) => WebSearchConfig) => {
     setPending((n) => n + 1);
     const task = queue.current.then(async () => {
@@ -127,14 +121,15 @@ export function WebSearchSettings({
         联网搜索
       </h3>
       <div className="space-y-3">
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <span id={`${id}-cli`}>允许 CLI 原生联网搜索</span>
+          <Switch
+            aria-labelledby={`${id}-cli`}
             checked={cliEnabled}
             disabled={disabled}
             onCheckedChange={(checked) => saveCLI(checked === true)}
           />
-          允许 CLI 原生联网搜索
-        </label>
+        </div>
         <p className="text-xs leading-5 text-muted-foreground">
           目前支持 Codex，使用 CLI 自身的联网能力。
         </p>
@@ -142,25 +137,22 @@ export function WebSearchSettings({
           <label id={`${id}-provider`} className="text-sm">
             搜索 API
           </label>
-          <Select
+          <Tabs
             value={provider || "off"}
-            disabled={disabled}
             onValueChange={(next) => {
               if (next === "off" || next === "deepseek")
                 saveProvider(next === "off" ? "" : next);
             }}
           >
-            <SelectTrigger
-              aria-labelledby={`${id}-provider`}
-              className="w-full"
-            >
-              <SelectValue>{provider ? "DeepSeek" : "关闭"}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="off">关闭</SelectItem>
-              <SelectItem value="deepseek">DeepSeek</SelectItem>
-            </SelectContent>
-          </Select>
+            <TabsList aria-labelledby={`${id}-provider`} className="w-full">
+              <TabsTrigger value="off" disabled={disabled}>
+                关闭
+              </TabsTrigger>
+              <TabsTrigger value="deepseek" disabled={disabled}>
+                DeepSeek
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
           {provider && (
             <>
               <label htmlFor={`${id}-url`} className="text-sm">

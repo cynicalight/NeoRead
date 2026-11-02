@@ -20,6 +20,7 @@ import type {
   PaperMetadataField,
 } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
+import { Badge } from "@neoread/ui/components/badge";
 import { api, publicationURL } from "@neoread/api";
 import {
   Dialog,
@@ -93,6 +94,16 @@ const fieldLabels: Partial<Record<PaperMetadataField, string>> = {
   remark: "备注",
   abstract: "摘要",
 };
+const optionalFields: PaperMetadataField[] = [
+  "venue",
+  "volume",
+  "issue",
+  "pages",
+  "publisher",
+  "affiliation",
+  "shortTitle",
+];
+
 const placeholders: Partial<Record<PaperMetadataField, string>> = {
   date: "2024 或 2024-05-17",
   doi: "10.xxxx/… 或 doi.org 链接",
@@ -219,6 +230,45 @@ export function PaperDetail({
             }
           }}
         />
+        {m.suggestedTitle && m.suggestedTitle !== doc.title && (
+          <Badge
+            variant="secondary"
+            className="paper-title-suggestion !h-auto !overflow-visible !p-0 !whitespace-normal"
+          >
+            <Button
+              variant="ghost"
+              size="sm"
+              className="paper-title-suggestion-apply"
+              aria-label={`应用 AI 建议标题：${m.suggestedTitle}`}
+              title={m.suggestedTitle}
+              disabled={lookingUp}
+              onClick={() => {
+                const title = m.suggestedTitle;
+                if (!title) return;
+                setLookingUp(true);
+                void (async () => {
+                  const saved = await patchPapers([
+                    [doc, { title, metadata: { suggestedTitle: "" } }],
+                  ]);
+                  if (saved) await lookupPaper(doc, true);
+                })().finally(() => setLookingUp(false));
+              }}
+            >
+              <span>AI 建议：{m.suggestedTitle}</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="paper-title-suggestion-dismiss"
+              aria-label="删除 AI 建议标题"
+              onClick={() =>
+                void patchPapers([[doc, { metadata: { suggestedTitle: "" } }]])
+              }
+            >
+              <X />
+            </Button>
+          </Badge>
+        )}
         <Button className="paper-detail-open" onClick={() => actions.open(doc)}>
           <BookOpen />
           {percent > 1 ? `继续阅读 · ${percent}%` : "开始阅读"}
@@ -305,9 +355,7 @@ export function PaperDetail({
         <div className="paper-fields-heading">
           <h3>论文信息</h3>
           {m.lookup === "pending" && (
-            <span className="text-xs text-muted-foreground">
-              解析后自动查找
-            </span>
+            <span className="text-xs text-muted-foreground">等待自动查找</span>
           )}
           <Button
             size="xs"
@@ -369,19 +417,11 @@ export function PaperDetail({
               </Button>
             )}
           </dd>
-          {(
-            [
-              "venue",
-              "volume",
-              "issue",
-              "pages",
-              "publisher",
-              "affiliation",
-            ] as PaperMetadataField[]
-          ).map((name) => (
-            <FieldRow key={name} doc={doc} name={name} />
-          ))}
-          <FieldRow doc={doc} name="shortTitle" />
+          {optionalFields
+            .filter((name) => String(m[name] ?? "").trim())
+            .map((name) => (
+              <FieldRow key={name} doc={doc} name={name} />
+            ))}
           <dt>添加于</dt>
           <dd className="paper-field-static">
             {relativeTime(doc.createdAt)}

@@ -163,7 +163,7 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 	// Respect the request-specific generation deadline (longer for batches).
 	if _, bounded := ctx.Deadline(); !bounded {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 3*time.Minute)
+		ctx, cancel = context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
 	}
 	messages := append([]completionMessage{{Role: "system", Content: readerSystemPrompt}}, req.History...)

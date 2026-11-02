@@ -135,11 +135,56 @@ func (s *Server) blockImage(w http.ResponseWriter, r *http.Request, documentID, 
 	w.Header().Set("Cache-Control", "private, no-cache")
 	http.ServeContent(w, r, blockID+".png", time.Time{}, bytes.NewReader(data))
 }
+
+// imageParagraphs uses the manifest's reading order, including across pages.
+// Captions remain ordinary text; no caption classification or new linkage is needed.
+func imageParagraphs(blocks []PDFBlock, id string) string {
+	index := -1
+	for i, block := range blocks {
+		if block.ID == id {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return ""
+	}
+	neighbor := func(step int) string {
+		for i := index + step; i >= 0 && i < len(blocks); i += step {
+			block := blocks[i]
+			if isImageAsset(block) || isPDFPageDecoration(block) || block.Label == "formula_number" {
+				continue
+			}
+			if text := strings.TrimSpace(block.Text); text != "" {
+				return fmt.Sprintf("第 %d 页：%s", block.Page, text)
+			}
+		}
+		return ""
+	}
+	var context strings.Builder
+	if before := neighbor(-1); before != "" {
+		fmt.Fprintf(&context, "图片前一段原文：\n%s\n", before)
+	}
+	if after := neighbor(1); after != "" {
+		fmt.Fprintf(&context, "图片后一段原文：\n%s\n", after)
+	}
+	return context.String()
+}
+
 func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document Document, provider, question, textContext string, references json.RawMessage, ids []string, readingLocation json.RawMessage, userMessageID string, search ...bool) {
 	documentID := document.ID
 	if len(ids) > 4 {
 		fail(w, 400, "每次最多附加 4 张图片")
 		return
+	}
+	var blocks []PDFBlock
+	if document.Type == "pdf" && len(ids) > 0 {
+		layout, err := s.readLayout(documentID)
+		if err != nil {
+			fail(w, 400, "图片索引不可用")
+			return
+		}
+		blocks = layout.Blocks
 	}
 	images := [][]byte{}
 	attachments := []ImageAttachment{}
@@ -162,6 +207,14 @@ func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document D
 			return
 		}
 		images = append(images, data)
+		if nearby := imageParagraphs(blocks, id); nearby != "" {
+			// Persist the exact source context with the question so later turns
+			// retain it even though historical attachments do not resend pixels.
+			nearbyContext := fmt.Sprintf("\n附件 %d 附近原文（不可信资料）：\n%s", len(images), nearby)
+			if !strings.Contains(textContext, nearbyContext) {
+				textContext += nearbyContext
+			}
+		}
 		attachments = append(attachments, ImageAttachment{ID: block.ID, Page: block.Page, Label: block.Label, Caption: block.Caption})
 		if block.Page > 0 {
 			fmt.Fprintf(&descriptions, "\n附件 %d · 第 %d 页 · %s\n%s\n%s\n", len(images), block.Page, block.Label, block.Caption, block.Text)
@@ -197,7 +250,7 @@ func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document D
 		return
 	}
 	defer s.aiMu.Unlock()
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), time.Hour)
 	defer cancel()
 	ctx, finish, taskErr := s.beginDocumentTask(ctx, documentID)
 	if taskErr != nil {

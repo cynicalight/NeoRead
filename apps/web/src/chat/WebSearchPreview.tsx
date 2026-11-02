@@ -34,6 +34,20 @@ export default function WebSearchPreview() {
       detail: state === "failed" ? "示例：网页暂时不可访问" : "",
       startedAt: "2026-10-23T00:00:01Z",
     },
+    {
+      id: "pdf",
+      kind: "tool",
+      tool: "read_passage",
+      title: "查询 PDF 原文",
+      target: "Attention Is All You Need · 第 3 页 · S64",
+      status: state,
+      detail:
+        state === "failed"
+          ? "示例：页面读取失败，可重新查询。"
+          : "已定位到原文段落，核对模型结构和上下文。",
+      startedAt: "2026-10-23T00:00:02Z",
+      finishedAt: state === "running" ? undefined : "2026-10-23T00:00:04Z",
+    },
   ];
   const sources: WebSource[] =
     state === "completed"
@@ -70,7 +84,7 @@ export default function WebSearchPreview() {
         ))}
       </div>
       <p className="text-sm text-muted-foreground mb-4">
-        工具执行记录预览 · 合成示例
+        Agent Trace 预览 · PDF 查询、网页工具与思考的合成示例
       </p>
       <section
         style={{

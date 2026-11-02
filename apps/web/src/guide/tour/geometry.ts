@@ -22,6 +22,25 @@ export const center = (r: Rect) => ({
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), Math.max(min, max));
 
+/** Keep the breathing outline inside the viewport, including its 7px ring. */
+export function frameRect(
+  target: Rect,
+  viewport: { width: number; height: number },
+): Rect {
+  const expanded = inflate(target, 5);
+  const insetX = Math.min(8, viewport.width / 2);
+  const insetY = Math.min(8, viewport.height / 2);
+  const x = clamp(expanded.x, insetX, viewport.width - insetX);
+  const y = clamp(expanded.y, insetY, viewport.height - insetY);
+  const right = clamp(expanded.x + expanded.width, x, viewport.width - insetX);
+  const bottom = clamp(
+    expanded.y + expanded.height,
+    y,
+    viewport.height - insetY,
+  );
+  return { x, y, width: right - x, height: bottom - y };
+}
+
 /**
  * The parts of the viewport outside every hole, as non-overlapping rows of
  * rectangles. One even-odd path cannot do this: overlapping holes, such as a
@@ -91,8 +110,8 @@ const overlap = (a: Rect, b: Rect) =>
 /**
  * Places the coach card beside the anchor (`prefer` first, then right, below,
  * left, above) or in a viewport corner, preferring the first spot that covers
- * none of `clear`.
- * Without an anchor the card is centred.
+ * none of `clear`. When a full card cannot fit, constrain it to free space
+ * and let its content scroll. The card must remain visible.
  */
 export function placeCard(
   anchor: Rect | null,
@@ -100,7 +119,8 @@ export function placeCard(
   viewport: { width: number; height: number },
   clear: Rect[] = [],
   prefer?: Side,
-): { x: number; y: number } {
+  required: Rect[] = [],
+): { x: number; y: number; maxWidth?: number; maxHeight?: number } {
   const margin = 16;
   const top = 52;
   const maxX = viewport.width - card.width - margin;
@@ -109,11 +129,15 @@ export function placeCard(
     x: clamp(p.x, margin, maxX),
     y: clamp(p.y, top, maxY),
   });
-  if (!anchor)
-    return fit({
+  if (!anchor) {
+    const centered = fit({
       x: (viewport.width - card.width) / 2,
       y: (viewport.height - card.height) / 2,
     });
+    if (required.every((r) => overlap({ ...centered, ...card }, r) === 0))
+      return centered;
+  }
+  anchor ??= required[0];
   const gap = 18;
   const sides: Record<Side, { x: number; y: number }> = {
     right: {
@@ -145,9 +169,24 @@ export function placeCard(
   ];
   let best = fit(beside[0]);
   let bestCost = Infinity;
-  for (const [i, spot] of [...beside, ...corners].entries()) {
+  // Rectangle edges also find free strips missed by the usual eight positions.
+  const xs = [
+    margin,
+    maxX,
+    ...required.flatMap((r) => [r.x - card.width, r.x + r.width]),
+  ];
+  const ys = [
+    top,
+    maxY,
+    ...required.flatMap((r) => [r.y - card.height, r.y + r.height]),
+  ];
+  const fallback = required.length
+    ? xs.flatMap((x) => ys.map((y) => ({ x, y })))
+    : [];
+  for (const [i, spot] of [...beside, ...corners, ...fallback].entries()) {
     const placed = fit(spot);
     const box = { ...placed, ...card };
+    if (required.some((r) => overlap(box, r) > 0)) continue;
     // Spots that had to be pushed back into the viewport no longer sit
     // beside the anchor; corners only win when they cover less.
     const moved =
@@ -165,5 +204,25 @@ export function placeCard(
     }
     if (cost === 0) break;
   }
-  return best;
+  if (bestCost !== Infinity) return best;
+  const spaces = blockedRects(viewport, required)
+    .map((r) => {
+      const x = Math.max(margin, r.x);
+      const y = Math.max(top, r.y);
+      return {
+        x,
+        y,
+        maxWidth: Math.min(card.width, r.x + r.width - margin - x),
+        maxHeight: Math.min(card.height, r.y + r.height - margin - y),
+      };
+    })
+    .filter((r) => r.maxWidth >= Math.min(180, card.width) && r.maxHeight >= 48)
+    .sort((a, b) => b.maxWidth * b.maxHeight - a.maxWidth * a.maxHeight);
+  // Even a physically impossible viewport must not remove the instructions.
+  return (
+    spaces[0] ?? {
+      ...best,
+      maxHeight: Math.max(48, viewport.height - top - margin),
+    }
+  );
 }

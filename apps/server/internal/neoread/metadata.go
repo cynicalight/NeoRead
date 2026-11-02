@@ -22,6 +22,7 @@ type Creator struct {
 // from ("file", "lookup" or "manual"); lookups never replace manual values.
 type PaperMetadata struct {
 	ItemType        string    `json:"itemType,omitempty"`
+	SuggestedTitle  string    `json:"suggestedTitle,omitempty"`
 	TranslatedTitle string    `json:"translatedTitle,omitempty"`
 	ShortTitle      string    `json:"shortTitle,omitempty"`
 	Creators        []Creator `json:"creators,omitempty"`
@@ -221,6 +222,18 @@ func (m *PaperMetadata) set(key string, value any, source string) {
 func (m *PaperMetadata) ApplyManual(patch map[string]json.RawMessage) error {
 	values := map[string]any{}
 	for key, raw := range patch {
+		if key == "suggestedTitle" {
+			var value string
+			if json.Unmarshal(raw, &value) != nil {
+				return errors.New("建议标题须为文本")
+			}
+			value, err := cleanText(value, 300, false)
+			if err != nil {
+				return err
+			}
+			values[key] = value
+			continue
+		}
 		value, err := normalizeMetadataField(key, raw)
 		if err != nil {
 			return err
@@ -228,6 +241,10 @@ func (m *PaperMetadata) ApplyManual(patch map[string]json.RawMessage) error {
 		values[key] = value
 	}
 	for key, value := range values {
+		if key == "suggestedTitle" {
+			m.SuggestedTitle = value.(string)
+			continue
+		}
 		m.set(key, value, "manual")
 	}
 	return nil

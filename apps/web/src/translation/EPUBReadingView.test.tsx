@@ -99,6 +99,7 @@ vi.mock("../ReaderView", () => ({
     return <div>EPUB 原文</div>;
   },
 }));
+import { useReaderStore } from "../store";
 import { EPUBReadingView } from "./EPUBReadingView";
 const blocks: import("@neoread/core").EPUBReadingBlock[] = [
   "a.xhtml",
@@ -176,6 +177,7 @@ async function renderView(theme: ReaderTheme = defaultTheme) {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  useReaderStore.getState().setTheme({ reducedMotion: false });
   host.remove();
   window.getSelection()?.removeAllRanges();
   vi.clearAllMocks();
@@ -392,6 +394,7 @@ it("keeps selection navigation without highlighting the source counterpart", asy
   );
 });
 it("follows source block anchors and scrolls the source to the translated block in both directions", async () => {
+  useReaderStore.getState().setTheme({ reducedMotion: true });
   await click("原文译文");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
@@ -403,20 +406,18 @@ it("follows source block anchors and scrolls the source to the translated block 
   nodes[0].getBoundingClientRect = () => new DOMRect(0, -200, 400, 100);
   nodes[1].getBoundingClientRect = () => new DOMRect(0, 300, 400, 100);
   await act(async () => fixture.events!.epubReadingAnchor?.("e-b"));
-  expect(pane.scrollTop).toBe(200);
+  expect(pane.scrollTop).toBe(150);
   vi.mocked(adapter.goTo).mockClear();
   await act(async () => {
     pane.dispatchEvent(new Event("wheel", { bubbles: true }));
     pane.dispatchEvent(new Event("scroll"));
     await new Promise((resolve) => setTimeout(resolve, 30));
   });
-  expect(adapter.goTo).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      type: "epub",
-      href: "b.xhtml",
-      quote: undefined,
-    }),
-  );
+  expect(adapter.followBlock).toHaveBeenLastCalledWith({
+    blockId: "e-b",
+    fraction: 0,
+  });
+  expect(adapter.goTo).not.toHaveBeenCalled();
 });
 
 it("links block hover and focuses a clicked block in both panes", async () => {
@@ -437,11 +438,7 @@ it("links block hover and focuses a clicked block in both panes", async () => {
   );
   expect(adapter.hoverBlock).toHaveBeenLastCalledWith("e-b");
   vi.mocked(adapter.goTo).mockClear();
-  vi.stubGlobal("matchMedia", () => ({
-    matches: true,
-    addEventListener() {},
-    removeEventListener() {},
-  }));
+  useReaderStore.getState().setTheme({ reducedMotion: true });
   await act(async () => fixture.events!.epubBlockFocus?.("e-b"));
   expect(adapter.focusBlock).toHaveBeenCalledWith("e-b", "parallel");
   // Centered: 600 - (400 - 100) / 2.
@@ -482,4 +479,94 @@ it("uses only the reader's loaded blocks and subscribes only to their chapters",
     expect.any(Function),
     ["b.xhtml"],
   );
+});
+
+it.each(["source", "translation"] as const)(
+  "keeps centered EPUB blocks stable after %s focus and resumes from the viewport midpoint",
+  async (origin) => {
+    await click("原文译文");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+    useReaderStore.getState().setTheme({ reducedMotion: true });
+    const pane = host.querySelector<HTMLElement>(".translation-document")!;
+    Object.defineProperty(pane, "clientHeight", { value: 400 });
+    pane.getBoundingClientRect = () => new DOMRect(0, 0, 400, 400);
+    const nodes = Array.from(
+      pane.querySelectorAll<HTMLElement>("[data-translation-block]"),
+    );
+    nodes[0].getBoundingClientRect = () =>
+      new DOMRect(0, -300 - pane.scrollTop, 400, 100);
+    nodes[1].getBoundingClientRect = () =>
+      new DOMRect(0, 600 - pane.scrollTop, 400, 100);
+    await act(async () => {
+      if (origin === "source") fixture.events!.epubBlockFocus?.("e-b");
+      else
+        nodes[1].dispatchEvent(
+          new MouseEvent("click", { bubbles: true, detail: 0 }),
+        );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(pane.scrollTop).toBe(450);
+    await act(async () => {
+      fixture.events!.epubInteraction?.();
+      fixture.events!.epubReadingAnchor?.("e-b");
+    });
+    // A centered source stays centered: there must be no jump toward the top edge.
+    expect(pane.scrollTop).toBe(450);
+    vi.mocked(adapter.followBlock!).mockClear();
+    vi.mocked(adapter.goTo).mockClear();
+    await act(async () => {
+      pane.dispatchEvent(new Event("wheel", { bubbles: true }));
+      pane.scrollTop += 20;
+      pane.dispatchEvent(new Event("scroll"));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(adapter.followBlock).toHaveBeenLastCalledWith({
+      blockId: "e-b",
+      fraction: 0.7,
+    });
+    expect(adapter.goTo).not.toHaveBeenCalled();
+  },
+);
+
+it("smoothly retargets the translated midpoint and cancels following on user input", async () => {
+  await click("原文译文");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  Object.defineProperty(pane, "clientHeight", { value: 400 });
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 400, 400);
+  const node = pane.querySelector<HTMLElement>(
+    '[data-translation-block="e-b"]',
+  )!;
+  node.getBoundingClientRect = () =>
+    new DOMRect(0, 600 - pane.scrollTop, 400, 100);
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      fixture.events!.epubInteraction?.();
+      fixture.events!.epubReadingAnchor?.("e-b", 0.5);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(pane.scrollTop).toBeGreaterThan(0);
+    expect(pane.scrollTop).toBeLessThan(450);
+    await act(async () => {
+      fixture.events!.epubReadingAnchor?.("e-b", 0.75);
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(pane.scrollTop).toBe(475);
+    await act(async () => {
+      fixture.events!.epubReadingAnchor?.("e-b", 0.25);
+      await vi.advanceTimersByTimeAsync(100);
+      pane.dispatchEvent(new Event("wheel", { bubbles: true }));
+    });
+    const stopped = pane.scrollTop;
+    await act(async () => {
+      fixture.events!.epubReadingAnchor?.("e-b", 0.5);
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(pane.scrollTop).toBe(stopped);
+  } finally {
+    vi.useRealTimers();
+  }
 });

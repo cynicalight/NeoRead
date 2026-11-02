@@ -240,16 +240,6 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
                 </SelectContent>
               </Select>
             </div>
-            {effortInfo && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {effortInfo.note}
-                {!fixedEffort &&
-                effortInfo.mappings?.[effort] &&
-                effortInfo.mappings[effort] !== effort
-                  ? ` ${effort} → ${effortInfo.mappings[effort]}${effortInfo.mode === "budget" ? " tokens" : ""}`
-                  : ""}
-              </p>
-            )}
           </div>
         );
       })}

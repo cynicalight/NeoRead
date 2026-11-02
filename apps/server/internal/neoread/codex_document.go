@@ -160,7 +160,7 @@ func isolatedDocumentCodex(ctx context.Context, work, model, url, token string, 
 	}
 	if url != "" {
 		prefix := "mcp_servers." + readerName + "."
-		overrides = append(overrides, prefix+"enabled=true", prefix+"url="+strconv.Quote(url), prefix+"bearer_token_env_var=\"NEOREAD_DOCUMENT_MCP_TOKEN\"", prefix+"enabled_tools=[\"get_outline\",\"search_document\",\"read_passage\",\"read_pdf_pages\"]", prefix+"required=true", prefix+"startup_timeout_sec=15", prefix+"tool_timeout_sec=60")
+		overrides = append(overrides, prefix+"enabled=true", prefix+"url="+strconv.Quote(url), prefix+"bearer_token_env_var=\"NEOREAD_DOCUMENT_MCP_TOKEN\"", prefix+"enabled_tools=[\"get_outline\",\"search_document\",\"read_passage\",\"read_pdf_pages\"]", prefix+"required=true", prefix+"startup_timeout_sec=15", prefix+"tool_timeout_sec=240")
 	}
 	session, e := startCodexSession(work, model, overrides, token)
 	if e != nil {

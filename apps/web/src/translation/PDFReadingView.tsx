@@ -110,7 +110,6 @@ export function PDFReadingView({
   const previousMode = useRef<Mode>("source");
   const syncEnabledRef = useRef(syncEnabled);
   syncEnabledRef.current = syncEnabled;
-  const enteringParallel = useRef<string | undefined>(undefined);
   const explicitFocus = useRef({
     operation: 0,
     moving: false,
@@ -571,51 +570,37 @@ export function PDFReadingView({
     events.selection(null);
     window.getSelection()?.removeAllRanges();
     void engine.focusSentences?.("", []);
-    if (previous !== mode && mode === "parallel") {
-      const block = blocks.find(
-        (b) => b.id === (enteringParallel.current ?? reading.current?.blockId),
-      );
-      enteringParallel.current = undefined;
-      if (block) {
-        // Panel resize commits and ResizeObserver callbacks can follow this effect.
-        // Keep the selected block fixed until both panes have their new geometry.
-        const motion = explicitFocus.current;
-        const operation = motion.operation;
-        motion.moving = true;
-        let frame = requestAnimationFrame(() => {
-          frame = requestAnimationFrame(() => {
-            if (cancelled || operation !== motion.operation) return;
-            focusBlock(
-              block,
-              previous === "translation" ? "translation" : "source",
-            );
-          });
-        });
-        return () => {
-          cancelled = true;
-          cancelAnimationFrame(frame);
-          if (operation === motion.operation) motion.moving = false;
-          engine.hoverBlock?.(null);
-        };
-      }
-    }
+    const anchor = reading.current;
+    const operation = explicitFocus.current.operation;
     const restore = async () => {
-      if (
-        previous !== mode &&
-        mode !== "translation" &&
-        reading.current &&
-        syncEnabledRef.current
-      )
-        await engine.followBlock?.(reading.current);
-      if (cancelled) return;
-      if (!cancelled && mode !== "source" && reading.current)
-        followTranslation(reading.current);
+      if (previous !== mode) {
+        // Use the same preference path as the 适宽 button, including clearing
+        // temporary passage zoom and saving this document's zoom preference.
+        events.zoom?.("width");
+        await engine.setTheme({ ...state.current.theme, zoom: "width" });
+        if (cancelled) return;
+        if (mode !== "translation" && anchor && syncEnabledRef.current)
+          await engine.followBlock?.(anchor);
+      }
+      if (!cancelled && mode !== "source" && anchor) followTranslation(anchor);
     };
-    void restore().catch((e) => {
-      if (!cancelled) toast.error(e.message);
-    });
+    const apply = () =>
+      void restore().catch((e) => {
+        if (!cancelled) toast.error(e.message);
+      });
+    // Both PDF fit-width and translation positioning need the expanded panes.
+    let frame = 0;
+    if (previous !== mode) {
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => {
+          if (!cancelled && operation === explicitFocus.current.operation)
+            apply();
+        });
+      });
+    } else apply();
     return () => {
       cancelled = true;
+      cancelAnimationFrame(frame);
       engine.hoverBlock?.(null);
     };
   }, [mode, engine, active]);
@@ -704,61 +689,7 @@ export function PDFReadingView({
       }
     });
   };
-  const centerBlock = (origin: "source" | "translation") => {
-    const host =
-      origin === "translation"
-        ? pane.current
-        : root.current?.querySelector<HTMLElement>(".pdf-container");
-    let nearest: string | undefined;
-    let distance = Infinity;
-    if (host) {
-      const view = host.getBoundingClientRect();
-      const x = view.left + view.width / 2,
-        y = view.top + view.height / 2;
-      for (const block of visibleBlocks) {
-        let rect: DOMRect | undefined;
-        if (origin === "translation")
-          rect = targetNode(block.id)?.getBoundingClientRect();
-        else {
-          const page = host
-            .querySelector<HTMLElement>(
-              `.page[data-page-number="${block.page}"]`,
-            )
-            ?.getBoundingClientRect();
-          if (page)
-            rect = new DOMRect(
-              page.left + block.bounds.x * page.width,
-              page.top + block.bounds.y * page.height,
-              block.bounds.width * page.width,
-              block.bounds.height * page.height,
-            );
-        }
-        if (
-          !rect?.height ||
-          !rect.width ||
-          rect.bottom <= view.top ||
-          rect.top >= view.bottom ||
-          rect.right <= view.left ||
-          rect.left >= view.right
-        )
-          continue;
-        const d =
-          Math.max(rect.left - x, x - rect.right, 0) * 2 +
-          Math.max(rect.top - y, y - rect.bottom, 0);
-        if (d < distance) {
-          distance = d;
-          nearest = block.id;
-        }
-      }
-    }
-    return nearest;
-  };
   const changeMode = (value: Mode) => {
-    if (value === "parallel" && mode !== "parallel") {
-      enteringParallel.current =
-        centerBlock(mode === "translation" ? "translation" : "source") ??
-        reading.current?.blockId;
-    }
     input(value === "translation" ? "translation" : "source");
     setPopup(undefined);
     setMode(value);

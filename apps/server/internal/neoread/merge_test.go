@@ -87,7 +87,7 @@ func TestMergeKeepsZoteroImportedVersion(t *testing.T) {
 				t.Fatalf("duplicate not in trash: %+v", trash)
 			}
 			note := request(t, s, "GET", "/api/documents/"+d.ID+"/note", nil).Body.String()
-			if !strings.Contains(note, "我的笔记") || !strings.Contains(note, "duplicate note") {
+			if !strings.Contains(note, "我的笔记") || strings.Contains(note, "duplicate note") {
 				t.Fatal(note)
 			}
 		})
@@ -135,7 +135,7 @@ func TestMergeFoldsDuplicatesIntoTheChosenVersion(t *testing.T) {
 		t.Fatalf("trashed: %v", result.Trashed)
 	}
 	note := request(t, s, "GET", "/api/documents/"+ids[0]+"/note", nil).Body.String()
-	if !strings.Contains(note, `main note\n\n---\n\npreprint note`) {
+	if !strings.Contains(note, "preprint note") || strings.Contains(note, "main note") {
 		t.Fatal(note)
 	}
 	// The duplicate keeps its own annotations in the trash.
@@ -170,5 +170,37 @@ func TestMergeRejectsInvalidRequests(t *testing.T) {
 	}
 	if d, _ := s.Store.Document(ids[0]); len(d.Tags) != 0 || d.DeletedAt != "" {
 		t.Fatalf("failed merge changed the master: %+v", d)
+	}
+}
+
+func TestMergeSelectsLongestNoteWithoutNormalizing(t *testing.T) {
+	for _, tc := range []struct{ name, master, other, want string }{
+		{"longer duplicate", "old", "## New\n\nlonger note\n", "## New\n\nlonger note\n"},
+		{"longer master", "a longer master", "short", "a longer master"},
+		{"tie keeps master", "first", "other", "first"},
+		{"unicode characters not bytes", "中文", "abc", "abc"},
+		{"empty duplicate", "keep", "", "keep"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := testServer(t)
+			ids := uploadPapers(t, s, 2)
+			for i, body := range []string{tc.master, tc.other} {
+				data, _ := json.Marshal(map[string]string{"body": body})
+				if w := request(t, s, "PUT", "/api/documents/"+ids[i]+"/note", strings.NewReader(string(data))); w.Code != 200 {
+					t.Fatal(w.Body.String())
+				}
+			}
+			w := request(t, s, "POST", "/api/documents/"+ids[0]+"/merge", strings.NewReader(`{"from":["`+ids[1]+`"]}`))
+			if w.Code != 200 {
+				t.Fatal(w.Body.String())
+			}
+			var actual string
+			if err := s.Store.DB.QueryRow("SELECT body FROM document_notes WHERE document_id=?", ids[0]).Scan(&actual); err != nil {
+				t.Fatal(err)
+			}
+			if actual != tc.want {
+				t.Fatalf("got %q, want %q", actual, tc.want)
+			}
+		})
 	}
 }

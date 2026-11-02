@@ -37,6 +37,7 @@ await build({
     "src/repair-text.ts",
     "src/model.ts",
     "src/corpus.ts",
+    "src/paper-metadata.ts",
     "src/render-pages.ts",
     "src/endnote-pdf-cli.ts",
   ],

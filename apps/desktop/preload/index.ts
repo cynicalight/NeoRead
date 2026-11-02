@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { startupAppearanceFromArguments } from "../startup-appearance";
+import type { CiteEvent } from "../../../packages/api-client/src/cite-events";
 import type { ProxySettings } from "../../../packages/neoread-core/src/proxy-settings";
 import type { UpdateProgress } from "../../../packages/neoread-core/src/update-progress";
 async function proxyRequest(channel: string, ...args: unknown[]) {
@@ -17,6 +19,7 @@ async function proxyRequest(channel: string, ...args: unknown[]) {
 }
 contextBridge.exposeInMainWorld("neoreadDesktop", {
   platform: process.platform,
+  startupAppearance: startupAppearanceFromArguments(process.argv),
   exportDiagnostics: () => ipcRenderer.invoke("neoread:export-diagnostics"),
   recordDiagnostic: (event: unknown) =>
     ipcRenderer.send("neoread:diagnostic-event", event),
@@ -47,10 +50,17 @@ contextBridge.exposeInMainWorld("neoreadDesktop", {
     ipcRenderer.invoke("neoread:clipboard-write", text),
   writeClipboardImage: (data: Uint8Array, text: string) =>
     ipcRenderer.invoke("neoread:clipboard-write-image", data, text),
-  onBeforeClose: (callback: () => Promise<void>) => {
+  onBeforeClose: (
+    callback: () => Promise<void | { noteSaveDiscarded: boolean }>,
+  ) => {
     const listener = () => {
       void callback().then(
-        () => ipcRenderer.send("neoread:flushed", null),
+        (result) =>
+          ipcRenderer.send(
+            "neoread:flushed",
+            null,
+            result?.noteSaveDiscarded === true,
+          ),
         (error) => ipcRenderer.send("neoread:flushed", String(error)),
       );
     };
@@ -91,12 +101,17 @@ contextBridge.exposeInMainWorld("neoreadDesktop", {
     ipcRenderer.invoke("neoread:citation-visible", visible),
   setCitationSize: (width: number, height: number) =>
     ipcRenderer.invoke("neoread:citation-size", width, height),
-  onCitationClose: (callback: () => void) => {
-    const listener = () => callback();
-    ipcRenderer.on("neoread:citation-close", listener);
-    return () => ipcRenderer.removeListener("neoread:citation-close", listener);
+  onCitationEvent: (callback: (event: CiteEvent) => void) => {
+    const listener = (_event: unknown, value: CiteEvent) => callback(value);
+    ipcRenderer.on("neoread:citation-event", listener);
+    ipcRenderer.send("neoread:citation-ready");
+    return () => ipcRenderer.removeListener("neoread:citation-event", listener);
   },
+  completeCitation: (transaction: string, error: string) =>
+    ipcRenderer.invoke("neoread:citation-complete", transaction, error),
   citePlugins: () => proxyRequest("neoread:cite-plugins"),
+  authorizeWordPluginAccess: () =>
+    proxyRequest("neoread:cite-plugin-authorize-word"),
   installCitePlugin: (kind: "word" | "wps") =>
     proxyRequest("neoread:cite-plugin-install", kind),
   uninstallCitePlugin: (kind: "word" | "wps") =>
@@ -113,6 +128,15 @@ contextBridge.exposeInMainWorld("neoreadDesktop", {
       .invoke("neoread:take-links")
       .then((targets: unknown[]) => targets.forEach(callback));
     return () => ipcRenderer.removeListener("neoread:open-link", listener);
+  },
+  onOpenFiles: (callback: (opened: unknown) => void) => {
+    const listener = (_event: unknown, opened: unknown) => callback(opened);
+    ipcRenderer.on("neoread:open-files", listener);
+    // Files opened before this listener are delivered once.
+    void ipcRenderer
+      .invoke("neoread:take-opened-files")
+      .then((batches: unknown[]) => batches.forEach(callback));
+    return () => ipcRenderer.removeListener("neoread:open-files", listener);
   },
   onLibraryChanged: (callback: () => void) => {
     const listener = () => callback();

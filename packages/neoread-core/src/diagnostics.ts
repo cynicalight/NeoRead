@@ -172,6 +172,7 @@ export function diagnosticRoute(path: string): string {
     "status",
     "revision",
     "diagnostics",
+    "paper-refresh",
     "events",
     "export",
     "tag-boards",

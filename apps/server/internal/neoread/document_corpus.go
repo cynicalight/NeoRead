@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"neoread.local/server/internal/runtimeenv"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -385,7 +385,7 @@ func (s *Server) pdfCorpus(ctx context.Context, d Document, c *documentCorpus) e
 		}
 		defer os.RemoveAll(work)
 		out := filepath.Join(work, "text.json")
-		cmd := exec.CommandContext(ctx, node, worker, "--input", s.Store.File(d), "--output", out)
+		cmd := runtimeenv.CommandContext(ctx, node, worker, "--input", s.Store.File(d), "--output", out)
 		if layoutErr == nil {
 			cmd.Args = append(cmd.Args, "--pages", strings.Join(missingPages, ","))
 		}

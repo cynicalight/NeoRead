@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
+import { useReaderStore } from "../store";
 import { afterEach, expect, it, vi } from "vitest";
 import { EPUBTransition } from "./epub-transition";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  useReaderStore.getState().setTheme({ reducedMotion: false });
+  vi.unstubAllGlobals();
+});
 const surface = () => {
   const element = document.createElement("div");
   const animate = vi.fn((_frames: Keyframe[], _options?: unknown) => ({
@@ -34,7 +38,7 @@ it("reuses the outer fade when a page turn crosses into another chapter", async 
 });
 
 it("fades without movement under reduced motion and still fades in after errors", async () => {
-  vi.stubGlobal("matchMedia", () => ({ matches: true }));
+  useReaderStore.getState().setTheme({ reducedMotion: true });
   const { element, animate } = surface();
   const transition = new EPUBTransition(element);
   await expect(

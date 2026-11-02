@@ -84,10 +84,12 @@ it("keeps inline symbols in prose and groups panels under their shared numbered 
     { text: "prose", bounds: { x: 0.1, y: 0.51, width: 0.1, height: 0.05 } },
     { text: "x", bounds: { x: 0.2, y: 0.55, width: 0.05, height: 0.05 } },
   ]);
-  expect(blocks).toHaveLength(2);
-  expect(blocks[0].members).toEqual([0, 1, 2]);
-  expect(blocks[0].bounds.height).toBeCloseTo(0.3);
-  expect(blocks[1].text).toBe("prose x");
+  expect(blocks).toHaveLength(3);
+  expect(blocks[0].members).toEqual([0, 1]);
+  expect(blocks[0].bounds.height).toBeCloseTo(0.2);
+  expect(blocks[1].bounds).toEqual(r[2].bounds);
+  expect(blocks[1].text).toBe("Figure 1: comparison");
+  expect(blocks[2].text).toBe("prose x");
 });
 it("does not merge neighboring figures with different captions", () => {
   const r = decodeRegions(
@@ -108,8 +110,10 @@ it("does not merge neighboring figures with different captions", () => {
       bounds: { x: 0.61, y: 0.24, width: 0.28, height: 0.05 },
     },
   ]);
-  expect(blocks).toHaveLength(2);
-  expect(blocks.map((b) => b.members?.length)).toEqual([2, 2]);
+  expect(blocks).toHaveLength(4);
+  expect(blocks.filter((b) => b.members).map((b) => b.members?.length)).toEqual(
+    [1, 1],
+  );
 });
 
 it("does not absorb an adjacent uncaptioned chart into a narrow caption", () => {
@@ -127,8 +131,8 @@ it("does not absorb an adjacent uncaptioned chart into a narrow caption", () => 
       bounds: { x: 0.52, y: 0.23, width: 0.18, height: 0.01 },
     },
   ]);
-  expect(blocks).toHaveLength(2);
-  expect(blocks.find((b) => b.caption)?.bounds.width).toBeLessThan(0.22);
+  expect(blocks).toHaveLength(3);
+  expect(blocks.find((b) => b.members)?.bounds.width).toBeLessThan(0.22);
 });
 
 it("expands a grouped crop to include full subfigure captions", () => {
@@ -150,7 +154,7 @@ it("expands a grouped crop to include full subfigure captions", () => {
       bounds: { x: 0.16, y: 0.29, width: 0.23, height: 0.02 },
     },
   ]);
-  expect(blocks).toHaveLength(1);
+  expect(blocks).toHaveLength(2);
   expect(blocks[0].bounds.x).toBe(0.1);
   expect(blocks[0].bounds.width).toBeCloseTo(0.31);
 });
@@ -201,4 +205,34 @@ it("keeps algorithm regions as standalone image assets with searchable text", ()
   expect(blocks[0].label).toBe("algorithm");
   expect(blocks[0].text).toContain("latch(record)");
   expect(isAsset(blocks[0].label)).toBe(true);
+});
+
+it("keeps a table caption above the table as a separate paragraph at its original bounds", () => {
+  const raw = decodeRegions(
+    [7, 0.9, 10, 10, 90, 20, 0, 21, 0.9, 10, 22, 90, 65, 1],
+    100,
+    100,
+  );
+  const blocks = readingRegions(raw, [
+    {
+      text: "Table 5: Results",
+      bounds: { x: 0.1, y: 0.11, width: 0.6, height: 0.08 },
+    },
+    {
+      text: "Model 90.1",
+      bounds: { x: 0.1, y: 0.3, width: 0.6, height: 0.08 },
+    },
+  ]);
+  expect(blocks).toHaveLength(2);
+  expect(blocks[0]).toMatchObject({
+    label: "figure_title",
+    text: "Table 5: Results",
+    bounds: raw[0].bounds,
+  });
+  expect(blocks[1]).toMatchObject({
+    label: "table",
+    text: "Model 90.1",
+    bounds: raw[1].bounds,
+  });
+  expect(blocks[1].caption).toBeUndefined();
 });

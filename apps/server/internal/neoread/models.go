@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"neoread.local/server/internal/runtimeenv"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -81,7 +81,7 @@ func discoverModels(ctx context.Context, root, provider string) ([]AgentModel, e
 	}
 	child, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(child, provider, args...)
+	cmd := runtimeenv.CommandContext(child, provider, args...)
 	cmd.Dir, cmd.Stderr, cmd.WaitDelay = work, io.Discard, time.Second
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

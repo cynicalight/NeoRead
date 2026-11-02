@@ -1,6 +1,25 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { defaultTheme, type ReaderTheme } from "@neoread/core";
 const query = "(prefers-color-scheme: dark)";
+export function applyDocumentTheme(theme: ReaderTheme) {
+  const dark = theme.mode === "dark";
+  const root = document.documentElement;
+  root.classList.toggle("dark", dark);
+  root.dataset.theme = theme.mode;
+  if (dark) root.dataset.darkContrast = theme.pdfDarkContrast ?? "soft";
+  else delete root.dataset.darkContrast;
+  root.style.colorScheme = dark ? "dark" : "light";
+}
+
+/** Run before mounting React so its first effect uses the native window's theme. */
+export function initialDesktopTheme(
+  appearance: Partial<ReaderTheme>,
+  systemDark: boolean,
+) {
+  const theme = { ...defaultTheme, ...appearance };
+  applyDocumentTheme(resolveTheme(theme, systemDark));
+  return theme;
+}
 function subscribe(callback: () => void) {
   const media = window.matchMedia(query);
   media.addEventListener("change", callback);

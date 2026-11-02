@@ -72,7 +72,7 @@ func TestFormulaTimeoutRetryIsBoundedAndCancelable(t *testing.T) {
 					if errorKind(err) != ErrorTimeout || calls != 2 || text != "" || !strings.Contains(err.Error(), "重试") {
 						t.Fatalf("calls=%d text=%q err=%v", calls, text, err)
 					}
-					if elapsed := time.Since(start); elapsed != 6*time.Minute+time.Second {
+					if elapsed := time.Since(start); elapsed != 30*time.Minute+time.Second {
 						t.Fatalf("unexpected retry budget: %v", elapsed)
 					}
 				case "cancel-backoff", "already-canceled":

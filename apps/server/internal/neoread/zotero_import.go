@@ -250,14 +250,14 @@ func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, librar
 	}
 	if fresh {
 		pages, _ := pdfPageCount(temp.Name())
-		if library == "papers" && !allowLarge && (pages > largePaperPages || size > largePaperBytes) {
+		if library == "papers" && !allowLarge && largePaper(pages, size) {
 			return result, importError{409, "检测到 PDF 过大，请确认是否是论文？如果是图书类，请导入图书库。", "large-paper", pages}
 		}
 		d = Document{ID: docID, Type: "pdf", Library: library, Title: zoteroStripBraces(e.Title), Size: size, CreatedAt: zoteroDate(e.added), LastOpenedAt: "", Tags: []string{}, Folders: []string{}}
 		result.Status = "imported"
 	} else {
 		result.Status = "merged"
-		result.Warnings = append(result.Warnings, "复用 NeoRead 中的相同文件；现有标题、信息、笔记和批注优先保留")
+		result.Warnings = append(result.Warnings, "复用 NeoRead 中的相同文件；现有标题、信息和批注优先保留；笔记保留较长的一份，长度相同保留现有笔记")
 		if d.Library != "papers" {
 			result.Warnings = append(result.Warnings, "相同文件在图书库中，保留原库位置")
 		}
@@ -313,6 +313,7 @@ func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, librar
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return result, err
 	}
+	var importedBody string
 	for _, n := range notes {
 		noteSource := fmt.Sprintf("zotero:%d/%s", e.library, n.Key)
 		var imported int
@@ -335,17 +336,20 @@ func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, librar
 		if text == "" {
 			continue
 		}
-		next := strings.TrimSpace(noteBody + "\n\n## Zotero · " + e.itemKey + " / " + n.Key + "\n\n" + text)
+		next := strings.TrimSpace(importedBody + "\n\n## Zotero · " + e.itemKey + " / " + n.Key + "\n\n" + text)
 		if utf8.RuneCountInString(next) > 100000 {
 			return result, errors.New("合并后的笔记超过 100000 字，本条未导入；请先精简笔记")
 		}
-		noteBody = next
+		importedBody = next
 		result.Notes++
 		if _, err = tx.ExecContext(ctx, `INSERT INTO zotero_note_imports(source_id,document_id) VALUES(?,?)`, noteSource, docID); err != nil {
 			return result, err
 		}
 	}
 	if result.Notes > 0 {
+		if utf8.RuneCountInString(importedBody) > utf8.RuneCountInString(noteBody) {
+			noteBody = importedBody
+		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO document_notes(document_id,body,updated_at) VALUES(?,?,?) ON CONFLICT(document_id) DO UPDATE SET body=excluded.body,updated_at=excluded.updated_at`, docID, noteBody, now())
 		if err != nil {
 			return result, err

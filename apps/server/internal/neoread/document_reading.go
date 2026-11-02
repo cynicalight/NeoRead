@@ -2,10 +2,28 @@ package neoread
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 )
 
-// Secondary runaway guards; source/context budget and deadline govern reading.
+// A tool-local failure can be reported to the model. A cancelled or invalidated
+// document attempt must still end so that stale evidence is never saved.
+func (a *documentAgent) toolFailure(ctx context.Context, err error) (json.RawMessage, error) {
+	if err == nil {
+		return nil, nil
+	}
+	a.mu.Lock()
+	fatal := a.fatal
+	a.mu.Unlock()
+	if ctx.Err() != nil || a.ctx.Err() != nil || fatal != nil {
+		return nil, err
+	}
+	slog.WarnContext(ctx, "document.tool.failed", "requestId", requestID(ctx), "errorCode", errorKind(err))
+	return json.RawMessage(jsonText(map[string]any{"error": "tool_failed", "kind": errorKind(err), "message": "This tool failed. Consider another approach or answer using available evidence, and disclose missing information."})), nil
+}
+
+// Suggested thresholds for model feedback; they do not disable tools.
 const documentToolCalls = 128
 const documentReadingRounds = 64
 
@@ -14,6 +32,7 @@ const documentEvidenceBytes = 2 << 20
 
 var errDocumentReadingBudget = generationError(ErrorLimit, "本轮检索已收束，请基于已有资料回答")
 var errDocumentToolContext = generationError(ErrorLimit, "API 工具上下文超过限制")
+var errDocumentAttemptEnded = generationError(ErrorCanceled, "文档工具尝试已结束")
 
 func (a *documentAgent) stopReading(reason string) {
 	a.mu.Lock()
@@ -29,24 +48,24 @@ func (a *documentAgent) readingStopped() bool {
 	return a.readingStop != ""
 }
 
-// Callers hold a.mu. Feedback lets the model stop voluntarily before the host
-// ends reading. It is included before item sizing and refreshed after reads.
+// Callers hold a.mu. Feedback is included before item sizing and refreshed
+// after reads so the model can decide when to finish.
 func (a *documentAgent) readingBudget() any {
 	remaining := max(0, a.sourceTokenLimit()-a.evidenceTokens)
 	if a.continuous {
 		remaining = max(0, a.sourceTokenLimit())
 	}
 	budget := map[string]any{
-		"remainingCalls":           max(0, documentToolCalls-a.calls),
-		"remainingEvidenceBytes":   max(0, documentEvidenceBytes-a.bytes),
-		"estimatedRemainingTokens": remaining,
-		"contextSource":            a.contextSource,
-		"runtimeUsedTokens":        a.runtimeUsedTokens,
-		"contextWindowTokens":      a.contextTokens,
-		"shouldFinish":             a.repeatedCalls >= 2 || a.calls >= documentToolCalls-2 || (!a.continuous && a.bytes >= documentEvidenceBytes-2400) || remaining < 1024 || a.readingRounds >= documentReadingRounds-2,
+		"recommendedRemainingCalls": max(0, documentToolCalls-a.calls),
+		"remainingEvidenceBytes":    max(0, documentEvidenceBytes-a.bytes),
+		"estimatedRemainingTokens":  remaining,
+		"contextSource":             a.contextSource,
+		"runtimeUsedTokens":         a.runtimeUsedTokens,
+		"contextWindowTokens":       a.contextTokens,
+		"shouldFinish":              a.repeatedCalls >= 2 || a.calls >= documentToolCalls-2 || (!a.continuous && a.bytes >= documentEvidenceBytes-2400) || remaining < 1024 || a.readingRounds >= documentReadingRounds-2,
 	}
 	if a.readingRounds > 0 {
-		budget["remainingModelRounds"] = max(0, documentReadingRounds-a.readingRounds)
+		budget["recommendedRemainingModelRounds"] = max(0, documentReadingRounds-a.readingRounds)
 	}
 	return budget
 }

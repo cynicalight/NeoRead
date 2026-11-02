@@ -16,11 +16,23 @@ import (
 
 // Classification confirmation is independent of the transport safety bound.
 const (
-	maxImportBytes  = 512 << 20 // Transport/download safety bound, not a paper classification limit.
-	largePaperBytes = 100 << 20
-	// Longer papers ask whether to import as a book, translated by chapter.
+	maxImportBytes = 512 << 20 // Transport/download safety bound, not a paper classification limit.
+	// Papers both longer and larger than this ask whether to import as a
+	// book, translated by chapter.
 	largePaperPages = 100
 )
+
+// A variable so tests can use small files.
+var largePaperBytes int64 = 100 << 20
+
+// largePaper reports whether a PDF needs confirmation before entering the
+// papers library. Without a readable page count, size alone decides.
+func largePaper(pages int, size int64) bool {
+	if pages <= 0 {
+		return size > largePaperBytes
+	}
+	return pages > largePaperPages && size > largePaperBytes
+}
 
 func validLibrary(library string) bool { return library == "books" || library == "papers" }
 

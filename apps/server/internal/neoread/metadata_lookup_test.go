@@ -3,6 +3,7 @@ package neoread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"neoread.local/server/internal/scholar"
 )
@@ -130,6 +132,7 @@ func TestAutoLookupPreference(t *testing.T) {
 }
 
 func TestResolveLargePaperConfirmation(t *testing.T) {
+	lowerLargePaperBytes(t)
 	for _, library := range []string{"papers", "books"} {
 		t.Run(library, func(t *testing.T) {
 			s := testServer(t)
@@ -172,5 +175,75 @@ func TestCrossrefEmailPreferences(t *testing.T) {
 		if w.Code != 400 {
 			t.Fatalf("accepted %s: %d", value, w.Code)
 		}
+	}
+}
+
+func TestRetryPaperLookup(t *testing.T) {
+	t.Run("stops on success", func(t *testing.T) {
+		calls := 0
+		result, attempts, err := retryPaperLookup(context.Background(), time.Millisecond, func(context.Context) (scholar.Metadata, error) {
+			calls++
+			if calls < 3 {
+				return scholar.Metadata{}, scholar.ErrNotFound
+			}
+			return scholar.Metadata{Title: "Found"}, nil
+		})
+		if err != nil || attempts != 3 || calls != 3 || result.Title != "Found" {
+			t.Fatalf("result=%+v attempts=%d calls=%d err=%v", result, attempts, calls, err)
+		}
+	})
+	t.Run("exhaustion", func(t *testing.T) {
+		calls := 0
+		_, attempts, err := retryPaperLookup(context.Background(), time.Millisecond, func(context.Context) (scholar.Metadata, error) {
+			calls++
+			return scholar.Metadata{}, scholar.ErrNotFound
+		})
+		if !errors.Is(err, scholar.ErrNotFound) || attempts != 10 || calls != 10 {
+			t.Fatalf("attempts=%d calls=%d err=%v", attempts, calls, err)
+		}
+	})
+	t.Run("cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		calls := 0
+		_, attempts, err := retryPaperLookup(ctx, time.Second, func(context.Context) (scholar.Metadata, error) {
+			calls++
+			cancel()
+			return scholar.Metadata{}, scholar.ErrNotFound
+		})
+		if !errors.Is(err, context.Canceled) || attempts != 1 || calls != 1 {
+			t.Fatalf("attempts=%d calls=%d err=%v", attempts, calls, err)
+		}
+	})
+}
+
+func TestLookupByTitleOverridesIdentifiers(t *testing.T) {
+	s := testServer(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("query") != "A Reliable Paper Title" {
+			t.Errorf("expected title query, got %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"title":"A Reliable Paper Title","venue":"Example Journal"}]}`))
+	}))
+	defer upstream.Close()
+	c := scholar.New(maxImportBytes)
+	c.AllowPrivateHosts = true
+	c.SemanticScholar = upstream.URL + "/"
+	s.scholar = c
+	w := uploadTo(t, s, "papers", "random.pdf", testPDF(1))
+	var d Document
+	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+		t.Fatal(err)
+	}
+	w = request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"A Reliable Paper Title","metadata":{"arxiv":"1706.03762"}}`))
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	w = request(t, s, "POST", "/api/documents/"+d.ID+"/metadata/lookup?by=title", nil)
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	got, _ := s.Store.Document(d.ID)
+	if got.Metadata.Venue != "Example Journal" {
+		t.Fatalf("metadata: %+v", got.Metadata)
 	}
 }

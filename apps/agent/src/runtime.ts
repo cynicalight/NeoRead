@@ -137,6 +137,7 @@ export async function runAgent(
     customTools: tools,
     noTools: "builtin",
   });
+  const maxToolRounds = 255;
   let rounds = 0,
     aborted = false,
     outputBytes = 0,
@@ -149,7 +150,24 @@ export async function runAgent(
   signal.addEventListener("abort", stop, { once: true });
   if (signal.aborted) stop();
   const unsubscribe = session.subscribe((event) => {
-    if (event.type === "turn_start" && ++rounds > 64) stop();
+    if (event.type === "turn_start") ++rounds;
+    if (
+      event.type === "turn_end" &&
+      rounds === maxToolRounds &&
+      event.message.role === "assistant" &&
+      event.message.content.some((part) => part.type === "toolCall")
+    ) {
+      session.agent.steer({
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "本轮工具调用已接近预算，请关注剩余时间和上下文，优先补充必要证据并尽快完成回答。",
+          },
+        ],
+        timestamp: Date.now(),
+      });
+    }
     if (event.type === "message_start" && event.message.role === "assistant") {
       draftBytes = 0;
       emit({ type: "draft", reset: true, text: "" });
@@ -195,10 +213,7 @@ export async function runAgent(
     });
     await session.waitForIdle();
     signal.throwIfAborted();
-    if (aborted)
-      throw new Error(
-        rounds > 64 ? "Agent 超过工具轮次上限" : "Agent 输出超过限制",
-      );
+    if (aborted) throw new Error("Agent 输出超过限制");
     const last = session.messages.at(-1);
     if (!last || last.role !== "assistant" || last.stopReason !== "stop")
       throw new Error(

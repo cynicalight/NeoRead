@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"neoread.local/server/internal/runtimeenv"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -57,7 +57,7 @@ func invokeCLI(ctx context.Context, root, provider, model string, in AIInput, de
 	}
 	child, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(child, provider, args...)
+	cmd := runtimeenv.CommandContext(child, provider, args...)
 	cmd.Dir = work
 	cmd.Stdin = input
 	cmd.Stderr = io.Discard
@@ -140,7 +140,7 @@ func invokeKimi(ctx context.Context, work, model string, in AIInput, delta func(
 	args = append(args, "acp")
 	child, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
-	cmd := exec.CommandContext(child, "kimi", args...)
+	cmd := runtimeenv.CommandContext(child, "kimi", args...)
 	cmd.Dir = work
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = 3 * time.Second

@@ -1,4 +1,4 @@
-import { useShortcut, loadBindings } from "./shortcuts/shortcuts";
+import { useShortcut, loadBindings, isMac } from "./shortcuts/shortcuts";
 import { useSaveReaderSettings } from "./neoread-settings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -50,10 +50,12 @@ import {
   updateLibraryPreferences,
   refreshTrash,
   openLinkTarget,
+  openWhenParsed,
   openLibraryDocument,
   documentTabsShown,
 } from "./store";
 import { TrashView } from "./TrashView";
+import { useCardZoom } from "./useCardZoom";
 import { PaperLibrary } from "./papers/PaperLibrary";
 import { PaperSidebar } from "./papers/PaperSidebar";
 import { usePaperUI } from "./papers/state";
@@ -64,7 +66,7 @@ import { DocumentTabs, ReadingWorkspaces } from "./DocumentTabs";
 import { flushProgress } from "./progress";
 import { useProcessing } from "./ProcessingStatus";
 import { useUpdateProgress } from "./update-progress";
-import { useResolvedTheme } from "./appearance";
+import { applyDocumentTheme, useResolvedTheme } from "./appearance";
 import { LibraryFilterBar, LibraryTagFilters } from "./DocumentManagement";
 import { TagBoards } from "./TagBoards";
 import { LibraryDocuments } from "./LibraryDocuments";
@@ -115,6 +117,20 @@ export function App() {
   const [editingLibrary, setEditingLibrary] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [libraryBody, setLibraryBody] = useState<HTMLDivElement | null>(null);
+  const [bookPane, setBookPane] = useState<HTMLDivElement | null>(null);
+  const bookScale = libraryPreferences.books?.cardScale || 1;
+  useCardZoom(
+    bookPane,
+    !active && !papers && libraryView === "grid" && filter !== "trash",
+    bookScale,
+    (cardScale) =>
+      void updateLibraryPreferences({
+        books: {
+          ...useReaderStore.getState().libraryPreferences.books,
+          cardScale,
+        },
+      }).catch((e) => toast.error(e.message)),
+  );
   const pressedEmpty = useRef(false);
   const [overviewDocument, setOverviewDocument] = useState<Document | null>(
     null,
@@ -125,6 +141,8 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [largePapers, setLargePapers] = useState<LargePaper[]>([]);
   const [largePaperFolder, setLargePaperFolder] = useState("");
+  // Long PDFs from Open With open once the reader chooses their library.
+  const openLargeAfterImport = useRef(false);
   const [loading, setLoading] = useState(true);
   const [settingsHydrated, setSettingsHydrated] = useState(false);
   const [error, setError] = useState("");
@@ -159,15 +177,7 @@ export function App() {
   }, [mode, loading]);
   useSaveReaderSettings(theme, settingsHydrated);
   useEffect(() => {
-    const dark = resolvedTheme.mode === "dark";
-    const root = document.documentElement;
-    root.classList.toggle("dark", dark);
-    root.dataset.theme = resolvedTheme.mode;
-    // Graphite ("soft") and pure black ("high") are both dark mode.
-    if (dark)
-      root.dataset.darkContrast = resolvedTheme.pdfDarkContrast ?? "soft";
-    else delete root.dataset.darkContrast;
-    root.style.colorScheme = dark ? "dark" : "light";
+    applyDocumentTheme(resolvedTheme);
     void window.neoreadDesktop
       ?.setAppearance(theme.appearance ?? "system", {
         pdfDarkContrast: theme.pdfDarkContrast,
@@ -228,12 +238,15 @@ export function App() {
     try {
       if (library === "books") switchMode("books");
       const desktop = papers.flatMap((p) => (p.id ? [p.id] : []));
-      if (desktop.length)
-        await window.neoreadDesktop?.importLargePapers(
-          desktop,
-          library,
-          library === "papers" ? largePaperFolder : "",
-        );
+      const imported = desktop.length
+        ? await window.neoreadDesktop?.importLargePapers(
+            desktop,
+            library,
+            library === "papers" ? largePaperFolder : "",
+          )
+        : [];
+      if (openLargeAfterImport.current && imported?.[0])
+        void openOpened(imported[0]);
       for (const paper of papers)
         if (paper.file)
           await api.import(
@@ -249,11 +262,30 @@ export function App() {
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
+      openLargeAfterImport.current = false;
       setLargePapers([]);
       setLargePaperFolder("");
       setBusy(false);
     }
   };
+  const openOpened = (id: string) =>
+    openWhenParsed(id, () => toast.info("论文解析中，完成后自动打开"))
+      .then((found) => {
+        if (!found) toast.error("找不到这份文档，它可能已被删除或在回收站中");
+      })
+      .catch((e) => toast.error((e as Error).message));
+  useEffect(() => {
+    if (loading) return;
+    return window.neoreadDesktop?.onOpenFiles?.(({ documents, large }) => {
+      if (large.length) {
+        // Long PDFs need the same confirmation as files imported in the app.
+        openLargeAfterImport.current = !documents.length;
+        setLargePapers(large);
+        setLargePaperFolder("");
+      }
+      if (documents[0]) void openOpened(documents[0]);
+    });
+  }, [loading]);
   useEffect(() => {
     if (loading) return;
     return window.neoreadDesktop?.onOpenLink?.((target) => {
@@ -528,7 +560,7 @@ export function App() {
                   <Search className="size-3.5" />
                   快速查找
                 </span>
-                <kbd>⌘ K</kbd>
+                <kbd>{isMac() ? "⌘ K" : "Ctrl + K"}</kbd>
               </Button>
               {papers ? (
                 <PaperSidebar
@@ -725,7 +757,11 @@ export function App() {
                   )}
                 </header>
                 <div className="book-library-body" ref={setLibraryBody}>
-                  <div className="book-list-pane">
+                  <div
+                    className="book-list-pane"
+                    ref={setBookPane}
+                    style={{ "--card-scale": bookScale } as React.CSSProperties}
+                  >
                     <div className="library-content">
                       {filter === "favorites" && (
                         <div className="library-controls">
@@ -893,7 +929,14 @@ export function App() {
           job={jobs.find((job) => job.documentId === usageDocument?.id)}
           onClose={() => setUsageDocument(null)}
         />
-        <Settings open={settings} onOpenChange={setSettings} />
+        <Settings
+          open={settings}
+          onOpenChange={setSettings}
+          onOpenGuide={() => {
+            setSettings(false);
+            setGuide(true);
+          }}
+        />
         <ImportPaperDialog
           open={importingPaper}
           onOpenChange={setImportingPaper}
@@ -990,7 +1033,10 @@ export function App() {
           papers={largePapers}
           busy={busy}
           onChoose={(library) => void importLargePapers(library)}
-          onCancel={() => setLargePapers([])}
+          onCancel={() => {
+            openLargeAfterImport.current = false;
+            setLargePapers([]);
+          }}
         />
         {!window.neoreadDesktop?.setCitationVisible && <CiteHost />}
         <Toaster

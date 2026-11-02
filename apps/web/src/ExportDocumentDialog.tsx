@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@neoread/ui/components/dialog";
 import { copyText } from "./chat/clipboard";
+import { flushPaperNote, readPaperNote } from "./paper-note-state";
 import {
   defaultExportParts,
   exportCounts,
@@ -21,6 +22,12 @@ import {
 } from "./notes-export";
 import { downloadBlob, downloadText, fileTitle } from "./download";
 import { exportAnnotatedPDFWithToast } from "./annotated-pdf-export";
+import { exportTranslatedPDF } from "./translated-pdf-export";
+import {
+  exportReasons,
+  type PDFExportProgress,
+  type TranslatedPDF,
+} from "./translation/pdf-export-model";
 
 type DocumentExportPart = "translation" | ExportPart;
 const labels = { translation: "译文", ...exportParts };
@@ -61,20 +68,36 @@ export function ExportDocumentDialog({
   });
   const [refresh, setRefresh] = useState(0);
   const [images, setImages] = useState(false);
-  const [busy, setBusy] = useState<"copy" | "download" | "pdf" | null>(null);
+  const [busy, setBusy] = useState<
+    "copy" | "download" | "pdf" | "translation-pdf" | null
+  >(null);
+  const [pdfProgress, setPDFProgress] = useState<PDFExportProgress | null>(
+    null,
+  );
+  const [pdfResult, setPDFResult] = useState<Omit<
+    TranslatedPDF,
+    "bytes"
+  > | null>(null);
   const [error, setError] = useState("");
+  const [noteSaveFailed, setNoteSaveFailed] = useState(false);
+  const [savedNoteOnly, setSavedNoteOnly] = useState(false);
   const request = useRef<AbortController | null>(null);
   useEffect(() => () => request.current?.abort(), [doc.id]);
   useEffect(() => {
     let alive = true;
     setPaperNote(null);
+    setNoteSaveFailed(false);
+    setSavedNoteOnly(false);
     setTranslationCount(null);
     setReadErrors({ paperNote: "", translation: "" });
-    void api.documentNote(doc.id).then(
-      (note) => alive && setPaperNote(note.body),
+    void readPaperNote(doc.id).then(
+      (body) => alive && setPaperNote(body),
       () =>
         alive &&
-        setReadErrors((errors) => ({ ...errors, paperNote: "笔记读取失败" })),
+        setReadErrors((errors) => ({
+          ...errors,
+          paperNote: "笔记读取失败",
+        })),
     );
     void api.translations(doc.id).then(
       (items) =>
@@ -139,9 +162,34 @@ export function ExportDocumentDialog({
     setBusy(action);
     setError("");
     try {
-      const notes = notesMarkdown(doc, data, noteParts, link, {
-        includeTitle: !translation,
-      });
+      // The draft can change while this dialog is open. Export the snapshot
+      // acknowledged by the same serialized writer used by both editors.
+      let currentNote = data.paperNote;
+      if (parts.includes("paperNote")) {
+        try {
+          currentNote = savedNoteOnly
+            ? (await api.documentNote(doc.id)).body
+            : await flushPaperNote(doc.id);
+          setNoteSaveFailed(false);
+        } catch (error) {
+          setNoteSaveFailed(!savedNoteOnly);
+          throw error;
+        }
+      }
+      if (controller.signal.aborted) return;
+      const currentParts =
+        parts.includes("paperNote") && !noteParts.includes("paperNote")
+          ? [...noteParts, "paperNote" as const]
+          : noteParts;
+      const notes = notesMarkdown(
+        doc,
+        { ...data, paperNote: currentNote },
+        currentParts,
+        link,
+        {
+          includeTitle: !translation,
+        },
+      );
       const bundle = translation && images && action === "download";
       if (translation) {
         const blob = await api.exportTranslation(
@@ -175,6 +223,35 @@ export function ExportDocumentDialog({
       if (!controller.signal.aborted) {
         request.current = null;
         setBusy(null);
+      }
+    }
+  };
+  const saveTranslatedPDF = async () => {
+    if (busy || request.current || !translationCount) return;
+    const controller = new AbortController();
+    request.current = controller;
+    setBusy("translation-pdf");
+    setError("");
+    setPDFResult(null);
+    try {
+      const result = await exportTranslatedPDF(
+        doc,
+        controller.signal,
+        (progress) => {
+          if (!controller.signal.aborted) setPDFProgress(progress);
+        },
+      );
+      if (!controller.signal.aborted) setPDFResult(result);
+    } catch (error) {
+      if (!controller.signal.aborted)
+        setError(
+          error instanceof Error ? error.message : "译文 PDF 导出失败，请重试",
+        );
+    } finally {
+      if (request.current === controller) {
+        request.current = null;
+        setBusy(null);
+        setPDFProgress(null);
       }
     }
   };
@@ -269,6 +346,87 @@ export function ExportDocumentDialog({
             {busy === "download" ? "正在导出…" : "导出"}
           </Button>
         </div>
+        {noteSaveFailed && parts.includes("paperNote") && (
+          <div className="text-xs text-muted-foreground">
+            笔记保存失败，可重试导出，或取消勾选论文笔记后导出其他内容。
+            <Button
+              variant="link"
+              size="xs"
+              onClick={() => {
+                setSavedNoteOnly(true);
+                setNoteSaveFailed(false);
+                setError("");
+              }}
+            >
+              使用已保存笔记
+            </Button>
+          </div>
+        )}
+        {savedNoteOnly && parts.includes("paperNote") && (
+          <p className="text-xs text-muted-foreground" role="status">
+            将导出服务器已保存的笔记，不包含当前未保存修改。
+          </p>
+        )}
+        {doc.type === "pdf" && (
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex items-center gap-3">
+              <p className="flex-1 text-xs leading-5 text-muted-foreground">
+                按原版面导出已保存的译文。图表、公式和无法排入的段落保留原文。
+              </p>
+              <Button
+                variant="outline"
+                disabled={!!busy || !translationCount}
+                onClick={() => void saveTranslatedPDF()}
+              >
+                {busy === "translation-pdf" ? (
+                  <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+                ) : (
+                  <FileDown />
+                )}
+                导出译文 PDF
+              </Button>
+            </div>
+            {pdfProgress && (
+              <div className="space-y-1">
+                <p role="status" className="text-xs text-muted-foreground">
+                  {pdfProgress.phase === "preparing"
+                    ? "正在准备译文与字体…"
+                    : pdfProgress.phase === "saving"
+                      ? "正在生成 PDF…"
+                      : `正在排版 ${pdfProgress.done + 1} / ${pdfProgress.total} 页`}
+                </p>
+                <progress
+                  aria-label="译文 PDF 导出进度"
+                  className="w-full"
+                  max={pdfProgress.total || 1}
+                  value={pdfProgress.total ? pdfProgress.done : undefined}
+                />
+              </div>
+            )}
+            {pdfResult && (
+              <div className="space-y-1 text-xs leading-5 text-muted-foreground">
+                <p role="status">
+                  已生成 {pdfResult.pages} 页 PDF，写入 {pdfResult.translated}{" "}
+                  个译文段落。
+                </p>
+                {pdfResult.issues.length > 0 && (
+                  <details>
+                    <summary className="cursor-pointer">
+                      查看保留原文的区域（{pdfResult.issues.length}）
+                    </summary>
+                    <ul className="mt-1 max-h-32 list-inside list-disc overflow-y-auto">
+                      {pdfResult.issues.map((issue, i) => (
+                        <li key={i}>
+                          第 {issue.page} 页：{exportReasons[issue.reason]}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {doc.type === "pdf" && (
           <div className="flex items-center gap-3 border-t pt-4">
             <p className="flex-1 text-xs leading-5 text-muted-foreground">

@@ -151,4 +151,6 @@ API 厂商规则、实际强度映射、上游错误分类和请求关联字段�
 
 ## PDF 显示渲染
 
+译文 PDF 导出记录 `pdf.translation_export.start / stage / failed / cancelled / download_requested`，用 `requestId` 关联一次导出。阶段为读取快照、排版、保存、请求下载；结果只记录页数、已替换段落数和保留区域数，不记录文件名、正文或异常原文。`download_requested` 表示浏览器已接收下载请求，不代表已经完成磁盘写入。导出取消或失败不修改原文和译文。 失败终态通过 `detail` 中的 `errorCode` 和 `reasonCode` 记录受控分类，区分快照读取、字体下载、模块加载、PDF 解码、加密 PDF、字体嵌入、页面尺寸、排版、无可导出段落、保存、资源清理和下载失败；未知异常使用当前操作的分类或 `unrecognized`，不将异常名称、正文或堆栈写入日志。取消使用 `reasonCode=user_cancelled`，保持 info 级别。
+
 `pdf.render.failed` 记录阅读实例首次页面或局部高清渲染失败，`detail` 只包含固定的 `pipeline=object-colors/original` 和 `layer=page/detail`。不记录原始异常、文档文本或路径。每个实例最多一次，避免持续失败造成日志洪泛。对象级配色、画布替换与人工验收范围见 [PDF 对象级配色](pdf-object-colors.md)。

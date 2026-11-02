@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useReaderStore } from "../store";
 import { ReadingLinkNavigation } from "../reading-links";
 import { act, useContext, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -204,6 +205,7 @@ it("retains PDF.js search on pages without parsed blocks", async () => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  useReaderStore.getState().setTheme({ reducedMotion: false });
   host.remove();
   window.getSelection()?.removeAllRanges();
   vi.clearAllMocks();
@@ -217,7 +219,7 @@ async function click(label: string) {
   )!;
   expect(button).toBeTruthy();
   await act(async () => button.click());
-  if (label === "原文译文" && !vi.isFakeTimers()) {
+  if (["原文译文", "仅原文", "仅译文"].includes(label) && !vi.isFakeTimers()) {
     await act(async () => {
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -320,66 +322,18 @@ it("keeps the translated selection and navigation metadata without marking the o
   document.dispatchEvent(new Event("selectionchange"));
   expect(highlights.has("neoread-translation-selection")).toBe(false);
 });
-it("focuses the visible middle translation once when entering parallel mode", async () => {
-  vi.stubGlobal("matchMedia", () => ({ matches: true }));
-  await click("仅译文");
-  const pane = host.querySelector<HTMLElement>(".translation-document")!;
-  const block = pane.querySelector<HTMLElement>("[data-translation-block]")!;
-  pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
-  block.getBoundingClientRect = () => new DOMRect(0, 80, 600, 400);
-  await act(async () => {
-    pane.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 100 }));
-    pane.dispatchEvent(new Event("scroll", { bubbles: true }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-  });
-  expect(adapter.followBlock).not.toHaveBeenCalled();
-  await click("原文译文");
-  expect(adapter.focusBlock).toHaveBeenCalledExactlyOnceWith(
-    "p1-b1",
-    "parallel",
-  );
-  expect(adapter.followBlock).not.toHaveBeenCalled();
+it("fits the source width on mode changes without focusing a paragraph", async () => {
+  for (const label of ["原文译文", "仅译文", "原文译文", "仅原文"]) {
+    vi.mocked(adapter.setTheme).mockClear();
+    await click(label);
+    expect(adapter.setTheme).toHaveBeenCalledWith(
+      expect.objectContaining({ zoom: "width" }),
+    );
+    expect(adapter.focusBlock).not.toHaveBeenCalled();
+  }
+  vi.mocked(adapter.setTheme).mockClear();
   await renderView({ ...defaultTheme, translationFontSize: 1.2 });
-  expect(adapter.focusBlock).toHaveBeenCalledTimes(1);
-  await click("仅译文");
-  await click("原文译文");
-  expect(adapter.focusBlock).toHaveBeenCalledTimes(2);
-});
-
-it("chooses the source viewport's middle block before resizing, even with a stale reading anchor", async () => {
-  vi.stubGlobal("matchMedia", () => ({ matches: true }));
-  await renderView(defaultTheme, [
-    {
-      id: "p1-b2",
-      page: 1,
-      label: "text",
-      text: "Middle block.",
-      bounds: { x: 0.1, y: 0.55, width: 0.3, height: 0.1 },
-    },
-  ]);
-  await act(async () =>
-    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0 }),
-  );
-  const source = document.createElement("div");
-  source.className = "pdf-container";
-  source.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
-  const page = document.createElement("div");
-  page.className = "page";
-  page.dataset.pageNumber = "1";
-  page.getBoundingClientRect = () => new DOMRect(0, -300, 1000, 1000);
-  source.append(page);
-  host.querySelector(".translation-source")!.append(source);
-  await click("原文译文");
-  expect(adapter.focusBlock).toHaveBeenCalledExactlyOnceWith(
-    "p1-b2",
-    "parallel",
-  );
-  await click("交换原文和译文");
-  expect(adapter.focusBlock).toHaveBeenCalledTimes(1);
-  await click("仅原文");
-  await click("原文译文");
-  expect(adapter.focusBlock).toHaveBeenCalledTimes(2);
-  expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b2", "parallel");
+  expect(adapter.setTheme).not.toHaveBeenCalled();
 });
 
 it("navigates to the matching bibliography block and restores the translated viewport fraction", async () => {
@@ -872,9 +826,9 @@ it("centers both panels from a source click and recalculates a focused translati
 });
 
 it.each([false, true])(
-  "centers the current block after the translation pane expands instead of scrolling to the bottom (reduced motion: %s)",
+  "restores the reading anchor after the translation pane expands without passage focus (reduced motion: %s)",
   async (reduced) => {
-    vi.stubGlobal("matchMedia", () => ({ matches: reduced }));
+    useReaderStore.getState().setTheme({ reducedMotion: reduced });
     await renderView(defaultTheme, [
       {
         id: "p1-b2",
@@ -936,9 +890,12 @@ it.each([false, true])(
       await act(async () => {
         await vi.advanceTimersByTimeAsync(600);
       });
-      expect(adapter.focusBlock).toHaveBeenCalledWith("p1-b2", "parallel");
+      expect(adapter.focusBlock).not.toHaveBeenCalled();
       expect(top).toBe(800);
-      expect(adapter.followBlock).not.toHaveBeenCalled();
+      expect(adapter.followBlock).toHaveBeenCalledWith({
+        blockId: "p1-b2",
+        fraction: 0.5,
+      });
     } finally {
       vi.useRealTimers();
       for (const spy of [rect, height, width, scrollHeight, scroll, setScroll])
@@ -948,7 +905,7 @@ it.each([false, true])(
 );
 
 it.each(["mode", "wheel"])(
-  "cancels queued mode centering on fresh %s input",
+  "cancels stale mode fitting on fresh %s input",
   async (action) => {
     await act(async () =>
       fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
@@ -970,6 +927,7 @@ it.each(["mode", "wheel"])(
         await vi.advanceTimersByTimeAsync(600);
       });
       expect(adapter.focusBlock).not.toHaveBeenCalled();
+      expect(adapter.setTheme).toHaveBeenCalledTimes(action === "mode" ? 1 : 0);
     } finally {
       vi.useRealTimers();
     }

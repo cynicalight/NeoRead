@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type webRoundTrip func(*http.Request) (*http.Response, error)
@@ -49,9 +50,9 @@ func TestDeepSeekWebPermissionSourcesAndFailure(t *testing.T) {
 	if err != nil || !strings.Contains(string(raw), "限流") || strings.Contains(string(raw), "PRIVATE_SECRET") || c.Tools[1].Status != "failed" {
 		t.Fatal(string(raw), err, c.Tools)
 	}
-	c.webCalls = 12
-	if _, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"x"}`)); errorKind(err) != ErrorLimit {
-		t.Fatal(err)
+	c.webCalls = webToolCalls
+	if raw, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"x"}`)); err != nil || !strings.Contains(string(raw), `"budgetNotice"`) {
+		t.Fatal(string(raw), err)
 	}
 }
 func TestDeepSeekWebFetchBoundsAndCancel(t *testing.T) {
@@ -238,7 +239,7 @@ func TestToolCompletionRetainsActualTargetAndProgress(t *testing.T) {
 }
 func TestWebSourceBudgetIsNotReportedAsNoResults(t *testing.T) {
 	c := &chatInput{WebSearch: true}
-	for i := 0; i < 23; i++ {
+	for i := 0; i < webSourceLimit-1; i++ {
 		c.addWebSource(WebSource{URL: fmt.Sprintf("https://example.com/%d", i), Title: "Existing", Kind: "search"})
 	}
 	count := 0
@@ -252,11 +253,272 @@ func TestWebSourceBudgetIsNotReportedAsNoResults(t *testing.T) {
 		t.Fatal(string(raw), c.Tools, err)
 	}
 	raw, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"other docs"}`))
-	if err != nil || !strings.Contains(string(raw), "预算已满") || count != 1 || c.Tools[1].Status != "failed" {
+	if err != nil || !strings.Contains(string(raw), `"shouldFinish":true`) || count != 1 || c.Tools[1].Status != "failed" {
 		t.Fatal(string(raw), c.Tools, err, count)
 	}
 	err = c.codexToolEvent("item/completed", json.RawMessage(`{"item":{"id":"native","type":"webSearch","query":"other docs","results":[{"title":"New","url":"https://example.com/new"}]}}`))
 	if err != nil || !strings.Contains(c.Tools[2].Detail, "预算已满") {
 		t.Fatal(err, c.Tools)
+	}
+}
+
+func TestPiWebBudgetLetsModelFinish(t *testing.T) {
+	piTestRuntime(t)
+	s, a := originalDocumentFixture(t)
+	preload := filepath.Join(t.TempDir(), "mock-model.cjs")
+	script := `globalThis.fetch=async function(url,init){
+ if(new Headers(init.headers).get('authorization')!=='Bearer model-secret')throw new Error('model credential missing');
+ const p=JSON.parse(init.body),tools=p.messages.filter(m=>m.role==='tool');
+ if(init.body.includes('search-secret'))throw new Error('search key leaked to model');
+ if(!p.tools?.some(t=>t.function.name==='web_search'))throw new Error('web tool missing');
+ if(tools.length && !tools.at(-1).content.includes('budgetNotice'))throw new Error('missing budget notice');
+ const call=tools.length===0?{name:'web_search',arguments:JSON.stringify({query:'official docs'})}:null;
+ const delta=call?{tool_calls:[{index:0,id:'tool-'+tools.length,type:'function',function:call}]}:{content:'See [Official](https://1.1.1.1/docs).'};
+ let out='';for(const choice of [{delta,finish_reason:null},{delta:{},finish_reason:call?'tool_calls':'stop'}])out+='data: '+JSON.stringify({id:'test',object:'chat.completion.chunk',model:'test',choices:[{index:0,...choice}]})+'\n\n';
+ return new Response(out+'data: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});
+ };`
+	if err := os.WriteFile(preload, []byte(script), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NODE_OPTIONS", "--require="+preload)
+	calls := []string{}
+	chat := &chatInput{server: s, DocumentID: "doc", SessionID: "", Question: "Find official docs", Agent: a, WebSearch: true, webCalls: 200, WebAPI: APIConnection{URL: "https://search.example/gateway/v1", Key: "search-secret"}, webTransport: webRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "search.example" || !strings.HasPrefix(r.URL.Path, "/gateway/v1/tools/") || r.Header.Get("Authorization") != "Bearer search-secret" {
+			t.Fatal("search connection was mixed with the model connection")
+		}
+		calls = append(calls, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "search") {
+			return webJSON(200, `{"results":[{"title":"Official","url":"https://1.1.1.1/docs","summary":"Search candidate"}]}`), nil
+		}
+		return webJSON(200, `{"title":"Official","content":"Verified public page text"}`), nil
+	})}
+	result, err := streamPiChat(t.Context(), APIConnection{URL: "https://model.example/v1", Key: "model-secret"}, completionRequest{Model: "test", Tools: true, ContextWindow: 64000}, AIInput{Prompt: chat.Question, Chat: chat}, nil)
+	if err != nil || !strings.Contains(result.Text, "https://1.1.1.1/docs") || len(calls) != 1 {
+		t.Fatal("model should finish after receiving budget notice", err, result.Text, calls)
+	}
+	if err := s.saveDocumentAgentAnswer(t.Context(), a, result.Text, "api"); err != nil {
+		t.Fatal("final answer was not saved", err)
+	}
+	history, err := s.Store.chatHistory("doc")
+	if err != nil || len(history) != 1 || !strings.Contains(history[0].Content, "Official") {
+		t.Fatal("completed answer missing from history", history, err)
+	}
+}
+
+func TestWebBudgetAllows200Requests(t *testing.T) {
+	requests := 0
+	c := &chatInput{WebSearch: true, webTransport: webRoundTrip(func(*http.Request) (*http.Response, error) {
+		requests++
+		return webJSON(200, `{"results":[{"title":"A","url":"https://example.com/a"}]}`), nil
+	})}
+	conn := APIConnection{URL: "https://api.deepseek.com", Key: "test"}
+	for i := 0; i < webToolCalls+1; i++ {
+		raw, err := c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"test"}`))
+		if err != nil || (i == webToolCalls && !strings.Contains(string(raw), `"budgetNotice"`)) {
+			t.Fatalf("call %d: %s %v", i+1, raw, err)
+		}
+	}
+	if requests != webToolCalls+1 {
+		t.Fatalf("got %d upstream requests, want %d", requests, webToolCalls+1)
+	}
+}
+
+func TestToolActivityBudgetDoesNotInterrupt(t *testing.T) {
+	c := &chatInput{}
+	for i := 0; i < 300; i++ {
+		activity := ToolActivity{ID: fmt.Sprint(i), Title: "搜索网页", Status: "running"}
+		if err := c.recordTool(activity); err != nil {
+			t.Fatal(i, err)
+		}
+		activity.Status = "completed"
+		if err := c.recordTool(activity); err != nil {
+			t.Fatal(i, err)
+		}
+	}
+	if len(c.Tools) != 256 || c.Tools[255].Status != "completed" {
+		t.Fatal("record limit or retained activity state is incorrect", len(c.Tools))
+	}
+}
+
+func TestPiToolRoundsFinishWithoutInterruption(t *testing.T) {
+	piTestRuntime(t)
+	s, a := originalDocumentFixture(t)
+	preload := filepath.Join(t.TempDir(), "mock-model.cjs")
+	script := `globalThis.fetch=async function(url,init){
+ if(new Headers(init.headers).get('authorization')!=='Bearer model-secret')throw new Error('model credential missing');
+ const p=JSON.parse(init.body),tools=p.messages.filter(m=>m.role==='tool');
+ if(init.body.includes('search-secret'))throw new Error('search key leaked to model');
+ if(!p.tools?.some(t=>t.function.name==='web_search'))throw new Error('web tool missing');
+ const call=tools.length<64?{name:'web_search',arguments:JSON.stringify({query:'official docs'})}:null;
+ const delta=call?{tool_calls:[{index:0,id:'tool-'+tools.length,type:'function',function:call}]}:{content:'See [Official](https://1.1.1.1/docs).'};
+ let out='';for(const choice of [{delta,finish_reason:null},{delta:{},finish_reason:call?'tool_calls':'stop'}])out+='data: '+JSON.stringify({id:'test',object:'chat.completion.chunk',model:'test',choices:[{index:0,...choice}]})+'\n\n';
+ return new Response(out+'data: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});
+ };`
+	if err := os.WriteFile(preload, []byte(script), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NODE_OPTIONS", "--require="+preload)
+	calls := []string{}
+	chat := &chatInput{server: s, DocumentID: "doc", SessionID: "", Question: "Find official docs", Agent: a, WebSearch: true, WebAPI: APIConnection{URL: "https://search.example/gateway/v1", Key: "search-secret"}, webTransport: webRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "search.example" || !strings.HasPrefix(r.URL.Path, "/gateway/v1/tools/") || r.Header.Get("Authorization") != "Bearer search-secret" {
+			t.Fatal("search connection was mixed with the model connection")
+		}
+		calls = append(calls, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "search") {
+			return webJSON(200, `{"results":[{"title":"Official","url":"https://1.1.1.1/docs","summary":"Search candidate"}]}`), nil
+		}
+		return webJSON(200, `{"title":"Official","content":"Verified public page text"}`), nil
+	})}
+	result, err := streamPiChat(t.Context(), APIConnection{URL: "https://model.example/v1", Key: "model-secret"}, completionRequest{Model: "test", Tools: true, ContextWindow: 64000}, AIInput{Prompt: chat.Question, Chat: chat}, nil)
+	if err != nil || !strings.Contains(result.Text, "https://1.1.1.1/docs") || len(calls) != 64 {
+		t.Fatal("model should finish after receiving budget notice", err, result.Text, calls)
+	}
+	if err := s.saveDocumentAgentAnswer(t.Context(), a, result.Text, "api"); err != nil {
+		t.Fatal("final answer was not saved", err)
+	}
+	history, err := s.Store.chatHistory("doc")
+	if err != nil || len(history) != 1 || !strings.Contains(history[0].Content, "Official") {
+		t.Fatal("completed answer missing from history", history, err)
+	}
+}
+
+func TestPiRoundBudgetWarnsWithoutDisablingTools(t *testing.T) {
+	piTestRuntime(t)
+	s, a := originalDocumentFixture(t)
+	preload := filepath.Join(t.TempDir(), "mock-model.cjs")
+	script := `let round=0; globalThis.fetch=async function(url,init){
+ if(new Headers(init.headers).get('authorization')!=='Bearer model-secret')throw new Error('model credential missing');
+ const p=JSON.parse(init.body),tools=p.messages.filter(m=>m.role==='tool');
+ if(init.body.includes('search-secret'))throw new Error('search key leaked to model');
+ round++; if(round===256 && (!p.tools?.length || !JSON.stringify(p.messages).includes('预算')))throw new Error('tools disabled or budget warning missing');
+ const call=round<=256?{name:'web_search',arguments:JSON.stringify({query:'official docs'})}:null;
+ const delta=call?{tool_calls:[{index:0,id:'tool-'+tools.length,type:'function',function:call}]}:{content:'See [Official](https://1.1.1.1/docs).'};
+ let out='';for(const choice of [{delta,finish_reason:null},{delta:{},finish_reason:call?'tool_calls':'stop'}])out+='data: '+JSON.stringify({id:'test',object:'chat.completion.chunk',model:'test',choices:[{index:0,...choice}]})+'\n\n';
+ return new Response(out+'data: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});
+ };`
+	if err := os.WriteFile(preload, []byte(script), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NODE_OPTIONS", "--require="+preload)
+	calls := []string{}
+	chat := &chatInput{server: s, DocumentID: "doc", SessionID: "", Question: "Find official docs", Agent: a, WebSearch: true, WebAPI: APIConnection{URL: "https://search.example/gateway/v1", Key: "search-secret"}, webTransport: webRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "search.example" || !strings.HasPrefix(r.URL.Path, "/gateway/v1/tools/") || r.Header.Get("Authorization") != "Bearer search-secret" {
+			t.Fatal("search connection was mixed with the model connection")
+		}
+		calls = append(calls, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "search") {
+			return webJSON(200, `{"results":[{"title":"Official","url":"https://1.1.1.1/docs","summary":"Search candidate"}]}`), nil
+		}
+		return webJSON(200, `{"title":"Official","content":"Verified public page text"}`), nil
+	})}
+	result, err := streamPiChat(t.Context(), APIConnection{URL: "https://model.example/v1", Key: "model-secret"}, completionRequest{Model: "test", Tools: true, ContextWindow: 64000}, AIInput{Prompt: chat.Question, Chat: chat}, nil)
+	if err != nil || !strings.Contains(result.Text, "https://1.1.1.1/docs") || len(calls) != 256 {
+		t.Fatal("model should finish after receiving budget notice", err, result.Text, calls)
+	}
+	if err := s.saveDocumentAgentAnswer(t.Context(), a, result.Text, "api"); err != nil {
+		t.Fatal("final answer was not saved", err)
+	}
+	history, err := s.Store.chatHistory("doc")
+	if err != nil || len(history) != 1 || !strings.Contains(history[0].Content, "Official") {
+		t.Fatal("completed answer missing from history", history, err)
+	}
+}
+
+func TestPiWebProtocolErrorLetsModelFinish(t *testing.T) {
+	piTestRuntime(t)
+	s, a := originalDocumentFixture(t)
+	preload := filepath.Join(t.TempDir(), "mock-model.cjs")
+	script := `globalThis.fetch=async function(url,init){
+ if(new Headers(init.headers).get('authorization')!=='Bearer model-secret')throw new Error('model credential missing');
+ const p=JSON.parse(init.body),tools=p.messages.filter(m=>m.role==='tool');
+ if(init.body.includes('search-secret'))throw new Error('search key leaked to model');
+ if(!p.tools?.some(t=>t.function.name==='web_search'))throw new Error('web tool missing');
+ if(tools.length && !tools.at(-1).content.includes('web_tool_failed'))throw new Error('missing budget notice');
+ const call=tools.length===0?{name:'web_search',arguments:JSON.stringify({query:'official docs'})}:null;
+ const delta=call?{tool_calls:[{index:0,id:'tool-'+tools.length,type:'function',function:call}]}:{content:'See [Official](https://1.1.1.1/docs).'};
+ let out='';for(const choice of [{delta,finish_reason:null},{delta:{},finish_reason:call?'tool_calls':'stop'}])out+='data: '+JSON.stringify({id:'test',object:'chat.completion.chunk',model:'test',choices:[{index:0,...choice}]})+'\n\n';
+ return new Response(out+'data: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});
+ };`
+	if err := os.WriteFile(preload, []byte(script), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NODE_OPTIONS", "--require="+preload)
+	calls := []string{}
+	chat := &chatInput{server: s, DocumentID: "doc", SessionID: "", Question: "Find official docs", Agent: a, WebSearch: true, WebAPI: APIConnection{URL: "https://search.example/gateway/v1", Key: "search-secret"}, webTransport: webRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "search.example" || !strings.HasPrefix(r.URL.Path, "/gateway/v1/tools/") || r.Header.Get("Authorization") != "Bearer search-secret" {
+			t.Fatal("search connection was mixed with the model connection")
+		}
+		calls = append(calls, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "search") {
+			return webJSON(200, `{}`), nil
+		}
+		return webJSON(200, `{"title":"Official","content":"Verified public page text"}`), nil
+	})}
+	result, err := streamPiChat(t.Context(), APIConnection{URL: "https://model.example/v1", Key: "model-secret"}, completionRequest{Model: "test", Tools: true, ContextWindow: 64000}, AIInput{Prompt: chat.Question, Chat: chat}, nil)
+	if err != nil || !strings.Contains(result.Text, "https://1.1.1.1/docs") || len(calls) != 1 {
+		t.Fatal("model should finish after receiving budget notice", err, result.Text, calls)
+	}
+	if err := s.saveDocumentAgentAnswer(t.Context(), a, result.Text, "api"); err != nil {
+		t.Fatal("final answer was not saved", err)
+	}
+	history, err := s.Store.chatHistory("doc")
+	if err != nil || len(history) != 1 || !strings.Contains(history[0].Content, "Official") {
+		t.Fatal("completed answer missing from history", history, err)
+	}
+}
+
+func TestWebToolUsesExtendedDeadline(t *testing.T) {
+	c := &chatInput{WebSearch: true, webTransport: webRoundTrip(func(r *http.Request) (*http.Response, error) {
+		deadline, ok := r.Context().Deadline()
+		if !ok || time.Until(deadline) < 119*time.Second || time.Until(deadline) > 2*time.Minute {
+			t.Errorf("unexpected web deadline %v", deadline)
+		}
+		return webJSON(200, `{"results":[]}`), nil
+	})}
+	if _, err := c.callWebTool(context.Background(), APIConnection{URL: "https://api.deepseek.com", Key: "test"}, "web_search", json.RawMessage(`{"query":"test"}`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPiOversizedToolArgumentsLetModelFinish(t *testing.T) {
+	piTestRuntime(t)
+	s, a := originalDocumentFixture(t)
+	preload := filepath.Join(t.TempDir(), "mock-model.cjs")
+	script := `globalThis.fetch=async function(url,init){
+ if(new Headers(init.headers).get('authorization')!=='Bearer model-secret')throw new Error('model credential missing');
+ const p=JSON.parse(init.body),tools=p.messages.filter(m=>m.role==='tool');
+ if(init.body.includes('search-secret'))throw new Error('search key leaked to model');
+ if(!p.tools?.some(t=>t.function.name==='web_search'))throw new Error('web tool missing');
+ if(tools.length && !/validation|invalid|error/i.test(tools.at(-1).content))throw new Error('missing budget notice');
+ const call=tools.length===0?{name:'web_search',arguments:JSON.stringify({query:'x'.repeat(5000)})}:null;
+ const delta=call?{tool_calls:[{index:0,id:'tool-'+tools.length,type:'function',function:call}]}:{content:'See [Official](https://1.1.1.1/docs).'};
+ let out='';for(const choice of [{delta,finish_reason:null},{delta:{},finish_reason:call?'tool_calls':'stop'}])out+='data: '+JSON.stringify({id:'test',object:'chat.completion.chunk',model:'test',choices:[{index:0,...choice}]})+'\n\n';
+ return new Response(out+'data: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});
+ };`
+	if err := os.WriteFile(preload, []byte(script), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NODE_OPTIONS", "--require="+preload)
+	calls := []string{}
+	chat := &chatInput{server: s, DocumentID: "doc", SessionID: "", Question: "Find official docs", Agent: a, WebSearch: true, WebAPI: APIConnection{URL: "https://search.example/gateway/v1", Key: "search-secret"}, webTransport: webRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "search.example" || !strings.HasPrefix(r.URL.Path, "/gateway/v1/tools/") || r.Header.Get("Authorization") != "Bearer search-secret" {
+			t.Fatal("search connection was mixed with the model connection")
+		}
+		calls = append(calls, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "search") {
+			return webJSON(200, `{}`), nil
+		}
+		return webJSON(200, `{"title":"Official","content":"Verified public page text"}`), nil
+	})}
+	result, err := streamPiChat(t.Context(), APIConnection{URL: "https://model.example/v1", Key: "model-secret"}, completionRequest{Model: "test", Tools: true, ContextWindow: 64000}, AIInput{Prompt: chat.Question, Chat: chat}, nil)
+	if err != nil || !strings.Contains(result.Text, "https://1.1.1.1/docs") || len(calls) != 0 {
+		t.Fatal("model should finish after receiving budget notice", err, result.Text, calls)
+	}
+	if err := s.saveDocumentAgentAnswer(t.Context(), a, result.Text, "api"); err != nil {
+		t.Fatal("final answer was not saved", err)
+	}
+	history, err := s.Store.chatHistory("doc")
+	if err != nil || len(history) != 1 || !strings.Contains(history[0].Content, "Official") {
+		t.Fatal("completed answer missing from history", history, err)
 	}
 }

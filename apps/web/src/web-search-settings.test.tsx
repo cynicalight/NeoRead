@@ -22,7 +22,7 @@ async function harness(save: (config: WebSearchConfig) => Promise<boolean>) {
       <WebSearchSettings value={value} disabled={false} onSave={save} />,
     ),
   );
-  const checkbox = () => host.querySelector('[role="checkbox"]') as HTMLElement;
+  const toggle = () => host.querySelector('[role="switch"]') as HTMLElement;
   const url = () => host.querySelector('input[id$="-url"]') as HTMLInputElement;
   const password = () =>
     host.querySelector("input[type=password]") as HTMLInputElement;
@@ -44,32 +44,32 @@ async function harness(save: (config: WebSearchConfig) => Promise<boolean>) {
     host.remove();
     vi.unstubAllGlobals();
   };
-  return { host, checkbox, url, password, type, blur, close };
+  return { host, toggle, url, password, type, blur, close };
 }
 
-it("saves a checkbox click immediately without a Save button and preserves the masked key", async () => {
+it("saves a toggle click immediately without a Save button and preserves the masked key", async () => {
   const save = vi.fn(async () => true),
     h = await harness(save);
   try {
     expect(h.password().value).toBe("");
     expect(h.host.textContent).not.toContain("保存联网设置");
-    await act(async () => h.checkbox().click());
+    await act(async () => h.toggle().click());
     expect(save).toHaveBeenCalledExactlyOnceWith({
       ...value,
       cliEnabled: true,
     });
-    expect(h.checkbox().getAttribute("aria-checked")).toBe("true");
+    expect(h.toggle().getAttribute("aria-checked")).toBe("true");
   } finally {
     await h.close();
   }
 });
 
-it("rolls back a rejected checkbox save and displays the failure", async () => {
+it("rolls back a rejected toggle save and displays the failure", async () => {
   const save = vi.fn(async () => false),
     h = await harness(save);
   try {
-    await act(async () => h.checkbox().click());
-    expect(h.checkbox().getAttribute("aria-checked")).toBe("false");
+    await act(async () => h.toggle().click());
+    expect(h.toggle().getAttribute("aria-checked")).toBe("false");
     expect(h.host.querySelector('[role="alert"]')?.textContent).toContain(
       "保存失败",
     );
@@ -120,10 +120,10 @@ it("serializes a blur and rapid toggles without losing permissions or a new key"
   );
   const h = await harness(save);
   try {
-    await act(async () => h.checkbox().click());
+    await act(async () => h.toggle().click());
     await h.type(h.password(), "new-key");
     await h.blur(h.password());
-    await act(async () => h.checkbox().click());
+    await act(async () => h.toggle().click());
     expect(save).toHaveBeenCalledTimes(1);
     await act(async () => pending.shift()!(true));
     expect(save).toHaveBeenLastCalledWith({
@@ -139,7 +139,7 @@ it("serializes a blur and rapid toggles without losing permissions or a new key"
       key: undefined,
     });
     await act(async () => pending.shift()!(true));
-    expect(h.checkbox().getAttribute("aria-checked")).toBe("false");
+    expect(h.toggle().getAttribute("aria-checked")).toBe("false");
     expect(h.password().value).toBe("");
     expect(h.host.querySelector('[aria-busy="true"]')).toBeNull();
   } finally {

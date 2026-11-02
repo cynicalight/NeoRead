@@ -1,12 +1,10 @@
+import { reducedMotion } from "./motion";
 import { useEffect, useRef, type PointerEvent, type RefObject } from "react";
 import { flushSync } from "react-dom";
 
 const threshold = 5;
 const edge = 36;
 const settle = 160;
-
-const reducedMotion = () =>
-  !window.matchMedia?.("(prefers-reduced-motion: no-preference)").matches;
 
 /**
  * Pointer reordering for a horizontal tab strip: the pressed tab follows the

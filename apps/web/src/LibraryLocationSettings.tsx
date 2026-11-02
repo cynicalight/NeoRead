@@ -51,7 +51,30 @@ export function LibraryLocationSettings({
   };
   return (
     <section>
-      <h3 className="mb-3 text-sm font-medium">书库位置</h3>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="min-w-0 text-sm font-medium">书库位置</h3>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="outline"
+            disabled={recovery || !directory || busy}
+            onClick={() => void move()}
+            className="transition-transform active:scale-[0.98] motion-reduce:transform-none"
+          >
+            <FolderOpen />
+            更改位置
+          </Button>
+          {desktop.importLibrary && (
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => void move(true)}
+            >
+              <FolderOpen />
+              导入书库
+            </Button>
+          )}
+        </div>
+      </div>
       <p className="mb-3 break-all text-xs leading-5 text-muted-foreground">
         {recovery ? "书库尚未连接" : directory || "正在读取位置"}
       </p>
@@ -60,26 +83,6 @@ export function LibraryLocationSettings({
         NeoRead Library
         文件夹，复制整个书库并重启。原目录保留，已有文件不会被覆盖。
       </p>
-      <Button
-        variant="outline"
-        disabled={recovery || !directory || busy}
-        onClick={() => void move()}
-        className="transition-transform active:scale-[0.98] motion-reduce:transform-none"
-      >
-        <FolderOpen />
-        更改位置
-      </Button>
-      {desktop.importLibrary && (
-        <Button
-          variant="outline"
-          disabled={busy}
-          className="ml-2"
-          onClick={() => void move(true)}
-        >
-          <FolderOpen />
-          导入书库
-        </Button>
-      )}
       <p className="mt-3 text-xs leading-5 text-muted-foreground">
         导入书库：选择包含 neoread.sqlite 或 reader.sqlite 的 library
         文件夹，直接打开已有书库，不合并数据。

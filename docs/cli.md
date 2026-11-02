@@ -24,7 +24,7 @@ neoread read 阅读的结构 --chapters 2             # EPUB 按阅读顺序的�
 neoread read 1a2b3c4d --side both               # source（默认）、translation 或 both
 neoread annotations 1a2b3c4d --kind question    # 高亮、笔记、问题及其回答
 reader note 1a2b3c4d                           # 论文笔记
-neoread import a.pdf b.pdf --library papers     # 导入；--allow-large 允许超过 100 页或 100 MB的 PDF 进入论文库
+neoread import a.pdf b.pdf --library papers     # 导入；--allow-large 允许超过 100 页且大于 100 MB 的 PDF 进入论文库
 ```
 
 `<文档>` 可以是完整 ID、至少 4 位的 ID 前缀（`list` 显示前 8 位），或标题（含译名）中的一段文字；对应多份时列出候选并要求改用 ID。选项可以写在参数前后，`--` 之后的内容一律当作参数。

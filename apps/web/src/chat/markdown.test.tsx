@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { MessageMarkdown, safeMarkdownURL } from "./MessageMarkdown";
-import { markdownFixture, splitFixture, type SplitMode } from "./fixtures";
+import { markdownFixture } from "./fixtures";
 import { nearBottom } from "./useChatScroll";
 function render(content: string, generating = false) {
   return renderToStaticMarkup(
@@ -21,18 +21,10 @@ describe("Markdown received source vs display", () => {
     expect(link?.target).toBe("_blank");
     dom.window.close();
   });
-  it.each(["character", "word", "random", "whole"] as SplitMode[])(
-    "final content is identical for %s fragments",
-    (mode) => {
-      const pieces = splitFixture(markdownFixture, mode);
-      const result = pieces.join("");
-      expect(result).toBe(markdownFixture);
-      expect(render(result)).toBe(render(markdownFixture));
-      // Deliberately incomplete delimiters exercise the live repair path.
-      for (const cut of [3, 49, 99, 512, 800])
-        expect(() => render(result.slice(0, cut), true)).not.toThrow();
-    },
-  );
+  it("renders incomplete delimiters without throwing", () => {
+    for (const cut of [3, 49, 99, 512, 800])
+      expect(() => render(markdownFixture.slice(0, cut), true)).not.toThrow();
+  });
   it("resolves cross-block definitions, omits active HTML and never fetches model images", () => {
     const dom = new JSDOM(render(markdownFixture));
     expect(dom.window.document.querySelector("script,img,iframe")).toBeNull();

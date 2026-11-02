@@ -209,7 +209,7 @@
 .document-tab[data-dragging]:not([data-active]) {
   background: var(--background);
 }
-@media (prefers-reduced-motion: no-preference) {
+:root:not([data-reduced-motion="true"]) {
   .document-tab:is([data-new], [data-leaving]) {
     overflow: hidden;
   }

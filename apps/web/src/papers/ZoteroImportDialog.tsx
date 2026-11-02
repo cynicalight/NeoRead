@@ -1,3 +1,4 @@
+import { importWithPaperNotes } from "../paper-note-state";
 import { EndNoteSourcePicker } from "./EndNoteSourcePicker";
 import { confirmLargePaper } from "../LargePaperDialog";
 import { useEffect, useRef, useState } from "react";
@@ -123,9 +124,8 @@ export function ZoteroImportDialog({
       let result: Outcome;
       try {
         try {
-          result = await (endnote ? api.importEndNote : api.importZotero)(
-            scan.id,
-            entry.id,
+          result = await importWithPaperNotes(() =>
+            (endnote ? api.importEndNote : api.importZotero)(scan.id, entry.id),
           );
         } catch (error) {
           if (!(error instanceof RequestError) || error.code !== "large-paper")
@@ -135,13 +135,15 @@ export function ZoteroImportDialog({
             stop.current = true;
             break;
           }
-          result = await (endnote ? api.importEndNote : api.importZotero)(
-            scan.id,
-            entry.id,
-            {
-              library,
-              allowLarge: true,
-            },
+          result = await importWithPaperNotes(() =>
+            (endnote ? api.importEndNote : api.importZotero)(
+              scan.id,
+              entry.id,
+              {
+                library,
+                allowLarge: true,
+              },
+            ),
           );
         }
       } catch (e) {
@@ -209,6 +211,11 @@ export function ZoteroImportDialog({
               ? "复制本机 PDF、论文信息、标签和笔记，将支持的 PDF 标记转换为 NeoRead 批注并清除副本中的对应标记。EndNote 源数据保持不变。"
               : "复制本机 PDF、论文信息、分类、标签、笔记和可转换的批注。Zotero 原数据保持不变。"}
           </DialogDescription>
+          {!endnote && (
+            <p className="text-muted-foreground text-xs">
+              导入相同 PDF 时，保留正文较长的笔记；长度相同则保留现有笔记。
+            </p>
+          )}
         </DialogHeader>
         {!scan ? (
           endnote ? (
@@ -308,7 +315,7 @@ export function ZoteroImportDialog({
               </p>
             ))}
             <p className="text-muted-foreground text-xs">
-              同一论文的多个 PDF 分别导入。超过 100 页或 100 MB
+              同一论文的多个 PDF 分别导入。超过 100 页且大于 100 MB
               时需确认是否是论文。自动翻译遵循设置中的页数上限。
             </p>
             {phase === "running" && (

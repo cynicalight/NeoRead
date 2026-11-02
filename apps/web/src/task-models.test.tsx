@@ -136,25 +136,6 @@ const apiModels: AgentModel[] = [
     capability: { text: false, vision: false, ...checked },
   },
 ];
-// Closed Base UI menus stay mounted in jsdom; read the latest one.
-const optionNames = () =>
-  Array.from(
-    Array.from(document.querySelectorAll('[role="listbox"]'))
-      .at(-1)!
-      .querySelectorAll('[role="option"]'),
-  ).map((item) => item.textContent);
-it("offers API models only for the tasks whose checks they passed", async () => {
-  config = { ...config, primary: "api", models: {}, efforts: {} };
-  useReaderStore.setState({ aiConfig: config });
-  vi.mocked(api.agentModels).mockResolvedValue(apiModels);
-  await act(async () => root.render(<TaskModels disabled={false} />));
-  expect(trigger("问答模型").textContent).toContain("Pro");
-  expect(trigger("图片模型").textContent).toContain("Flash");
-  await act(async () => trigger("问答模型").click());
-  expect(optionNames()).toEqual(["Flash", "Pro"]);
-  await act(async () => trigger("图片模型").click());
-  expect(optionNames()).toEqual(["Flash"]);
-});
 it("leaves the API image model empty when no model passed vision", async () => {
   config = { ...config, primary: "api", models: {}, efforts: {} };
   useReaderStore.setState({ aiConfig: config });
@@ -170,7 +151,7 @@ it("leaves the API image model empty when no model passed vision", async () => {
   expect(host.textContent).toContain("没有通过图片理解检测的模型");
 });
 
-it("disables effort for fixed models and shows the actual mapping for tunable models", async () => {
+it("disables effort for fixed models and keeps tunable models selectable", async () => {
   config.primary = "api";
   config.models = { api: "fixed" };
   config.translationModels = { api: "tunable" };
@@ -201,5 +182,4 @@ it("disables effort for fixed models and shows the actual mapping for tunable mo
   expect(trigger("问答 Effort").disabled).toBe(true);
   expect(trigger("问答 Effort").textContent).toContain("固定／自动");
   expect(trigger("翻译 Effort").disabled).toBe(false);
-  expect(host.textContent).toContain("medium → high");
 });

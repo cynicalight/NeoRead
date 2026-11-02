@@ -110,7 +110,9 @@
   position: fixed;
   top: 0;
   left: 0;
-  width: 300px;
+  width: min(300px, calc(100vw - 32px));
+  overflow: auto;
+  scrollbar-width: none;
   padding: 14px 14px 10px;
   border-radius: 14px;
   background: var(--popover);
@@ -184,7 +186,7 @@
   color: var(--tour-accent);
 }
 
-/* A plain button on the first card, grey in the corner; red when hovered. */
+/* Fixed bottom-left throughout the tour; red when hovered. */
 .tour-skip {
   position: fixed;
   top: 0;
@@ -193,22 +195,13 @@
   transition:
     background-color 160ms ease-out,
     color 160ms ease-out;
-}
-/* Only the move out of the first card glides. On the first frame the card
-   is not measured yet, so the button starts in the corner and must jump. */
-.tour-skip[data-place="corner"] {
-  transition:
-    transform 560ms cubic-bezier(0.32, 0.72, 0, 1),
-    background-color 160ms ease-out,
-    color 160ms ease-out;
   background: var(--popover);
   color: var(--muted-foreground);
   box-shadow:
     0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
     0 4px 12px rgb(0 0 0 / 0.12);
 }
-.tour-skip:hover,
-.tour-skip[data-place="corner"]:hover {
+.tour-skip:hover {
   background: var(--destructive);
   color: #fff;
 }
@@ -281,7 +274,7 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduced-motion="true"] {
   .tour-frame,
   .tour-pointer,
   .tour-card,

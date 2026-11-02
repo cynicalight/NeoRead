@@ -14,6 +14,7 @@ import {
   resolveEPUBRange,
   searchEPUBLocators,
 } from "./selection-locator";
+import { installMotionPreference } from "../motion";
 import { installScrollbars } from "../scrollbars";
 import {
   EpubNavigator,
@@ -267,6 +268,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       this.hoverAllowed = false;
       this.clearAnnotationHover();
     };
+    const removeMotion = installMotionPreference(doc);
     const removeScrollbars = installScrollbars(doc);
     const current = () =>
       !this.disposed &&
@@ -355,6 +357,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     };
     const cleanup = () => {
       removeScrollbars();
+      removeMotion();
       removeContinuousScroll();
       removePaging();
       doc.removeEventListener("pointerdown", annotationPress, true);

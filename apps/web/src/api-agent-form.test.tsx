@@ -25,19 +25,12 @@ it("persists a relay protocol override while retaining its saved key", async () 
         />,
       ),
     );
-    await act(async () =>
-      (
-        host.querySelector('[aria-label="API 格式"]') as HTMLButtonElement
-      ).click(),
-    );
-    const option = Array.from(
-      document.querySelectorAll('[role="option"]'),
-    ).find((e) => e.textContent === "Anthropic Messages") as HTMLElement;
-    expect(option).toBeDefined();
-    await act(async () => {
-      option.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
-      option.click();
-    });
+    const anthropic = Array.from(
+      host.querySelectorAll<HTMLElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "Anthropic");
+    expect(anthropic).toBeDefined();
+    await act(async () => anthropic!.click());
+    expect(save).not.toHaveBeenCalled();
     const submit = host.querySelector(
       'button[type="submit"]',
     ) as HTMLButtonElement;

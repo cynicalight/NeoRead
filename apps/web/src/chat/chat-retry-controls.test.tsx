@@ -52,6 +52,60 @@ const button = (text: string) =>
     (element) => element.textContent === text,
   );
 
+it("renders PDF activity as a running trace without duplicating it beside partial output", async () => {
+  let emit!: Parameters<ChatTransport["stream"]>[3];
+  let finish!: () => void;
+  session = new ChatSession("doc", {
+    messages: async () => [],
+    stream: async (_id, _input, _signal, onEvent) => {
+      emit = onEvent;
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  await session.load();
+  await act(async () =>
+    root.render(
+      <AssistantPanel
+        session={session}
+        empty={null}
+        extras={() => null}
+        references={() => null}
+        onRegenerate={() => {}}
+      />,
+    ),
+  );
+  let completion!: Promise<void>;
+  await act(async () => {
+    completion = session.send(question);
+  });
+  await act(async () => {
+    emit({ event: "delta", data: { text: "已经收到的回答" } });
+    emit({
+      event: "activity",
+      data: {
+        phase: "reading",
+        tool: "read_passage",
+        message: "正在查询 PDF 第 3 页",
+      },
+    });
+  });
+  expect(
+    host.querySelector('[data-slot="trace-line"][data-status="running"]')
+      ?.textContent,
+  ).toContain("正在查询 PDF 第 3 页");
+  expect(host.textContent?.match(/正在查询 PDF 第 3 页/g)).toHaveLength(1);
+  expect(host.textContent).toContain("已经收到的回答");
+  await act(async () => {
+    emit({ event: "error", data: { error: "读取失败" } });
+    finish();
+    await completion;
+  });
+  expect(host.querySelector('[data-status="running"]')).toBeNull();
+  expect(host.textContent).toContain("读取失败");
+});
+
 it("shows regeneration for failures, disables it during model saving, and replaces the old row", async () => {
   let history: Message[] = [];
   const providers: string[] = [];

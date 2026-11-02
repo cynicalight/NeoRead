@@ -15,7 +15,7 @@ import {
   DialogDescription,
 } from "@neoread/ui/components/dialog";
 
-const labels: Record<string, string> = {
+export const usageStageLabels: Record<string, string> = {
   chat: "聊天",
   overview: "概要生成",
   settling: "沉淀／图片解析",
@@ -210,9 +210,9 @@ function StageRows({
       <tr className="usage-stage">
         <td colSpan={4}>
           <details className="usage-models">
-            <summary aria-label={`${labels[stage]}模型调用详情`}>
+            <summary aria-label={`${usageStageLabels[stage]}模型调用详情`}>
               <span className="usage-stage-name">
-                {labels[stage]}
+                {usageStageLabels[stage]}
                 <small>
                   {usageDuration(duration)} ·{" "}
                   {stage === "chat" &&

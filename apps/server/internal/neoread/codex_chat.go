@@ -2,8 +2,8 @@ package neoread
 
 import (
 	"context"
+	"neoread.local/server/internal/runtimeenv"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -48,7 +48,7 @@ func (c *codexChatCache) acquire(ctx context.Context, root, model string, in AII
 		return nil, in, generationError(ErrorCanceled, "服务已关闭")
 	}
 	chat := in.Chat
-	executable, _ := exec.LookPath("codex")
+	executable, _ := runtimeenv.LookPath(ctx, "codex")
 	key := executable + "\x00" + model + "\x00" + in.Effort + "\x00" + chat.Title
 	if chat.WebSearch {
 		key += "\x00web"

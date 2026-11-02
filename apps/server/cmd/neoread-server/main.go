@@ -13,6 +13,7 @@ import (
 	"neoread.local/server/internal/diagnostics"
 	"neoread.local/server/internal/neoread"
 	"neoread.local/server/internal/networkprobe"
+	"neoread.local/server/internal/runtimeenv"
 	"net"
 	"net/http"
 	"os"
@@ -43,6 +44,7 @@ func main() {
 	retryLegacyCleanup := flag.Bool("retry-reader-cleanup", false, "explicitly retry a failed Reader data cleanup")
 	shutdownOnStdin := flag.Bool("shutdown-on-stdin", false, "shut down when the desktop closes stdin")
 	checkLibrary := flag.Bool("check-library", false, "validate an existing library and exit")
+	desktopRuntime := flag.Bool("desktop-runtime", false, "receive desktop environment after local service readiness")
 	flag.Parse()
 	if *retryLegacyCleanup && (*legacyCleanup != "delete" || *legacySource != "") {
 		fmt.Fprintln(os.Stderr, "--retry-reader-cleanup requires --cleanup-reader-data delete")
@@ -89,6 +91,10 @@ func main() {
 		_ = json.NewEncoder(os.Stdout).Encode(networkprobe.Run(context.Background()))
 		return
 	}
+	if *desktopRuntime {
+		runtimeenv.Default = runtimeenv.New(true)
+	}
+	http.DefaultTransport.(*http.Transport).Proxy = runtimeenv.Proxy
 	root, err := filepath.Abs(*data)
 	if err != nil {
 		log.Fatal(err)
@@ -130,6 +136,14 @@ func main() {
 	server := neoread.NewServer(store, token, *web)
 	server.SetDiagnostics(recorder)
 	defer server.Close()
+	if err := server.PrepareStartupSettings(); err != nil {
+		log.Fatal(err)
+	}
+	runContext, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	context.AfterFunc(runContext, runtimeenv.Default.Stop)
+	stopProcessing := server.StartProcessingAsync(runContext)
+	defer func() { cancelRun(); runtimeenv.Default.Stop(); stopProcessing() }()
 	if !*connector {
 		server.SetConnectorUnavailable("disabled")
 	} else {
@@ -155,10 +169,6 @@ func main() {
 			defer connectorHTTP.Shutdown(context.Background())
 		}
 	}
-	runContext, cancelRun := context.WithCancel(context.Background())
-	defer cancelRun()
-	stopProcessing := server.StartProcessing(runContext)
-	defer stopProcessing()
 	httpServer := &http.Server{BaseContext: func(net.Listener) context.Context { return runContext }, Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	removeDiscovery, discoveryErr := neoread.WriteDiscovery(root, neoread.Discovery{URL: "http://" + listener.Addr().String(), Token: token, PID: os.Getpid(), Version: neoreadVersion})
 	if discoveryErr != nil {

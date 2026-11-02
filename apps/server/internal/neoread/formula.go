@@ -35,7 +35,7 @@ const formulaPrompt = `你是论文公式转录助手。根据附件图片准确
 `
 
 // Formula output is buffered until completion, so retrying a timed-out attempt
-// cannot mix partial answers. Each Generate call has its own three-minute limit.
+// cannot mix partial answers. Each Generate call has its own time limit.
 // A parent cancellation/deadline always wins, including during the backoff.
 func generateFormula(ctx context.Context, service *GenerationService, input AIInput) (string, error) {
 	for attempt := 1; ; attempt++ {
@@ -103,7 +103,7 @@ func (s *Server) convertFormulas(ctx context.Context, documentID string, m layou
 		if callErr == nil {
 			service := s.generationService(s.aiConfig())
 			service.usageSink = s.processingUsageSink(documentID, "translating", b.ID)
-			service.timeout = 3 * time.Minute
+			service.timeout = 15 * time.Minute
 			t.FormulaMarkdown, callErr = generateFormula(ctx, service, AIInput{Prompt: formulaPrompt + b.Text, Image: image})
 		}
 		t.Status = "complete"

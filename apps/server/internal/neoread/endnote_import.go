@@ -9,9 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"neoread.local/server/internal/runtimeenv"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -41,7 +41,7 @@ func migrateEndnotePDF(ctx context.Context, input, work string) (string, endnote
 	output, report := filepath.Join(work, "cleaned.pdf"), filepath.Join(work, "marks.json")
 	child, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(child, node, filepath.Join(filepath.Dir(processor), "endnote-pdf-cli.mjs"), "--input", input, "--output", output, "--report", report)
+	cmd := runtimeenv.CommandContext(child, node, filepath.Join(filepath.Dir(processor), "endnote-pdf-cli.mjs"), "--input", input, "--output", output, "--report", report)
 	cmd.Env = append(os.Environ(), "ELECTRON_RUN_AS_NODE=1")
 	cmd.Dir = work
 	cmd.WaitDelay = time.Second
@@ -200,7 +200,7 @@ func (s *Server) importEndnoteEntry(ctx context.Context, e *endnoteEntry, librar
 		return result, err
 	}
 	pages, _ := pdfPageCount(input)
-	if library == "papers" && !allowLarge && (pages > largePaperPages || size > largePaperBytes) {
+	if library == "papers" && !allowLarge && largePaper(pages, size) {
 		return result, importError{409, "检测到 PDF 过大，请确认是否是论文？如果是图书类，请导入图书库。", "large-paper", pages}
 	}
 	cleaned, pdfResult, err := convert(ctx, input, work)

@@ -14,6 +14,32 @@ import (
 )
 
 // testPDF builds a minimal valid PDF with blank pages and a correct xref table.
+// lowerLargePaperBytes lets small test PDFs count as large by size, so page
+// counts decide.
+func lowerLargePaperBytes(t *testing.T) {
+	saved := largePaperBytes
+	largePaperBytes = 1
+	t.Cleanup(func() { largePaperBytes = saved })
+}
+
+func TestLargePaperNeedsPagesAndSize(t *testing.T) {
+	for _, tc := range []struct {
+		pages int
+		size  int64
+		want  bool
+	}{
+		{largePaperPages + 1, largePaperBytes + 1, true},
+		{largePaperPages + 1, largePaperBytes, false},
+		{largePaperPages, largePaperBytes + 1, false},
+		{0, largePaperBytes + 1, true},
+		{0, largePaperBytes, false},
+	} {
+		if got := largePaper(tc.pages, tc.size); got != tc.want {
+			t.Errorf("largePaper(%d, %d) = %t", tc.pages, tc.size, got)
+		}
+	}
+}
+
 func testPDF(pages int) []byte {
 	var b bytes.Buffer
 	offsets := []int{}
@@ -98,7 +124,11 @@ func TestPaperLibraryImportLimits(t *testing.T) {
 	if w = uploadTo(t, s, "papers", "book.epub", sample(t, "the-art-of-reading.epub")); w.Code != 400 || !strings.Contains(w.Body.String(), "只支持 PDF") {
 		t.Fatalf("epub accepted into papers: %d %s", w.Code, w.Body.String())
 	}
-	if w = uploadTo(t, s, "papers", "long.pdf", testPDF(largePaperPages+1)); w.Code != 409 || !strings.Contains(w.Body.String(), "large-paper") {
+	if w = uploadTo(t, s, "papers", "long-small.pdf", testPDF(largePaperPages+3)); w.Code != 201 {
+		t.Fatalf("long but small PDF asked: %d %s", w.Code, w.Body.String())
+	}
+	lowerLargePaperBytes(t)
+	if w = uploadTo(t, s, "papers", "longer.pdf", testPDF(largePaperPages+2)); w.Code != 409 || !strings.Contains(w.Body.String(), "large-paper") {
 		t.Fatalf("long PDF accepted: %d %s", w.Code, w.Body.String())
 	}
 	if w = uploadTo(t, s, "shelf", "x.pdf", testPDF(1)); w.Code != 400 {

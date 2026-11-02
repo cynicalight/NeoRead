@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { defaultTheme, type ReaderTheme } from "@neoread/core";
 import {
   appearanceChoice,
+  initialDesktopTheme,
+  applyDocumentTheme,
   chooseAppearance,
   resolveTheme,
   stepTranslationSize,
@@ -15,6 +17,26 @@ afterEach(() => {
   if (root) act(() => root!.unmount());
   root = undefined;
   vi.unstubAllGlobals();
+  applyDocumentTheme(defaultTheme);
+});
+it("applies the saved desktop appearance before React mounts, even when the OS differs", () => {
+  const theme = initialDesktopTheme(
+    { appearance: "dark", pdfDarkContrast: "high" },
+    false,
+  );
+  expect(theme.appearance).toBe("dark");
+  expect(document.documentElement.classList.contains("dark")).toBe(true);
+  expect(document.documentElement.dataset.darkContrast).toBe("high");
+  expect(document.documentElement.style.colorScheme).toBe("dark");
+  // React resolves the same seeded state and cannot overwrite it with system defaults.
+  applyDocumentTheme(resolveTheme(theme, false));
+  expect(document.documentElement.dataset.theme).toBe("dark");
+  initialDesktopTheme(
+    { appearance: "system", systemLightMode: "sepia" },
+    false,
+  );
+  expect(document.documentElement.dataset.theme).toBe("sepia");
+  expect(document.documentElement.dataset.darkContrast).toBeUndefined();
 });
 it("resolves explicit appearance independently from OS and preserves paper mode", () => {
   expect(

@@ -71,7 +71,7 @@ div.guide-footer {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduced-motion="true"] {
   .guide-dots > span {
     transition: none;
   }

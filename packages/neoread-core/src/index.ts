@@ -101,6 +101,7 @@ export interface Creator {
 export type MetadataSource = "file" | "lookup" | "manual";
 export interface PaperMetadata {
   itemType?: PaperItemType;
+  suggestedTitle?: string;
   translatedTitle?: string;
   shortTitle?: string;
   creators?: Creator[];
@@ -130,7 +131,7 @@ export interface PaperMetadata {
 }
 export type PaperMetadataField = Exclude<
   keyof PaperMetadata,
-  "sources" | "lookup" | "lookedUpAt"
+  "sources" | "lookup" | "lookedUpAt" | "suggestedTitle"
 >;
 export type ReadingStatus = "unread" | "reading" | "done";
 export type PaperSort =
@@ -199,7 +200,12 @@ export interface PaperLibraryPreferences {
   sort?: PaperSort;
   /** Reverse the natural order of `sort`. */
   sortReverse?: boolean;
-  layout?: "list" | "table";
+  /** Paper display; cards by default, and a legacy "list" also shows as cards. */
+  layout?: "card" | "table";
+  /** Show author names under paper titles (default on). */
+  showAuthors?: boolean;
+  /** Size of paper cards relative to the default. */
+  cardScale?: number;
   /** Visible table columns in order. */
   columns?: PaperColumn[];
   /** Whether the title column is shown (default on). */
@@ -231,6 +237,8 @@ export interface LibraryPreferences {
   books?: {
     /** Width of the book detail panel in CSS pixels. */
     detailWidth?: number;
+    /** Size of book cards relative to the default. */
+    cardScale?: number;
   };
 }
 /** First-run guide and release notes, stored with the library. */
@@ -365,6 +373,8 @@ export interface ReaderTheme {
   readingSession?: { documentIds: string[]; activeId: string | null };
   /** Open documents in tabs; otherwise opening one replaces the current document. */
   documentTabs?: boolean;
+  /** App-controlled motion preference; independent of the operating system. */
+  reducedMotion?: boolean;
   readerLayout?: Partial<ReaderLayout>;
   /** Opt in to copying text selections and selected annotations. */
   autoCopySelection?: boolean;
@@ -412,6 +422,7 @@ export interface HighlightColor {
 }
 export const defaultTheme: ReaderTheme = {
   documentTabs: false,
+  reducedMotion: false,
   autoCopySelection: false,
   autoTranslatePDF: true,
   pdfDarkImageMode: "adaptive",
@@ -435,10 +446,12 @@ export const defaultTheme: ReaderTheme = {
 };
 export type PDFBlockAction =
   "attach" | "preview" | "copy" | "explain" | "translate";
-export interface PDFReadingAnchor {
+export interface ReadingAnchor {
   blockId: string;
   fraction: number;
 }
+/** Kept for PDF consumers; the anchor itself has no page coordinates. */
+export type PDFReadingAnchor = ReadingAnchor;
 export interface PDFPassage {
   blockId: string;
   sources: string[];
@@ -468,7 +481,8 @@ export interface ReaderEvents {
   /** An internal link is about to move away from this location. */
   internalLink?: (origin: DocumentLocation) => void;
   epubInteraction?: () => void;
-  epubReadingAnchor?: (blockId: string) => void;
+  /** Block and fractional position at the vertical viewport midpoint. */
+  epubReadingAnchor?: (blockId: string, fraction?: number) => void;
   /** Only paragraphs retained by the EPUB reader window. */
   epubBlocksChanged?: (blocks: EPUBReadingBlock[]) => void;
   /** Pointer over an EPUB paragraph, or null when it leaves. */
@@ -522,7 +536,7 @@ export interface ReaderAdapter {
     signal: AbortSignal,
     width?: number,
   ): Promise<Blob>;
-  followBlock?(anchor: PDFReadingAnchor): Promise<void>;
+  followBlock?(anchor: ReadingAnchor): Promise<void>;
   previewCitation?(
     location: PDFLocation,
     anchor: HTMLAnchorElement,

@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@neoread/ui/components/alert-dialog";
 import { refreshTrash, useReaderStore, libraryMode } from "./store";
+import { discardPaperNotes } from "./paper-note-state";
 import { restoreLibraryDocuments } from "./library-actions";
 
 const deletedLabel = (value?: string) => {
@@ -38,9 +39,15 @@ export function TrashView({ documents }: { documents: Document[] }) {
     if (!purging) return;
     setBusy(true);
     try {
-      if (purging.length === documents.length && purging.length > 1)
+      if (purging.length === documents.length && purging.length > 1) {
         await api.emptyTrash(mode);
-      else for (const d of purging) await api.removeDocument(d.id);
+        discardPaperNotes(purging.map((d) => d.id));
+      } else {
+        for (const d of purging) {
+          await api.removeDocument(d.id);
+          discardPaperNotes([d.id]);
+        }
+      }
       toast.success(`已彻底删除 ${purging.length} 份`);
       setPurging(null);
     } catch (e) {

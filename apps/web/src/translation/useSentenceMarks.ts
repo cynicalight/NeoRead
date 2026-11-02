@@ -5,6 +5,7 @@ import type { RefObject } from "react";
 import type {
   Annotation,
   PDFBlock,
+  EPUBReadingBlock,
   ReaderAdapter,
   ReaderEvents,
   ReaderAnnotationTarget,
@@ -13,6 +14,8 @@ import type {
 } from "@neoread/core";
 import { translatedAnnotationRanges } from "./annotations";
 import { sourcePassage, translatedSentenceRanges } from "./sentence-links";
+import { blockRange, resolveEPUBLocation } from "../readers/epub-web-location";
+import { epubSentenceSlice } from "./epub-links";
 import { searchRanges } from "./search-ranges";
 
 type Mark = { annotation: Annotation; range: Range };
@@ -31,7 +34,7 @@ const hit = (range: Range, x: number, y: number) =>
 export function useSentenceMarks(
   root: RefObject<HTMLDivElement | null>,
   engine: ReaderAdapter | undefined,
-  blocks: PDFBlock[],
+  blocks: (PDFBlock | EPUBReadingBlock)[],
   translations: TranslationBlock[],
   annotations: Annotation[],
   linked: boolean,
@@ -92,8 +95,23 @@ export function useSentenceMarks(
     };
     const sourceRanges = (t: TranslationBlock, i: number) => {
       const key = `${t.blockId}:${i}`;
-      if (!cache.has(key))
-        cache.set(key, engine.sentenceRanges?.([sourcePassage(t, i)]) ?? []);
+      if (!cache.has(key)) {
+        const block = latest.current.blocks.find((b) => b.id === t.blockId);
+        if (block && "location" in block) {
+          const slice = epubSentenceSlice(block, t.sentences, [i]);
+          // A failed alignment must not highlight the entire paragraph.
+          const range = slice
+            ? blockRange(host, {
+                block,
+                start: slice.start,
+                end: slice.end,
+              })
+            : undefined;
+          cache.set(key, range ? [range] : []);
+        } else {
+          cache.set(key, engine.sentenceRanges?.([sourcePassage(t, i)]) ?? []);
+        }
+      }
       return cache.get(key)!;
     };
     const hover = new SentenceHover(host);
@@ -157,6 +175,25 @@ export function useSentenceMarks(
       marks = translatedAnnotationRanges(host, annotations, translations);
       for (const annotation of annotations) {
         if (
+          annotation.location.type === "epub" &&
+          !annotation.location.translation &&
+          annotation.kind !== "bookmark"
+        ) {
+          const epubBlocks = blocks.filter(
+            (b): b is EPUBReadingBlock => "location" in b,
+          );
+          for (const slice of resolveEPUBLocation(
+            {
+              ...annotation.location,
+              quote: annotation.location.quote || annotation.quote,
+            },
+            epubBlocks,
+          )) {
+            const range = blockRange(host, slice);
+            if (range) marks.push({ annotation, range });
+          }
+        }
+        if (
           annotation.location.type !== "pdf" ||
           annotation.location.translation ||
           annotation.kind === "bookmark"
@@ -168,6 +205,7 @@ export function useSentenceMarks(
               text.replace(/\s/g, "").toLowerCase();
             const candidates = blocks.filter(
               (block) =>
+                "page" in block &&
                 block.page === anchor.page &&
                 normalize(block.text).includes(normalize(anchor.source)),
             );
@@ -190,6 +228,12 @@ export function useSentenceMarks(
       const groups = new Map<string, Range[]>();
       const rules: string[] = [];
       for (const mark of marks) {
+        // The EPUB adapter already paints saved source annotations.
+        if (
+          mark.annotation.location.type === "epub" &&
+          !mark.annotation.location.translation
+        )
+          continue;
         const color = /^#[\da-f]{6}$/i.test(mark.annotation.color)
           ? mark.annotation.color.toLowerCase()
           : "#e6b94c";
@@ -340,22 +384,22 @@ export function useSentenceMarks(
           return;
         }
       } else {
+        const epubId =
+          target.closest<HTMLElement>("[data-epub-run]")?.dataset.epubRun ??
+          target.closest<HTMLElement>("[data-epub-block]")?.dataset.epubBlock;
         const page = target.closest<HTMLElement>(".page[data-page-number]");
-        if (!page) {
-          report(direct, [pointRect]);
-          deferClear();
-          return;
-        }
-        const rect = page.getBoundingClientRect();
-        const x = (event.clientX - rect.left) / rect.width,
-          y = (event.clientY - rect.top) / rect.height;
-        const block = blocks.find(
-          (b) =>
-            b.page === Number(page.dataset.pageNumber) &&
-            x >= b.bounds.x &&
-            x <= b.bounds.x + b.bounds.width &&
-            y >= b.bounds.y &&
-            y <= b.bounds.y + b.bounds.height,
+        const rect = page?.getBoundingClientRect();
+        const x = rect ? (event.clientX - rect.left) / rect.width : 0,
+          y = rect ? (event.clientY - rect.top) / rect.height : 0;
+        const block = blocks.find((b) =>
+          "location" in b
+            ? b.id === epubId
+            : !!page &&
+              b.page === Number(page.dataset.pageNumber) &&
+              x >= b.bounds.x &&
+              x <= b.bounds.x + b.bounds.width &&
+              y >= b.bounds.y &&
+              y <= b.bounds.y + b.bounds.height,
         );
         t = translations.find(
           (t) => t.blockId === block?.id && t.status === "complete",
@@ -481,7 +525,8 @@ export function useSentenceMarks(
         anchor: { x: event.clientX, top: rect.top, bottom: rect.bottom },
       });
     };
-    const textSelector = ".textLayer, [data-translation-block]";
+    const textSelector =
+      ".textLayer, [data-epub-block], [data-translation-block]";
     const containsText = (node: Node) =>
       node instanceof Element &&
       (node.matches(textSelector) || !!node.querySelector(textSelector));

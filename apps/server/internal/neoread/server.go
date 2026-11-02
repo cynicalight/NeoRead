@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"neoread.local/server/internal/runtimeenv"
 	"net"
 	"net/http"
 	"net/url"
@@ -29,6 +30,8 @@ import (
 )
 
 type Server struct {
+	startupSettings        json.RawMessage
+	processingReady        <-chan struct{}
 	chatReservations       map[string]bool
 	chatMu                 sync.Mutex
 	chatRuns               map[string]*chatRun
@@ -71,6 +74,7 @@ type Server struct {
 	blockedProcessing      map[string]bool
 	modelMu                sync.Mutex
 	modelCache             map[string]modelCatalogEntry
+	paperRefresh           paperRefreshState
 	scholarMu              sync.Mutex
 	scholar                *scholar.Client
 	journalRankMu          sync.Mutex
@@ -104,8 +108,25 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	if runtimeenv.Default.Enabled() {
+		mux.HandleFunc("POST /api/desktop-runtime/{stage}", func(w http.ResponseWriter, r *http.Request) {
+			var values map[string]*string
+			if !decode(w, r, &values) {
+				return
+			}
+			stage := r.PathValue("stage")
+			if err := runtimeenv.Default.Apply(stage, values); err != nil {
+				fail(w, 400, "无效或重复的启动环境配置")
+				return
+			}
+			s.diagnosticEvent(slog.LevelInfo, "startup.runtime_ready", "phase", stage)
+			respond(w, 200, map[string]bool{"ready": true})
+		})
+	}
 	mux.HandleFunc("POST /api/diagnostics/events", s.recordDiagnostic)
 	mux.HandleFunc("GET /api/diagnostics/export", s.exportDiagnostics)
+	mux.HandleFunc("GET /api/diagnostics/paper-refresh", s.paperRefreshStatus)
+	mux.HandleFunc("POST /api/diagnostics/paper-refresh", s.startPaperRefresh)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("GET /api/documents", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Store.Documents()
@@ -219,6 +240,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/preferences/{key}", s.preferences)
 	mux.HandleFunc("PUT /api/preferences/{key}", s.savePreferences)
 	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("startup") == "1" && len(s.startupSettings) > 0 {
+			respond(w, 200, s.startupSettings)
+			return
+		}
 		var value string
 		err := s.Store.DB.QueryRow("SELECT value FROM settings WHERE key='neoread'").Scan(&value)
 		if err != nil {
@@ -293,6 +318,17 @@ func (s *Server) Handler() http.Handler {
 			provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if subtle.ConstantTimeCompare([]byte(provided), []byte(s.Token)) != 1 {
 				fail(w, 401, "请使用启动时提供的 NeoRead 地址")
+				return
+			}
+		}
+		// Recovery may update queued jobs. Keep mutations from racing recovery;
+		// local reads and independent environment delivery remain available.
+		if s.processingReady != nil && r.Method != http.MethodGet && r.Method != http.MethodHead && strings.HasPrefix(r.URL.Path, "/api/") &&
+			r.URL.Path != "/api/settings" && r.URL.Path != "/api/health" &&
+			r.URL.Path != "/api/diagnostics/events" && !strings.HasPrefix(r.URL.Path, "/api/desktop-runtime/") {
+			select {
+			case <-s.processingReady:
+			case <-r.Context().Done():
 				return
 			}
 		}
@@ -461,7 +497,7 @@ func (s *Server) importFileToCategory(ctx context.Context, temp, filename, libra
 			return failure(400, reason)
 		}
 		pages, _ := pdfPageCount(temp)
-		if (pages > largePaperPages || size > largePaperBytes) && !allowLarge {
+		if largePaper(pages, size) && !allowLarge {
 			return Document{}, 409, importError{409, "检测到 PDF 过大，请确认是否是论文？如果是图书类，请导入图书库。", "large-paper", pages}
 		}
 	}
@@ -632,6 +668,9 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if v.Title != nil {
+			if title == m.SuggestedTitle {
+				m.SuggestedTitle = ""
+			}
 			if m.Sources == nil {
 				m.Sources = map[string]string{}
 			}

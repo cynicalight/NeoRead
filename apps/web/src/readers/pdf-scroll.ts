@@ -1,3 +1,4 @@
+import { reducedMotion } from "../motion";
 // Scroll the real PDF viewport so PDF.js rendering, selection and anchors stay aligned.
 export function animatePDFScroll(
   host: HTMLElement,
@@ -20,10 +21,7 @@ export function animatePDFScroll(
     moved();
   };
   if (cancelled()) return Promise.resolve();
-  if (
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ||
-    Math.hypot(left - fromLeft, top - fromTop) < 1
-  ) {
+  if (reducedMotion() || Math.hypot(left - fromLeft, top - fromTop) < 1) {
     apply(1);
     return Promise.resolve();
   }

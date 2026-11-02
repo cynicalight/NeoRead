@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useReaderStore } from "../store";
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { EPUBReadingBlock } from "@neoread/core";
@@ -26,7 +27,7 @@ const rect = (element: Element, top: number, left = 40, height = 40) =>
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.stubGlobal("matchMedia", () => ({ matches: true }));
+  useReaderStore.getState().setTheme({ reducedMotion: true });
   container = document.createElement("div");
   container.innerHTML = `<section>
     <p data-epub-block="p">Plain <em>paragraph</em>.</p>
@@ -54,6 +55,7 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  useReaderStore.getState().setTheme({ reducedMotion: false });
   act(() => overlay.destroy());
   container.remove();
   window.getSelection()?.removeAllRanges();

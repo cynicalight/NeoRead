@@ -13,6 +13,7 @@ vi.mock("electron", () => ({
     }),
   },
   ipcMain: {
+    removeHandler: (name: string) => state.handlers.delete(name),
     handle: (name: string, handler: (...args: any[]) => unknown) =>
       state.handlers.set(name, handler),
   },
@@ -41,13 +42,18 @@ vi.mock("electron", () => ({
 import { app } from "electron";
 import { createCitationWindow } from "./citation-window";
 beforeEach(() => state.handlers.clear());
-it("starts hidden, limits visibility IPC to its own main frame and cancels on close", async () => {
+it("starts hidden until measured, validates its main frame and releases IPC on close", async () => {
   const window = await createCitationWindow({
     url: "http://127.0.0.1:1234",
     token: "test",
     preload: "/preload.cjs",
+    onFailure: vi.fn(),
   });
   expect(state.options).toMatchObject({ show: false, frame: false });
+  expect(window.setVisibleOnAllWorkspaces).toHaveBeenCalledWith(true, {
+    visibleOnFullScreen: true,
+    ...(process.platform === "darwin" ? { skipTransformProcessType: true } : {}),
+  });
   expect(window.loadURL).toHaveBeenCalledWith(
     "http://127.0.0.1:1234/?citationWindow=1#token=test",
   );
@@ -74,10 +80,7 @@ it("starts hidden, limits visibility IPC to its own main frame and cancels on cl
   expect(app.focus).not.toHaveBeenCalled();
   const preventDefault = vi.fn();
   window.emit("close", { preventDefault });
-  expect(preventDefault).toHaveBeenCalledOnce();
-  expect(window.hide).toHaveBeenCalled();
-  expect(window.webContents.send).toHaveBeenCalledWith(
-    "neoread:citation-close",
-  );
-  visible(event, false);
+  expect(preventDefault).not.toHaveBeenCalled();
+  window.emit("closed");
+  expect(state.handlers.size).toBe(0);
 });

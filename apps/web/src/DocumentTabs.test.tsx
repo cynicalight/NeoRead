@@ -81,7 +81,7 @@ beforeEach(async () => {
     active: null,
     closedTabGroups: [],
     sessionReady: true,
-    theme: { ...defaultTheme, documentTabs: true },
+    theme: { ...defaultTheme, documentTabs: true, reducedMotion: true },
   });
   useReaderStore.getState().openMany(docs);
   host = document.createElement("div");
@@ -334,7 +334,9 @@ it("moves a tab from its context menu and saves the new order", async () => {
 it("closes the other tabs when tabs are turned off and keeps them on if cancelled", async () => {
   useReaderStore.getState().open(docs[0]);
   await act(async () => root.render(<Harness />));
-  const input = document.querySelector<HTMLInputElement>('[aria-label="问题 a"]')!;
+  const input = document.querySelector<HTMLInputElement>(
+    '[aria-label="问题 a"]',
+  )!;
   await act(async () => {
     input.value = "draft";
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -354,4 +356,22 @@ it("closes the other tabs when tabs are turned off and keeps them on if cancelle
   await act(async () => {});
   expect(useReaderStore.getState().tabIds).toEqual(["b"]);
   expect(document.querySelector(".document-tabbar")).toBeNull();
+});
+
+it("keeps the tab mounted until its close animation finishes when motion is enabled", async () => {
+  vi.useFakeTimers();
+  try {
+    await act(async () =>
+      useReaderStore.getState().setTheme({ reducedMotion: false }),
+    );
+    await click("关闭标签页：Beta");
+    expect(useReaderStore.getState().tabIds).toContain("b");
+    await act(async () => vi.advanceTimersByTimeAsync(149));
+    expect(useReaderStore.getState().tabIds).toContain("b");
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(useReaderStore.getState().tabIds).toEqual(["a", "c"]);
+    expect(document.getElementById("document-tab-b")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });

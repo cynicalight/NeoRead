@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"unicode/utf8"
 )
 
@@ -36,8 +35,6 @@ func (m *PaperMetadata) FillFrom(other PaperMetadata) []string {
 
 var readingRank = map[string]int{"unread": 0, "reading": 1, "done": 2}
 
-const noteSeparator = "\n\n---\n\n"
-
 type mergeResult struct {
 	Document Document `json:"document"`
 	// Trashed lists the merged copies now in the trash.
@@ -45,7 +42,7 @@ type mergeResult struct {
 }
 
 // mergeDocuments folds duplicates into the document at {id}: tags, folders, star,
-// the furthest reading status, missing metadata and paper notes move over,
+// the furthest reading status and missing metadata move over; the longest note wins,
 // then the duplicates go to the trash with their files, annotations and chats.
 func (s *Server) mergeDocuments(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -123,7 +120,7 @@ func (s *Server) mergeDocuments(w http.ResponseWriter, r *http.Request) {
 		author = CreatorNames(meta.Creators)
 	}
 
-	notes, masterNote := []string{}, ""
+	note, masterNote := "", ""
 	for i, d := range append([]Document{master}, others...) {
 		var body string
 		err := s.Store.DB.QueryRow("SELECT body FROM document_notes WHERE document_id=?", d.ID).Scan(&body)
@@ -132,13 +129,12 @@ func (s *Server) mergeDocuments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if i == 0 {
-			masterNote = strings.TrimSpace(body)
+			masterNote = body
 		}
-		if strings.TrimSpace(body) != "" {
-			notes = append(notes, strings.TrimSpace(body))
+		if utf8.RuneCountInString(body) > utf8.RuneCountInString(note) {
+			note = body
 		}
 	}
-	note := strings.Join(notes, noteSeparator)
 	if utf8.RuneCountInString(note) > 100000 {
 		fail(w, 400, "合并后的论文笔记超过 100000 个字符")
 		return

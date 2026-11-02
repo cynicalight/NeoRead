@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useReaderStore } from "../store";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { animatePDFScroll } from "./pdf-scroll";
 
@@ -10,9 +11,10 @@ beforeEach(() => {
     frames.push(callback);
     return frames.length;
   });
-  vi.stubGlobal("matchMedia", () => ({ matches: false }));
+  useReaderStore.getState().setTheme({ reducedMotion: false });
 });
 afterEach(() => {
+  useReaderStore.getState().setTheme({ reducedMotion: false });
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -56,7 +58,7 @@ it("does not overwrite manual positioning after cancellation", async () => {
   expect(frames).toHaveLength(0);
 });
 it("respects reduced motion and clamps destinations to scrollable bounds", async () => {
-  vi.stubGlobal("matchMedia", () => ({ matches: true }));
+  useReaderStore.getState().setTheme({ reducedMotion: true });
   const host = document.createElement("div");
   Object.defineProperties(host, {
     scrollWidth: { value: 800 },

@@ -1,7 +1,12 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
 import type { Processing } from "@neoread/core";
-import { openLibraryDocument, openLinkTarget, useReaderStore } from "./store";
+import {
+  openLibraryDocument,
+  openLinkTarget,
+  openWhenParsed,
+  useReaderStore,
+} from "./store";
 import { paper } from "./papers/fixtures";
 
 vi.mock("@neoread/api", () => ({
@@ -100,4 +105,56 @@ it("does not replace a newer navigation with a late response", async () => {
   resolve([job({ phase: "ready" })]);
   expect(await pending).toBe(false);
   expect(useReaderStore.getState().active).toEqual(book);
+});
+it("opens a paper from Open With once parsing finishes", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.mocked(api.processing)
+      .mockResolvedValueOnce([job()])
+      .mockResolvedValueOnce([job({ pagesDone: 1 })])
+      .mockResolvedValue([job({ phase: "ready", status: "complete" })]);
+    const onWaiting = vi.fn();
+    const opened = openWhenParsed(doc.id, onWaiting);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onWaiting).toHaveBeenCalledOnce();
+    expect(useReaderStore.getState().active).toBeNull();
+    expect(useReaderStore.getState().libraryPreferences.mode).toBe("papers");
+    await vi.advanceTimersByTimeAsync(2400);
+    expect(await opened).toBe(true);
+    expect(onWaiting).toHaveBeenCalledOnce();
+    expect(useReaderStore.getState().active).toEqual(doc);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it.each([
+  [job({ status: "failed", detail: "解析失败" }), "解析失败"],
+  [job({ status: "waiting", detail: "需要配置" }), "需要配置"],
+  [
+    job({ phase: "ready", status: "complete", incomplete: true }),
+    "论文正文不完整，无法打开",
+  ],
+])("reports a paper from Open With that cannot open", async (state, error) => {
+  vi.mocked(api.processing).mockResolvedValue([state]);
+  await expect(openWhenParsed(doc.id, vi.fn())).rejects.toThrow(error);
+  expect(useReaderStore.getState().active).toBeNull();
+});
+it("replaces an earlier Open With wait", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.mocked(api.processing).mockResolvedValue([job()]);
+    const first = openWhenParsed(doc.id, vi.fn());
+    await vi.advanceTimersByTimeAsync(0);
+    const book = paper({ id: "book", library: "books" });
+    useReaderStore.setState({ documents: [doc, book] });
+    expect(await openWhenParsed(book.id, vi.fn())).toBe(true);
+    vi.mocked(api.processing).mockResolvedValue([
+      job({ phase: "ready", status: "complete" }),
+    ]);
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(await first).toBe(true);
+    expect(useReaderStore.getState().active).toEqual(book);
+  } finally {
+    vi.useRealTimers();
+  }
 });

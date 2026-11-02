@@ -34,8 +34,6 @@
   opacity: 1;
   pointer-events: auto;
 }
-@media (prefers-reduced-motion: reduce) {
-  [data-slot="scroll-area-scrollbar"] {
-    transition: none;
-  }
+:root[data-reduced-motion="true"] [data-slot="scroll-area-scrollbar"] {
+  transition: none;
 }

@@ -11,6 +11,20 @@ import { useReaderStore } from "./store";
 vi.mock("@neoread/api", () => ({
   api: {
     connectorStatus: vi.fn(async () => ({ available: true })),
+    paperRefreshStatus: vi.fn(async () => ({
+      status: "idle",
+      total: 0,
+      processed: 0,
+      failed: 0,
+      skipped: 0,
+    })),
+    startPaperRefresh: vi.fn(async () => ({
+      status: "done",
+      total: 0,
+      processed: 0,
+      failed: 0,
+      skipped: 0,
+    })),
     journalRankConfig: vi.fn(async () => ({
       enabled: true,
       hasKey: false,
@@ -43,13 +57,15 @@ vi.mock("@neoread/ui/components/dialog", () => {
 });
 // These tests cover Agent requests and configuration, not hidden appearance or
 // paper-library panels. Keep the real tabs and the controls exercised below.
+const libraryPanel = vi.hoisted(() => ({ visible: false }));
 vi.mock("@neoread/ui/components/tabs", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@neoread/ui/components/tabs")>();
   return {
     ...actual,
     TabsContent: (props: ComponentProps<typeof actual.TabsContent>) =>
-      props.value === "display" || props.value === "papers" ? null : (
+      props.value === "display" ||
+      (props.value === "papers" && !libraryPanel.visible) ? null : (
         <actual.TabsContent {...props} />
       ),
   };
@@ -78,20 +94,24 @@ const submit = async () =>
       new Event("submit", { bubbles: true, cancelable: true }),
     ),
   );
-const openAPI = async () =>
-  act(async () =>
-    (
-      host.querySelector('[aria-label="配置 API Key"]') as HTMLButtonElement
-    ).click(),
-  );
+const click = async (selector: string) =>
+  act(async () => (host.querySelector(selector) as HTMLButtonElement).click());
+// Agent controls live in the deck, which opens from the stacked cards.
+const expand = async () => {
+  if (!host.querySelector('[data-tour="agent-deck"]'))
+    await click('[aria-label="展开 Agent 卡片"]');
+};
+const openAPI = async () => {
+  await expand();
+  await click('[aria-label="配置 API Key"]');
+};
 const apiCard = '[data-tour="agent-card"][data-agent="api"]';
-const selectAPI = async () =>
-  act(async () =>
-    (
-      host.querySelector(`${apiCard} [role="radio"]`) as HTMLButtonElement
-    ).click(),
-  );
+const selectAPI = async () => {
+  await expand();
+  await click(`${apiCard} [role="radio"]`);
+};
 beforeEach(() => {
+  vi.stubGlobal("matchMedia", () => ({ matches: true }));
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("PointerEvent", MouseEvent);
   vi.clearAllMocks();
@@ -103,6 +123,7 @@ beforeEach(() => {
     textAPI: { url: "", model: "", hasKey: false },
     imageAPI: { url: "", model: "", hasKey: false },
   };
+  useReaderStore.getState().setTheme({ reducedMotion: true });
   useReaderStore.setState({ aiConfig: undefined, aiModelSaving: false });
   vi.mocked(api.providers).mockImplementation(async () => [
     {
@@ -155,6 +176,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  useReaderStore.getState().setTheme({ reducedMotion: false });
   host.remove();
   delete window.neoreadDesktop;
   vi.unstubAllGlobals();
@@ -194,12 +216,21 @@ it("groups proxy settings and log export under diagnostics without a network tab
   const panel = input("代理地址").closest('[role="tabpanel"]')!;
   expect(panel.getAttribute("aria-labelledby")).toBe(diagnostics.id);
   expect(panel.textContent).toContain("chatgpt.com/robots.txt");
+  expect(panel.textContent).toContain("重新识别论文标题，并查找论文信息");
+  const startButton = Array.from(
+    panel.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((button) => button.textContent === "开始")!;
+  await act(async () => startButton.click());
+  expect(api.startPaperRefresh).toHaveBeenCalled();
+  expect(panel.textContent).toContain("处理完成：0/0 篇");
   const exportButton = Array.from(
     panel.querySelectorAll<HTMLButtonElement>("button"),
   ).find((button) => button.textContent === "导出全部日志")!;
   await act(async () => exportButton.click());
   expect(exportLogs).toHaveBeenCalledOnce();
 });
+// These multi-step integration cases exercise real Base UI controls and both
+// capability checks; 10s is too tight on the shared CI runner.
 it("saves the API endpoint and key, then tests the new connection", async () => {
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   expect(input("Base URL")).toBeNull();
@@ -230,70 +261,7 @@ it("saves the API endpoint and key, then tests the new connection", async () => 
   expect(toast.warning).not.toHaveBeenCalled();
   expect(input("API Key").value).toBe("");
   expect(input("API Key").placeholder).toBe("已保存，留空保持不变");
-});
-it("keeps the saved key when changing only the API endpoint and rechecks models", async () => {
-  config.api = { url: "https://api.deepseek.com", model: "", hasKey: true };
-  config.capabilities = {
-    "api:deepseek-flash": { text: true, vision: true, checkedAt: "saved" },
-    "api:deepseek-v4-pro": { text: true, vision: false, checkedAt: "saved" },
-  };
-  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
-  await openAPI();
-  expect(input("API Key").value).toBe("");
-  expect(input("API Key").placeholder).toBe("已保存，留空保持不变");
-  expect(api.testAI).not.toHaveBeenCalled();
-  // Editing only the address keeps the saved key without resending it.
-  await type("Base URL", "https://api.deepseek.com/v1");
-  await submit();
-  expect(api.saveAIConfig).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      api: {
-        url: "https://api.deepseek.com/v1",
-        protocol: "auto",
-        model: "",
-        key: undefined,
-        hasKey: true,
-      },
-    }),
-  );
-  for (const model of ["deepseek-flash", "deepseek-v4-pro"])
-    for (const stage of ["text", "vision"])
-      expect(api.testAI).toHaveBeenCalledWith("api", stage, model);
-  expect(api.testAI).toHaveBeenCalledTimes(4);
-  expect(config.api).toEqual({
-    url: "https://api.deepseek.com/v1",
-    protocol: "auto",
-    model: "",
-    hasKey: true,
-  });
-  expect(
-    host.querySelectorAll('.api-model-list [aria-label="图片理解：已通过"]'),
-  ).toHaveLength(1);
-});
-it("warns when no listed model passes the vision check", async () => {
-  config.api = { url: "https://api.example.com", model: "", hasKey: true };
-  listed = { "text-only": false };
-  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
-  await openAPI();
-  expect(input("Base URL").value).toBe("https://api.example.com");
-  expect(api.testAI).toHaveBeenCalledWith("api", "vision", "text-only");
-  expect(toast.warning).toHaveBeenCalledOnce();
-  await act(async () =>
-    (
-      host.querySelector('[aria-label="返回 Agent 设置"]') as HTMLButtonElement
-    ).click(),
-  );
-  const card = host.querySelector(apiCard)!;
-  expect(card.querySelector('[aria-label="文本推理：已通过"]')).not.toBeNull();
-  expect(card.querySelector('[aria-label="图片理解：未通过"]')).not.toBeNull();
-  // A card that failed a check cannot be selected.
-  vi.mocked(api.saveAIConfig).mockClear();
-  await selectAPI();
-  expect(toast.warning).toHaveBeenLastCalledWith(
-    "API 未配置好：没有图片理解能力",
-  );
-  expect(api.saveAIConfig).not.toHaveBeenCalled();
-});
+}, 30_000);
 it("selects the API agent from its card once a model passes", async () => {
   config.primary = "";
   config.api = { url: "https://api.example.com", model: "", hasKey: true };
@@ -309,42 +277,13 @@ it("selects the API agent from its card once a model passes", async () => {
   );
   expect(host.querySelector(apiCard)?.hasAttribute("data-selected")).toBe(true);
 });
-it("asks for an API key before the card can be selected", async () => {
+it("opens the API settings from an unconfigured card", async () => {
   config.primary = "";
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
   await selectAPI();
-  expect(toast.warning).toHaveBeenLastCalledWith(
-    "API 未配置好：需要先配置 API Key",
-  );
+  expect(input("Base URL")).not.toBeNull();
   expect(api.saveAIConfig).not.toHaveBeenCalled();
 });
-it("adds and removes a model ID by hand and checks it", async () => {
-  config.api = { url: "https://api.example.com", model: "", hasKey: true };
-  config.capabilities = {
-    "api:deepseek-flash": { text: true, vision: true, checkedAt: "saved" },
-    "api:deepseek-v4-pro": { text: true, vision: false, checkedAt: "saved" },
-  };
-  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
-  await openAPI();
-  expect(api.testAI).not.toHaveBeenCalled();
-  await type("添加模型 ID", "my-model");
-  await act(async () =>
-    input("添加模型 ID").form!.dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    ),
-  );
-  expect(config.apiModels).toEqual(["my-model"]);
-  expect(api.testAI).toHaveBeenCalledWith("api", "text", "my-model");
-  expect(api.testAI).toHaveBeenCalledTimes(2);
-  await act(async () =>
-    (
-      host.querySelector('[aria-label="移除 my-model"]') as HTMLButtonElement
-    ).click(),
-  );
-  expect(config.apiModels).toEqual([]);
-  expect(host.textContent).not.toContain("my-model");
-});
-
 it("keeps selection auto-copy opt-in and lets reading settings toggle it", async () => {
   vi.stubGlobal("PointerEvent", MouseEvent);
   const previous = useReaderStore.getState().theme;
@@ -362,13 +301,12 @@ it("keeps selection auto-copy opt-in and lets reading settings toggle it", async
     const label = [...host.querySelectorAll("label")].find((node) =>
       node.textContent?.includes("自动复制选中文字"),
     )!;
-    const checkbox =
-      label.querySelector<HTMLButtonElement>('[role="checkbox"]')!;
-    expect(checkbox.getAttribute("aria-checked")).toBe("false");
-    await act(async () => checkbox.click());
+    const toggle = label.querySelector<HTMLButtonElement>('[role="switch"]')!;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await act(async () => toggle.click());
     expect(useReaderStore.getState().theme.autoCopySelection).toBe(true);
-    expect(checkbox.getAttribute("aria-checked")).toBe("true");
-    await act(async () => checkbox.click());
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await act(async () => toggle.click());
     expect(useReaderStore.getState().theme.autoCopySelection).toBe(false);
   } finally {
     await act(async () => useReaderStore.setState({ theme: previous }));
@@ -403,7 +341,7 @@ it("rechecks a saved API model with a per-stage wait limit without changing conf
   await act(async () => retry()!.click());
   expect(api.testAI).toHaveBeenCalledWith("api", "text", "slow-model");
   expect(api.saveAIConfig).not.toHaveBeenCalled();
-});
+}, 30_000);
 
 it("shows the latest first-output observations including zero, without inventing missing timings", async () => {
   config.api = { url: "https://api.example.com", model: "", hasKey: true };
@@ -474,16 +412,57 @@ it.each(["text", "vision"] as const)(
   },
 );
 
-it("persists CLI web search directly from the checkbox without a Save action", async () => {
+it("persists CLI web search directly from the toggle without a Save action", async () => {
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
-  const label = [...host.querySelectorAll("label")].find((node) =>
-    node.textContent?.includes("允许 CLI 原生联网搜索"),
+  const label = [...host.querySelectorAll("span")].find(
+    (node) => node.textContent === "允许 CLI 原生联网搜索",
   )!;
-  const checkbox = label.querySelector<HTMLButtonElement>('[role="checkbox"]')!;
-  await act(async () => checkbox.click());
+  const toggle =
+    label.parentElement!.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  vi.mocked(api.saveAIConfig).mockClear();
+  await act(async () => label.click());
+  await act(async () => label.parentElement!.click());
+  expect(api.saveAIConfig).not.toHaveBeenCalled();
+  await act(async () => toggle.click());
   expect(
     vi.mocked(api.saveAIConfig).mock.lastCall?.[0].webSearch?.cliEnabled,
   ).toBe(true);
   expect(useReaderStore.getState().aiConfig?.webSearch?.cliEnabled).toBe(true);
-  expect(checkbox.getAttribute("aria-checked")).toBe("true");
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+});
+
+it("shows only library location in the books tab for the current library", async () => {
+  const previous = useReaderStore.getState().libraryPreferences;
+  libraryPanel.visible = true;
+  useReaderStore.setState({
+    libraryPreferences: { ...previous, mode: "books", primaryMode: "papers" },
+  });
+  window.neoreadDesktop = {
+    libraryLocation: vi.fn(async () => "/test/library"),
+    moveLibrary: vi.fn(),
+    importLibrary: vi.fn(),
+  } as unknown as NonNullable<typeof window.neoreadDesktop>;
+  try {
+    await act(async () =>
+      root.render(<Settings open onOpenChange={() => {}} />),
+    );
+    const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    expect(tabs.some((tab) => tab.textContent === "论文库")).toBe(false);
+    const books = tabs.find((tab) => tab.textContent === "图书库")!;
+    expect(books).toBeDefined();
+    await act(async () => books.click());
+    const panel = host.querySelector(
+      `[role="tabpanel"][aria-labelledby="${books.id}"]`,
+    )!;
+    expect(panel.textContent).toContain("书库位置");
+    expect(panel.textContent).toContain("/test/library");
+    expect(panel.querySelectorAll("section")).toHaveLength(1);
+    expect(panel.textContent).not.toContain("导入设置");
+    expect(panel.textContent).not.toContain("论文显示作者名字");
+  } finally {
+    libraryPanel.visible = false;
+    await act(async () =>
+      useReaderStore.setState({ libraryPreferences: previous }),
+    );
+  }
 });

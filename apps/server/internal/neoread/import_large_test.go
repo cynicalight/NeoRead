@@ -9,6 +9,7 @@ import (
 )
 
 func TestLongPaperAsksBeforeImport(t *testing.T) {
+	lowerLargePaperBytes(t)
 	s := testServer(t)
 	w := uploadTo(t, s, "papers", "long.pdf", testPDF(largePaperPages+10))
 	var body struct {

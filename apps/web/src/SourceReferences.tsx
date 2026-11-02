@@ -95,6 +95,13 @@ export function SourceReferences({
         sourceIds: cards.flatMap((card) =>
           card.sourceId ? [card.sourceId] : [],
         ),
+        previews: Object.fromEntries(
+          cards.flatMap((card) =>
+            card.sourceId
+              ? [[card.sourceId, { text: card.text, label: card.label }]]
+              : [],
+          ),
+        ),
         navigate: (sourceId) => {
           const card = cards.find((card) => card.sourceId === sourceId);
           if (card) void choose(card);

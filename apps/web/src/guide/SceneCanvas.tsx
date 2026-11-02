@@ -1,3 +1,4 @@
+import { reducedMotion, subscribeMotion } from "../motion";
 import { useEffect, useRef } from "react";
 import { Painter, paint, readPalette, stillTime, type Scene } from "./canvas";
 
@@ -8,7 +9,6 @@ export function SceneCanvas({ scene, label }: { scene: Scene; label: string }) {
     const canvas = ref.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     let palette = readPalette();
     let frame = 0;
     let start = performance.now();
@@ -25,7 +25,7 @@ export function SceneCanvas({ scene, label }: { scene: Scene; label: string }) {
       }
       const scale = canvas.width / scene.width;
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
-      const motion = !reduced?.matches;
+      const motion = !reducedMotion();
       const t = motion
         ? (now - start) % scene.script.duration
         : stillTime(scene);
@@ -49,13 +49,13 @@ export function SceneCanvas({ scene, label }: { scene: Scene; label: string }) {
       start = performance.now();
       redraw();
     };
-    reduced?.addEventListener("change", motionChange);
+    const unsubscribe = subscribeMotion(motionChange);
     redraw();
     return () => {
       cancelAnimationFrame(frame);
       themes.disconnect();
       size.disconnect();
-      reduced?.removeEventListener("change", motionChange);
+      unsubscribe();
     };
   }, [scene]);
   return (

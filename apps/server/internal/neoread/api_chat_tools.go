@@ -10,9 +10,10 @@ import (
 )
 
 type completionToolCall struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"`
-	Function struct {
+	ID               string `json:"id"`
+	Type             string `json:"type"`
+	InvalidArguments bool   `json:"-"`
+	Function         struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	} `json:"function"`
@@ -189,9 +190,15 @@ func readToolCompletionWithConnection(ctx context.Context, r io.Reader, c APICon
 					c.Type = part.Type
 				}
 				c.Function.Name += part.Function.Name
-				c.Function.Arguments += part.Function.Arguments
-				if len(c.Function.Name) > 100 || len(c.Function.Arguments) > 4096 {
-					return false, generationError(ErrorLimit, "API 工具参数过长")
+				if len(c.Function.Name) > 100 {
+					return false, generationError(ErrorLimit, "API 工具名称过长")
+				}
+				if !c.InvalidArguments {
+					c.Function.Arguments += part.Function.Arguments
+					if len(c.Function.Arguments) > 4096 {
+						c.InvalidArguments = true
+						c.Function.Arguments = "{}"
+					}
 				}
 			}
 			if choice.Finish != nil {
@@ -212,8 +219,12 @@ func readToolCompletionWithConnection(ctx context.Context, r io.Reader, c APICon
 	seen := map[string]bool{}
 	for i := 0; i < len(calls); i++ {
 		c := calls[i]
-		if c == nil || c.ID == "" || seen[c.ID] || c.Type != "function" || c.Function.Name == "" || !json.Valid([]byte(c.Function.Arguments)) {
+		if c == nil || c.ID == "" || seen[c.ID] || c.Type != "function" || c.Function.Name == "" {
 			return protocol()
+		}
+		if !json.Valid([]byte(c.Function.Arguments)) {
+			c.InvalidArguments = true
+			c.Function.Arguments = "{}"
 		}
 		seen[c.ID] = true
 		result.Calls = append(result.Calls, *c)
@@ -330,17 +341,14 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 		}
 	}
 	hasReasoning := false
-	for round := 0; round < documentReadingRounds; round++ {
+	for round := 0; ; round++ {
 		a.readingRounds = round + 1
 		messages, err = compactAPIConversation(ctx, c, req, a, messages)
 		if err != nil {
 			return GenerateResult{}, err
 		}
 		tools := documentAPITools(a.canViewPages)
-		if round == documentReadingRounds-1 && !a.readingStopped() {
-			a.stopReading("工具轮次达到保护上限")
-		}
-		if !req.Tools || a.readingStopped() || round == documentReadingRounds-1 {
+		if !req.Tools {
 			tools = nil
 		}
 		var response toolCompletionResult
@@ -401,11 +409,23 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 			if call.Function.Name == "read_pdf_pages" {
 				a.sourceTokens = max(0, (a.inputTokenLimit()-conversationTokens(messages)-2048-len(pageImages)*pageImageTokens)/(len(response.Calls)-callIndex))
 			}
-			raw, e := a.call(ctx, call.Function.Name, json.RawMessage(call.Function.Arguments))
+			var raw json.RawMessage
+			var e error
+			if call.InvalidArguments {
+				a.mu.Lock()
+				budget := a.readingBudget()
+				a.mu.Unlock()
+				raw = json.RawMessage(jsonText(map[string]any{"error": "invalid_arguments", "message": "Tool arguments were invalid or exceeded the size limit. Correct or shorten them, or use available evidence.", "budget": budget}))
+			} else {
+				raw, e = a.call(ctx, call.Function.Name, json.RawMessage(call.Function.Arguments))
+			}
 			if errors.Is(e, errDocumentReadingBudget) {
-				raw = json.RawMessage(`{"shouldFinish":true,"message":"Stop retrieval and answer using available evidence; state gaps."}`)
+				raw = json.RawMessage(`{"shouldFinish":true,"message":"Prioritize essential evidence and complete the answer promptly; state gaps."}`)
 			} else if e != nil {
-				return GenerateResult{}, e
+				raw, e = a.toolFailure(ctx, e)
+				if e != nil {
+					return GenerateResult{}, e
+				}
 			}
 			result := toolCompletionMessage{Role: "tool", Content: string(raw), CallID: call.ID}
 			messages = append(messages, result)
@@ -418,7 +438,6 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 			a.conversationEvents = append(a.conversationEvents, images)
 		}
 	}
-	return GenerateResult{}, generationError(ErrorLimit, "模型未在本轮完成回答，会话历史已保留")
 }
 
 func (a *documentAgent) preRetrieve(ctx context.Context, question string) error {

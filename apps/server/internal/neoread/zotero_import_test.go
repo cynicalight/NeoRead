@@ -457,3 +457,47 @@ func TestZoteroImportStripsTitleBraces(t *testing.T) {
 		})
 	}
 }
+
+func TestZoteroDuplicateKeepsLongestNote(t *testing.T) {
+	dir, _ := zoteroFixture(t)
+	entry := mustScanZotero(t, dir).Entries[0]
+	baseline := testServer(t)
+	result, err := baseline.importZoteroEntry(context.Background(), entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var incoming string
+	if err := baseline.Store.DB.QueryRow("SELECT body FROM document_notes WHERE document_id=?", result.DocumentID).Scan(&incoming); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, existing, want string }{
+		{"longer import", "短", incoming},
+		{"longer existing", strings.Repeat("现", len([]rune(incoming))+1), strings.Repeat("现", len([]rune(incoming))+1)},
+		{"equal keeps existing", strings.Repeat("😀", len([]rune(incoming))), strings.Repeat("😀", len([]rune(incoming)))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := testServer(t)
+			response := uploadTo(t, s, "papers", "original.pdf", testPDF(2))
+			if response.Code != 201 {
+				t.Fatal(response.Body.String())
+			}
+			var doc Document
+			if err := json.Unmarshal(response.Body.Bytes(), &doc); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.Store.DB.Exec("INSERT INTO document_notes(document_id,body,updated_at) VALUES(?,?,?)", doc.ID, tc.existing, now()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.importZoteroEntry(context.Background(), entry); err != nil {
+				t.Fatal(err)
+			}
+			var got string
+			if err := s.Store.DB.QueryRow("SELECT body FROM document_notes WHERE document_id=?", doc.ID).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("note = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

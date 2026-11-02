@@ -1,3 +1,4 @@
+import { reducedMotion } from "../motion";
 /** Hover uses small composited layers; never animate inherited reader styles. */
 export class SentenceHover {
   private key = "";
@@ -16,10 +17,7 @@ export class SentenceHover {
     layer.remove();
   }
   private fade(layer: HTMLDivElement, entering: boolean) {
-    if (
-      !layer.animate ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-    ) {
+    if (!layer.animate || reducedMotion()) {
       if (!entering) this.remove(layer);
       return;
     }
@@ -52,7 +50,9 @@ export class SentenceHover {
           : (range.startContainer as Element);
       if (element?.closest("[inert]")) return [];
       const pane =
-        element?.closest(".pdf-container, .translation-document") ?? this.host;
+        element?.closest(
+          ".pdf-container, .epub-web-reader, .translation-document",
+        ) ?? this.host;
       if (!clips.has(pane)) clips.set(pane, pane.getBoundingClientRect());
       const clip = clips.get(pane)!;
       return Array.from(range.getClientRects()).flatMap((rect) => {

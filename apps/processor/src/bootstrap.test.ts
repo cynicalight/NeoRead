@@ -2,7 +2,7 @@ import { build } from "esbuild";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 
 it("built entry captures native loader failure before worker evaluation", async () => {
@@ -28,7 +28,7 @@ it("built entry captures native loader failure before worker evaluation", async 
           name: "native-failure",
           setup(builder) {
             builder.onResolve({ filter: /^onnxruntime-node$/ }, () => ({
-              path: broken,
+              path: pathToFileURL(broken).href,
               external: true,
             }));
           },

@@ -204,12 +204,24 @@ func TestAPIToolProbeAndNonAgentRetrieval(t *testing.T) {
 }
 func TestToolDecoderRejectsIncompleteAndAmbiguousCalls(t *testing.T) {
 	for _, body := range []string{
-		`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"a","type":"function","function":{"name":"read_passage","arguments":"{"}}]},"finish_reason":"tool_calls"}]}` + "\n\ndata: [DONE]\n\n",
 		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\ndata: [DONE]\n\n",
 		`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"a","type":"function","function":{"name":"x","arguments":"{}"}}]},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n",
 	} {
 		if _, e := readToolCompletion(context.Background(), strings.NewReader(body)); e == nil {
 			t.Fatal("incomplete/ambiguous tool call accepted")
 		}
+	}
+}
+
+func TestToolDecoderReportsInvalidArguments(t *testing.T) {
+	body := `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"a","type":"function","function":{"name":"read_passage","arguments":"{"}}]},"finish_reason":"tool_calls"}]}` + "\n\ndata: [DONE]\n\n"
+	result, err := readToolCompletion(context.Background(), strings.NewReader(body))
+	if err != nil || len(result.Calls) != 1 || !result.Calls[0].InvalidArguments {
+		t.Fatal("invalid arguments should become a tool error", result, err)
+	}
+	chunk := jsonText(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "b", "type": "function", "function": map[string]string{"name": "read_passage", "arguments": strings.Repeat("x", 5000)}}}}, "finish_reason": "tool_calls"}}})
+	result, err = readToolCompletion(context.Background(), strings.NewReader("data: "+chunk+"\n\ndata: [DONE]\n\n"))
+	if err != nil || len(result.Calls) != 1 || !result.Calls[0].InvalidArguments {
+		t.Fatal("oversized arguments should become a tool error", result, err)
 	}
 }

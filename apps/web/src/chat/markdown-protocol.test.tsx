@@ -114,7 +114,7 @@ it.each(["", "ci", "cite", "filecite", "cite", "citeS999
   async (marker) => {
     await render("结论 " + marker, true);
     expect(host.textContent).not.toContain("");
-    expect(host.querySelector('a[href^="#neoread-evidence?"]')).toBeNull();
+    expect(host.querySelector("button.chat-source-jump")).toBeNull();
   },
 );
 
@@ -122,9 +122,7 @@ it("shows readable citation labels in a stream and only links saved known source
   const content = "结论 citeS64S65，另见 [S64]。`citeS64`";
   for (const part of ["结论 citeS", "结论 citeS64", content])
     await render(part, true);
-  expect(host.querySelectorAll('a[href^="#neoread-evidence?"]')).toHaveLength(
-    0,
-  );
+  expect(host.querySelectorAll("button.chat-source-jump")).toHaveLength(0);
   expect(host.textContent).toContain("结论 [S64][S65]");
   const navigate = vi.fn();
   await act(async () =>
@@ -136,10 +134,13 @@ it("shows readable citation labels in a stream and only links saved known source
       </ChatCitationNavigation.Provider>,
     ),
   );
-  const links = host.querySelectorAll<HTMLAnchorElement>(
-    'a[href^="#neoread-evidence?"]',
+  const links = host.querySelectorAll<HTMLButtonElement>(
+    "button.chat-source-jump",
   );
   expect(links).toHaveLength(2);
+  expect(links[0].textContent).toBe("");
+  expect(links[0].getAttribute("aria-label")).toBe("跳转到原文段落 S64");
+  expect(links[0].querySelector("svg")).not.toBeNull();
   links[0].click();
   expect(navigate).toHaveBeenCalledExactlyOnceWith("S64");
   expect(host.querySelector("code")?.textContent).toBe("citeS64");
@@ -160,12 +161,54 @@ it.each(["【S64】", "［S64］", "（S64、S65）", "(S64, S65)", "[S64; S65]"
         </ChatCitationNavigation.Provider>,
       ),
     );
-    const links = host.querySelectorAll<HTMLAnchorElement>(
-      'a[href^="#neoread-evidence?"]',
+    const links = host.querySelectorAll<HTMLButtonElement>(
+      "button.chat-source-jump",
     );
     expect(links).toHaveLength(1);
     links[0].click();
     expect(navigate).toHaveBeenCalledExactlyOnceWith("S64");
     expect(host.querySelector("code")?.textContent).toBe(label);
+  },
+);
+
+it.each([
+  "[S84][S109]",
+  "[S84] [S109]",
+  "[S84, S109]",
+  "【S84、S109】",
+  "citeS84S109",
+  "[S84][S109][S84]",
+])("groups adjacent references into one icon: %s", async (references) => {
+  await act(async () =>
+    root.render(
+      <ChatCitationNavigation.Provider
+        value={{ sourceIds: ["S84", "S109"], navigate: vi.fn() }}
+      >
+        <MessageMarkdown content={`依据原文${references}。`} />
+      </ChatCitationNavigation.Provider>,
+    ),
+  );
+  const buttons = host.querySelectorAll<HTMLButtonElement>(
+    "button.chat-source-jump",
+  );
+  expect(buttons).toHaveLength(1);
+  expect(host.textContent).toBe("依据原文。");
+  expect(buttons[0].getAttribute("aria-label")).toBe("查看 2 处原文引用");
+});
+
+it.each(["[S84]另一句话[S109]", "[S84]\n\n[S109]", "[S84][S999][S109]"])(
+  "keeps references separated by text, paragraphs or unknown sources distinct: %s",
+  async (content) => {
+    await act(async () =>
+      root.render(
+        <ChatCitationNavigation.Provider
+          value={{ sourceIds: ["S84", "S109"], navigate: vi.fn() }}
+        >
+          <MessageMarkdown content={content} />
+        </ChatCitationNavigation.Provider>,
+      ),
+    );
+    expect(host.querySelectorAll("button.chat-source-jump")).toHaveLength(2);
+    if (content.includes("S999")) expect(host.textContent).toContain("[S999]");
   },
 );

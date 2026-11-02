@@ -32,7 +32,7 @@ gh secret set NEOREAD_MAC_SIGN_P12_PASSWORD < ~/neoread-mac-sign/password.txt
 ## 发版步骤
 
 1. 在独立 worktree/分支完成修改，将根目录 `package.json` 和 `apps/desktop/package.json` 的版本同步，例如都改为 `0.2.0`。提交后 merge 到 `main`。
-2. 推送 `main`，等待单个 Linux runner 的类型检查和测试通过。首次启用时，可先从 Actions 手动运行 **Release installers**；它只保存安装包与校验值为 Actions artifacts，不创建或修改 Release。
+2. 推送 `main`，手动运行 **CI**（`gh workflow run ci.yml --ref main`），等待该提交的 Linux 和 Windows 检查全部通过。直接推送 `main` 不会自动触发 CI。首次启用时，可从 Actions 手动运行 **Release installers** 并留空 `release-tag`；它只保存安装包与校验值为 Actions artifacts，不创建或修改 Release。
 3. 在所需提交上创建 tag，例如 `v0.2.0`，并发布该 tag 对应的 GitHub Release。Release 所在提交必须包含本工作流。预发布版本可用 `0.2.0-beta.1` / `v0.2.0-beta.1`。
 4. **Release installers** 将 tag 解析为固定提交，核对版本、更新说明和 R2 必需配置，分别在原生 macOS ARM64 和 Windows x64 runner 上构建。同一源提交已有符合条件的成功 CI 会直接复用；没有成功记录时，先调用与日常 CI 相同的检查流程。检查通过后才构建安装包，所有平台都成功后统一上传安装包与校验值到同一个 Release，再上传 R2 并验证公开下载内容。验证通过后，将 R2 下载链接写入 Release 正文和 Actions 摘要。
 5. 下载并做安装后的人工检查：打开应用，导入 EPUB/PDF，确认阅读、笔记保存及重新打开后恢复；退出后检查服务已停止。AI 功能另用已安装并登录的 CLI 检查。
@@ -58,7 +58,7 @@ gh secret set NEOREAD_MAC_SIGN_P12_PASSWORD < ~/neoread-mac-sign/password.txt
 | `R2_ACCESS_KEY_ID`     | R2 S3 凭据中的 Access Key ID     |
 | `R2_SECRET_ACCESS_KEY` | 与该 ID 配对的 Secret Access Key |
 
-令牌需要目标桶的 **Object Read & Write** 权限。无需提供 Cloudflare API Token、Global API Key、管理桶或列出全部桶的权限。不要将密钥写入源码、工作流、提交或日志。R2 凭据只在发布配置预检和上传步骤注入；手动试跑无需凭据。
+令牌需要目标桶的 **Object Read & Write** 权限。无需提供 Cloudflare API Token、Global API Key、管理桶或列出全部桶的权限。不要将密钥写入源码、工作流、提交或日志。R2 凭据只在发布配置预检和上传步骤注入；未指定 `release-tag` 的手动试跑无需凭据。
 
 以下是非敏感配置，工作流已有默认值，可在 **Variables** 中覆盖：
 
@@ -100,13 +100,19 @@ neoread/releases/v0.9.4/SHA256SUMS.txt
 
 两个发布目的地和多个对象之间没有事务：GitHub 已上传而 R2 失败时，GitHub 资产仍可用；R2 失败也可能留下部分版本文件，或已更新一个平台入口。修复配置/网络后重新运行原工作流会覆盖对应版本对象并继续校验，不删除历史版本或桶内其他文件。不要移动已发布 tag。固定入口只代表对应平台最后成功发布的内容；校验下载时应使用同一版本目录中的文件与 `SHA256SUMS.txt`。
 
-手动运行 **Release installers** 仍不上传 GitHub/R2、不修改固定入口或 Release 正文，只在 Actions 摘要生成标明“未上传”的版本链接预览。发布前配置检查只检查格式和凭据是否存在，不证明云端权限；第一次真实发布仍需验证上传。
+手动运行 **Release installers** 并留空 `release-tag` 时仍不上传 GitHub/R2、不修改固定入口或 Release 正文，只在 Actions 摘要生成标明“未上传”的版本链接预览。发布前配置检查只检查格式和凭据是否存在，不证明云端权限；第一次真实发布仍需验证上传。
 
 应用内更新仍通过 GitHub 获取版本、校验清单与安装包；本流程新增的 R2 链接用于公开分发，不会自动更改客户端更新源。App 内更新说明继续来自 `docs/release-notes.json`。
 
 首次真实发布后人工检查：打开 Actions 摘要中的 Mac/Windows 固定链接，确认保存的文件名、版本及 SHA-256 与该版本清单一致；检查 Release 原有中文说明仍在、R2 下载区块只有一个。真实安装仍按本文的安装验收步骤进行。
 
 依据：[Cloudflare R2 AWS CLI](https://developers.cloudflare.com/r2/examples/aws/aws-cli/)、[R2 凭据权限](https://developers.cloudflare.com/r2/api/tokens/)、[R2 自定义域名](https://developers.cloudflare.com/r2/buckets/public-buckets/)。
+
+### 恢复已有 Release 的构建
+
+若已发布 tag 的应用源码无需修改，只需修复构建环境，可先将工作流修复合并到 `main`，再执行 `gh workflow run release.yml --ref main -f release-tag=v0.9.5`（替换为实际标签）。工作流使用 `main` 的构建配置，检出指定 tag 的固定提交，验证版本及已发布 Release，复用该源提交的 CI，并在全部平台通过后上传附件。恢复入口构建 macOS ARM64 和 Windows x64 两个平台，并执行 R2 上传与下载验证，需要相同的 R2 Secrets。R2 发布工具从工作流的固定提交加载，因此也可恢复尚未包含 R2 脚本的旧 tag；应用源码始终来自指定 tag。不要移动已发布的 tag；应用源码需要修改时应发布新版本。
+
+CI 为 Node 构建进程设置 4096 MiB 堆上限，避免 macOS runner 在 Vite 渲染资源块时触及默认约 2 GiB 的堆上限。该设置只属于构建环境。
 
 ## 本地构建
 

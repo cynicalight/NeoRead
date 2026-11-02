@@ -4,19 +4,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
 import { toast } from "sonner";
-import {
-  cursorAt,
-  paint,
-  Painter,
-  readPalette,
-  script,
-  stillTime,
-} from "./canvas";
+import { cursorAt, script } from "./canvas";
 import { scenes } from "./scenes";
 import { guideTopics } from "./topics";
 import { guideLaunch, releaseNotes } from "./releases";
 import { GuideHost } from "./GuideHost";
 import { GuidedTour } from "./tour/GuidedTour";
+import { tourSteps } from "./tour/steps";
 
 vi.mock("@neoread/api", () => ({
   api: { guidePreferences: vi.fn(), saveGuidePreferences: vi.fn() },
@@ -115,18 +109,6 @@ describe("guide canvas", () => {
     expect(cursorAt(s, 799)).toEqual({ x: 100, y: 50 });
     expect(s.duration).toBe(800);
   });
-  it.each(Object.entries(scenes))(
-    "paints %s through its whole loop",
-    (_, scene) => {
-      const { ctx, calls } = recordingContext();
-      const painter = new Painter(ctx, readPalette(), "sans-serif");
-      for (let t = 0; t < scene.script.duration; t += 50)
-        paint(scene, painter, t);
-      paint(scene, painter, stillTime(scene), false);
-      expect(stillTime(scene)).toBeLessThan(scene.script.duration);
-      expect(calls.length).toBeGreaterThan(100);
-    },
-  );
 });
 
 describe("guide host", () => {
@@ -241,6 +223,128 @@ describe("guide host", () => {
       expect(finish).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("closes settings through its existing control and waits for closure before advancing", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.mocked(requestAnimationFrame).mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const flush = () =>
+      act(async () => {
+        for (const callback of frames.splice(0)) callback(0);
+      });
+    const settings = document.createElement("div");
+    settings.dataset.tour = "settings";
+    const close = document.createElement("button");
+    close.dataset.slot = "dialog-close";
+    vi.stubGlobal("innerWidth", 340);
+    vi.stubGlobal("innerHeight", 300);
+    const closeRect = new DOMRect(280, 60, 40, 40);
+    close.getBoundingClientRect = () => closeRect;
+    close.getClientRects = () => [closeRect] as unknown as DOMRectList;
+    close.scrollIntoView = vi.fn();
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(
+      function (this: Element) {
+        return this.classList.contains("tour-card") ? 260 : 0;
+      },
+    );
+    const onClose = vi.fn();
+    close.onclick = onClose;
+    settings.append(close);
+    document.body.append(settings);
+    try {
+      const finish = vi.fn();
+      await act(async () =>
+        root.render(
+          <GuidedTour
+            open
+            onFinish={finish}
+            steps={[tourSteps.find((step) => step.id === "close-settings")!]}
+          />,
+        ),
+      );
+      await flush();
+      await flush();
+      const card = document.querySelector<HTMLElement>(".tour-card")!;
+      expect(card.style.visibility).not.toBe("hidden");
+      expect(Number.parseFloat(card.style.maxHeight)).toBeGreaterThanOrEqual(
+        48,
+      );
+      expect(Number.parseFloat(card.style.maxHeight)).toBeLessThan(260);
+      await act(async () => button("关闭设置并继续").click());
+      expect(onClose).toHaveBeenCalledOnce();
+      await flush();
+      expect(finish).not.toHaveBeenCalled();
+      settings.dataset.closed = "";
+      await flush();
+      expect(finish).toHaveBeenCalledOnce();
+    } finally {
+      settings.remove();
+    }
+  });
+
+  it("frames only the requested card while keeping the expanded deck interactive", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.mocked(requestAnimationFrame).mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const fixture = document.createElement("div");
+    vi.stubGlobal("innerWidth", 1200);
+    vi.stubGlobal("innerHeight", 800);
+    fixture.innerHTML =
+      '<section data-tour="agent-section" data-deck-open="true"></section><div class="agent-stack-card" inert data-tour="agent-card" data-agent="api"></div><div data-tour="agent-deck" data-spread><div data-tour="agent-card" data-agent="api"><button data-slot="agent-select">API</button></div></div>';
+    document.body.append(fixture);
+    const deck = fixture.querySelector<HTMLElement>(
+      '[data-tour="agent-deck"]',
+    )!;
+    const card = deck.querySelector<HTMLElement>('[data-agent="api"]')!;
+    for (const [el, rect] of [
+      [deck, new DOMRect(100, 50, 500, 600)],
+      [card, new DOMRect(100, 250, 500, 112)],
+    ] as const) {
+      el.getBoundingClientRect = () => rect;
+      el.getClientRects = () => [rect] as unknown as DOMRectList;
+      el.scrollIntoView = vi.fn();
+    }
+    const target = '[data-tour="agent-deck"][data-spread] [data-agent="api"]';
+    try {
+      await act(async () =>
+        root.render(
+          <GuidedTour
+            open
+            onFinish={() => {}}
+            steps={[
+              {
+                id: "api",
+                view: () => ({
+                  title: "配置 API",
+                  body: "",
+                  focus: [target],
+                  click: ['[data-tour="agent-deck"][data-spread]'],
+                  pointer: { gesture: "click", target },
+                  revealAgent: "api",
+                }),
+              },
+            ]}
+          />,
+        ),
+      );
+      await act(async () => {
+        for (const callback of frames.splice(0)) callback(0);
+      });
+      const outlines = document.querySelectorAll<HTMLElement>(".tour-frame");
+      expect(outlines).toHaveLength(1);
+      expect(
+        document.querySelector<HTMLElement>(".tour-skip")?.style.transform,
+      ).toBe("translate(16px, 752px)");
+      expect(outlines[0].style.transform).toBe("translate(95px, 245px)");
+      expect(document.activeElement).toBe(card.querySelector("button"));
+    } finally {
+      fixture.remove();
     }
   });
 

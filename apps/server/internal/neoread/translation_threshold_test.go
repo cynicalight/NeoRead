@@ -101,6 +101,7 @@ func TestTranslationThresholdSettingsValidation(t *testing.T) {
 	}
 }
 
+// The padded files have no readable page count, so size alone decides.
 func TestPaperSizeConfirmationBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		size      int64
@@ -142,6 +143,7 @@ func TestPaperSizeConfirmationBoundary(t *testing.T) {
 }
 
 func TestZoteroLargePaperConfirmation(t *testing.T) {
+	lowerLargePaperBytes(t)
 	for _, library := range []string{"papers", "books"} {
 		t.Run(library, func(t *testing.T) {
 			dir, _ := zoteroFixture(t)

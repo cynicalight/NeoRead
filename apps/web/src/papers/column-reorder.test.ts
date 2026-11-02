@@ -90,7 +90,7 @@ it("slides picker items vertically and accounts for scrolling without moving the
   expect(drag.order).toEqual(["title", "authors", "year"]);
   expect(document.querySelector("style")!.textContent).toContain("translateY");
   expect(document.querySelector("style")!.textContent).toContain(
-    "prefers-reduced-motion: no-preference",
+    ':root:not([data-reduced-motion="true"])',
   );
   drag.cleanup();
 });

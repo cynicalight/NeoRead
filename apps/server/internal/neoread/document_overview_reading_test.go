@@ -84,8 +84,8 @@ func TestDocumentRepeatingToolStopsWithoutDiscardingOverview(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if !a.readingStopped() || !strings.Contains(a.readingStop, "重复") {
-		t.Fatal("identical requests loop forever")
+	if a.readingStopped() || a.repeatedCalls != 3 {
+		t.Fatal("identical requests should warn without stopping")
 	}
 }
 

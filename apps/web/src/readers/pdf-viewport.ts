@@ -1,3 +1,4 @@
+import { reducedMotion } from "../motion";
 import type { PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
 
 type Anchor = { page: HTMLElement; x: number; y: number };
@@ -105,9 +106,7 @@ export class PDFViewport {
     if (
       !element?.animate ||
       Math.abs(scale - oldScale) < 0.0001 ||
-      this.host.ownerDocument.defaultView?.matchMedia?.(
-        "(prefers-reduced-motion: reduce)",
-      ).matches
+      reducedMotion()
     )
       return;
     const host = this.host.getBoundingClientRect();

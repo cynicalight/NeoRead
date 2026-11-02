@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useReaderStore } from "../store";
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { SentenceHover } from "./sentence-hover";
 let host: HTMLDivElement, hover: SentenceHover;
@@ -10,7 +11,7 @@ const range = () => {
   return r;
 };
 beforeEach(() => {
-  vi.stubGlobal("matchMedia", () => ({ matches: false }));
+  useReaderStore.getState().setTheme({ reducedMotion: false });
   host = document.createElement("div");
   host.textContent = "sentence";
   document.body.append(host);
@@ -34,6 +35,7 @@ beforeEach(() => {
   hover = new SentenceHover(host);
 });
 afterEach(() => {
+  useReaderStore.getState().setTheme({ reducedMotion: false });
   hover.destroy();
   host.remove();
   animations.length = 0;
@@ -81,7 +83,7 @@ it("reuses a stationary sentence without geometry reads and crossfades a new sen
   expect(layers()).toHaveLength(0);
 });
 it("clips highlights to the visible reader, honors reduced motion, and cleans up", () => {
-  vi.stubGlobal("matchMedia", () => ({ matches: true }));
+  useReaderStore.getState().setTheme({ reducedMotion: true });
   vi.mocked(Range.prototype.getClientRects).mockReturnValue([
     new DOMRect(280, 10, 100, 20),
   ] as unknown as DOMRectList);

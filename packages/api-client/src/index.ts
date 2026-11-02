@@ -146,6 +146,23 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   return response.status === 204 ? (undefined as T) : response.json();
 }
+// Fetch keepalive has a shared 64 KiB in-flight body budget. Leave headroom,
+// and retain ordinary saving for large notes / concurrent requests.
+let noteKeepaliveBytes = 0;
+async function saveDocumentNote(id: string, body: string) {
+  const payload = JSON.stringify({ body });
+  const bytes = new TextEncoder().encode(payload).byteLength;
+  const keepalive = noteKeepaliveBytes + bytes <= 60 * 1024;
+  if (keepalive) noteKeepaliveBytes += bytes;
+  try {
+    return await request<{ body: string; updatedAt?: string }>(
+      `/api/documents/${encodeURIComponent(id)}/note`,
+      { method: "PUT", body: payload, keepalive },
+    );
+  } finally {
+    if (keepalive) noteKeepaliveBytes -= bytes;
+  }
+}
 // Keep annotation writes and undo in the same client order, including failures.
 let annotationQueue = Promise.resolve();
 let annotationSession = "";
@@ -166,7 +183,16 @@ function annotationRequest<T>(path: string, init: RequestInit): Promise<T> {
 export type ZoteroScan = components["schemas"]["ZoteroScan"];
 export type ZoteroImportResult = components["schemas"]["ZoteroImportResult"];
 export type PaperAttachment = components["schemas"]["PaperAttachment"];
+export type PaperRefreshProgress =
+  components["schemas"]["PaperRefreshProgress"];
+
 export const api = {
+  paperRefreshStatus: () =>
+    request<PaperRefreshProgress>("/api/diagnostics/paper-refresh"),
+  startPaperRefresh: () =>
+    request<PaperRefreshProgress>("/api/diagnostics/paper-refresh", {
+      method: "POST",
+    }),
   paperAttachments: (id: string) =>
     request<PaperAttachment[]>(
       `/api/documents/${encodeURIComponent(id)}/attachments`,
@@ -386,9 +412,10 @@ export const api = {
     request<import("@neoread/core").EPUBReadingBlock[]>(
       `/api/documents/${id}/epub-blocks`,
     ),
-  translations: (id: string) =>
+  translations: (id: string, signal?: AbortSignal) =>
     request<import("@neoread/core").TranslationBlock[]>(
       `/api/documents/${id}/translations`,
+      { signal },
     ),
   exportTranslation: async (
     id: string,
@@ -485,7 +512,8 @@ export const api = {
     ),
   process: (id: string) =>
     request<Processing>(`/api/documents/${id}/processing`, { method: "POST" }),
-  blocks: (id: string) => request<PDFBlock[]>(`/api/documents/${id}/blocks`),
+  blocks: (id: string, signal?: AbortSignal) =>
+    request<PDFBlock[]>(`/api/documents/${id}/blocks`, { signal }),
   aiConfig: () => request<AIConfig>("/api/ai/config"),
   agentModels: (provider: string, signal?: AbortSignal) =>
     request<AgentModel[]>(
@@ -552,9 +580,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ref, ...options }),
     }),
-  lookupMetadata: (id: string) =>
+  lookupMetadata: (id: string, byTitle = false) =>
     request<Document>(
-      `/api/documents/${encodeURIComponent(id)}/metadata/lookup`,
+      `/api/documents/${encodeURIComponent(id)}/metadata/lookup${byTitle ? "?by=title" : ""}`,
       { method: "POST" },
     ),
   removeDocument: (id: string) =>
@@ -606,7 +634,9 @@ export const api = {
       progress?: DocumentLocation;
       percentage?: number;
       library?: LibraryMode;
-      metadata?: Partial<Pick<PaperMetadata, PaperMetadataField>>;
+      metadata?: Partial<
+        Pick<PaperMetadata, PaperMetadataField | "suggestedTitle">
+      >;
       readingStatus?: ReadingStatus;
     },
   ) =>
@@ -676,11 +706,7 @@ export const api = {
     request<{ body: string; updatedAt?: string }>(
       `/api/documents/${encodeURIComponent(id)}/note`,
     ),
-  saveDocumentNote: (id: string, body: string) =>
-    request<{ body: string; updatedAt?: string }>(
-      `/api/documents/${encodeURIComponent(id)}/note`,
-      { method: "PUT", body: JSON.stringify({ body }) },
-    ),
+  saveDocumentNote,
   undoAnnotation: (id: string) =>
     annotationRequest<{ undone: boolean; annotations: Annotation[] }>(
       `/api/documents/${encodeURIComponent(id)}/annotations/undo`,

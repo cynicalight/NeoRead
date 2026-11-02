@@ -7,8 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
-	"os/exec"
+	"neoread.local/server/internal/runtimeenv"
 	"path/filepath"
 	"strings"
 	"time"
@@ -62,7 +63,7 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 	defer os.RemoveAll(work)
 	child, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(child, node, worker)
+	cmd := runtimeenv.CommandContext(child, node, worker)
 	cmd.Dir, cmd.Env, cmd.Stderr = work, append(os.Environ(), "ELECTRON_RUN_AS_NODE=1"), io.Discard
 	cmd.WaitDelay = 3 * time.Second
 	input, err := cmd.StdinPipe()
@@ -100,10 +101,17 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 		}
 		switch e.Type {
 		case "tool":
-			if e.ID == "" || seen[e.ID] || len(e.Args) > 4096 || tool == nil {
+			if e.ID == "" || seen[e.ID] || tool == nil {
 				return piEvent{}, generationError(ErrorProtocol, "pi 返回了无效的工具请求")
 			}
 			seen[e.ID] = true
+			if len(e.Args) > 4096 {
+				content := []any{map[string]string{"type": "text", "text": `{"error":"invalid_arguments","message":"Tool arguments exceed the size limit. Use shorter arguments or available evidence."}`}}
+				if err = encoder.Encode(map[string]any{"type": "toolResult", "runId": request.RunID, "id": e.ID, "content": content}); err != nil {
+					return piEvent{}, err
+				}
+				continue
+			}
 			content, callErr := tool(e.Name, e.Args)
 			if callErr != nil {
 				return piEvent{}, callErr
@@ -305,18 +313,22 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 			}
 		}
 		if !allowed {
-			return nil, generationError(ErrorProtocol, "pi 请求了未授权工具")
+			return []any{map[string]string{"type": "text", "text": `{"error":"tool_not_allowed","message":"This tool is unavailable. Use an available tool or answer with the evidence already obtained."}`}}, nil
 		}
 
 		if isWebTool(name) {
 			raw, err := in.Chat.callWebTool(ctx, in.Chat.WebAPI, name, args)
 			if err != nil {
-				return nil, err
+				if ctx.Err() != nil {
+					return nil, err
+				}
+				slog.WarnContext(ctx, "web.tool.failed", "requestId", requestID(ctx), "errorCode", errorKind(err))
+				raw = json.RawMessage(`{"error":"web_tool_failed","message":"Web tool failed. Try another approach or answer with available evidence, and disclose gaps."}`)
 			}
 			return []any{map[string]string{"type": "text", "text": string(raw)}}, nil
 		}
 		if a == nil {
-			return nil, generationError(ErrorProtocol, "当前会话没有文档工具权限")
+			return []any{map[string]string{"type": "text", "text": `{"error":"tool_unavailable","message":"Document tools are unavailable in this session."}`}}, nil
 		}
 		v := ToolActivity{ID: id(), Kind: "tool", Tool: name, Title: "读取文档", Target: name, Status: "running"}
 		if err := in.Chat.recordTool(v); err != nil {
@@ -337,15 +349,22 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 		}
 
 		if errors.Is(err, errDocumentReadingBudget) {
-			raw = json.RawMessage(`{"shouldFinish":true,"message":"Stop reading and answer from available evidence; state gaps."}`)
+			raw = json.RawMessage(`{"shouldFinish":true,"message":"Prioritize essential evidence and complete the answer promptly; state gaps."}`)
 		} else if err != nil {
-			return nil, err
+			raw, err = a.toolFailure(ctx, err)
+			if err != nil {
+				return nil, err
+			}
 		}
 		content := []any{map[string]string{"type": "text", "text": string(raw)}}
 		for _, page := range resultPageImages(raw) {
 			data, err := a.pageImageData(page)
 			if err != nil {
-				return nil, err
+				failure, fatal := a.toolFailure(ctx, err)
+				if fatal != nil {
+					return nil, fatal
+				}
+				return []any{map[string]string{"type": "text", "text": string(failure)}}, nil
 			}
 			content = append(content, piImage(data))
 		}

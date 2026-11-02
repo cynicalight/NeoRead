@@ -10,14 +10,14 @@ import { reportDiagnostic } from "./diagnostics";
 const coverWidth = 420;
 
 const useCovers = create<{
-  /** Set once this session stored a rendered PDF cover. */
+  /** Changes whenever the cover must be fetched again. */
   revisions: Record<string, number>;
   /** Documents without a cover; they keep the drawn placeholder. */
   missing: Record<string, true>;
 }>(() => ({ revisions: {}, missing: {} }));
 
 const attempted = new Set<string>();
-const rendering = new Set<string>();
+const rendering = new Map<string, Promise<void>>();
 let running = 0;
 const waiting: (() => void)[] = [];
 
@@ -34,12 +34,18 @@ async function limited<T>(task: () => Promise<T>) {
 }
 
 /** Draws the first page of a PDF as a JPEG. */
-export async function renderPDFCover(doc: Pick<Document, "id">) {
+export async function renderPDFCover(
+  doc: Pick<Document, "id">,
+  revision?: number,
+) {
   // Loaded on demand so the library does not carry the PDF engine.
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc ||= workerURL;
   const task = pdfjs.getDocument({
-    url: publicationURL(doc.id, "original.pdf"),
+    url: publicationURL(
+      doc.id,
+      `original.pdf${revision ? `?v=${revision}` : ""}`,
+    ),
     // Fetch only the ranges the first page needs.
     disableStream: true,
     disableAutoFetch: true,
@@ -86,8 +92,9 @@ function coverFailed(doc: Document) {
   if (doc.type !== "pdf" || attempted.has(doc.id)) return missing();
   // A PDF has no stored cover until its first page is rendered once.
   attempted.add(doc.id);
-  rendering.add(doc.id);
-  void limited(async () => api.saveCover(doc.id, await renderPDFCover(doc)))
+  const task = limited(async () =>
+    api.saveCover(doc.id, await renderPDFCover(doc)),
+  )
     .then(() =>
       useCovers.setState((s) => ({
         revisions: { ...s.revisions, [doc.id]: Date.now() },
@@ -103,6 +110,39 @@ function coverFailed(doc: Document) {
       missing();
     })
     .finally(() => rendering.delete(doc.id));
+  rendering.set(doc.id, task);
+}
+
+/** Reparse already rebuilds EPUB resources; PDF covers are drawn here. */
+export async function refreshDocumentCover(doc: Document) {
+  // An earlier lazy render must finish before it can overwrite the new cover.
+  await rendering.get(doc.id);
+  const revision = Math.max(
+    Date.now(),
+    (useCovers.getState().revisions[doc.id] ?? 0) + 1,
+  );
+  if (doc.type === "pdf") {
+    const task = limited(async () =>
+      api.saveCover(doc.id, await renderPDFCover(doc, revision)),
+    ).finally(() => rendering.delete(doc.id));
+    rendering.set(doc.id, task);
+    try {
+      await task;
+    } catch (error) {
+      reportDiagnostic({
+        level: "warn",
+        event: "cover.render_failed",
+        ...diagnosticError(error),
+      });
+      throw error;
+    }
+  }
+  attempted.delete(doc.id);
+  useCovers.setState((s) => {
+    const missing = { ...s.missing };
+    delete missing[doc.id];
+    return { missing, revisions: { ...s.revisions, [doc.id]: revision } };
+  });
 }
 
 /** The document's cover image; renders nothing when it has none. */

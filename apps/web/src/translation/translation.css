@@ -231,7 +231,7 @@
 :root[data-theme="sepia"] .translation-note-indicator {
   background: var(--brand-30);
 }
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduced-motion="true"] {
   .translation-document {
     scroll-behavior: auto;
   }
@@ -313,7 +313,7 @@
     opacity: 0;
   }
 }
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduced-motion="true"] {
   .translation-document section {
     transition: none;
   }
@@ -371,7 +371,7 @@
     opacity: 1;
   }
 }
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduced-motion="true"] {
   .neoread-block-hover:not(.neoread-block-focus) {
     animation: none;
   }

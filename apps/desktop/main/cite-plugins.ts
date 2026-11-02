@@ -12,7 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, win32 } from "node:path";
+import { dirname, join, relative, win32 } from "node:path";
 import { promisify } from "node:util";
 
 /**
@@ -51,7 +51,10 @@ const WPS_VERSION = "1.0.0";
 const exists = (path: string) =>
   access(path).then(
     () => true,
-    () => false,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") return false;
+      throw error;
+    },
   );
 
 function wordPaths({ platform, home, appData }: CitePluginOptions) {
@@ -236,7 +239,12 @@ export async function citePluginStatus(
   const wps = wpsFolder(options);
   const registered = async (folder: string) =>
     (
-      await readFile(join(folder, "publish.xml"), "utf8").catch(() => "")
+      await readFile(join(folder, "publish.xml"), "utf8").catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT" || error.code === "ENOTDIR") return "";
+          throw error;
+        },
+      )
     ).includes(`name="${WPS_NAME}"`);
   return [
     {
@@ -267,6 +275,28 @@ function permissionDenied(error: unknown) {
   return ["EPERM", "EACCES"].includes(
     (error as NodeJS.ErrnoException).code || "",
   );
+}
+
+export function wordAccessFolder(error: unknown, options: CitePluginOptions) {
+  if (options.platform !== "darwin" || !permissionDenied(error)) return null;
+  const word = wordPaths(options);
+  const path = (error as NodeJS.ErrnoException & { path?: string }).path;
+  if (!word || !path) return null;
+  const rel = relative(word.office, path);
+  if (rel.startsWith("..") || rel.startsWith("/")) return null;
+  return path === word.office ? path : dirname(path);
+}
+
+export async function authorizeWordPluginAccess(
+  folder: string,
+  options: CitePluginOptions,
+) {
+  if (options.platform !== "darwin" || !options.requestFolderAccess)
+    throw new Error("当前系统不支持文件夹授权");
+  const selected = await options.requestFolderAccess(folder);
+  if (!selected) throw new Error("已取消 Word 插件文件夹授权");
+  if ((await realpath(selected)) !== (await realpath(folder)))
+    throw new Error("请选择指定的 Word 插件文件夹后重试");
 }
 
 async function wordFileOperation(

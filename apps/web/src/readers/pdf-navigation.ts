@@ -1,3 +1,4 @@
+import { reducedMotion } from "../motion";
 import { animatePDFScroll } from "./pdf-scroll";
 import { sentenceTextRanges } from "./pdf-sentence-matching";
 import * as pdfjs from "pdfjs-dist";
@@ -166,7 +167,8 @@ export class PDFReadingNavigation {
         ? (this.host.clientHeight - 32) /
           (viewport.height * (96 / 72) * block.bounds.height)
         : Infinity;
-      const fitScale = Math.floor(Math.min(widthScale, heightScale) * 100) / 100;
+      const fitScale =
+        Math.floor(Math.min(widthScale, heightScale) * 100) / 100;
       const maxScale = layout === "source" ? 1.5 : 2;
       const scale = Math.min(maxScale, Math.max(0.1, fitScale));
       const initialScale = this.viewer.currentScale;
@@ -178,9 +180,7 @@ export class PDFReadingNavigation {
         (block.bounds.x + block.bounds.width / 2) * initial.width;
       const fromY = initial.top - view.top + block.bounds.y * initial.height;
       this.onFocus(block.id);
-      const reduced = window.matchMedia?.(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
+      const reduced = reducedMotion();
       let started: number | undefined;
       let zoomed = false;
       await new Promise<void>((resolve) => {

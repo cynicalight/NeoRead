@@ -308,3 +308,25 @@ func TestChatRequiredFields(t *testing.T) {
 		}
 	}
 }
+
+func TestChatGenerationDeadlineAppliesToAllProviders(t *testing.T) {
+	for _, provider := range []string{"api", "codex", "claude", "kimi"} {
+		t.Run(provider, func(t *testing.T) {
+			adapter := adapterFunc(func(ctx context.Context, _ GenerateRequest, emit func(ProviderEvent) error) (GenerateResult, error) {
+				deadline, ok := ctx.Deadline()
+				if !ok || time.Until(deadline) < 59*time.Minute || time.Until(deadline) > time.Hour {
+					t.Errorf("unexpected chat deadline %v", deadline)
+				}
+				if err := emit(ProviderEvent{Text: "complete"}); err != nil {
+					return GenerateResult{}, err
+				}
+				return GenerateResult{Text: "complete", FinishReason: "stop"}, nil
+			})
+			service := &GenerationService{primary: provider, connections: map[string]generationConnection{provider: {Adapter: adapter, VerifiedText: true}}}
+			_, err := service.generate(context.Background(), AIInput{Chat: &chatInput{}}, false, true, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

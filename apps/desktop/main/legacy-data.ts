@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { readFile, lstat, mkdir, writeFile, rename, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dialog, type BrowserWindow } from "electron";
 
@@ -133,5 +135,92 @@ export async function promptLegacyCleanup(
       buttons: ["知道了"],
       noLink: true,
     });
+  }
+}
+
+/** Read only: never creates a journal, lock, destination or library. */
+export async function detectReaderMigration(
+  appData: string,
+  userData: string,
+): Promise<"required" | "resume" | "none" | "declined"> {
+  try {
+    const file = JSON.parse(
+      await readFile(join(userData, "migrations.json"), "utf8"),
+    );
+    if (
+      file.schemaVersion !== 1 ||
+      !file.migrations ||
+      typeof file.migrations !== "object" ||
+      Array.isArray(file.migrations)
+    )
+      throw new Error("迁移记录损坏或版本不受支持");
+    if (file.readerMigrationDecision === "declined") return "declined";
+    const state = file.migrations["reader-to-neoread"];
+    if (state !== undefined) {
+      if (state?.status === "copying" || state?.status === "verified")
+        return "resume";
+      if (state?.status === "completed" || state?.status === "not-needed")
+        return "none";
+      throw new Error("无法识别迁移状态");
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+      throw new ReaderMigrationError("无法读取迁移记录，未改动旧数据", {
+        cause: error,
+      });
+  }
+  async function hasData(root: string) {
+    for (const name of [
+      "library-location.json",
+      "library",
+      "proxy-settings.json",
+    ]) {
+      try {
+        await lstat(join(root, name));
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    return false;
+  }
+  try {
+    if (await hasData(userData)) return "none";
+    return (await hasData(join(appData, "Reader"))) ? "required" : "none";
+  } catch (error) {
+    throw new ReaderMigrationError("无法检查旧 Reader 数据，未改动旧数据", {
+      cause: error,
+    });
+  }
+}
+
+/** A user decision, separate from the journal's copy/verification progress. */
+export async function declineReaderMigration(userData: string): Promise<void> {
+  const target = join(userData, "migrations.json");
+  let file;
+  try {
+    file = JSON.parse(await readFile(target, "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    file = { schemaVersion: 1, migrations: {} };
+  }
+  if (
+    file?.schemaVersion !== 1 ||
+    !file.migrations ||
+    typeof file.migrations !== "object" ||
+    Array.isArray(file.migrations)
+  )
+    throw new Error("迁移记录损坏或版本不受支持");
+  file.readerMigrationDecision = "declined";
+  await mkdir(userData, { recursive: true });
+  const temporary = join(userData, `.migrations.${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporary, JSON.stringify(file, null, 2) + "\n", {
+      flag: "wx",
+      mode: 0o600,
+    });
+    await rename(temporary, target);
+  } finally {
+    await rm(temporary, { force: true });
   }
 }

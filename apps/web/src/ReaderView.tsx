@@ -65,9 +65,9 @@ export function ReaderView({
         epubBlocksChanged: (blocks) => {
           if (!disposed) latest.current.events.epubBlocksChanged?.(blocks);
         },
-        epubReadingAnchor: (id) => {
+        epubReadingAnchor: (id, fraction) => {
           if (!disposed && latest.current.active)
-            latest.current.events.epubReadingAnchor?.(id);
+            latest.current.events.epubReadingAnchor?.(id, fraction);
         },
         epubBlockHover: (id) => {
           if (!disposed) latest.current.events.epubBlockHover?.(id);

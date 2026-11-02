@@ -18,7 +18,7 @@ import (
 
 const translationBatchCharacters = 10000
 const translationBatchConcurrency = 3
-const translationBatchTimeout = 20 * time.Minute
+const translationBatchTimeout = time.Hour
 
 type translationParagraph struct {
 	BlockID    string `json:"blockId"`

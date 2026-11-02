@@ -1,3 +1,4 @@
+import { reducedMotion } from "../motion";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { BlockActions } from "../BlockActions";
@@ -153,11 +154,7 @@ export class PDFBlockOverlay {
   }
   private hide(element: HTMLElement, immediate = false) {
     if (!element.parentElement) return;
-    if (
-      immediate ||
-      !element.animate ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-    ) {
+    if (immediate || !element.animate || reducedMotion()) {
       this.fades.get(element)?.cancel();
       this.fades.delete(element);
       element.remove();
@@ -309,8 +306,7 @@ export class PDFBlockOverlay {
       blockId === this.tourTarget.dataset.blockId,
     );
     if (!blockId) {
-      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
-        this.focus.remove();
+      if (reducedMotion()) this.focus.remove();
       else this.focus.dataset.fading = "";
       return;
     }

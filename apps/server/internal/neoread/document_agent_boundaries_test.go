@@ -30,7 +30,7 @@ func configureDocumentAPI(t *testing.T, s *Server, url string) {
 	}
 }
 func TestDocumentAgentFailureNeverCommitsAnAnswer(t *testing.T) {
-	for _, mode := range []string{"invalid-json", "round-limit", "forged-source", "save-failure"} {
+	for _, mode := range []string{"forged-source", "save-failure"} {
 		t.Run(mode, func(t *testing.T) {
 			s, _ := originalDocumentFixture(t)
 			calls := 0
@@ -41,10 +41,6 @@ func TestDocumentAgentFailureNeverCommitsAnAnswer(t *testing.T) {
 				}
 				calls++
 				switch mode {
-				case "invalid-json":
-					writeToolReply(w, "read_passage", "{")
-				case "round-limit":
-					writeToolReply(w, "not_a_reader_tool", "{}")
 				default:
 					if mode == "forged-source" {
 						writeAPIReply(w, "unread source [S999]")
@@ -72,9 +68,6 @@ func TestDocumentAgentFailureNeverCommitsAnAnswer(t *testing.T) {
 			s.Store.DB.QueryRow("SELECT count(*) FROM chat_agent_runs WHERE json_extract(body,'$.status')='complete'").Scan(&count)
 			if count != 0 {
 				t.Fatal("failed run committed as complete")
-			}
-			if mode == "round-limit" && calls != documentReadingRounds {
-				t.Fatalf("loop not bounded: %d", calls)
 			}
 		})
 	}
@@ -231,5 +224,32 @@ func TestDocumentReadReturnsTargetWithinResultBudget(t *testing.T) {
 	json.Unmarshal(raw, &returned)
 	if len(returned.Items) != len(a.Evidence) {
 		t.Fatal("unreturned passage entered evidence ledger")
+	}
+}
+
+func TestDocumentAgentInvalidToolArgumentsCanFinish(t *testing.T) {
+	s, _ := originalDocumentFixture(t)
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			respond(w, 200, map[string]any{"data": []any{map[string]string{"id": "test"}}})
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		calls++
+		if calls == 1 {
+			writeToolReply(w, "read_passage", "{")
+			return
+		}
+		if !strings.Contains(string(body), "invalid_arguments") {
+			t.Error("model did not receive tool error")
+		}
+		writeAPIReply(w, "The passage could not be read.")
+	}))
+	defer upstream.Close()
+	configureDocumentAPI(t, s, upstream.URL)
+	response := request(t, s, "POST", "/api/documents/doc/chat", strings.NewReader(`{"provider":"api","prompt":"Read the passage","context":""}`))
+	if calls != 2 || !strings.Contains(response.Body.String(), "event: done") || !strings.Contains(response.Body.String(), "passage could not be read") {
+		t.Fatal("tool argument error interrupted chat", calls, response.Body.String())
 	}
 }

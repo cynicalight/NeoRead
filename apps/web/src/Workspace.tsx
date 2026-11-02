@@ -132,6 +132,7 @@ import { ColorSwatches } from "./ColorSwatches";
 import { useSelectionClipboard } from "./useSelectionClipboard";
 import { copyImage, copyText } from "./chat/clipboard";
 import { NotesPanel } from "./NotesPanel";
+import { PaperNote } from "./PaperNote";
 import { ExportDocumentDialog } from "./ExportDocumentDialog";
 import { EPUBReadingView } from "./translation/EPUBReadingView";
 import { PDFReadingView } from "./translation/PDFReadingView";
@@ -1633,6 +1634,10 @@ export function Workspace({
                   <StickyNote className="size-3.5" />
                   批注<small>{annotations.length || ""}</small>
                 </TabsTrigger>
+                <TabsTrigger value="paper-note">
+                  <BookOpen className="size-3.5" />
+                  笔记
+                </TabsTrigger>
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -1642,20 +1647,6 @@ export function Workspace({
                 >
                   <ChartColumn />
                 </Button>
-                {rightTab === "ai" && provider === "codex" && (
-                  <CodexHandoffButton
-                    key={doc.id}
-                    documentId={doc.id}
-                    sessionId={currentSession?.id}
-                    disabled={
-                      sending ||
-                      !chat.loaded ||
-                      !chat.messages.some(
-                        (message) => message.role === "assistant",
-                      )
-                    }
-                  />
-                )}
               </TabsList>
               <TabsContent
                 value="ai"
@@ -1669,7 +1660,22 @@ export function Workspace({
                   sessions={sessions}
                   current={currentSession}
                   provider={provider}
-                  running={sending}
+                  continueAction={
+                    provider === "codex" && (
+                      <CodexHandoffButton
+                        key={doc.id}
+                        documentId={doc.id}
+                        sessionId={currentSession?.id}
+                        disabled={
+                          sending ||
+                          !chat.loaded ||
+                          !chat.messages.some(
+                            (message) => message.role === "assistant",
+                          )
+                        }
+                      />
+                    )
+                  }
                   onChange={selectSession}
                   onRefresh={refreshSessions}
                 />
@@ -1710,11 +1716,6 @@ export function Workspace({
                   )}
                   empty={
                     <div className="chat-empty">
-                      <p>
-                        选中原文，可以翻译、解释，
-                        <br />
-                        或引用多段文字一起讨论。
-                      </p>
                       <Button
                         variant="outline"
                         className="suggestion"
@@ -1749,10 +1750,6 @@ export function Workspace({
                         解释核心概念
                         <ArrowLeft className="ml-auto rotate-180" />
                       </Button>
-                      <p className="privacy-note">
-                        主动引用的文字和图片随问题发送；文档 Agent
-                        按需检索、读取原文。
-                      </p>
                     </div>
                   }
                   extras={(message) => (
@@ -1874,6 +1871,18 @@ export function Workspace({
                   onResolve={(a, resolved) => void resolveQuestion(a, resolved)}
                   onShowAnswer={showAnswer}
                   onExport={() => setExportingNotes(true)}
+                />
+              </TabsContent>
+              <TabsContent
+                value="paper-note"
+                keepMounted
+                className="paper-note-panel"
+              >
+                <PaperNote
+                  key={doc.id}
+                  documentId={doc.id}
+                  annotations={annotations}
+                  active={active && rightTab === "paper-note"}
                 />
               </TabsContent>
             </Tabs>

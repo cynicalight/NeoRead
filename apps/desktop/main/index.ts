@@ -1,5 +1,9 @@
+import { confirmReaderMigration } from "./migration-confirmation";
+import { startupAppearanceArgument } from "../startup-appearance";
+import { saveStartupAppearance } from "./startup-appearance-cache";
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   dialog,
   ipcMain,
@@ -21,6 +25,8 @@ import {
 import { startLibraryRecoveryServer } from "./library-recovery-server";
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
+import { createStartupWindow } from "./startup-window";
+import { prepareStartupExit } from "./startup-exit";
 import { agentPath } from "./agent-path";
 import { codexThreadURL } from "../../../packages/neoread-core/src/codex-link";
 import { annotationUndoShortcut } from "../../../packages/neoread-core/src/undo-shortcut";
@@ -38,8 +44,11 @@ import {
 } from "./proxy-settings";
 import { startUpdateService } from "./update-service";
 import { devIsolation } from "./dev-isolation";
+import { documentArguments, documentFile } from "./open-files";
 import {
   migrateReaderData,
+  detectReaderMigration,
+  declineReaderMigration,
   ReaderMigrationError,
   promptLegacyCleanup,
   type ReaderMigration,
@@ -48,9 +57,11 @@ import { startDiagnosticService } from "./diagnostic-service";
 import { serverSpawnDiagnostics } from "./server-spawn-diagnostics";
 import { discoverEndNote } from "./endnote-discovery";
 import { commandLineStatus, setCommandLine } from "./command-line";
-import { createCitationWindow } from "./citation-window";
+import { startCitationService } from "./citation-service";
 import {
   citePluginStatus,
+  authorizeWordPluginAccess,
+  wordAccessFolder,
   installCitePlugin,
   uninstallCitePlugin,
   type CitePluginKind,
@@ -72,11 +83,67 @@ let child: ChildProcess | undefined;
 let serverURL = "";
 let serverToken = "";
 let window: BrowserWindow | undefined;
+let startupWindow: ReturnType<typeof createStartupWindow> | undefined;
+let startupStarted = performance.now();
+let bootstrapEntryMs: number | undefined;
+export function adoptStartupWindow(
+  startup: ReturnType<typeof createStartupWindow>,
+  startedAt: number,
+  entryMs: number,
+) {
+  startupWindow = startup;
+  startupStarted = startedAt;
+  bootstrapEntryMs = entryMs;
+}
+function startupStage(event: string, started = startupStarted) {
+  diagnostics?.logs.record("desktop", {
+    level: "info",
+    event,
+    durationMs: Math.round(performance.now() - started),
+  });
+}
 let documentTabActive = false;
+let citationService: ReturnType<typeof startCitationService> | undefined;
+let reopenMainWindow: (() => Promise<void>) | undefined;
+let mainWindowOpening: Promise<void> | undefined;
+let quitRequested = false;
+function showMainWindow() {
+  if (quitRequested || quitting) return;
+  if (startupWindow) {
+    const feedback = startupWindow.nativeWindow;
+    if (feedback && !feedback.isDestroyed()) {
+      if (feedback.isMinimized()) feedback.restore();
+      feedback.show();
+      feedback.focus();
+    }
+    return;
+  }
+  if (window && !window.isDestroyed()) {
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  } else if (reopenMainWindow && !mainWindowOpening) {
+    mainWindowOpening = reopenMainWindow()
+      .catch((error) => {
+        diagnostics?.record("desktop.reopen_failed", error);
+        dialog.showErrorBox("无法重新打开 NeoRead", "请退出 NeoRead 后重试。");
+      })
+      .finally(() => {
+        mainWindowOpening = undefined;
+      });
+  }
+}
+app.on("activate", showMainWindow);
+// Updating closes windows before app's before-quit event.
+autoUpdater.on("before-quit-for-update", () => {
+  quitRequested = true;
+});
 let quitting = false;
 let closing = false;
 let flushed = false;
 let restartRequested = false;
+let proxyReady: Promise<ProxySettingsService>;
+const runtimeController = new AbortController();
 let proxySettings: ProxySettingsService;
 let activeLibrary: string | undefined;
 let choosingLibrary = false;
@@ -112,7 +179,7 @@ const commandLineHost = () => ({
   env: process.env,
 });
 async function startServer() {
-  const childEnv = proxySettings.activeEnvironment;
+  const childEnv = process.env;
   serverToken = randomBytes(32).toString("hex");
   diagnostics?.logs.secrets.push(serverToken);
   diagnostics?.record("server.start_requested");
@@ -121,7 +188,7 @@ async function startServer() {
     ? join(process.resourcesPath, "web")
     : join(root, "web", "dist");
   const citePlugins = citePluginsDirectory();
-  const pathValue = await agentPath(childEnv, homedir(), process.platform);
+  if (quitting) throw new Error("Startup cancelled");
   child = spawn(
     binary,
     [
@@ -134,6 +201,7 @@ async function startServer() {
       "--data",
       activeLibrary!,
       "--shutdown-on-stdin",
+      "--desktop-runtime",
       "--web",
       web,
       "--cite-plugins",
@@ -144,7 +212,6 @@ async function startServer() {
       env: {
         ...childEnv,
         NEOREAD_TOKEN: serverToken,
-        PATH: pathValue,
         NEOREAD_NODE: process.execPath,
         NEOREAD_AGENT: app.isPackaged
           ? join(process.resourcesPath, "agent", "dist", "main.mjs")
@@ -166,6 +233,7 @@ async function startServer() {
   );
   child.once("close", () => stderrLines.close());
   return new Promise<string>((accept, reject) => {
+    let started = false;
     const timer = setTimeout(() => {
       child?.kill();
       reject(new Error("本地服务启动超时"));
@@ -187,14 +255,20 @@ async function startServer() {
       });
       clearTimeout(timer);
       reject(new Error(`本地服务已退出 (${code})`));
-      if (window && !quitting) {
+      // Startup failures are handled by the outer startup catch. Once ready,
+      // the service remains essential even with no main window on macOS.
+      if (started && !quitting) {
+        quitRequested = true;
+        flushed = true;
+        citationService?.stop();
+        citationService = undefined;
         void diagnostics!
           .failure(
             "NeoRead 本地服务已停止",
             "已保存的文档和笔记仍保留在本地。可先导出诊断包，再重新打开 NeoRead。",
           )
-          .then(() => {
-            flushed = true;
+          .catch(() => {})
+          .finally(() => {
             app.quit();
           });
       }
@@ -204,6 +278,7 @@ async function startServer() {
       try {
         const ready = JSON.parse(line);
         serverURL = ready.url;
+        started = true;
         diagnostics?.record("server.ready");
         clearTimeout(timer);
         lines.close();
@@ -244,8 +319,9 @@ async function importPaths(
   allowLarge = false,
   folder = "",
 ) {
-  const accepted = library === "papers" ? /\.pdf$/i : /\.(epub|pdf)$/i;
+  const accepted = library === "papers" ? /\.pdf$/i : documentFile;
   const large: Array<{ id: string; name: string; pages: number }> = [];
+  const documents: string[] = [];
   for (const path of paths) {
     if (!accepted.test(path)) continue;
     const data = await readFile(path);
@@ -272,14 +348,15 @@ async function importPaths(
       const id = randomBytes(16).toString("hex");
       largePapers.set(id, path);
       large.push({ id, name, pages: failure.pages });
-    }
+    } else documents.push((await response.json()).id);
   }
   window?.webContents.send("neoread:library-changed");
-  return large;
+  return { large, documents };
 }
 // neoread:// links reach one window. The renderer claims queued links once its
 // listener exists; later links are sent directly.
-const primary = app.requestSingleInstanceLock();
+const primary =
+  app.hasSingleInstanceLock?.() || app.requestSingleInstanceLock();
 if (!primary) app.quit();
 const pendingLinks: NeoReadLinkTarget[] = [];
 let linksClaimed = false;
@@ -288,9 +365,11 @@ function openLink(link: string) {
   if (!target) return;
   if (linksClaimed && window && !window.isDestroyed()) {
     window.webContents.send("neoread:open-link", target);
-    if (window.isMinimized()) window.restore();
-    window.focus();
-  } else pendingLinks.push(target);
+    showMainWindow();
+  } else {
+    pendingLinks.push(target);
+    showMainWindow();
+  }
 }
 const linkArgument = (argv: string[]) =>
   argv.find((arg) =>
@@ -300,27 +379,85 @@ app.on("open-url", (event, link) => {
   event.preventDefault();
   openLink(link);
 });
-app.on("second-instance", (_event, argv) => {
+app.on("second-instance", (_event, argv, workingDirectory) => {
   const link = linkArgument(argv);
+  const files =
+    process.platform === "darwin"
+      ? []
+      : documentArguments(argv, workingDirectory, !!process.defaultApp);
   if (link) openLink(link);
-  else if (window && !window.isDestroyed()) {
-    if (window.isMinimized()) window.restore();
-    window.focus();
+  else {
+    openFiles(files);
+    // Windows lets the window come forward only while handling this event.
+    showMainWindow();
   }
 });
 {
   const link = linkArgument(process.argv);
   if (link) openLink(link);
 }
+// Documents opened from Finder or Explorer are imported like any other file:
+// PDFs into papers, where long ones wait for the reader's choice, and EPUBs
+// into books. An identical file resolves to the existing document. The
+// renderer opens the first of each batch once it may be read.
+type OpenedFiles = {
+  documents: string[];
+  large: Array<{ id: string; name: string; pages: number }>;
+};
 const pendingFiles: string[] = [];
+const pendingOpened: OpenedFiles[] = [];
+let openedClaimed = false;
+let filesScheduled: NodeJS.Timeout | undefined;
+function openFiles(paths: string[]) {
+  if (!paths.length) return;
+  pendingFiles.push(...paths);
+  // Finder delivers a multiple selection as separate open-file events.
+  if (serverURL && !recoveryServer && !filesScheduled)
+    filesScheduled = setTimeout(() => void flushFiles(), 100);
+}
+async function flushFiles() {
+  filesScheduled = undefined;
+  const paths = pendingFiles.splice(0);
+  if (!paths.length) return;
+  const opened: OpenedFiles = { documents: [], large: [] };
+  try {
+    for (const path of paths) {
+      const { documents, large } = await importPaths(
+        [path],
+        /\.pdf$/i.test(path) ? "papers" : "books",
+      );
+      opened.documents.push(...documents);
+      opened.large.push(...large);
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    diagnostics?.logs.record("desktop", {
+      level: "error",
+      event: "open_with.import_failed",
+      count: paths.length,
+      errorCode: ["EPERM", "EACCES", "EBUSY", "ENOENT"].includes(code || "")
+        ? code
+        : "import",
+    });
+    dialog.showErrorBox("导入失败", (error as Error).message);
+  }
+  if (!opened.documents.length && !opened.large.length) return;
+  if (openedClaimed && window && !window.isDestroyed()) {
+    window.webContents.send("neoread:open-files", opened);
+    showMainWindow();
+  } else {
+    pendingOpened.push(opened);
+    showMainWindow();
+  }
+}
 app.on("open-file", (event, path) => {
   event.preventDefault();
-  if (serverURL && !recoveryServer)
-    void importPaths([path]).catch((e) =>
-      dialog.showErrorBox("导入失败", e.message),
-    );
-  else pendingFiles.push(path);
+  openFiles([path]);
 });
+if (process.platform !== "darwin")
+  openFiles(
+    documentArguments(process.argv, process.cwd(), !!process.defaultApp),
+  );
 app
   .whenReady()
   .then(async () => {
@@ -330,23 +467,68 @@ app
       () => activeLibrary,
       app.isPackaged,
     );
+    startupWindow ??= createStartupWindow(() => app.quit());
+    await startupWindow.load();
+    if (bootstrapEntryMs !== undefined)
+      diagnostics.logs.record("desktop", {
+        level: "info",
+        event: "startup.bootstrap_entry",
+        durationMs: bootstrapEntryMs,
+      });
+    startupStage("startup.loading_visible");
+    if (quitting) return;
     let migration: ReaderMigration | undefined;
     if (app.isPackaged) {
-      pendingReaderMigration = migrateReaderData(
-        serverBinary(),
+      const detection = await detectReaderMigration(
         app.getPath("appData"),
         app.getPath("userData"),
-        diagnostics,
-        migrationController.signal,
       );
-      try {
-        migration = await pendingReaderMigration;
-      } finally {
-        pendingReaderMigration = undefined;
+      diagnostics.logs.record("desktop", {
+        level: "info",
+        event: "migration.detected",
+        status: detection,
+      });
+      if (quitting) return;
+      let shouldMigrate = detection === "none";
+      if (detection === "required" || detection === "resume") {
+        const confirmed = await confirmReaderMigration(
+          join(process.resourcesPath, "web"),
+          join(__dirname, "migration-preload.cjs"),
+          detection === "resume",
+          migrationController.signal,
+          startupWindow.nativeWindow,
+        );
+        diagnostics.record(
+          confirmed ? "migration.confirmed" : "migration.declined",
+        );
+        if (quitting) return;
+        if (!confirmed) {
+          try {
+            await declineReaderMigration(app.getPath("userData"));
+          } catch (error) {
+            diagnostics.record("migration.decline_save_failed", error);
+          }
+        }
+        shouldMigrate = confirmed;
+      }
+      if (shouldMigrate) {
+        pendingReaderMigration = migrateReaderData(
+          serverBinary(),
+          app.getPath("appData"),
+          app.getPath("userData"),
+          diagnostics,
+          migrationController.signal,
+        );
+        try {
+          migration = await pendingReaderMigration;
+        } finally {
+          pendingReaderMigration = undefined;
+        }
       }
     }
     if (quitting) return;
     diagnostics.finishMigration();
+    startupStage("startup.migration_ready");
     ipcMain.on("neoread:diagnostic-event", (event, value) =>
       diagnostics!.receive(event, value),
     );
@@ -365,12 +547,36 @@ app
           ]);
         else app.setAsDefaultProtocolClient(scheme);
     }
-    proxySettings = await ProxySettingsService.open(
+    const proxyStarted = performance.now();
+    proxyReady = ProxySettingsService.open(
       app.getPath("userData"),
       process.env,
+    ).then(async (service) => {
+      proxySettings = service;
+      if (quitting) {
+        service.stop();
+        return service;
+      }
+      await session.defaultSession.setProxy(
+        electronProxyConfiguration(service.activeSettings),
+      );
+      startupStage("startup.proxy_ready", proxyStarted);
+      return service;
+    });
+    // Start both discoveries together; neither is a prerequisite for Go.
+    const pathStarted = performance.now();
+    const pathReady = agentPath(process.env, homedir(), process.platform).then(
+      (value) => {
+        startupStage("startup.agent_path_ready", pathStarted);
+        return value;
+      },
     );
-    await session.defaultSession.setProxy(
-      electronProxyConfiguration(proxySettings.activeSettings),
+    // Observe errors immediately while library initialization proceeds.
+    void proxyReady.catch((error) =>
+      diagnostics?.record("startup.proxy_failed", error),
+    );
+    void pathReady.catch((error) =>
+      diagnostics?.record("startup.agent_path_failed", error),
     );
     try {
       activeLibrary = await libraryDirectory(app.getPath("userData"));
@@ -387,9 +593,62 @@ app
           : join(root, "web", "dist"),
       );
     }
+    if (quitting) return;
     const url = recoveryServer
       ? (serverURL = recoveryServer.url)
       : await startServer();
+    if (quitting) return;
+    startupStage("startup.server_ready");
+    if (!recoveryServer) {
+      const sendRuntime = async (
+        stage: string,
+        value: Record<string, string | null>,
+      ) => {
+        if (quitting) return;
+        const response = await fetch(`${url}/api/desktop-runtime/${stage}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serverToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(value),
+          signal: AbortSignal.any([
+            runtimeController.signal,
+            AbortSignal.timeout(5000),
+          ]),
+        });
+        if (!response.ok) throw new Error("无法传递启动环境");
+      };
+      void proxyReady
+        .then((service) =>
+          sendRuntime(
+            "network",
+            Object.fromEntries(
+              [
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "ALL_PROXY",
+                "NO_PROXY",
+                "http_proxy",
+                "https_proxy",
+                "all_proxy",
+                "no_proxy",
+              ].map((key) => [key, service.activeEnvironment[key] ?? null]),
+            ),
+          ),
+        )
+        .catch((error) => {
+          if (!quitting)
+            diagnostics?.record("startup.network_delivery_failed", error);
+        });
+      void pathReady
+        .then((value) => sendRuntime("path", { PATH: value }))
+        .catch((error) => {
+          if (!quitting)
+            diagnostics?.record("startup.path_delivery_failed", error);
+        });
+    }
+
     session.defaultSession.setPermissionRequestHandler(
       (contents, permission, callback, details) => {
         // Only NeoRead's own page may list installed fonts, for the
@@ -407,193 +666,317 @@ app
         );
       },
     );
-    const preferences: unknown = recoveryServer
-      ? {}
-      : await fetch(`${url}/api/settings`, {
-          headers: { Authorization: `Bearer ${serverToken}` },
-        })
-          .then((r) => (r.ok ? r.json() : {}))
-          .catch(() => ({}));
-    diagnostics.setSettings(preferences);
-    const appearance =
-      typeof preferences === "object" &&
-      preferences !== null &&
-      "appearance" in preferences
-        ? preferences.appearance
-        : undefined;
-    nativeTheme.themeSource =
-      appearance === "light" || appearance === "dark"
-        ? appearance
-        : appearance === "sepia"
-          ? "light"
-          : "system";
-    window = new BrowserWindow({
-      width: 1440,
-      height: 940,
-      minWidth: 1000,
-      minHeight: 660,
-      title: "NeoRead",
-      ...(process.platform === "darwin"
-        ? {
-            titleBarStyle: "hidden" as const,
-            trafficLightPosition: { x: 20, y: 20 },
-          }
-        : { autoHideMenuBar: true }),
-      backgroundColor: windowBackground(appearance, preferences),
-      webPreferences: {
-        preload: join(__dirname, "preload.cjs"),
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    });
-    window.webContents.on("render-process-gone", (_event, details) => {
-      diagnostics!.logs.record("desktop", {
-        level: "error",
-        event: "renderer.exited",
-        reason: details.reason,
-        exitCode: details.exitCode,
-      });
-      if (!quitting)
-        void diagnostics!
-          .failure("NeoRead 界面已停止", "可先导出诊断包，再重新打开 NeoRead。")
-          .then(() => {
-            flushed = true;
-            app.quit();
+    reopenMainWindow = async () => {
+      if (quitRequested || quitting || (window && !window.isDestroyed()))
+        return;
+      flushed = false;
+      closing = false;
+      documentTabActive = false;
+      const preferences: unknown = recoveryServer
+        ? {}
+        : await fetch(
+            `${url}/api/settings${startupWindow ? "?startup=1" : ""}`,
+            {
+              headers: { Authorization: `Bearer ${serverToken}` },
+              signal: AbortSignal.timeout(3000),
+            },
+          ).then((r) => {
+            if (!r.ok) throw new Error("无法读取窗口主题设置");
+            return r.json();
           });
-    });
-    window.webContents.on("did-fail-load", (_event, code) =>
-      diagnostics?.logs.record("desktop", {
-        level: "error",
-        event: "renderer.load_failed",
-        code,
-      }),
-    );
-    window.on("close", (event) => {
-      if (flushed) return;
-      event.preventDefault();
-      if (closing) return;
-      closing = true;
-      window!.webContents.send("neoread:flush");
-      const timer = setTimeout(() => {
-        void finish("保存超时，请重试。");
-      }, 10000);
-      const handler = (event: Electron.IpcMainEvent, error: string | null) => {
-        if (
-          event.sender !== window?.webContents ||
-          event.senderFrame !== window.webContents.mainFrame
-        )
-          return;
-        void finish(error);
-      };
-      let finished = false;
-      const finish = async (error: string | null) => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timer);
-        ipcMain.removeListener("neoread:flushed", handler);
-        if (error) {
-          // A failed flush must never produce a migrated, stale snapshot.
-          pendingLibraryMove?.resolve(false);
-          pendingLibraryMove = undefined;
-          diagnostics?.record("reading.flush_failed", new Error(error));
-          const result = await dialog.showMessageBox(window!, {
-            type: "warning",
-            message: "阅读数据尚未保存",
-            detail: error,
-            buttons: ["返回阅读", "仍然退出"],
-            defaultId: 0,
-            cancelId: 0,
-          });
-          if (result.response === 0) {
-            closing = false;
-            restartRequested = false;
-            return;
-          }
-        }
-        if (pendingLibraryMove) {
-          const move = pendingLibraryMove;
-          pendingLibraryMove = undefined;
-          quitting = true; // This server exit is intentional.
-          updateService?.stop();
-          proxySettings?.stop();
-          try {
-            if (move.existing) {
-              if (child) await stopLibraryServer(child);
-              await validateLibraryDirectory(move.destination, serverBinary());
-              await saveLibraryDirectory(
-                app.getPath("userData"),
-                move.destination,
-              );
-            } else
-              await migrateLibrary(
-                app.getPath("userData"),
-                activeLibrary!,
-                move.destination,
-                serverBinary(),
-                async () => {
-                  if (child) await stopLibraryServer(child);
-                },
-              );
-            move.resolve(true);
-          } catch (error) {
-            await dialog.showMessageBox(window!, {
-              type: "error",
-              message: move.existing ? "打开书库失败" : "书库迁移失败",
-              detail: `${(error as Error).message}\n原书库已保留，将重新打开原来的位置。`,
-              buttons: ["重新打开 NeoRead"],
-            });
-            move.resolve(false);
-          }
-        }
-        flushed = true;
-        window?.close();
-      };
-      ipcMain.on("neoread:flushed", handler);
-    });
-    // Let the renderer handle reading shortcuts; editable fields keep native undo.
-    window.webContents.on("before-input-event", (_event, input) => {
-      const tabCommand = documentTabCommand({
-        key: input.key,
-        metaKey: input.meta,
-        ctrlKey: input.control,
-        shiftKey: input.shift,
-        altKey: input.alt,
-        isComposing: input.isComposing,
-      });
-      window?.webContents.setIgnoreMenuShortcuts(
-        input.type === "keyDown" &&
-          ((tabCommand !== null &&
-            (documentTabActive || tabCommand.type === "reopen")) ||
-            annotationUndoShortcut({
-              key: input.key,
-              metaKey: input.meta,
-              ctrlKey: input.control,
-              shiftKey: input.shift,
-              altKey: input.alt,
-              isComposing: input.isComposing,
-            }) ||
-            ((input.meta || input.control) &&
-              !input.shift &&
-              !input.alt &&
-              input.key.toLowerCase() === "f") ||
-            zoomCommand({
-              key: input.key,
-              code: input.code,
-              metaKey: input.meta,
-              ctrlKey: input.control,
-              altKey: input.alt,
-              isComposing: input.isComposing,
-            }) !== null),
+      if (quitRequested || quitting) return;
+      diagnostics!.setSettings(preferences);
+      const appearance =
+        typeof preferences === "object" &&
+        preferences !== null &&
+        "appearance" in preferences
+          ? preferences.appearance
+          : undefined;
+      nativeTheme.themeSource =
+        appearance === "light" || appearance === "dark"
+          ? appearance
+          : appearance === "sepia"
+            ? "light"
+            : "system";
+      startupStage("startup.preferences_ready");
+      void saveStartupAppearance(app.getPath("userData"), appearance).catch(
+        (error) =>
+          diagnostics?.record("startup.appearance_cache_failed", error),
       );
-    });
-    window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    window.webContents.on("will-navigate", (event, target) => {
-      if (new URL(target).origin !== url) event.preventDefault();
-    });
-    window.webContents.on("will-attach-webview", (event) =>
-      event.preventDefault(),
-    );
+      window = new BrowserWindow({
+        show: false,
+        width: 1440,
+        height: 940,
+        minWidth: 1000,
+        minHeight: 660,
+        title: "NeoRead",
+        ...(process.platform === "darwin"
+          ? {
+              titleBarStyle: "hidden" as const,
+              trafficLightPosition: { x: 20, y: 20 },
+            }
+          : { autoHideMenuBar: true }),
+        backgroundColor: windowBackground(appearance, preferences),
+        webPreferences: {
+          preload: join(__dirname, "preload.cjs"),
+          additionalArguments: [startupAppearanceArgument(preferences)],
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+        },
+      });
+      window.webContents.on("render-process-gone", (_event, details) => {
+        diagnostics!.logs.record("desktop", {
+          level: "error",
+          event: "renderer.exited",
+          reason: details.reason,
+          exitCode: details.exitCode,
+        });
+        if (!quitting)
+          void diagnostics!
+            .failure(
+              "NeoRead 界面已停止",
+              "可先导出诊断包，再重新打开 NeoRead。",
+            )
+            .then(() => {
+              flushed = true;
+              app.quit();
+            });
+      });
+      window.webContents.on("did-fail-load", (_event, code) =>
+        diagnostics?.logs.record("desktop", {
+          level: "error",
+          event: "renderer.load_failed",
+          code,
+        }),
+      );
+      window.once("closed", () => {
+        window = undefined;
+        updateService?.stop();
+        updateService = undefined;
+        linksClaimed = false;
+        openedClaimed = false;
+      });
+      window.on("close", (event) => {
+        if (flushed) return;
+        event.preventDefault();
+        if (closing) return;
+        closing = true;
+        // Close the visible UI immediately, but keep its renderer and local
+        // server alive until the final save acknowledges completion.
+        if (!pendingLibraryMove) window!.hide();
+        window!.webContents.send("neoread:flush");
+        const timer = setTimeout(() => {
+          void finish("保存超时，请重试。");
+        }, 10000);
+        const handler = (
+          event: Electron.IpcMainEvent,
+          error: string | null,
+          noteSaveDiscarded?: boolean,
+        ) => {
+          if (
+            event.sender !== window?.webContents ||
+            event.senderFrame !== window.webContents.mainFrame
+          )
+            return;
+          void finish(error, noteSaveDiscarded === true);
+        };
+        let finished = false;
+        const finish = async (
+          error: string | null,
+          noteSaveDiscarded = false,
+        ) => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(timer);
+          ipcMain.removeListener("neoread:flushed", handler);
+          if (error) {
+            // A failed flush must never produce a migrated, stale snapshot.
+            pendingLibraryMove?.resolve(false);
+            pendingLibraryMove = undefined;
+            diagnostics?.record("reading.flush_failed", new Error(error));
+            window?.show();
+            const result = await dialog.showMessageBox(window!, {
+              type: "warning",
+              message: "阅读数据尚未保存",
+              detail: error,
+              buttons: ["返回阅读", "仍然退出"],
+              defaultId: 0,
+              cancelId: 0,
+            });
+            if (result.response === 0) {
+              closing = false;
+              restartRequested = false;
+              quitRequested = false;
+              showMainWindow();
+              return;
+            }
+          }
+          if (noteSaveDiscarded) {
+            window?.show();
+            await dialog.showMessageBox(window!, {
+              type: "warning",
+              message: "论文笔记保存失败",
+              detail: "本次未保存的修改已丢弃。",
+              buttons: ["知道了"],
+            });
+          }
+          if (pendingLibraryMove) {
+            const move = pendingLibraryMove;
+            pendingLibraryMove = undefined;
+            quitting = true; // This server exit is intentional.
+            updateService?.stop();
+            proxySettings?.stop();
+            try {
+              if (move.existing) {
+                if (child) await stopLibraryServer(child);
+                await validateLibraryDirectory(
+                  move.destination,
+                  serverBinary(),
+                );
+                await saveLibraryDirectory(
+                  app.getPath("userData"),
+                  move.destination,
+                );
+              } else
+                await migrateLibrary(
+                  app.getPath("userData"),
+                  activeLibrary!,
+                  move.destination,
+                  serverBinary(),
+                  async () => {
+                    if (child) await stopLibraryServer(child);
+                  },
+                );
+              move.resolve(true);
+            } catch (error) {
+              await dialog.showMessageBox(window!, {
+                type: "error",
+                message: move.existing ? "打开书库失败" : "书库迁移失败",
+                detail: `${(error as Error).message}\n原书库已保留，将重新打开原来的位置。`,
+                buttons: ["重新打开 NeoRead"],
+              });
+              move.resolve(false);
+            }
+          }
+          flushed = true;
+          if (
+            quitRequested ||
+            restartRequested ||
+            process.platform !== "darwin"
+          )
+            app.quit();
+          else window?.close();
+        };
+        ipcMain.on("neoread:flushed", handler);
+      });
+      // Let the renderer handle reading shortcuts; editable fields keep native undo.
+      window.webContents.on("before-input-event", (_event, input) => {
+        const tabCommand = documentTabCommand({
+          key: input.key,
+          metaKey: input.meta,
+          ctrlKey: input.control,
+          shiftKey: input.shift,
+          altKey: input.alt,
+          isComposing: input.isComposing,
+        });
+        window?.webContents.setIgnoreMenuShortcuts(
+          input.type === "keyDown" &&
+            ((tabCommand !== null &&
+              (documentTabActive || tabCommand.type === "reopen")) ||
+              annotationUndoShortcut({
+                key: input.key,
+                metaKey: input.meta,
+                ctrlKey: input.control,
+                shiftKey: input.shift,
+                altKey: input.alt,
+                isComposing: input.isComposing,
+              }) ||
+              ((input.meta || input.control) &&
+                !input.shift &&
+                !input.alt &&
+                input.key.toLowerCase() === "f") ||
+              zoomCommand({
+                key: input.key,
+                code: input.code,
+                metaKey: input.meta,
+                ctrlKey: input.control,
+                altKey: input.alt,
+                isComposing: input.isComposing,
+              }) !== null),
+        );
+      });
+      window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+      window.webContents.on("will-navigate", (event, target) => {
+        if (new URL(target).origin !== url) event.preventDefault();
+      });
+      window.webContents.on("will-attach-webview", (event) =>
+        event.preventDefault(),
+      );
+      const createdWindow = window;
+      await createdWindow.loadURL(
+        `${url}/${recoveryServer ? "?libraryRecovery=1" : ""}#token=${serverToken}`,
+      );
+      const feedback = startupWindow;
+      await feedback?.waitForMinimumDisplay();
+      let exitStartup: Awaited<ReturnType<typeof prepareStartupExit>> | undefined;
+      const canShow = () =>
+        !quitRequested && !quitting && !createdWindow.isDestroyed();
+      if (canShow() && feedback && !feedback.nativeWindow.isDestroyed()) {
+        try {
+          // Paint the same loading surface over the real renderer before showing
+          // it; a transparent native window would expose the desktop instead.
+          createdWindow.setBounds(feedback.nativeWindow.getBounds());
+          exitStartup = await prepareStartupExit(
+            feedback.nativeWindow,
+            createdWindow,
+          );
+        } catch (error) {
+          if (canShow()) diagnostics?.record("startup.exit_prepare_failed", error);
+        }
+      }
+      const reveal = canShow();
+      if (reveal) {
+        if (
+          feedback &&
+          !feedback.nativeWindow.isDestroyed() &&
+          feedback.nativeWindow.isMaximized()
+        )
+          createdWindow.maximize();
+        createdWindow.show();
+      }
+      feedback?.dispose();
+      if (startupWindow === feedback) startupWindow = undefined;
+      try {
+        await exitStartup?.(reveal);
+      } catch (error) {
+        if (canShow()) diagnostics?.record("startup.exit_failed", error);
+      }
+      startupStage("startup.renderer_loaded");
+      if (window === createdWindow && !createdWindow.isDestroyed()) {
+        void proxyReady
+          .then(async () => {
+            if (
+              quitting ||
+              window !== createdWindow ||
+              createdWindow.isDestroyed()
+            )
+              return;
+            const updates = await startUpdateService(createdWindow);
+            if (
+              quitting ||
+              window !== createdWindow ||
+              createdWindow.isDestroyed()
+            )
+              updates.stop();
+            else updateService = updates;
+          })
+          .catch((error) => {
+            if (!quitting)
+              diagnostics?.record("startup.updates_deferred_failed", error);
+          });
+      }
+    };
     ipcMain.handle("neoread:clipboard-write", (event, text: unknown) =>
       writeClipboardText(event, text, window?.webContents, url),
     );
@@ -702,17 +1085,17 @@ app
         choosingLibrary = false;
       }
     });
-    ipcMain.handle("neoread:proxy-settings", (event) => {
+    ipcMain.handle("neoread:proxy-settings", async (event) => {
       settingsSender(event);
-      return proxySettings.state();
+      return (await proxyReady).state();
     });
-    ipcMain.handle("neoread:save-proxy-settings", (event, value: unknown) => {
+    ipcMain.handle("neoread:save-proxy-settings", async (event, value: unknown) => {
       settingsSender(event);
-      return proxySettings.save(value);
+      return (await proxyReady).save(value);
     });
-    ipcMain.handle("neoread:check-proxy", (event, value: unknown) => {
+    ipcMain.handle("neoread:check-proxy", async (event, value: unknown) => {
       settingsSender(event);
-      return proxySettings.check(value, serverBinary());
+      return (await proxyReady).check(value, serverBinary());
     });
     ipcMain.handle("neoread:command-line", (event) => {
       settingsSender(event);
@@ -747,6 +1130,10 @@ app
         // Paper is a light theme for native chrome with its own background.
         nativeTheme.themeSource = appearance === "sepia" ? "light" : appearance;
         window.setBackgroundColor(windowBackground(appearance, palettes));
+        void saveStartupAppearance(app.getPath("userData"), appearance).catch(
+          (error) =>
+            diagnostics?.record("startup.appearance_cache_failed", error),
+        );
       },
     );
     ipcMain.handle(
@@ -786,6 +1173,15 @@ app
       linksClaimed = true;
       return pendingLinks.splice(0);
     });
+    ipcMain.handle("neoread:take-opened-files", (event) => {
+      if (
+        event.sender !== window?.webContents ||
+        event.senderFrame !== window.webContents.mainFrame
+      )
+        throw new Error("Invalid sender");
+      openedClaimed = true;
+      return pendingOpened.splice(0);
+    });
     ipcMain.handle(
       "neoread:open-codex-thread",
       async (event, threadId: unknown) => {
@@ -805,7 +1201,7 @@ app
       requestFolderAccess: async (folder: string) => {
         const selected = await dialog.showOpenDialog(window!, {
           title: "允许访问 Word 插件文件夹",
-          message: "请选择当前文件夹，允许 NeoRead 安装或移除 Word 引用插件。",
+          message: "请选择当前文件夹，允许 NeoRead 访问 Word 引用插件。",
           buttonLabel: "允许访问",
           defaultPath: folder,
           properties: ["openDirectory"],
@@ -824,9 +1220,94 @@ app
       )
         throw new Error("Invalid sender");
     };
-    ipcMain.handle("neoread:cite-plugins", (event) => {
+    let wordAccessDeniedFolder: string | null = null;
+    ipcMain.handle("neoread:cite-plugins", async (event) => {
       fromWindow(event);
-      return citePluginStatus(citeOptions());
+      wordAccessDeniedFolder = null;
+      const started = Date.now();
+      diagnostics?.logs.record("desktop", {
+        level: "info",
+        event: "cite_plugin.status_start",
+      });
+      try {
+        const plugins = await citePluginStatus(citeOptions());
+        diagnostics?.logs.record("desktop", {
+          level: "info",
+          event: "cite_plugin.status_finish",
+          durationMs: Date.now() - started,
+        });
+        return plugins;
+      } catch (error) {
+        const failure = error as NodeJS.ErrnoException & { killed?: boolean };
+        const code = failure?.code;
+        diagnostics?.logs.record("desktop", {
+          level: "error",
+          event: "cite_plugin.status_failed",
+          durationMs: Date.now() - started,
+          errorCode: [
+            "EPERM",
+            "EACCES",
+            "ENOENT",
+            "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+          ].includes(code || "")
+            ? code
+            : failure?.killed
+              ? "timeout"
+              : "status",
+        });
+        wordAccessDeniedFolder = wordAccessFolder(error, citeOptions());
+        if (wordAccessDeniedFolder)
+          throw new Error(
+            "WORD_ACCESS_REQUIRED:访问被拒绝，请授权访问 Word 插件目录。",
+          );
+        if (code === "EACCES" || code === "EPERM")
+          throw new Error(
+            "访问被拒绝，请检查 Word 或 WPS 配置目录的访问权限。",
+          );
+        if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
+          throw new Error("Word 配置信息过多，无法完成检测。请导出诊断包。");
+        if (failure?.killed)
+          throw new Error("检测超时，请重试；如果持续失败，请导出诊断包。");
+        if (
+          error instanceof Error &&
+          error.message.startsWith("Word 启动目录配置无效")
+        )
+          throw error;
+        throw new Error(
+          "无法读取插件状态，请重试；如果持续失败，请导出诊断包。",
+        );
+      }
+    });
+    ipcMain.handle("neoread:cite-plugin-authorize-word", async (event) => {
+      fromWindow(event);
+      if (!wordAccessDeniedFolder)
+        throw new Error("请先重新检测 Word 插件状态。");
+      const started = Date.now();
+      diagnostics?.logs.record("desktop", {
+        level: "info",
+        event: "cite_plugin.authorize_start",
+      });
+      try {
+        await authorizeWordPluginAccess(wordAccessDeniedFolder, citeOptions());
+        diagnostics?.logs.record("desktop", {
+          level: "info",
+          event: "cite_plugin.authorize_finish",
+          durationMs: Date.now() - started,
+        });
+      } catch (error) {
+        const cancelled =
+          error instanceof Error &&
+          error.message === "已取消 Word 插件文件夹授权";
+        diagnostics?.logs.record("desktop", {
+          level: cancelled ? "info" : "error",
+          event: cancelled
+            ? "cite_plugin.authorize_cancelled"
+            : "cite_plugin.authorize_failed",
+          durationMs: Date.now() - started,
+          ...(cancelled ? {} : { errorCode: "authorization" }),
+        });
+        throw error;
+      }
     });
     ipcMain.handle("neoread:cite-plugin-install", async (event, kind) => {
       fromWindow(event);
@@ -874,6 +1355,10 @@ app
         event.senderFrame !== window.webContents.mainFrame
       )
         throw new Error("Invalid sender");
+      if (startupWindow) {
+        showMainWindow();
+        return;
+      }
       if (window.isMinimized()) window.restore();
       window.show();
       if (process.platform === "darwin") app.focus({ steal: true });
@@ -985,7 +1470,8 @@ app
         });
         return selected.canceled
           ? []
-          : importPaths(selected.filePaths, library, false, folder);
+          : (await importPaths(selected.filePaths, library, false, folder))
+              .large;
       },
     );
     ipcMain.handle(
@@ -1008,29 +1494,29 @@ app
           if (path) largePapers.delete(id);
           return path ? [path] : [];
         });
-        await importPaths(paths, library, true, folder);
+        return (await importPaths(paths, library, true, folder)).documents;
       },
     );
-    await window.loadURL(
-      `${url}/${recoveryServer ? "?libraryRecovery=1" : ""}#token=${serverToken}`,
-    );
+    mainWindowOpening = reopenMainWindow();
+    await mainWindowOpening;
+    mainWindowOpening = undefined;
+    if (quitRequested || quitting) return;
     if (!recoveryServer)
-      await createCitationWindow({
+      citationService = startCitationService({
         url,
         token: serverToken,
         preload: join(__dirname, "preload.cjs"),
+        record: (event) => diagnostics?.record(event),
       });
     if (migration && !recoveryServer)
       await promptLegacyCleanup(
-        window,
+        window!,
         serverBinary(),
         app.getPath("appData"),
         app.getPath("userData"),
         migration,
       );
-    if (!recoveryServer && pendingFiles.length)
-      await importPaths(pendingFiles.splice(0));
-    updateService = await startUpdateService(window);
+    if (!recoveryServer) await flushFiles();
     ipcMain.handle("neoread:check-updates", (event) => {
       if (
         event.sender !== window?.webContents ||
@@ -1056,12 +1542,16 @@ app
     app.quit();
   });
 app.on("before-quit", (event) => {
+  quitRequested = true;
   if (window && !window.isDestroyed() && !flushed) {
     event.preventDefault();
     window.close();
     return;
   }
   quitting = true;
+  runtimeController.abort();
+  startupWindow?.dispose();
+  startupWindow = undefined;
   if (pendingReaderMigration) {
     event.preventDefault();
     if (!migrationController.signal.aborted) {
@@ -1074,6 +1564,7 @@ app.on("before-quit", (event) => {
     restartRequested = false;
     app.relaunch();
   }
+  citationService?.stop();
   diagnostics?.record("desktop.stopping");
   updateService?.stop();
   proxySettings?.stop();
@@ -1082,4 +1573,6 @@ app.on("before-quit", (event) => {
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => app.quit());
-app.on("window-all-closed", () => app.quit());
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin" && !quitting) app.quit();
+});

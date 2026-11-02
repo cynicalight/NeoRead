@@ -1,3 +1,4 @@
+import { reducedMotion } from "../motion";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { EPUBReadingBlock, PDFBlockAction } from "@neoread/core";
@@ -47,9 +48,6 @@ export function epubBlockRect(container: HTMLElement, id: string) {
     height: bottom - top + padY * 2,
   };
 }
-
-const reducedMotion = () =>
-  !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 export class EPUBBlockOverlay {
   private hover = this.box("neoread-block-hover");

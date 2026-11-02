@@ -24,7 +24,7 @@ import {
   ArrowUp,
   Check,
   CheckSquare,
-  List,
+  LayoutGrid,
   Table2,
   FileDown,
   FolderMinus,
@@ -87,6 +87,8 @@ import {
 } from "@neoread/ui/components/dropdown-menu";
 import { useReaderStore } from "../store";
 import { TrashView } from "../TrashView";
+import { BookCoverImage } from "../book-cover";
+import { useCardZoom } from "../useCardZoom";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
 import { trashWithUndo } from "../library-actions";
 import { toast } from "sonner";
@@ -260,7 +262,17 @@ export function PaperLibrary({
     };
   }, []);
   const tags = paperTags(documents);
-  const table = prefs.layout === "table" && view !== "duplicates";
+  const layout = prefs.layout ?? "table";
+  const table = layout === "table" && view !== "duplicates";
+  const showAuthors = prefs.showAuthors !== false;
+  const cardScale = prefs.cardScale || 1;
+  const [listPane, setListPane] = useState<HTMLElement | null>(null);
+  useCardZoom(
+    listPane,
+    !table && view !== "duplicates" && view !== "trash",
+    cardScale,
+    (next) => void savePaperPreferences((p) => ({ ...p, cardScale: next })),
+  );
   const sortBy = (next: PaperSort) =>
     void savePaperPreferences((p) => ({
       ...p,
@@ -650,10 +662,16 @@ export function PaperLibrary({
         )}
     </div>
   );
-  const renderRow = (doc: Document, tableColumns?: TableColumn[]) => (
+  const renderRow = (
+    doc: Document,
+    tableColumns?: TableColumn[],
+    card = false,
+  ) => (
     <Fragment key={doc.id}>
       <PaperRow
         columns={tableColumns}
+        card={card}
+        showAuthors={showAuthors}
         fillTableSpace={fillTableSpace}
         expanded={expandedAttachments.has(doc.id)}
         onToggleAttachments={() => toggleAttachments(doc.id)}
@@ -716,7 +734,7 @@ export function PaperLibrary({
           />
         }
       />
-      {!picking && expandedAttachments.has(doc.id) && (
+      {!picking && !card && expandedAttachments.has(doc.id) && (
         <AttachmentRows
           doc={doc}
           colSpan={
@@ -822,11 +840,11 @@ export function PaperLibrary({
             </Select>
             {table && <PaperColumns controls={columnControls} />}
             <Tabs
-              value={prefs.layout || "list"}
+              value={layout}
               onValueChange={(value) =>
                 void savePaperPreferences((p) => ({
                   ...p,
-                  layout: value as "list" | "table",
+                  layout: value as "card" | "table",
                 }))
               }
             >
@@ -834,8 +852,8 @@ export function PaperLibrary({
                 <TabsTrigger value="table" aria-label="表格" title="表格">
                   <Table2 />
                 </TabsTrigger>
-                <TabsTrigger value="list" aria-label="列表" title="列表">
-                  <List />
+                <TabsTrigger value="card" aria-label="卡片" title="卡片">
+                  <LayoutGrid />
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -860,6 +878,8 @@ export function PaperLibrary({
         <div className="paper-library-body" ref={setLibraryBody}>
           <section
             className="paper-list-pane"
+            ref={setListPane}
+            style={{ "--card-scale": cardScale } as React.CSSProperties}
             aria-label="论文列表"
             onKeyDown={onListKey}
           >
@@ -1207,8 +1227,8 @@ export function PaperLibrary({
                   </Table>
                 </div>
               ) : (
-                <div className="paper-list" ref={listRef} role="list">
-                  {visible.map((doc) => renderRow(doc))}
+                <div className="paper-grid" ref={listRef} role="list">
+                  {visible.map((doc) => renderRow(doc, undefined, true))}
                 </div>
               )
             ) : (
@@ -1433,6 +1453,10 @@ function PaperProcessing({ job }: { job?: Processing }) {
   );
 }
 
+/** One of the four drawn cover colours, stable for a paper. */
+const coverTone = (id: string) =>
+  [...id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 4;
+
 function PaperRow({
   doc,
   job,
@@ -1443,6 +1467,8 @@ function PaperRow({
   journalRankConfig,
   journalRankRefresh,
   columns,
+  card,
+  showAuthors,
   fillTableSpace,
   dragIds,
   onActivate,
@@ -1461,8 +1487,11 @@ function PaperRow({
   colors: { name: string; color: string }[];
   journalRankConfig: JournalRankConfig | null;
   journalRankRefresh: number;
-  /** Table columns; the row renders as a list card without them. */
+  /** Table columns; the row renders as a list row without them. */
   columns?: TableColumn[];
+  /** Render as a cover card in the paper grid. */
+  card: boolean;
+  showAuthors: boolean;
   fillTableSpace: boolean;
   dragIds: () => string[];
   onActivate: (e: React.MouseEvent | React.KeyboardEvent) => void;
@@ -1478,7 +1507,7 @@ function PaperRow({
   const hasAttachments =
     (doc.attachmentCount || 0) > 0 || !!cached?.length || !!upload;
   const drop = useAttachmentDrop(doc, expanded && !picking && hasAttachments);
-  const disclosure = !picking && hasAttachments && (
+  const disclosure = !picking && !card && hasAttachments && (
     <Button
       size="icon-xs"
       variant="ghost"
@@ -1495,6 +1524,12 @@ function PaperRow({
     </Button>
   );
   const byline = paperByline(doc);
+  const authors = showAuthors ? authorsShort(doc) : "";
+  const authorLine = authors && (
+    <p className="paper-row-byline" title={authors}>
+      {authors}
+    </p>
+  );
   const dragImage = useRef<(() => void) | undefined>(undefined);
   useEffect(() => () => dragImage.current?.(), []);
   const percent = paperProgress(doc.percentage);
@@ -1649,7 +1684,9 @@ function PaperRow({
       <ContextMenuTrigger
         render={columns ? <tr /> : <article />}
         role={columns ? undefined : "listitem"}
-        className={columns ? "paper-table-row" : "paper-row"}
+        className={
+          columns ? "paper-table-row" : card ? "paper-card" : "paper-row"
+        }
         data-paper-id={doc.id}
         data-attachment-drop={drop.armed || undefined}
         onDragEnter={drop.onDragEnter}
@@ -1693,6 +1730,7 @@ function PaperRow({
           if (e.target !== e.currentTarget) return;
           if (
             !picking &&
+            !card &&
             hasAttachments &&
             (e.key === "ArrowRight" || e.key === "ArrowLeft")
           ) {
@@ -1726,6 +1764,7 @@ function PaperRow({
                       {title}
                       <PaperProcessing job={job} />
                     </div>
+                    {authorLine}
                     <JournalRankBadges
                       id={doc.id}
                       venue={doc.metadata.venue || ""}
@@ -1764,6 +1803,24 @@ function PaperRow({
               {dropHint}
               {more}
             </TableCell>
+          </>
+        ) : card ? (
+          <>
+            {dropHint}
+            {check}
+            <div
+              className={`book-cover paper-card-cover cover-${coverTone(doc.id)}`}
+            >
+              <BookCoverImage doc={doc} />
+              <div className="cover-title">{doc.title}</div>
+            </div>
+            {title}
+            {authorLine}
+            <PaperProcessing job={job} />
+            <div className="paper-card-meta">
+              {status}
+              {more}
+            </div>
           </>
         ) : (
           <>

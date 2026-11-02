@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"neoread.local/server/internal/runtimeenv"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -385,7 +385,7 @@ func (s *Server) bookChapterStarts(ctx context.Context, d Document) []int {
 	out := filepath.Join(work, "outline.json")
 	child, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(child, node, worker, "--input", s.Store.File(d), "--output", out, "--outline")
+	cmd := runtimeenv.CommandContext(child, node, worker, "--input", s.Store.File(d), "--output", out, "--outline")
 	cmd.Dir = work
 	cmd.Env = append(os.Environ(), "ELECTRON_RUN_AS_NODE=1")
 	cmd.WaitDelay = 3 * time.Second

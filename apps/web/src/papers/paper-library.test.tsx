@@ -27,6 +27,7 @@ vi.mock("@neoread/api", () => ({
       available: [],
     })),
     update: vi.fn(async () => ({})),
+    lookupMetadata: vi.fn(async () => ({})),
     documents: vi.fn(async () => []),
     trash: vi.fn(async () => []),
     trashDocument: vi.fn(),
@@ -34,12 +35,15 @@ vi.mock("@neoread/api", () => ({
     saveLibraryPreferences: vi.fn(async (value) => value),
     changeLibraryTag: vi.fn(async () => ({ changed: 1 })),
     changeLibraryFolder: vi.fn(async () => ({ changed: 1 })),
+    documentNote: vi.fn(async () => ({ body: "" })),
     mergeDocuments: vi.fn(async () => ({ trashed: [] })),
     relateDocuments: vi.fn(async () => ({})),
     unrelateDocuments: vi.fn(async () => ({})),
     process: vi.fn(async () => ({})),
     setAssistance: vi.fn(async () => ({})),
   },
+  coverURL: (id: string) => `/covers/${id}`,
+  publicationURL: (id: string, path: string) => `/publications/${id}/${path}`,
 }));
 vi.mock("./AttachmentPreview", () => ({
   default: () => <div role="dialog">Attachment preview</div>,
@@ -120,7 +124,10 @@ beforeEach(async () => {
   );
   useReaderStore.setState({
     documents: docs,
-    libraryPreferences: { mode: "papers", papers: { sort: "title" } },
+    libraryPreferences: {
+      mode: "papers",
+      papers: { sort: "title", layout: "card" },
+    },
   });
   usePaperUI.setState({
     view: "all",
@@ -173,6 +180,15 @@ it("shows details on click and saves an edited field as manual metadata", async 
   expect(api.update).toHaveBeenCalledExactlyOnceWith("a", {
     metadata: { venue: "NIPS 2017" },
   });
+});
+
+it("hides empty publication fields while keeping filled fields visible", async () => {
+  await act(async () => row("Attention Is All You Need").click());
+  const detail = host.querySelector(".paper-detail")!;
+  expect(detail.querySelector('[aria-label="出处"]')).not.toBeNull();
+  expect(detail.querySelector('[aria-label="卷"]')).toBeNull();
+  expect(detail.querySelector('[aria-label="短标题"]')).toBeNull();
+  expect(host.textContent).not.toContain("展开空字段");
 });
 
 it("selects all visible papers and changes their status together", async () => {
@@ -524,7 +540,7 @@ it("tags a paper and collects it in a smart tag category", async () => {
   expect(host.querySelectorAll("[data-paper-id]")).toHaveLength(1);
 });
 
-it.each(["list", "table"] as const)(
+it.each(["card", "table"] as const)(
   "retries a failed translation in %s view without opening the paper or posting twice",
   async (layout) => {
     jobs = new Map([
@@ -667,7 +683,7 @@ it("resizes table columns at their shared boundary", async () => {
   rects.mockRestore();
 });
 
-it.each(["list", "table"] as const)(
+it.each(["card", "table"] as const)(
   "does not show paused Zotero imports as parsing in %s view",
   async (layout) => {
     jobs = new Map([
@@ -824,7 +840,7 @@ it("shows optional metadata columns and sorts publication dates without inventin
   expect(api.saveLibraryPreferences).toHaveBeenCalled();
 });
 
-it.each(["list", "table"] as const)(
+it.each(["card", "table"] as const)(
   "shows manual translation after parsing in %s view",
   async (layout) => {
     const job: Processing = {
@@ -867,7 +883,7 @@ it.each(["list", "table"] as const)(
   },
 );
 
-it.each(["list", "table"] as const)(
+it.each(["card", "table"] as const)(
   "combines temporary tags with search in the %s view and clears only tags",
   async (layout) => {
     await act(async () => {
@@ -1038,36 +1054,6 @@ it("does not run paper-list shortcuts from the tag column popover", async () => 
   expect(api.update).not.toHaveBeenCalled();
 });
 
-it("defaults tags to the second column and has no extra tag toolbar button", async () => {
-  await act(async () =>
-    useReaderStore.setState({
-      libraryPreferences: { mode: "papers", papers: { layout: "table" } },
-    }),
-  );
-  expect(
-    [...host.querySelectorAll("th[data-column]")]
-      .slice(0, 2)
-      .map((th) => th.getAttribute("data-column")),
-  ).toEqual(["title", "tags"]);
-  expect(host.querySelector('[aria-label="打开标签筛选"]')).toBeNull();
-  await act(async () =>
-    useReaderStore.setState({
-      libraryPreferences: {
-        mode: "papers",
-        papers: { layout: "table", columns: ["authors"] },
-      },
-    }),
-  );
-  expect(host.querySelector('[aria-label="按标签筛选"]')).toBeNull();
-  expect(host.querySelector('[aria-label="打开标签筛选"]')).toBeNull();
-  await act(async () =>
-    useReaderStore.setState({
-      libraryPreferences: { mode: "papers", papers: { layout: "list" } },
-    }),
-  );
-  expect(host.querySelector('[aria-label="打开标签筛选"]')).toBeNull();
-});
-
 it("filters matching row tags across categories and keeps the current search", async () => {
   await act(async () =>
     useReaderStore.setState({
@@ -1171,7 +1157,7 @@ const dragColumn = async (element: Element, type: string, x = 0, y = 0) => {
   await act(async () => element.dispatchEvent(event));
   return transfer;
 };
-it.each(["list", "table"] as const)(
+it.each(["card", "table"] as const)(
   "uses a compact independent drag image in %s view without changing selected paper IDs",
   async (view) => {
     vi.stubGlobal(
@@ -1524,7 +1510,7 @@ it.each([
         useReaderStore.setState({
           libraryPreferences: {
             ...saved,
-            papers: { ...saved.papers, layout: "list" },
+            papers: { ...saved.papers, layout: "card" },
           },
         }),
       );
@@ -1629,11 +1615,23 @@ const supplement = {
   url: "",
   createdAt: "2026-10-23T00:00:00Z",
 };
-it("expands child attachments in both list and table without adding paper selections", async () => {
+it("expands child attachments in the table without adding paper selections", async () => {
   vi.mocked(api.paperAttachments).mockResolvedValue([supplement]);
   await act(async () =>
     useReaderStore.setState({
       documents: [{ ...docs[0], attachmentCount: 1 }, docs[1]],
+    }),
+  );
+  // Cards keep attachments in the detail panel instead of inline rows.
+  expect(
+    host.querySelector('[aria-label="展开 Attention Is All You Need 的附件"]'),
+  ).toBeNull();
+  await act(async () =>
+    useReaderStore.setState({
+      libraryPreferences: {
+        mode: "papers",
+        papers: { sort: "title", layout: "table" },
+      },
     }),
   );
   await act(async () =>
@@ -1691,6 +1689,10 @@ it("expands and collapses attachment children with the keyboard", async () => {
   await act(async () =>
     useReaderStore.setState({
       documents: [{ ...docs[0], attachmentCount: 1 }, docs[1]],
+      libraryPreferences: {
+        mode: "papers",
+        papers: { sort: "title", layout: "table" },
+      },
     }),
   );
   await act(async () =>
@@ -1717,6 +1719,10 @@ it("opens attachment rename and removal from the child context menu", async () =
   await act(async () =>
     useReaderStore.setState({
       documents: [{ ...docs[0], attachmentCount: 1 }, docs[1]],
+      libraryPreferences: {
+        mode: "papers",
+        papers: { sort: "title", layout: "table" },
+      },
     }),
   );
   await act(async () =>
@@ -1757,7 +1763,7 @@ it("opens attachment rename and removal from the child context menu", async () =
   );
 });
 
-it.each(["list", "table"] as const)(
+it.each(["table"] as const)(
   "accepts direct file drops on expanded parent and child rows in %s layout",
   async (layout) => {
     const upload = vi
@@ -1823,44 +1829,6 @@ it("requires dwell after the final attachment and visible expansion disappear", 
   }
 });
 
-it.each([true, false])(
-  "fills the paper pane after saving widths (showTitle=%s)",
-  async (showTitle) => {
-    await act(async () =>
-      useReaderStore.setState({
-        libraryPreferences: {
-          mode: "papers",
-          papers: {
-            layout: "table",
-            showTitle,
-            columns: ["authors", "year"],
-            columnOrder: ["authors", "title", "year"],
-            columnWidths: { title: 360 },
-          },
-        },
-      }),
-    );
-    const table = host.querySelector<HTMLTableElement>(".paper-table table")!;
-    expect(table.style.width).toBe("100%");
-    expect(table.style.minWidth).toBe(showTitle ? "616px" : "256px");
-    expect(headerColumns()).toEqual(
-      showTitle ? ["authors", "title", "year"] : ["authors", "year"],
-    );
-    expect(prefs().columnWidths).toEqual({ title: 360 });
-    const filler = table.querySelector<HTMLElement>(
-      "thead th[aria-hidden=true]",
-    )!;
-    expect(filler.style.padding).toBe("0px");
-    expect(filler.nextElementSibling).toBe(
-      table.querySelector("thead th:last-child"),
-    );
-    for (const row of table.querySelectorAll("tbody tr")) {
-      expect(row.querySelector("td[aria-hidden=true]")).not.toBeNull();
-      expect(row.children.length).toBe(showTitle ? 5 : 4);
-    }
-  },
-);
-
 it("keeps the default title flexible until a final-column shrink saves its width", async () => {
   await act(async () =>
     useReaderStore.setState({
@@ -1897,41 +1865,6 @@ it("keeps the default title flexible until a final-column shrink saves its width
     rects.mockRestore();
   }
 });
-
-it.each([false, true])(
-  "fills space without stretching narrow columns (picking=%s)",
-  async (picking) => {
-    await act(async () => {
-      useReaderStore.setState({
-        libraryPreferences: {
-          mode: "papers",
-          papers: {
-            layout: "table",
-            showTitle: false,
-            columns: ["year", "status"],
-          },
-        },
-      });
-      usePaperUI.setState({ picking });
-    });
-    const table = host.querySelector<HTMLTableElement>(".paper-table table")!;
-    expect(table.style.minWidth).toBe(picking ? "200px" : "168px");
-    expect(
-      table.querySelector<HTMLElement>('th[data-column="year"]')!.style.width,
-    ).toBe("64px");
-    expect(
-      table.querySelector<HTMLElement>('th[data-column="status"]')!.style.width,
-    ).toBe("72px");
-    expect(table.querySelector("th[aria-hidden=true]")).not.toBeNull();
-    expect(table.querySelector("tbody tr")!.children.length).toBe(
-      picking ? 5 : 4,
-    );
-    await act(async () => usePaperUI.getState().setQuery("no-such-paper"));
-    expect(table.querySelector("tbody td")!.getAttribute("colspan")).toBe(
-      picking ? "5" : "4",
-    );
-  },
-);
 
 it("keeps resizing after hiding the last column and persists the expanded width", async () => {
   await act(async () =>
@@ -2339,4 +2272,205 @@ it("opens picked papers together in document tabs and exits batch mode", async (
       .sort(),
   );
   expect(usePaperUI.getState().picking).toBe(false);
+});
+
+it("defaults to the table and honors saved card and author preferences", async () => {
+  await act(async () =>
+    useReaderStore.setState({
+      libraryPreferences: { mode: "papers", papers: { sort: "title" } },
+    }),
+  );
+  expect(host.querySelector(".paper-table")).not.toBeNull();
+  expect(
+    host.querySelector('[aria-label="表格"]')?.getAttribute("aria-selected"),
+  ).toBe("true");
+  await act(async () =>
+    useReaderStore.setState({
+      libraryPreferences: {
+        mode: "papers",
+        papers: { sort: "title", layout: "card" },
+      },
+    }),
+  );
+  expect(host.querySelectorAll(".paper-card")).toHaveLength(2);
+  const card = host.querySelector<HTMLElement>('[data-paper-id="a"]')!;
+  expect(card.querySelector(".paper-card-cover img")).not.toBeNull();
+  expect(card.querySelector(".paper-row-byline")?.textContent).toBe(
+    "Ashish Vaswani",
+  );
+  await act(async () =>
+    useReaderStore.setState({
+      libraryPreferences: {
+        mode: "papers",
+        papers: { sort: "title", layout: "table", columns: ["year"] },
+      },
+    }),
+  );
+  const row = () => host.querySelector<HTMLElement>('[data-paper-id="a"]')!;
+  expect(row().querySelector(".paper-row-byline")?.textContent).toBe(
+    "Ashish Vaswani",
+  );
+  await act(async () =>
+    useReaderStore.setState({
+      libraryPreferences: {
+        mode: "papers",
+        papers: { sort: "title", layout: "table" },
+      },
+    }),
+  );
+  expect(row().querySelector(".paper-row-byline")?.textContent).toBe(
+    "Ashish Vaswani",
+  );
+  await act(async () =>
+    useReaderStore.setState({
+      libraryPreferences: {
+        mode: "papers",
+        papers: {
+          sort: "title",
+          layout: "table",
+          columns: ["year"],
+          showAuthors: false,
+        },
+      },
+    }),
+  );
+  expect(row().querySelector(".paper-row-byline")).toBeNull();
+});
+
+it("resizes paper cards with Cmd and the wheel or plus and minus keys", async () => {
+  const scale = () =>
+    useReaderStore.getState().libraryPreferences.papers?.cardScale;
+  const pane = host.querySelector<HTMLElement>(".paper-list-pane")!;
+  await act(async () =>
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "=", metaKey: true }),
+    ),
+  );
+  expect(scale()).toBe(1.15);
+  expect(pane.style.getPropertyValue("--card-scale")).toBe("1.15");
+  await act(async () =>
+    pane.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 60,
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  expect(scale()).toBe(1);
+  await act(async () =>
+    pane.dispatchEvent(
+      new WheelEvent("wheel", { deltaY: 60, bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(scale()).toBe(1);
+  await act(async () =>
+    useReaderStore.setState({
+      libraryPreferences: {
+        mode: "papers",
+        papers: { sort: "title", layout: "table" },
+      },
+    }),
+  );
+  await act(async () =>
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "-", metaKey: true }),
+    ),
+  );
+  expect(scale()).toBeUndefined();
+});
+
+it("applies or dismisses a suggested AI title", async () => {
+  await act(async () => {
+    useReaderStore.setState({
+      documents: [
+        {
+          ...docs[0],
+          metadata: {
+            ...docs[0].metadata,
+            suggestedTitle: "Suggested paper title",
+          },
+        },
+        docs[1],
+      ],
+    });
+    usePaperUI.setState({ selectedId: "a" });
+  });
+  expect(
+    host.querySelector<HTMLTextAreaElement>('textarea[aria-label="标题"]')
+      ?.value,
+  ).toBe(docs[0].title);
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="应用 AI 建议标题：Suggested paper title"]',
+      )!
+      .click(),
+  );
+  expect(api.update).toHaveBeenLastCalledWith("a", {
+    title: "Suggested paper title",
+    metadata: { suggestedTitle: "" },
+  });
+  expect(api.lookupMetadata).toHaveBeenCalledWith("a", true);
+  await act(async () => {
+    useReaderStore.setState({
+      documents: [
+        {
+          ...docs[0],
+          metadata: { ...docs[0].metadata, suggestedTitle: "Another title" },
+        },
+        docs[1],
+      ],
+    });
+  });
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="删除 AI 建议标题"]',
+      )!
+      .click(),
+  );
+  expect(api.update).toHaveBeenLastCalledWith("a", {
+    metadata: { suggestedTitle: "" },
+  });
+  await act(async () => {
+    useReaderStore.setState({
+      documents: [
+        {
+          ...docs[0],
+          metadata: { ...docs[0].metadata, suggestedTitle: docs[0].title },
+        },
+        docs[1],
+      ],
+    });
+  });
+  expect(host.querySelector(".paper-title-suggestion")).toBeNull();
+});
+
+it("does not look up the AI title if applying it fails", async () => {
+  vi.mocked(api.update).mockRejectedValueOnce(new Error("save failed"));
+  await act(async () => {
+    useReaderStore.setState({
+      documents: [
+        {
+          ...docs[0],
+          metadata: {
+            ...docs[0].metadata,
+            suggestedTitle: "Suggested paper title",
+          },
+        },
+        docs[1],
+      ],
+    });
+    usePaperUI.setState({ selectedId: "a" });
+  });
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="应用 AI 建议标题：Suggested paper title"]',
+      )!
+      .click(),
+  );
+  expect(api.lookupMetadata).not.toHaveBeenCalled();
 });

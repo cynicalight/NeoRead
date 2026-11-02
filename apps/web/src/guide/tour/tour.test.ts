@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockedRects, placeCard, type Rect } from "./geometry";
+import { blockedRects, frameRect, placeCard, type Rect } from "./geometry";
 import { resolveStep, tourSteps, type TourState } from "./steps";
 
 const area = (rects: Rect[]) =>
@@ -8,6 +8,33 @@ const covers = (rects: Rect[], x: number, y: number) =>
   rects.some(
     (r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height,
   );
+
+describe("tour breathing frame", () => {
+  it("keeps a right and bottom aligned assistant panel inside the screen", () => {
+    expect(
+      frameRect(
+        { x: 800, y: 52, width: 400, height: 748 },
+        { width: 1200, height: 800 },
+      ),
+    ).toEqual({ x: 795, y: 47, width: 397, height: 745 });
+  });
+  it("preserves padding for targets away from screen edges", () => {
+    expect(
+      frameRect(
+        { x: 100, y: 100, width: 100, height: 50 },
+        { width: 1200, height: 800 },
+      ),
+    ).toEqual({ x: 95, y: 95, width: 110, height: 60 });
+  });
+  it("contains a target larger than a small viewport", () => {
+    expect(
+      frameRect(
+        { x: -20, y: -20, width: 900, height: 900 },
+        { width: 320, height: 480 },
+      ),
+    ).toEqual({ x: 8, y: 8, width: 304, height: 464 });
+  });
+});
 
 describe("tour pointer blocking", () => {
   const viewport = { width: 100, height: 100 };
@@ -64,8 +91,83 @@ describe("tour card placement", () => {
     const at = placeCard(panel, card, viewport, [panel], "left");
     expect(at.x + card.width).toBeLessThanOrEqual(panel.x);
   });
+  it("keeps the close control clear across small window sizes and card heights", () => {
+    for (const width of [340, 400, 640, 800]) {
+      for (const height of [340, 400, 600]) {
+        for (const cardHeight of [160, 200]) {
+          const target = { x: width - 60, y: 60, width: 40, height: 40 };
+          const size = { width: 300, height: cardHeight };
+          const at = placeCard(target, size, { width, height }, [], undefined, [
+            target,
+          ]);
+          expect(
+            at.x + size.width <= target.x ||
+              at.x >= target.x + target.width ||
+              at.y + size.height <= target.y ||
+              at.y >= target.y + target.height,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+  it("protects controls even when avoiding a large highlighted area would cover them", () => {
+    const target = { x: 280, y: 65, width: 30, height: 30 };
+    const panel = { x: 0, y: 110, width: 340, height: 390 };
+    const at = placeCard(
+      target,
+      card,
+      { width: 340, height: 500 },
+      [panel],
+      undefined,
+      [target],
+    );
+    expect(at.y).toBeGreaterThanOrEqual(target.y + target.height);
+  });
+  it("uses a free strip when the usual side and corner candidates are blocked", () => {
+    const anchor = { x: 350, y: 60, width: 30, height: 30 };
+    const required = [
+      { x: 0, y: 0, width: 400, height: 200 },
+      { x: 0, y: 400, width: 400, height: 200 },
+    ];
+    const at = placeCard(
+      anchor,
+      card,
+      { width: 400, height: 600 },
+      [],
+      undefined,
+      required,
+    );
+    expect(at.y).toBeGreaterThanOrEqual(200);
+    expect(at.y + card.height).toBeLessThanOrEqual(400);
+  });
+  it("keeps a tall card visible in a scrollable region beside the close button", () => {
+    const target = { x: 280, y: 60, width: 40, height: 40 };
+    const size = { width: 300, height: 260 };
+    const at = placeCard(
+      target,
+      size,
+      { width: 340, height: 300 },
+      [],
+      undefined,
+      [target],
+    );
+    expect(at.maxHeight).toBeGreaterThanOrEqual(48);
+    expect(at.y).toBeGreaterThanOrEqual(target.y + target.height);
+    expect(at.y + at.maxHeight!).toBeLessThanOrEqual(284);
+    expect(at.maxWidth).toBeGreaterThanOrEqual(180);
+    expect(at).not.toHaveProperty("hidden");
+    const expanded = placeCard(target, size, viewport, [], undefined, [target]);
+    expect(expanded.maxHeight).toBeUndefined();
+  });
   it("centres without an anchor", () => {
     expect(placeCard(null, card, viewport)).toEqual({ x: 450, y: 320 });
+  });
+  it("keeps the welcome centered when a corner control needs clearance", () => {
+    const skip = { x: 12, y: viewport.height - 52, width: 148, height: 40 };
+    expect(placeCard(null, card, viewport, [], undefined, [skip])).toEqual({
+      x: 450,
+      y: 320,
+    });
   });
 });
 
@@ -97,7 +199,7 @@ const inSettings = {
   settings: true,
   agentPanel: true,
 };
-const local = { ...inSettings, method: "local" };
+const local = { ...inSettings, deckOpen: true, method: "local" };
 
 describe("tour steps", () => {
   it("waits for the welcome to be confirmed", () => {
@@ -113,25 +215,53 @@ describe("tour steps", () => {
     });
     expect(view?.click).toEqual(['[aria-label="切换侧栏"]']);
   });
-  it("asks how to connect, with the official plan not yet available", () => {
+  it("offers only local CLI and API connection methods", () => {
     const { view } = at(1, inSettings);
     expect(view?.title).toBe("选择连接方式");
     expect(view?.options?.map((o) => [o.label, !!o.disabled])).toEqual([
-      ["本地 Agent 订阅", false],
+      ["本地 CLI Agent", false],
       ["API Key", false],
-      ["NeoRead 官方订阅", true],
     ]);
+  });
+  it("frames the full Agent section before expanding the stack", () => {
+    expect(at(1, inSettings).view?.focus).toEqual([
+      '[data-tour="agent-connection"]',
+    ]);
+    const view = at(1, { ...inSettings, method: "api" }).view;
+    expect(view?.title).toBe("展开 Agent 卡片");
+    expect(view?.click).toEqual(['[data-tour="agent-stack"]']);
+    expect(view?.focus).toEqual(['[data-tour="agent-connection"]']);
+  });
+  it("points at the lower-right blank area when collapsing the deck", () => {
+    const view = at(index("close-settings"), {
+      ...inSettings,
+      deckOpen: true,
+    }).view;
+    expect(view?.body).toContain("单击空白处");
+    expect(view?.focus).toEqual([]);
+    expect(view?.click).toEqual(['[data-tour="agent-deck-backdrop"]']);
+    expect(view?.pointer).toEqual({
+      gesture: "click",
+      target: '[data-tour="agent-deck-dismiss"]',
+    });
+  });
+  it("offers a return path if agent details are opened during onboarding", () => {
+    const view = at(index("agent"), { ...local, agentDetails: true }).view;
+    expect(view?.nextTarget).toBe(
+      '[data-tour="agent-detail"] [aria-label="返回卡片"]',
+    );
   });
   it("points at the API card once API Key is chosen", () => {
     const { view } = at(1, {
       ...inSettings,
       method: "api",
+      deckOpen: true,
       agents: [{ id: "codex", status: "ready" }],
     });
     expect(view?.pointer).toEqual({
       gesture: "click",
       target:
-        '[data-tour="agent-card"][data-agent="api"] [data-tour="api-edit"]',
+        '[data-tour="agent-deck"][data-spread] [data-tour="agent-card"][data-agent="api"]',
     });
   });
   it("points at the key field and DeepSeek inside the API settings", () => {
@@ -143,6 +273,7 @@ describe("tour steps", () => {
       apiDetails: true,
     });
     expect(view?.title).toBe("填写 API Key");
+    expect(view?.click).toEqual(['[data-tour="api-panel"]']);
     expect(view?.pointer).toEqual({
       gesture: "click",
       target: '[data-tour="api-form"] input[aria-label="API Key"]',
@@ -152,7 +283,7 @@ describe("tour steps", () => {
   it("tours the local agent cards while detecting", () => {
     const { id, view } = at(1, { ...local, detecting: true });
     expect(id).toBe("agent");
-    expect(view?.pointer?.gesture).toBe("wander");
+    expect(view?.focus).toEqual(['[data-tour="agent-deck"][data-spread]']);
   });
   it("points at a detected agent card", () => {
     const agents = [
@@ -161,12 +292,14 @@ describe("tour steps", () => {
     ];
     const view = at(1, { ...local, agents }).view;
     expect(view?.title).toBe("选择 Claude Code");
-    expect(view?.click).toEqual([
-      '[data-tour="agent-card"][data-agent="claude"]',
+    expect(view?.click).toEqual(['[data-tour="agent-deck"][data-spread]']);
+    expect(view?.focus).toEqual([
+      '[data-tour="agent-deck"][data-spread] [data-tour="agent-card"][data-agent="claude"]',
     ]);
     expect(view?.pointer).toEqual({
       gesture: "click",
-      target: '[data-tour="agent-card"][data-agent="claude"]',
+      target:
+        '[data-tour="agent-deck"][data-spread] [data-tour="agent-card"][data-agent="claude"]',
     });
   });
   it("suggests logging in or an API key when nothing works", () => {
@@ -179,7 +312,9 @@ describe("tour steps", () => {
     expect(at(1, { ...local, detecting: true }).view?.body).toContain(
       "不是 Codex App",
     );
-    expect(failed?.click).toEqual(['[data-tour="agent-refresh"]']);
+    expect(failed?.click).toContain(
+      '[data-slot="agent-deck"] [aria-label="刷新全部状态"]',
+    );
   });
   it("moves on once the chosen agent works", () => {
     const ready = { ...inSettings, primaryReady: true, taskModels: true };

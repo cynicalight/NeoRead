@@ -163,7 +163,7 @@ it("exports all retained sessions and levels without any running server, excludi
   // Verify using Python's independent standard ZIP reader, including CRCs.
   const inspected = JSON.parse(
     execFileSync(
-      "python3",
+      process.platform === "win32" ? "python" : "python3",
       [
         "-c",
         "import zipfile,json,sys; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; print(json.dumps({n:z.read(n).decode() for n in z.namelist()}))",
@@ -245,7 +245,7 @@ it("removes private user messages from retained server logs during desktop expor
   const output = join(root, "report.zip");
   await logs.export(output, join(root, "library"), {}, {});
   const safe = execFileSync(
-    "python3",
+    process.platform === "win32" ? "python" : "python3",
     [
       "-c",
       "import zipfile,sys; print(zipfile.ZipFile(sys.argv[1]).read('logs/server-old.jsonl').decode())",

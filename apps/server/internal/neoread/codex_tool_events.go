@@ -69,11 +69,7 @@ func (c *chatInput) codexToolEvent(method string, params json.RawMessage) error 
 		if method == "item/started" {
 			c.toolMu.Lock()
 			c.webCalls++
-			count := c.webCalls
 			c.toolMu.Unlock()
-			if count > 12 {
-				return generationError(ErrorLimit, "本轮网页搜索和读取已达到 12 次上限")
-			}
 		}
 		v.Kind = "search"
 		v.Tool = "web_search"

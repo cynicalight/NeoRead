@@ -44,8 +44,8 @@ export function beginColumnReorder(
       .join("\n") +
     `
     [data-column-reordering] [data-column="${from}"] { opacity: 0.12; }
-    @media (prefers-reduced-motion: no-preference) {
-      ${selector} { transition: transform 160ms ease, opacity 140ms ease; }
+    :root:not([data-reduced-motion="true"]) ${selector} {
+      transition: transform 160ms ease, opacity 140ms ease;
     }
   `;
   document.head.append(style);

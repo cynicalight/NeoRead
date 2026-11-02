@@ -576,7 +576,7 @@ func runNote(c *client, f *options, args []string, out io.Writer) error {
 
 func importFlags(fs *flag.FlagSet, f *options) {
 	fs.StringVar(&f.library, "library", "papers", "导入论文库（papers）或图书库（books）")
-	fs.BoolVar(&f.allowLarge, "allow-large", false, "超过 100 页或 100 MB 的 PDF 仍导入论文库")
+	fs.BoolVar(&f.allowLarge, "allow-large", false, "超过 100 页且大于 100 MB 的 PDF 仍导入论文库")
 }
 
 type importResult struct {

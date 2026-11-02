@@ -45,7 +45,7 @@ it("restores each PDF's manual zoom independently after switching and serializin
   const saved = JSON.parse(JSON.stringify(useReaderStore.getState().theme));
   expect(documentZoom(saved, "a")).toBe(1.4);
   expect(documentZoom(saved, "b")).toBe(2);
-  expect(documentZoom(saved, "new")).toBe(2);
+  expect(documentZoom(saved, "new")).toBe(1);
   await act(async () => controls.get("a")!.setTheme({ zoom: "width" }));
   expect(useReaderStore.getState().theme.documentZooms).toEqual({
     a: "width",
@@ -63,19 +63,19 @@ it("keeps automatic passage focus temporary, including across appearance changes
   await act(async () => render("a"));
   expect(controls.get("a")!.theme.zoom).toBe(1.3);
 });
-it("ignores malformed document zooms and keeps old libraries' global preference", () => {
-  expect(documentZoom({ ...defaultTheme, zoom: 1.2 }, "a")).toBe(1.2);
+it("uses 100% for missing or malformed document zooms", () => {
+  expect(documentZoom({ ...defaultTheme, zoom: 1.2 }, "a")).toBe(1);
   for (const value of [NaN, 0, 9])
     expect(
       documentZoom({ ...defaultTheme, documentZooms: { a: value } }, "a"),
-    ).toBe("width");
+    ).toBe(1);
 });
 
-it("keeps an untouched tab's fit-width preference when another document changes zoom", async () => {
+it("keeps an untouched tab's initial zoom when another document changes zoom", async () => {
   await act(async () => render("b"));
   await act(async () => controls.get("b")!.onZoom(2));
   await act(async () => render("a"));
-  expect(controls.get("a")!.theme.zoom).toBe("width");
+  expect(controls.get("a")!.theme.zoom).toBe(1);
 });
 it("adapts the saved manual zoom behind temporary focus without persisting the focus itself", async () => {
   await act(async () => controls.get("a")!.onZoom(1.2));
@@ -95,5 +95,5 @@ it("does not save automatic layout changes as the default zoom for other PDFs", 
   expect(useReaderStore.getState().theme.documentZooms?.a).toBe(1.6);
   expect(useReaderStore.getState().theme.zoom).toBe(1.6);
   await act(async () => render("b"));
-  expect(controls.get("b")!.theme.zoom).toBe(1.6);
+  expect(controls.get("b")!.theme.zoom).toBe(1);
 });
