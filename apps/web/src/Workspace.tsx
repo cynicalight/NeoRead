@@ -10,6 +10,10 @@ import {
   updateReaderLayout,
 } from "./neoread-layout";
 import { SelectionTranslation } from "./SelectionTranslation";
+import {
+  captureSelectionTranslationAnchor,
+  type SelectionTranslationAnchor,
+} from "./selection-translation-anchor";
 import { LinkPreviewPanel } from "./LinkPreviewPanel";
 import { AnnotationHoverCard } from "./AnnotationHoverCard";
 import { AnnotationQuote } from "./AnnotationQuote";
@@ -54,6 +58,7 @@ import { api, blockImageURL } from "@neoread/api";
 import {
   locationLabel,
   type DocumentChatSession,
+  type Message,
   type Annotation,
   type Document as ReaderDocument,
   type DocumentLocation,
@@ -112,6 +117,7 @@ import { ModelSelector } from "./ModelSelector";
 import { SourceReferences } from "./SourceReferences";
 import { ChatSession } from "./chat/chat-session";
 import { getChatSession } from "./chat/session-registry";
+import { restoreWithdrawnQuestion } from "./chat/composer-draft";
 import { SessionPicker } from "./chat/SessionPicker";
 import { AssistantPanel } from "./chat/AssistantPanel";
 import { CodexHandoffButton } from "./chat/CodexHandoffButton";
@@ -137,6 +143,7 @@ import { ExportDocumentDialog } from "./ExportDocumentDialog";
 import { EPUBReadingView } from "./translation/EPUBReadingView";
 import { PDFReadingView } from "./translation/PDFReadingView";
 import { useReaderStore } from "./store";
+import { useShallow } from "zustand/react/shallow";
 import { scheduleProgress, flushProgress } from "./progress";
 import { Slider } from "@neoread/ui/components/slider";
 import { TranslationFontControls } from "./TranslationFontControls";
@@ -188,7 +195,13 @@ export function Workspace({
   onBack: () => void;
   onSettings: () => void;
 }) {
-  const { aiConfig, setAIConfig, aiModelSaving } = useReaderStore();
+  const { aiConfig, setAIConfig, aiModelSaving } = useReaderStore(
+    useShallow((state) => ({
+      aiConfig: state.aiConfig,
+      setAIConfig: state.setAIConfig,
+      aiModelSaving: state.aiModelSaving,
+    })),
+  );
   const { theme, setTheme, onZoom } = useDocumentTheme(
     sharedTheme,
     doc,
@@ -263,6 +276,10 @@ export function Workspace({
   }, [active, adapter]);
   const [translationSelection, setTranslationSelection] =
     useState<ReaderSelection | null>(null);
+  const translationAnchor = useRef<SelectionTranslationAnchor>(undefined);
+  useEffect(() => {
+    if (!translationSelection) translationAnchor.current = undefined;
+  }, [translationSelection]);
   const [selection, setSelection] = useState<ReaderSelection | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const annotationSaving = useRef(false);
@@ -339,7 +356,9 @@ export function Workspace({
   const [note, setNote] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteKind, setNoteKind] = useState<"note" | "question">("note");
-  const palette = highlightPalette(useReaderStore((s) => s.theme));
+  const palette = highlightPalette({
+    highlightColors: useReaderStore((s) => s.theme.highlightColors),
+  });
   const [savedColor, setMarkColor] = useState<string>(() => {
     try {
       return localStorage.getItem("neoread.mark-color") || "";
@@ -400,7 +419,12 @@ export function Workspace({
       currentDocument.current === doc.id &&
       serial === sessionListSerial.current
     ) {
-      setSessionCatalog({ documentId: doc.id, items });
+      setSessionCatalog((current) =>
+        current.documentId === doc.id &&
+        JSON.stringify(current.items) === JSON.stringify(items)
+          ? current
+          : { documentId: doc.id, items },
+      );
       setSessionError("");
     }
   }, [doc.id]);
@@ -411,6 +435,7 @@ export function Workspace({
     } catch {}
   };
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -427,7 +452,7 @@ export function Workspace({
       alive = false;
       clearTimeout(timer);
     };
-  }, [refreshSessions]);
+  }, [refreshSessions, active]);
   const [prompt, setPrompt] = useState("");
   const [quotes, setQuotes] = useState<ReaderSelection[]>([]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -442,6 +467,28 @@ export function Workspace({
   const composerValue = useRef({ prompt, quotes, images });
   composerValue.current = { prompt, quotes, images };
   const composerKey = `${doc.id}:${currentSession?.id ?? ""}`;
+  const currentComposerKey = useRef(composerKey);
+  currentComposerKey.current = composerKey;
+  const restoreQuestion = (message: Message) => {
+    const visible = currentComposerKey.current === composerKey;
+    const draft = restoreWithdrawnQuestion(
+      visible
+        ? composerValue.current
+        : (composerDrafts.current.get(composerKey) ?? {
+            prompt: "",
+            quotes: [],
+            images: [],
+          }),
+      message,
+    );
+    composerDrafts.current.set(composerKey, draft);
+    if (visible) {
+      setPrompt(draft.prompt);
+      setQuotes(draft.quotes);
+      setImages(draft.images);
+      requestAnimationFrame(() => composeInput.current?.focus());
+    }
+  };
   useEffect(() => {
     const saved = composerDrafts.current.get(composerKey);
     setPrompt(saved?.prompt ?? "");
@@ -469,7 +516,10 @@ export function Workspace({
   const session = currentSession
     ? getChatSession(doc.id, currentSession.id)
     : emptySession;
-  const chat = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const chat = useSyncExternalStore(
+    session.subscribe,
+    session.getComposerSnapshot,
+  );
   useEffect(() => {
     if (
       !currentSession ||
@@ -508,6 +558,7 @@ export function Workspace({
       setAnnotations([]);
       setAnnotationsLoaded(false);
     },
+    active,
   );
   useShortcut("readerLeft", () => setLeft(!left), active);
   useShortcut("readerRight", () => setRight(!right), active);
@@ -581,8 +632,15 @@ export function Workspace({
   const saveLocation = (next: DocumentLocation, percent: number) => {
     if (!active) return;
     lastReadingLocation.current = next;
-    setTranslationSelection(null);
-    setLocation(next);
+    // PDF x/y change every scroll frame; the navigation UI only needs the page.
+    // Keep the exact position above for persistence, links and close-time saves.
+    setLocation((current) =>
+      next.type === "pdf" &&
+      current?.type === "pdf" &&
+      current.page === next.page
+        ? current
+        : next,
+    );
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
     if (next.type === "pdf") setPageInput(String(next.page));
     scheduleProgress(doc.id, { progress: next, percentage: percent }, (e) =>
@@ -598,7 +656,7 @@ export function Workspace({
     const source = written ? noteSelection : selection;
     const target =
       kind === "bookmark"
-        ? (adapter?.getLocation() ?? location)
+        ? (adapter?.getLocation() ?? lastReadingLocation.current ?? location)
         : source?.location;
     if (!target || annotationSaving.current) return;
     annotationSaving.current = true;
@@ -834,7 +892,17 @@ export function Workspace({
       );
       const { context } = captured;
       if (controller.signal.aborted) return;
-      if (!directImage) setPrompt("");
+      if (!directImage) {
+        setPrompt("");
+        setQuotes((current) =>
+          current.filter((quote) => !selected.includes(quote)),
+        );
+        setImages((current) =>
+          current.filter(
+            (image) => !attachments.some((sent) => sent.id === image.id),
+          ),
+        );
+      }
       await session.send({
         provider,
         webSearch,
@@ -846,19 +914,6 @@ export function Workspace({
       });
       if (serial !== sendSerial.current) return;
       const answer = session.getSnapshot().pending;
-      if (
-        !directImage &&
-        ["saved", "syncing"].includes(
-          session.getSnapshot().pending?.phase || "",
-        )
-      ) {
-        setQuotes([]);
-        setImages((current) =>
-          current.filter(
-            (image) => !attachments.some((sent) => sent.id === image.id),
-          ),
-        );
-      }
       return answer?.phase === "saved" ? answer.savedId : undefined;
     } catch (e) {
       if (serial === sendSerial.current && (e as Error).name !== "AbortError")
@@ -1001,8 +1056,12 @@ export function Workspace({
           <Button
             className="attachment-preview"
             variant="ghost"
-            aria-label={`查看附件：${imageLabel(image)}`}
-            onClick={() => setPreviewImage(image)}
+            aria-label={`双击查看附件：${imageLabel(image)}`}
+            title="双击放大查看图片"
+            onClick={(event) => {
+              if (event.detail === 0) setPreviewImage(image);
+            }}
+            onDoubleClick={() => setPreviewImage(image)}
           >
             <img
               src={blockImageURL(doc.id, image.id)}
@@ -1589,6 +1648,13 @@ export function Workspace({
                 <IconButton
                   label="划词翻译"
                   onClick={() => {
+                    translationAnchor.current =
+                      selection.anchor && readingPane.current
+                        ? captureSelectionTranslationAnchor(
+                            selection.anchor,
+                            readingPane.current,
+                          )
+                        : undefined;
                     setTranslationSelection(selection);
                     setSelection(null);
                     adapter?.clearSelection();
@@ -1702,6 +1768,7 @@ export function Workspace({
                   key={currentSession?.id ?? doc.id}
                   session={session}
                   onRegenerate={() => void regenerate()}
+                  onWithdraw={restoreQuestion}
                   regenerateDisabled={aiModelSaving || sending}
                   renderAnswer={(message, content) => (
                     <SourceReferences
@@ -1893,6 +1960,7 @@ export function Workspace({
       <SelectionTranslation
         key={doc.id}
         selection={active ? translationSelection : null}
+        trackedAnchor={translationAnchor.current}
         onClose={() => setTranslationSelection(null)}
       />
       <AnnotationHoverCard

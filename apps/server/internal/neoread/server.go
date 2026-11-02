@@ -30,6 +30,7 @@ import (
 )
 
 type Server struct {
+	libraryArchiveMu       sync.RWMutex
 	startupSettings        json.RawMessage
 	processingReady        <-chan struct{}
 	chatReservations       map[string]bool
@@ -128,6 +129,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/diagnostics/paper-refresh", s.paperRefreshStatus)
 	mux.HandleFunc("POST /api/diagnostics/paper-refresh", s.startPaperRefresh)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("POST /api/library/archive/export", s.exportLibraryHTTP)
+	mux.HandleFunc("POST /api/library/archive/import", s.importLibraryHTTP)
 	mux.HandleFunc("GET /api/documents", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Store.Documents()
 		if e != nil {
@@ -224,6 +227,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions", s.createChatSession)
 	mux.HandleFunc("PATCH /api/documents/{id}/chat-sessions/{session}", s.updateChatSession)
 	mux.HandleFunc("GET /api/documents/{id}/chat-sessions/{session}/messages", s.sessionMessages)
+	mux.HandleFunc("PATCH /api/documents/{id}/chat-sessions/{session}/messages/{message}", s.changeSessionMessage)
+	mux.HandleFunc("DELETE /api/documents/{id}/chat-sessions/{session}/messages/{message}", s.changeSessionMessage)
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/chat", s.chat)
 	mux.HandleFunc("GET /api/documents/{id}/chat-sessions/{session}/runs/{run}/events", s.sessionRunEvents)
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/runs/{run}/cancel", s.cancelSessionRun)

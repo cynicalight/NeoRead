@@ -1,6 +1,17 @@
 import { expect, it } from "vitest";
 import { columnOrder, moveColumn, visibleColumns } from "./columns";
 
+it("defaults to title, tags, publication date, added date, venue and body progress in that order", () => {
+  expect(visibleColumns({})).toEqual([
+    "title",
+    "tags",
+    "published",
+    "added",
+    "venue",
+    "bodyProgress",
+  ]);
+});
+
 it("keeps existing visible order and normalizes saved hidden columns", () => {
   const prefs = { columns: ["year", "authors"] as const };
   const order = columnOrder({ columns: [...prefs.columns] });

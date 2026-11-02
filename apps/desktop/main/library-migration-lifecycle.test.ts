@@ -11,6 +11,7 @@ let app: EventEmitter & {
 };
 let window: EventEmitter & {
   close: () => void;
+  isDestroyed: () => boolean;
   hide: ReturnType<typeof vi.fn>;
   webContents: EventEmitter & {
     send: ReturnType<typeof vi.fn>;
@@ -49,6 +50,11 @@ let recoveryStart: ReturnType<typeof vi.fn>;
 let loadURL = vi.fn<(url: string) => void>();
 let showMessageBox: ReturnType<typeof vi.fn>;
 let showOpenDialog: ReturnType<typeof vi.fn>;
+let showSaveDialog: ReturnType<typeof vi.fn>;
+let archiveTransfer: ReturnType<typeof vi.fn>;
+let archivePrepare: ReturnType<typeof vi.fn>;
+let archiveDownload: ReturnType<typeof vi.fn>;
+let catalogRemember: ReturnType<typeof vi.fn>;
 const event = () => ({
   sender: window.webContents,
   senderFrame: window.webContents.mainFrame,
@@ -142,11 +148,51 @@ beforeEach(async ({ task }) => {
     .fn()
     .mockResolvedValue({ canceled: false, filePaths: ["/destination"] });
   showMessageBox = vi.fn().mockResolvedValue({ response: 0 });
+  showSaveDialog = vi
+    .fn()
+    .mockResolvedValue({ canceled: false, filePath: "/export/library.zip" });
+  archiveTransfer = vi.fn().mockResolvedValue(undefined);
+  archiveDownload = vi.fn().mockResolvedValue(undefined);
+  archivePrepare = vi.fn().mockResolvedValue(undefined);
+  vi.doMock("./library-archive", () => ({
+    transferLibraryArchive: archiveTransfer,
+    downloadLibraryArchive: archiveDownload,
+    prepareLibraryArchive: archivePrepare,
+  }));
+  catalogRemember = vi.fn(async () => {});
+  vi.doMock("./library-catalog", () => ({
+    LibraryCatalog: class {
+      cachedName = () => "论文库";
+      list = vi.fn(async (active: string) => ({
+        activeId: active === "/old/library" ? "original" : "imported",
+        libraries: [
+          { id: "original", name: "论文库", directory: "/old/library" },
+          {
+            id: "imported",
+            name: "archive",
+            directory: "/userdata/libraries/imported",
+          },
+        ],
+      }));
+      allocate = vi.fn(async () => ({
+        id: "imported",
+        name: "archive",
+        directory: "/userdata/libraries/imported",
+      }));
+      remember = catalogRemember;
+      rename = vi.fn();
+    },
+  }));
   vi.doMock("electron", () => ({
     app,
     autoUpdater: new EventEmitter(),
     ipcMain: ipc,
-    dialog: { showOpenDialog, showMessageBox, showErrorBox: vi.fn() },
+    dialog: {
+      showOpenDialog,
+      showSaveDialog,
+      showMessageBox,
+      showErrorBox: vi.fn(),
+    },
     session: {
       defaultSession: {
         setProxy: async () => {},
@@ -171,7 +217,7 @@ beforeEach(async ({ task }) => {
         return this.destroyed;
       }
       async loadURL(url: string) {
-        loadURL(url);
+        await loadURL(url);
       }
       show = vi.fn();
       hide = vi.fn();
@@ -179,6 +225,10 @@ beforeEach(async ({ task }) => {
       maximize = vi.fn();
       focus = vi.fn();
       isMinimized = () => false;
+      destroy() {
+        this.destroyed = true;
+        this.emit("closed");
+      }
       close() {
         if (this.destroyed) return;
         let prevented = false;
@@ -552,6 +602,171 @@ it("waits for Reader migration before choosing or opening the library", async ()
 });
 
 const importLibrary = () => handlers.get("neoread:import-library")!(event());
+it("exports an archive after saving, while keeping the server and window running", async () => {
+  const result = handlers.get("neoread:export-library-archive")!(event(), {
+    library: "papers",
+    folder: "研究",
+  });
+  await vi.waitFor(() =>
+    expect(window.webContents.send).toHaveBeenCalledWith("neoread:flush"),
+  );
+  expect(archiveTransfer).not.toHaveBeenCalled();
+  expect(stop).not.toHaveBeenCalled();
+  ipc.emit("neoread:flushed", event(), null);
+  expect(await result).toBe(true);
+  expect(stop).not.toHaveBeenCalled();
+  expect(archiveDownload).toHaveBeenCalledWith(
+    "http://127.0.0.1:1234",
+    expect.any(String),
+    { library: "papers", folder: "研究" },
+    "/export/library.zip",
+    "/old/library",
+    expect.any(AbortSignal),
+  );
+  expect(saveLocation).not.toHaveBeenCalled();
+  expect(app.relaunch).not.toHaveBeenCalled();
+});
+it.each(["export", "import"] as const)(
+  "opens the %s path dialog before starting work and cancels without a progress notification",
+  async (kind) => {
+    window.webContents.send.mockClear();
+    let finish!: (value: unknown) => void;
+    const choose = kind === "export" ? showSaveDialog : showOpenDialog;
+    choose.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const result = handlers.get(`neoread:${kind}-library-archive`)!(
+      event(),
+      kind === "export" ? {} : "new",
+    );
+    await vi.waitFor(() => expect(choose).toHaveBeenCalledOnce());
+    expect(window.webContents.send).not.toHaveBeenCalledWith(
+      "neoread:library-archive-started",
+      kind,
+    );
+    expect(archiveDownload).not.toHaveBeenCalled();
+    expect(archivePrepare).not.toHaveBeenCalled();
+    finish({ canceled: true, filePaths: [] });
+    expect(await result).toBe(false);
+    expect(window.webContents.send).not.toHaveBeenCalledWith("neoread:flush");
+  },
+);
+it("does not create an archive if the reading flush fails", async () => {
+  const result = handlers.get("neoread:export-library-archive")!(event(), {});
+  await vi.waitFor(() =>
+    expect(window.webContents.send).toHaveBeenCalledWith("neoread:flush"),
+  );
+  ipc.emit("neoread:flushed", event(), "save failed");
+  await expect(result).rejects.toThrow("save failed");
+  expect(archiveTransfer).not.toHaveBeenCalled();
+  expect(stop).not.toHaveBeenCalled();
+  expect(app.relaunch).not.toHaveBeenCalled();
+});
+const importedEntry = {
+  id: "imported",
+  name: "archive",
+  directory: "/userdata/libraries/imported",
+};
+const prepareArchive = async (mode = "new") => {
+  window.webContents.send.mockClear();
+  const result = handlers.get("neoread:import-library-archive")!(event(), mode);
+  await vi.waitFor(() =>
+    expect(window.webContents.send).toHaveBeenCalledWith("neoread:flush"),
+  );
+  ipc.emit("neoread:flushed", event(), null);
+  return result;
+};
+const switchTo = async (id: string) => {
+  window.webContents.send.mockClear();
+  const result = handlers.get("neoread:switch-library")!(event(), id);
+  await vi.waitFor(() =>
+    expect(window.webContents.send).toHaveBeenCalledWith("neoread:flush"),
+  );
+  ipc.emit("neoread:flushed", event(), null);
+  return result;
+};
+it("prepares a merged archive online with one file dialog and leaves the reader connected", async () => {
+  const original = window;
+  showOpenDialog.mockResolvedValueOnce({
+    canceled: false,
+    filePaths: ["/archive.zip"],
+  });
+  expect(await prepareArchive("merge")).toEqual(importedEntry);
+  expect(archivePrepare).toHaveBeenCalledWith(
+    "http://127.0.0.1:1234",
+    expect.any(String),
+    "/archive.zip",
+    importedEntry.directory,
+    true,
+    expect.any(AbortSignal),
+  );
+  expect(catalogRemember).toHaveBeenCalledWith(importedEntry);
+  expect(window).toBe(original);
+  expect(original.isDestroyed()).toBe(false);
+  expect(saveLocation).not.toHaveBeenCalled();
+  expect(stop).not.toHaveBeenCalled();
+  expect(archiveTransfer).not.toHaveBeenCalled();
+  expect(app.relaunch).not.toHaveBeenCalled();
+  expect(showOpenDialog).toHaveBeenCalledTimes(1);
+});
+it("keeps the live server and reader when a new archive is invalid", async () => {
+  const original = window;
+  archivePrepare.mockRejectedValueOnce(new Error("invalid ZIP"));
+  await expect(prepareArchive()).rejects.toThrow("invalid ZIP");
+  expect(window).toBe(original);
+  expect(original.isDestroyed()).toBe(false);
+  expect(stop).not.toHaveBeenCalled();
+  expect(saveLocation).not.toHaveBeenCalled();
+  expect(catalogRemember).not.toHaveBeenCalled();
+  expect(serverSpawn).toHaveBeenCalledOnce();
+});
+it("can switch to the prepared archive and back to the original library without restarting", async () => {
+  expect(await prepareArchive()).toEqual(importedEntry);
+  expect(await switchTo("imported")).toBe(true);
+  expect(serverSpawn).toHaveBeenCalledTimes(2);
+  expect(serverSpawn.mock.calls[1][1]).toEqual(
+    expect.arrayContaining([
+      "--port",
+      "1234",
+      "--data",
+      importedEntry.directory,
+    ]),
+  );
+  expect(serverSpawn.mock.calls[1][2].env.NEOREAD_TOKEN).toBe(
+    serverSpawn.mock.calls[0][2].env.NEOREAD_TOKEN,
+  );
+  const snapshot = await handlers.get("neoread:library-catalog")!(event());
+  expect(snapshot.libraries).toHaveLength(2);
+  expect(await switchTo("original")).toBe(true);
+  expect(validate).toHaveBeenCalledWith("/old/library", expect.any(String));
+  expect(serverSpawn).toHaveBeenCalledTimes(3);
+  expect(serverSpawn.mock.calls[2][1]).toEqual(
+    expect.arrayContaining(["--data", "/old/library"]),
+  );
+  expect(saveLocation).toHaveBeenLastCalledWith("/userdata", "/old/library");
+  expect(app.relaunch).not.toHaveBeenCalled();
+});
+it("restores both the saved location and reader if saving the imported location fails", async () => {
+  expect(await prepareArchive()).toEqual(importedEntry);
+  const original = window;
+  saveLocation.mockRejectedValueOnce(new Error("disk failure"));
+  expect(await switchTo("imported")).toBe(false);
+  expect(saveLocation.mock.calls).toEqual([
+    ["/userdata", importedEntry.directory],
+    ["/userdata", "/old/library"],
+  ]);
+  expect(original.isDestroyed()).toBe(true);
+  expect(window.isDestroyed()).toBe(false);
+  expect(serverSpawn).toHaveBeenCalledTimes(3);
+  expect(serverSpawn.mock.calls[2][1]).toEqual(
+    expect.arrayContaining(["--data", "/old/library"]),
+  );
+  expect(loadURL).toHaveBeenCalledTimes(3);
+  expect(app.relaunch).not.toHaveBeenCalled();
+});
 it("validates an imported library before shutdown and saves only after flush", async () => {
   const result = importLibrary();
   await vi.waitFor(() =>
@@ -991,7 +1206,10 @@ it("installs loading feedback before showing the real window and reveals it afte
   const { createStartupWindow } = await import("./startup-window");
   const feedback = vi.mocked(createStartupWindow).mock.results[0].value;
   expect(main.setBounds).toHaveBeenCalledWith({
-    x: 50, y: 60, width: 1440, height: 940,
+    x: 50,
+    y: 60,
+    width: 1440,
+    height: 940,
   });
   expect(prepareExit).toHaveBeenCalledWith(feedback.nativeWindow, main);
   expect(prepareExit.mock.invocationCallOrder[0]).toBeLessThan(
@@ -1021,7 +1239,9 @@ it("returns to reading after cancelling quit while preparing startup exit", asyn
   ipc.emit("neoread:flushed", event(), "save failed");
   await vi.waitFor(() => expect(showMessageBox).toHaveBeenCalled());
   finishPreparation();
-  await vi.waitFor(() => expect(handlers.has("neoread:check-updates")).toBe(true));
+  await vi.waitFor(() =>
+    expect(handlers.has("neoread:check-updates")).toBe(true),
+  );
   expect(exitAnimation).toHaveBeenCalledWith(true);
   expect(diagnostics.failure).not.toHaveBeenCalled();
 });
@@ -1034,12 +1254,19 @@ it("continues startup if the refusal marker cannot be saved", async () => {
   detectMigration.mockResolvedValue("resume");
   confirmMigration.mockResolvedValue(false);
   const { declineReaderMigration } = await import("./legacy-data");
-  vi.mocked(declineReaderMigration).mockRejectedValueOnce(new Error("disk full"));
+  vi.mocked(declineReaderMigration).mockRejectedValueOnce(
+    new Error("disk full"),
+  );
   await import("./index");
-  await vi.waitFor(() => expect(handlers.has("neoread:check-updates")).toBe(true));
+  await vi.waitFor(() =>
+    expect(handlers.has("neoread:check-updates")).toBe(true),
+  );
   expect(legacyMigrate).not.toHaveBeenCalled();
   expect(serverSpawn).toHaveBeenCalledOnce();
-  expect(diagnostics.record).toHaveBeenCalledWith("migration.decline_save_failed", expect.any(Error));
+  expect(diagnostics.record).toHaveBeenCalledWith(
+    "migration.decline_save_failed",
+    expect.any(Error),
+  );
 });
 
 it("acknowledges a discarded note warning and continues closing without a retry choice", async () => {

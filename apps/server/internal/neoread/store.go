@@ -11,6 +11,7 @@ import (
 )
 
 type Document struct {
+	BodyEnd              *BodyEnd `json:"bodyEnd,omitempty"`
 	Category             string   `json:"category"`
 	CategorySource       string   `json:"categorySource"`
 	ClassificationStatus string   `json:"classificationStatus"`
@@ -145,6 +146,10 @@ func OpenStore(root string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err = store.refreshBodyEnds(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err = store.compactMarks(); err != nil {
 		db.Close()
 		return nil, err
@@ -159,7 +164,7 @@ func OpenStore(root string) (*Store, error) {
 }
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
-const documentColumns = `id,type,title,author,size,created_at,last_opened_at,favorite,COALESCE(progress,''),percentage,category,category_source,classification_status,classification_error,tags,folders,library,deleted_at,metadata,reading_status,` +
+const documentColumns = `id,type,title,author,size,created_at,last_opened_at,favorite,COALESCE(progress,''),percentage,category,category_source,classification_status,classification_error,tags,folders,library,deleted_at,metadata,reading_status,COALESCE(body_end,''),` +
 	`(SELECT count(*) FROM annotations a WHERE a.document_id=documents.id AND json_extract(a.body,'$.kind')='note'),` +
 	`(SELECT count(*) FROM annotations a WHERE a.document_id=documents.id AND json_extract(a.body,'$.kind') IN ('highlight','underline')),` +
 	`(SELECT count(*) FROM annotations a WHERE a.document_id=documents.id AND json_extract(a.body,'$.kind')='question' AND COALESCE(json_extract(a.body,'$.answerId'),'')='' AND NOT COALESCE(json_extract(a.body,'$.resolved'),0)),` +
@@ -170,8 +175,11 @@ type rowScanner interface{ Scan(...any) error }
 
 func scanDocument(row rowScanner) (Document, error) {
 	var d Document
-	var progress, tags, folders, metadata, related string
-	err := row.Scan(&d.ID, &d.Type, &d.Title, &d.Author, &d.Size, &d.CreatedAt, &d.LastOpenedAt, &d.Favorite, &progress, &d.Percentage, &d.Category, &d.CategorySource, &d.ClassificationStatus, &d.ClassificationError, &tags, &folders, &d.Library, &d.DeletedAt, &metadata, &d.ReadingStatus, &d.NoteCount, &d.HighlightCount, &d.OpenQuestionCount, &related, &d.AttachmentCount)
+	var progress, tags, folders, metadata, related, bodyEnd string
+	err := row.Scan(&d.ID, &d.Type, &d.Title, &d.Author, &d.Size, &d.CreatedAt, &d.LastOpenedAt, &d.Favorite, &progress, &d.Percentage, &d.Category, &d.CategorySource, &d.ClassificationStatus, &d.ClassificationError, &tags, &folders, &d.Library, &d.DeletedAt, &metadata, &d.ReadingStatus, &bodyEnd, &d.NoteCount, &d.HighlightCount, &d.OpenQuestionCount, &related, &d.AttachmentCount)
+	if err == nil && bodyEnd != "" {
+		err = json.Unmarshal([]byte(bodyEnd), &d.BodyEnd)
+	}
 	if err == nil {
 		err = json.Unmarshal([]byte(tags), &d.Tags)
 	}

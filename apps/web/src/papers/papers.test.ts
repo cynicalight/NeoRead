@@ -598,6 +598,6 @@ it("keeps tags immediately after the title when toggling other default or option
 
 it("restores the tag column to its default position after hiding and showing it", () => {
   const hidden = toggleColumn(defaultColumns, "tags");
-  expect(hidden).toEqual(["year", "venue", "status"]);
+  expect(hidden).toEqual(["published", "added", "venue", "bodyProgress"]);
   expect(toggleColumn(hidden, "tags")).toEqual(defaultColumns);
 });

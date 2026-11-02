@@ -153,6 +153,7 @@ export type PaperColumn =
   | "published"
   | "tags"
   | "progress"
+  | "bodyProgress"
   | "doi"
   | "arxiv"
   | "size"
@@ -257,6 +258,7 @@ export interface TagBoard {
   match: "all" | "any";
 }
 export interface Document {
+  bodyEnd?: { page: number; y: number };
   category: DocumentCategory;
   categorySource: "default" | "ai" | "manual";
   classificationStatus: "idle" | "pending" | "running" | "failed" | "done";
@@ -378,6 +380,10 @@ export interface ReaderTheme {
   readerLayout?: Partial<ReaderLayout>;
   /** Opt in to copying text selections and selected annotations. */
   autoCopySelection?: boolean;
+  /** Click gesture for aligning source and translation blocks; single by default. */
+  translationAlignment?: "single" | "double";
+  /** Remembered library navigation sidebar width, in CSS pixels. */
+  librarySidebarWidth?: number;
   autoTranslatePDF?: boolean;
   /** 0 means manual only; otherwise auto translate papers up to this many pages. */
   autoTranslateMaxPages?: number;
@@ -424,6 +430,7 @@ export const defaultTheme: ReaderTheme = {
   documentTabs: false,
   reducedMotion: false,
   autoCopySelection: false,
+  translationAlignment: "single",
   autoTranslatePDF: true,
   pdfDarkImageMode: "adaptive",
   pdfDarkContrast: "soft",
@@ -519,6 +526,8 @@ export interface ReaderAdapter {
   clearSelection(): void;
   highlight(annotations: Annotation[]): Promise<void>;
   setTheme(theme: ReaderTheme): Promise<void>;
+  /** Release hidden rendering surfaces while retaining navigation and document state. */
+  setVisible?(visible: boolean): void;
   /** Layout choices that must apply before the first page is shown. */
   preferTheme?(theme: ReaderTheme): void;
   getContext(): Promise<string>;
@@ -645,6 +654,17 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+}
+
+export interface ChatMessageChange {
+  expectedLastMessageId: string;
+  expectedContent: string;
+  /** Omit to withdraw; supplying content edits the question. */
+  content?: string;
+}
+export interface ChatMessageChangeResult {
+  message: Message;
+  messages: Message[];
 }
 
 export interface ProcessingStage {

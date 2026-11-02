@@ -50,6 +50,9 @@ func OpenLibrary(root string) (store *Store, err error) {
 	started := time.Now()
 	slog.Info("library.example_started")
 	err = store.installExamplePaper()
+	if err == nil {
+		err = store.refreshBodyEnds()
+	}
 	if err != nil {
 		slog.Error("library.example_failed", "errorCode", "initialization", "durationMs", time.Since(started).Milliseconds())
 	} else {

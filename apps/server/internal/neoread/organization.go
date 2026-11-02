@@ -49,6 +49,7 @@ func (s *Store) migrateOrganization() error {
 		{"metadata", "TEXT NOT NULL DEFAULT '{}'"},
 		{"reading_status", "TEXT NOT NULL DEFAULT 'unread' CHECK(reading_status IN ('unread','reading','done'))"},
 		{"folders", "TEXT NOT NULL DEFAULT '[]'"},
+		{"body_end", "TEXT"},
 	} {
 		if !columns[column.name] {
 			if _, err = tx.Exec("ALTER TABLE documents ADD COLUMN " + column.name + " " + column.definition); err != nil {

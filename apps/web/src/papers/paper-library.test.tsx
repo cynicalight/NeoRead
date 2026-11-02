@@ -144,6 +144,67 @@ beforeEach(async () => {
   root = createRoot(host);
   await act(async () => root.render(<Harness />));
 });
+it("shows the requested default columns and sorts by original added date, newest first", async () => {
+  await act(async () =>
+    useReaderStore.setState({
+      documents: [
+        paper({
+          id: "old",
+          title: "Old",
+          createdAt: "2020-01-02T03:04:05Z",
+          bodyEnd: { page: 5, y: 0.5 },
+          progress: { type: "pdf", page: 3, y: 0.25 },
+          percentage: 0.3,
+        }),
+        paper({
+          id: "new",
+          title: "New",
+          createdAt: "2024-05-06T07:08:09Z",
+          bodyEnd: { page: 5, y: 0.5 },
+          progress: { type: "pdf", page: 6 },
+          percentage: 0.6,
+        }),
+        paper({
+          id: "unknown",
+          title: "Unparsed",
+          createdAt: "2022-01-01T00:00:00Z",
+        }),
+        paper({
+          id: "opened-only",
+          title: "Opened only",
+          createdAt: "2021-01-01T00:00:00Z",
+          bodyEnd: { page: 10, y: 1 },
+          progress: { type: "pdf", page: 1 },
+          percentage: 1 / 10,
+        }),
+      ],
+      libraryPreferences: { mode: "papers", papers: { layout: "table" } },
+    }),
+  );
+  expect(
+    [...host.querySelectorAll("thead th[data-column]")].map((el) =>
+      el.getAttribute("data-column"),
+    ),
+  ).toEqual(["title", "tags", "published", "added", "venue", "bodyProgress"]);
+  expect(
+    [...host.querySelectorAll("tbody [data-paper-id]")].map((el) =>
+      el.getAttribute("data-paper-id"),
+    ),
+  ).toEqual(["new", "unknown", "opened-only", "old"]);
+  expect(
+    row("New").querySelector('[data-column="bodyProgress"]')?.textContent,
+  ).toBe("100%");
+  expect(
+    row("Old").querySelector('[data-column="bodyProgress"]')?.textContent,
+  ).toBe("50%");
+  expect(
+    row("Unparsed").querySelector('[data-column="bodyProgress"]')?.textContent,
+  ).toBe("—");
+  expect(
+    row("Opened only").querySelector('[data-column="bodyProgress"]')
+      ?.textContent,
+  ).toBe("0%");
+});
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();

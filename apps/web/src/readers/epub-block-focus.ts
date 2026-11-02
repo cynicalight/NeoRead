@@ -72,6 +72,7 @@ export class EPUBBlockOverlay {
       block: EPUBReadingBlock,
       action: PDFBlockAction,
     ) => void = () => {},
+    private alignment: () => "single" | "double" | undefined = () => "single",
   ) {
     this.actions = createRoot(this.hover);
     this.focusBox.addEventListener("animationend", () => {
@@ -232,15 +233,18 @@ export class EPUBBlockOverlay {
   click(event: MouseEvent) {
     const pressed = this.pressed;
     this.pressed = undefined;
+    const double = this.alignment() === "double";
+    if (double ? event.detail !== 2 : event.detail > 1) return;
     if (
       !pressed ||
       Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 5 ||
-      window.getSelection()?.toString().trim() ||
+      (!double && window.getSelection()?.toString().trim()) ||
       (event.target as Element | null)?.closest("a,button,input,textarea") ||
       this.blockAt(event) !== pressed.id
     )
       return;
     this.clear();
+    if (double) window.getSelection()?.removeAllRanges();
     this.onFocus(pressed.id);
   }
 

@@ -276,6 +276,8 @@ func blockOrder(id string) int {
 // first chapter publishes the work directory; later chapters replace their
 // pages' blocks and keep every other field of the manifest.
 func (s *Server) mergeLayout(id, work string) error {
+	s.libraryArchiveMu.RLock()
+	defer s.libraryArchiveMu.RUnlock()
 	added, _, err := readLayoutFile(filepath.Join(work, "manifest.json"))
 	if err != nil || added.Pages < 1 {
 		return errors.New("本章版面索引无效")

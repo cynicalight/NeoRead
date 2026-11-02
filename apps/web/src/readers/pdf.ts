@@ -11,6 +11,7 @@ import { PDFViewport } from "./pdf-viewport";
 import { PDFLocationHighlight } from "./pdf-location-highlight";
 import { PDFAnnotationLayer } from "./pdf-annotations";
 import { PDFLinkPreview } from "./pdf-link-preview";
+import { pdfCropOperations } from "./pdf-crop-operations";
 import * as pdfjs from "pdfjs-dist";
 import {
   EventBus,
@@ -63,10 +64,15 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private wheelScale?: number;
   private wheelAppliedScale?: number;
   private disposed = false;
+  private visible = true;
+  private renderVisible?: NonNullable<
+    PDFViewer["renderingQueue"]
+  >["renderHighestPriority"];
   private renderErrorReported = false;
   private navigationRequest = 0;
   private blocks: PDFBlockOverlay;
   private blockData: PDFBlock[] = [];
+  private cropPreparations = new Map<number, Promise<void>>();
   private selecting = false;
   private navigation: PDFReadingNavigation;
   private pointer?: { x: number; y: number };
@@ -108,6 +114,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
         else void this.focusBlock(block.id, "source");
         return true;
       },
+      () => this.theme.translationAlignment,
     );
     const viewer = document.createElement("div");
     viewer.className = "pdfViewer";
@@ -363,11 +370,13 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.clearState();
   };
   private onScroll = () => {
+    if (this.container.closest("[inert]")) return;
     this.clearSelection();
     cancelAnimationFrame(this.viewportFrame);
     this.viewportFrame = requestAnimationFrame(() => this.viewport.remember());
   };
   private onPointerDown = (event: PointerEvent) => {
+    if (this.container.closest("[inert]")) return;
     this.viewport.cancelAnimation();
     if (isSelectionToolbar(event.target)) return;
     this.locationHighlight.clear();
@@ -379,6 +388,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     else this.clearSelection();
   };
   private onKeyDown = (event: KeyboardEvent) => {
+    if (this.container.closest("[inert]")) return;
     this.selecting = false;
     this.pointer = undefined;
     if (event.key === "Escape") this.clearSelection();
@@ -473,11 +483,14 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.wheelAppliedScale = this.viewer.currentScale;
   };
   private onMouseUp = (event: MouseEvent) => {
+    if (this.container.closest("[inert]")) return;
     this.selecting = false;
     if (!isSelectionToolbar(event.target)) {
       // A double click selects the whole sentence instead of one word.
       const layer =
-        event.detail === 2 && event.target instanceof Element
+        this.theme.translationAlignment !== "double" &&
+        event.detail === 2 &&
+        event.target instanceof Element
           ? event.target.closest(".textLayer")
           : null;
       if (layer && this.container.contains(layer))
@@ -487,6 +500,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     }
   };
   private onSelectionChange = () => {
+    if (this.container.closest("[inert]")) return;
     if (!this.selecting) this.onSelection();
   };
   private onSelection = () => {
@@ -536,6 +550,31 @@ export class PDFReaderAdapter implements ReaderAdapter {
   };
   getSelection() {
     return this.selection;
+  }
+  setVisible(visible: boolean) {
+    if (this.disposed || this.visible === visible) return;
+    this.visible = visible;
+    const queue = this.viewer.renderingQueue!;
+    if (!this.renderVisible) {
+      this.renderVisible = queue.renderHighestPriority.bind(queue);
+      queue.renderHighestPriority = (pages) => {
+        if (this.visible && !this.disposed) this.renderVisible?.(pages);
+      };
+    }
+    if (visible) {
+      this.viewer.update();
+      return;
+    }
+    this.viewport.cancelAnimation();
+    this.navigation.cancelMotion();
+    this.linkPreview.hide();
+    // PDF.js otherwise retains the canvas buffer of every visited tab. Reset
+    // page views through PDF.js so showing the source renders only its viewport.
+    for (let i = 0; i < this.viewer.pagesCount; i++) {
+      const page = this.viewer.getPageView(i);
+      if (page?.renderingState) page.reset();
+      page?.pdfPage?.cleanup();
+    }
   }
   async highlight(annotations: Annotation[]) {
     this.annotationLayer.setAnnotations(annotations);
@@ -686,6 +725,34 @@ export class PDFReaderAdapter implements ReaderAdapter {
   ) {
     return this.navigation.matchSentences(location, translations);
   }
+  private prepareBlockImages(page: pdfjs.PDFPageProxy) {
+    if (page.recordedBBoxes) return Promise.resolve();
+    const existing = this.cropPreparations.get(page.pageNumber);
+    if (existing) return existing;
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({
+      scale: Math.min(1, Math.sqrt(500_000 / (base.width * base.height))),
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    // Complete this small shared pass before applying a crop filter. Recording
+    // on a cropped or interrupted canvas would cache incomplete page bounds.
+    const pending = page
+      .render({
+        canvas,
+        canvasContext: canvas.getContext("2d")!,
+        viewport,
+        recordOperations: true,
+        annotationMode: pdfjs.AnnotationMode.DISABLE,
+      })
+      .promise.finally(() => {
+        canvas.width = canvas.height = 0;
+      });
+    this.cropPreparations.set(page.pageNumber, pending);
+    void pending.catch(() => this.cropPreparations.delete(page.pageNumber));
+    return pending;
+  }
   async renderBlockImage(
     blockId: string,
     signal: AbortSignal,
@@ -696,11 +763,13 @@ export class PDFReaderAdapter implements ReaderAdapter {
     signal.throwIfAborted();
     const page = await this.pdf.getPage(block.page);
     signal.throwIfAborted();
+    await this.prepareBlockImages(page);
+    signal.throwIfAborted();
     const base = page.getViewport({ scale: 1 });
     const bounds = block.bounds;
     const area = base.width * bounds.width * base.height * bounds.height;
     const scale = Math.min(
-      6,
+      width ? Infinity : 6,
       Math.sqrt(8_000_000 / area),
       width ? width / (base.width * bounds.width) : Infinity,
     );
@@ -721,6 +790,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
         -viewport.height * bounds.y,
       ],
       annotationMode: pdfjs.AnnotationMode.DISABLE,
+      operationsFilter: pdfCropOperations(page, bounds),
       background: "white",
     });
     const cancel = () => task.cancel();
@@ -738,9 +808,11 @@ export class PDFReaderAdapter implements ReaderAdapter {
     } finally {
       signal.removeEventListener("abort", cancel);
       canvas.width = canvas.height = 0;
+      if (!this.visible) page.cleanup();
     }
   }
   async destroy() {
+    this.cropPreparations.clear();
     if (this.disposed) return;
     this.navigation.destroy();
     this.blocks.destroy();

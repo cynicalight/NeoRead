@@ -4,6 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PDFBlock, TranslationBlock } from "@neoread/core";
 import { TranslationText } from "./TranslationText";
+import { copyText, copyImage } from "../chat/clipboard";
+vi.mock("../chat/clipboard", () => ({
+  copyText: vi.fn(async () => true),
+  copyImage: vi.fn(async () => {}),
+}));
 let host: HTMLDivElement, root: Root;
 const base: PDFBlock = {
   id: "p1-b1",
@@ -14,6 +19,13 @@ const base: PDFBlock = {
   bounds: { x: 0, y: 0, width: 1, height: 1 },
 };
 beforeEach(async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("matchMedia", () => ({
     matches: false,
@@ -106,6 +118,21 @@ it("inserts the formula-only Markdown at the formula block", async () => {
   expect(host.querySelector(".katex-error")).toBeNull();
   expect(host.querySelector("details img")).not.toBeNull();
   expect(host.querySelector("details")?.open).toBe(false);
+  const original = [
+    ...host.querySelectorAll<HTMLButtonElement>("details button"),
+  ].find((button) => button.textContent?.includes("复制原公式"))!;
+  expect(original).toBeDefined();
+  await act(async () => original.click());
+  expect(copyImage).toHaveBeenCalledOnce();
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>('button[aria-label="复制 LaTeX"]')!
+      .click(),
+  );
+  expect(copyText).toHaveBeenLastCalledWith(
+    "$S(i,j)=\\frac{1}{2}\\log p_R(j\\mid i)$",
+    "已复制 LaTeX",
+  );
 });
 it("retains the original formula image for invalid LaTeX", async () => {
   await render(
@@ -121,6 +148,15 @@ it("retains the original formula image for invalid LaTeX", async () => {
   expect(host.querySelector("img")).not.toBeNull();
   expect(host.querySelector(".katex-error")).toBeNull();
   expect(host.querySelector(".translation-formula")).toBeNull();
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>('button[aria-label="复制 LaTeX"]')!
+      .click(),
+  );
+  expect(copyText).toHaveBeenLastCalledWith(
+    "$\\unknowncommand{x}$",
+    "已复制 LaTeX",
+  );
 });
 
 it.each(["$$\n x=1\n$$", "$$\n\\unknowncommand{x}\n$$", ""])(
@@ -228,7 +264,7 @@ it("replaces a loaded layout crop with a display-sized render", async () => {
   await act(async () => {
     image.dispatchEvent(new Event("load"));
   });
-  expect(renderImage).toHaveBeenCalledWith("p1-b1", 600);
+  expect(renderImage).toHaveBeenCalledWith("p1-b1", 600, expect.any(String));
   expect(image.getAttribute("src")).toBe("blob:sharp");
   // Keeps the crop's layout width so small figures are not enlarged.
   expect(image.getAttribute("width")).toBe("480");
@@ -236,6 +272,100 @@ it("replaces a loaded layout crop with a display-sized render", async () => {
     image.dispatchEvent(new Event("load"));
   });
   expect(renderImage).toHaveBeenCalledTimes(1);
+});
+
+it("waits until a figure approaches the viewport before rendering a sharp PDF crop", async () => {
+  let intersect!: IntersectionObserverCallback;
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const renderImage = vi.fn(async () => "blob:visible-sharp");
+  const releaseImage = vi.fn();
+  await act(async () =>
+    root.render(
+      <TranslationText
+        block={base}
+        documentId="doc"
+        retry={() => {}}
+        renderImage={renderImage}
+        releaseImage={releaseImage}
+      />,
+    ),
+  );
+  const image = host.querySelector("img")!;
+  Object.defineProperties(image, {
+    naturalWidth: { value: 480 },
+    clientWidth: { value: 300 },
+    complete: { value: true },
+  });
+  await act(async () => image.dispatchEvent(new Event("load")));
+  expect(renderImage).not.toHaveBeenCalled();
+  await act(async () =>
+    intersect(
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    ),
+  );
+  expect(renderImage).toHaveBeenCalledOnce();
+  expect(image.getAttribute("src")).toBe("blob:visible-sharp");
+  await act(async () =>
+    intersect(
+      [{ isIntersecting: false } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    ),
+  );
+  expect(releaseImage).toHaveBeenCalledWith(base.id, expect.any(String));
+  expect(image.getAttribute("src")).not.toBe("blob:visible-sharp");
+  expect(image.getAttribute("width")).toBe("480");
+  await act(async () =>
+    intersect(
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    ),
+  );
+  expect(renderImage).toHaveBeenCalledTimes(2);
+});
+
+it("opens image focus on double click and keyboard activation while preserving single clicks", async () => {
+  const preview = vi.fn();
+  const bubble = vi.fn();
+  await act(async () =>
+    root.render(
+      <div onDoubleClick={bubble}>
+        <TranslationText
+          block={base}
+          documentId="doc"
+          retry={() => {}}
+          onPreview={preview}
+        />
+      </div>,
+    ),
+  );
+  const image = host.querySelector<HTMLButtonElement>(
+    '[aria-label="双击放大查看图片"]',
+  )!;
+  await act(async () =>
+    image.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })),
+  );
+  expect(preview).not.toHaveBeenCalled();
+  await act(async () =>
+    image.dispatchEvent(
+      new MouseEvent("dblclick", { bubbles: true, detail: 2 }),
+    ),
+  );
+  expect(preview).toHaveBeenCalledOnce();
+  expect(bubble).not.toHaveBeenCalled();
+  await act(async () =>
+    image.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })),
+  );
+  expect(preview).toHaveBeenCalledTimes(2);
 });
 
 it("replaces an old sharp image after a full layout reparse", async () => {

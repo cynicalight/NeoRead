@@ -76,15 +76,16 @@ export const sortLabels: Record<PaperSort, string> = {
 };
 export const columnLabels: Record<PaperColumn, string> = {
   tags: "标签",
+  published: "发表日期",
+  added: "添加日期",
+  venue: "出处",
+  bodyProgress: "正文阅读进度",
   authors: "作者",
   year: "年份",
-  published: "发表日期",
-  venue: "出处",
   progress: "阅读进度",
   doi: "DOI",
   arxiv: "arXiv 编号",
   size: "文件大小",
-  added: "添加时间",
   opened: "上次打开",
   notes: "批注",
   status: "状态",
@@ -95,6 +96,7 @@ export const defaultColumnWidths: Record<PaperColumn, number> = {
   published: 112,
   tags: 160,
   progress: 96,
+  bodyProgress: 112,
   doi: 180,
   arxiv: 132,
   size: 96,
@@ -107,9 +109,10 @@ export const defaultColumnWidths: Record<PaperColumn, number> = {
 
 export const defaultColumns: PaperColumn[] = [
   "tags",
-  "year",
+  "published",
+  "added",
   "venue",
-  "status",
+  "bodyProgress",
 ];
 /** The sort a column header applies. */
 export const columnSort: Partial<Record<PaperColumn | "title", PaperSort>> = {

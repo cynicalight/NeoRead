@@ -16,8 +16,8 @@ function setup(initial = 1.6) {
   let insetX = size.width / 2,
     insetY = size.height / 2;
   Object.defineProperties(host, {
-    clientWidth: { get: () => size.width },
-    clientHeight: { get: () => size.height },
+    clientWidth: { get: () => size.width, configurable: true },
+    clientHeight: { get: () => size.height, configurable: true },
   });
   host.getBoundingClientRect = () =>
     new DOMRect(30, 50, size.width, size.height);
@@ -79,6 +79,15 @@ it("adapts source to parallel width and scales horizontal panning while preservi
   expect(s.viewer.currentScale).toBe(1.6);
   expect(s.host.scrollLeft).toBeCloseTo(320);
   expect(s.point().y).toBeCloseTo(before.y);
+});
+
+it("does not force layout reads for a hidden source or background tab", () => {
+  const s = setup();
+  const width = vi.spyOn(s.host, "clientWidth", "get");
+  s.host.setAttribute("inert", "");
+  s.viewport.remember();
+  s.viewport.reset();
+  expect(width).not.toHaveBeenCalled();
 });
 it("does not accumulate rounding or clamp drift across repeated resizes", () => {
   const s = setup(4),

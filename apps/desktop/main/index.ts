@@ -12,7 +12,7 @@ import {
   shell,
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
-import { join, resolve } from "node:path";
+import { join, resolve, basename } from "node:path";
 import { createInterface } from "node:readline";
 import { readFile, realpath, lstat } from "node:fs/promises";
 import {
@@ -23,6 +23,18 @@ import {
   validateLibraryDirectory,
 } from "./library-location";
 import { startLibraryRecoveryServer } from "./library-recovery-server";
+import {
+  transferLibraryArchive,
+  downloadLibraryArchive,
+  prepareLibraryArchive,
+  type LibraryArchiveOperation,
+} from "./library-archive";
+import { flushLibraryWindow } from "./library-flush";
+import {
+  libraryArchiveFilename,
+  type LibraryEntry,
+} from "../../../packages/neoread-core/src/library-archive";
+import { LibraryCatalog } from "./library-catalog";
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { createStartupWindow } from "./startup-window";
@@ -145,8 +157,13 @@ let restartRequested = false;
 let proxyReady: Promise<ProxySettingsService>;
 const runtimeController = new AbortController();
 let proxySettings: ProxySettingsService;
+const libraryCatalog = new LibraryCatalog(app.getPath("userData"));
 let activeLibrary: string | undefined;
 let choosingLibrary = false;
+let libraryExportAbort: AbortController | undefined;
+let librarySwitching = false;
+let closeAfterLibrarySwitch = false;
+let refreshDesktopRuntime: (() => Promise<void>) | undefined;
 let libraryWarning = "";
 let recoveryServer:
   Awaited<ReturnType<typeof startLibraryRecoveryServer>> | undefined;
@@ -154,6 +171,8 @@ let pendingLibraryMove:
   | {
       destination: string;
       existing?: boolean;
+      archive?: LibraryArchiveOperation;
+      libraryEntry?: LibraryEntry;
       resolve: (moved: boolean) => void;
     }
   | undefined;
@@ -178,9 +197,9 @@ const commandLineHost = () => ({
   binary: bundledBinary("neoread"),
   env: process.env,
 });
-async function startServer() {
+async function startServer(reuse?: { url: string; token: string }) {
   const childEnv = process.env;
-  serverToken = randomBytes(32).toString("hex");
+  serverToken = reuse?.token ?? randomBytes(32).toString("hex");
   diagnostics?.logs.secrets.push(serverToken);
   diagnostics?.record("server.start_requested");
   const binary = serverBinary();
@@ -193,7 +212,7 @@ async function startServer() {
     binary,
     [
       "--port",
-      "0",
+      reuse ? new URL(reuse.url).port : "0",
       "--logs",
       diagnostics!.directory,
       "--session",
@@ -249,7 +268,7 @@ async function startServer() {
     });
     child!.once("exit", (code) => {
       diagnostics?.logs.record("desktop", {
-        level: quitting ? "info" : "error",
+        level: quitting || librarySwitching ? "info" : "error",
         event: "server.exited",
         exitCode: code,
       });
@@ -257,7 +276,7 @@ async function startServer() {
       reject(new Error(`本地服务已退出 (${code})`));
       // Startup failures are handled by the outer startup catch. Once ready,
       // the service remains essential even with no main window on macOS.
-      if (started && !quitting) {
+      if (started && !quitting && !librarySwitching) {
         quitRequested = true;
         flushed = true;
         citationService?.stop();
@@ -647,6 +666,27 @@ app
           if (!quitting)
             diagnostics?.record("startup.path_delivery_failed", error);
         });
+      refreshDesktopRuntime = async () => {
+        const service = await proxyReady;
+        await Promise.all([
+          sendRuntime(
+            "network",
+            Object.fromEntries(
+              [
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "ALL_PROXY",
+                "NO_PROXY",
+                "http_proxy",
+                "https_proxy",
+                "all_proxy",
+                "no_proxy",
+              ].map((key) => [key, service.activeEnvironment[key] ?? null]),
+            ),
+          ),
+          pathReady.then((value) => sendRuntime("path", { PATH: value })),
+        ]);
+      };
     }
 
     session.defaultSession.setPermissionRequestHandler(
@@ -758,6 +798,12 @@ app
         openedClaimed = false;
       });
       window.on("close", (event) => {
+        if (librarySwitching) {
+          event.preventDefault();
+          closeAfterLibrarySwitch = true;
+          return;
+        }
+        libraryExportAbort?.abort();
         if (flushed) return;
         event.preventDefault();
         if (closing) return;
@@ -828,7 +874,23 @@ app
             updateService?.stop();
             proxySettings?.stop();
             try {
-              if (move.existing) {
+              if (move.archive) {
+                if (child) await stopLibraryServer(child);
+                await transferLibraryArchive(
+                  serverBinary(),
+                  activeLibrary || "",
+                  move.destination,
+                  move.archive,
+                  app.getPath("userData"),
+                );
+                if (move.libraryEntry)
+                  await libraryCatalog.remember(move.libraryEntry);
+                if (move.archive.kind === "import")
+                  await saveLibraryDirectory(
+                    app.getPath("userData"),
+                    move.destination,
+                  );
+              } else if (move.existing) {
                 if (child) await stopLibraryServer(child);
                 await validateLibraryDirectory(
                   move.destination,
@@ -852,7 +914,13 @@ app
             } catch (error) {
               await dialog.showMessageBox(window!, {
                 type: "error",
-                message: move.existing ? "打开书库失败" : "书库迁移失败",
+                message: move.archive
+                  ? move.archive.kind === "export"
+                    ? "书库导出失败"
+                    : "书库导入失败"
+                  : move.existing
+                    ? "打开书库失败"
+                    : "书库迁移失败",
                 detail: `${(error as Error).message}\n原书库已保留，将重新打开原来的位置。`,
                 buttons: ["重新打开 NeoRead"],
               });
@@ -919,7 +987,8 @@ app
       );
       const feedback = startupWindow;
       await feedback?.waitForMinimumDisplay();
-      let exitStartup: Awaited<ReturnType<typeof prepareStartupExit>> | undefined;
+      let exitStartup:
+        Awaited<ReturnType<typeof prepareStartupExit>> | undefined;
       const canShow = () =>
         !quitRequested && !quitting && !createdWindow.isDestroyed();
       if (canShow() && feedback && !feedback.nativeWindow.isDestroyed()) {
@@ -932,7 +1001,8 @@ app
             createdWindow,
           );
         } catch (error) {
-          if (canShow()) diagnostics?.record("startup.exit_prepare_failed", error);
+          if (canShow())
+            diagnostics?.record("startup.exit_prepare_failed", error);
         }
       }
       const reveal = canShow();
@@ -1001,6 +1071,310 @@ app
       settingsSender(event);
       return libraryWarning;
     });
+    const switchLibrary = async (
+      destination: string,
+      prepare: () => Promise<void>,
+      stopBeforePrepare = false,
+      entry?: LibraryEntry,
+    ) => {
+      const source = activeLibrary!;
+      const connection = { url: serverURL, token: serverToken };
+      await libraryCatalog.list(source);
+      await flushLibraryWindow(ipcMain, window!.webContents);
+      librarySwitching = true;
+      closeAfterLibrarySwitch = false;
+      let suspended = false;
+      let viewReplaced = false;
+      let locationChanged = false;
+      const started = performance.now();
+      let phase = "prepare";
+      const stage = (next: string) => {
+        phase = next;
+        diagnostics?.logs.record("desktop", {
+          level: "info",
+          event: "library.switch_stage",
+          phase,
+        });
+      };
+      diagnostics?.logs.record("desktop", {
+        level: "info",
+        event: "library.switch_started",
+      });
+      try {
+        if (stopBeforePrepare && child) {
+          stage("stop");
+          suspended = true;
+          await stopLibraryServer(child);
+        }
+        stage("prepare");
+        await prepare();
+        if (!suspended && child) {
+          stage("stop");
+          suspended = true;
+          await stopLibraryServer(child);
+        }
+        const old = window!;
+        startupWindow = createStartupWindow(() => app.quit());
+        await startupWindow.load();
+        viewReplaced = true;
+        old.destroy();
+        activeLibrary = destination;
+        stage("connect");
+        await startServer(connection);
+        stage("runtime");
+        await refreshDesktopRuntime!();
+        stage("window");
+        await reopenMainWindow!();
+        stage("save");
+        locationChanged = true;
+        await saveLibraryDirectory(app.getPath("userData"), destination);
+        if (entry) await libraryCatalog.remember(entry);
+        diagnostics?.logs.record("desktop", {
+          level: "info",
+          event: "library.switch_completed",
+          durationMs: Math.round(performance.now() - started),
+        });
+        return true;
+      } catch (error) {
+        const failure = error as Error;
+        diagnostics?.logs.record("desktop", {
+          level: "error",
+          event: "library.switch_failed",
+          errorCode: "switch",
+          phase,
+          durationMs: Math.round(performance.now() - started),
+        });
+        if (suspended) {
+          activeLibrary = source;
+          try {
+            if (locationChanged)
+              await saveLibraryDirectory(app.getPath("userData"), source);
+            if (viewReplaced) {
+              if (!startupWindow) {
+                startupWindow = createStartupWindow(() => app.quit());
+                await startupWindow.load();
+              }
+              window?.destroy();
+            }
+            if (child && child.exitCode === null && child.signalCode === null)
+              await stopLibraryServer(child);
+            await startServer(connection);
+            await refreshDesktopRuntime!();
+            if (!window || window.isDestroyed()) {
+              await reopenMainWindow!();
+              await dialog.showMessageBox(window!, {
+                type: "error",
+                message: "切换书库失败",
+                detail: failure.message + "\n原书库已保留。",
+                buttons: ["知道了"],
+              });
+              return false;
+            }
+          } catch (restoreError) {
+            diagnostics?.record(
+              "library.connection_restore_failed",
+              restoreError,
+            );
+            await dialog.showMessageBox({
+              type: "error",
+              message: "无法重新连接书库",
+              detail: "原书库已保留，将重新打开应用。",
+              buttons: ["重新打开"],
+            });
+            restartRequested = true;
+            quitRequested = true;
+          }
+        }
+        throw failure;
+      } finally {
+        librarySwitching = false;
+        if (quitRequested) app.quit();
+        else if (closeAfterLibrarySwitch) window?.close();
+      }
+    };
+    ipcMain.handle("neoread:library-catalog", (event) => {
+      settingsSender(event);
+      return libraryCatalog.list(activeLibrary || "");
+    });
+    ipcMain.handle(
+      "neoread:rename-library",
+      (event, id: unknown, name: unknown) => {
+        settingsSender(event);
+        if (typeof id !== "string" || typeof name !== "string")
+          throw new Error("书库名称无效");
+        if (choosingLibrary || librarySwitching)
+          throw new Error("书库正在处理中，请稍后重试。");
+        return libraryCatalog.rename(activeLibrary || "", id, name);
+      },
+    );
+    ipcMain.handle("neoread:switch-library", async (event, id: unknown) => {
+      settingsSender(event);
+      if (typeof id !== "string") throw new Error("书库无效");
+      if (choosingLibrary || closing || restartRequested) return false;
+      choosingLibrary = true;
+      try {
+        const snapshot = await libraryCatalog.list(activeLibrary || "");
+        const entry = snapshot.libraries.find((item) => item.id === id);
+        if (!entry) throw new Error("书库已不存在。");
+        if (id === snapshot.activeId) return false;
+        if (recoveryServer)
+          return await new Promise<boolean>((resolve) => {
+            pendingLibraryMove = {
+              destination: entry.directory,
+              existing: true,
+              resolve,
+            };
+            restartRequested = true;
+            app.quit();
+          });
+        return await switchLibrary(entry.directory, () =>
+          validateLibraryDirectory(entry.directory, serverBinary()),
+        );
+      } finally {
+        choosingLibrary = false;
+      }
+    });
+    ipcMain.handle(
+      "neoread:export-library-archive",
+      async (event, value: unknown) => {
+        settingsSender(event);
+        if (
+          !activeLibrary ||
+          libraryWarning ||
+          choosingLibrary ||
+          closing ||
+          restartRequested
+        )
+          return false;
+        if (!value || typeof value !== "object")
+          throw new Error("导出范围无效");
+        const options = value as {
+          library?: "books" | "papers";
+          folder?: string;
+          smartCategory?: string;
+          name?: string;
+        };
+        if (
+          (options.library !== undefined &&
+            options.library !== "papers" &&
+            options.library !== "books") ||
+          (options.folder !== undefined &&
+            (typeof options.folder !== "string" ||
+              options.folder.length > 160 ||
+              options.library !== "papers")) ||
+          (options.smartCategory !== undefined &&
+            (typeof options.smartCategory !== "string" ||
+              options.smartCategory.length > 160 ||
+              options.library !== "papers" ||
+              options.folder !== undefined)) ||
+          (options.name !== undefined &&
+            (typeof options.name !== "string" || options.name.length > 160))
+        )
+          throw new Error("导出范围无效");
+        choosingLibrary = true;
+        try {
+          if (
+            !options.library &&
+            !options.folder &&
+            !options.smartCategory &&
+            !options.name
+          ) {
+            options.name =
+              libraryCatalog.cachedName(activeLibrary!) || "NeoRead书库";
+          }
+          const selected = await dialog.showSaveDialog(window!, {
+            title: "导出书库",
+            defaultPath: join(
+              app.getPath("documents"),
+              libraryArchiveFilename(options),
+            ),
+            filters: [{ name: "NeoRead 书库压缩包", extensions: ["zip"] }],
+          });
+          if (selected.canceled || !selected.filePath || closing || quitting)
+            return false;
+          const file = /\.zip$/i.test(selected.filePath)
+            ? selected.filePath
+            : selected.filePath + ".zip";
+          window!.webContents.send("neoread:library-archive-started", "export");
+          const controller = new AbortController();
+          libraryExportAbort = controller;
+          await flushLibraryWindow(ipcMain, window!.webContents);
+          if (controller.signal.aborted) return false;
+          await downloadLibraryArchive(
+            serverURL,
+            serverToken,
+            options,
+            file,
+            activeLibrary!,
+            controller.signal,
+          );
+          return true;
+        } finally {
+          libraryExportAbort = undefined;
+          choosingLibrary = false;
+        }
+      },
+    );
+    ipcMain.handle(
+      "neoread:import-library-archive",
+      async (event, mode: unknown) => {
+        settingsSender(event);
+        if (choosingLibrary || closing || restartRequested) return false;
+        if (
+          (mode !== "new" && mode !== "merge") ||
+          (mode === "merge" && (!activeLibrary || libraryWarning))
+        )
+          throw new Error("导入方式无效");
+        choosingLibrary = true;
+        try {
+          const archive = await dialog.showOpenDialog(window!, {
+            title: "选择 NeoRead 书库压缩包",
+            filters: [{ name: "NeoRead 书库压缩包", extensions: ["zip"] }],
+            properties: ["openFile"],
+          });
+          if (archive.canceled || !archive.filePaths[0]) return false;
+          if (closing || quitting) return false;
+          window!.webContents.send("neoread:library-archive-started", "import");
+          const entry = await libraryCatalog.allocate(
+            activeLibrary || "",
+            basename(archive.filePaths[0]).replace(/\.zip$/i, ""),
+          );
+          const destination = entry.directory;
+          const operation: LibraryArchiveOperation = {
+            kind: "import",
+            file: archive.filePaths[0],
+            merge: mode === "merge",
+          };
+          if (recoveryServer) {
+            const imported = await new Promise<boolean>((resolve) => {
+              pendingLibraryMove = {
+                destination,
+                archive: operation,
+                libraryEntry: entry,
+                resolve,
+              };
+              restartRequested = true;
+              app.quit();
+            });
+            return imported ? entry : false;
+          }
+          await flushLibraryWindow(ipcMain, window!.webContents);
+          await libraryCatalog.list(activeLibrary!);
+          await prepareLibraryArchive(
+            serverURL,
+            serverToken,
+            operation.file,
+            destination,
+            operation.merge,
+            runtimeController.signal,
+          );
+          await libraryCatalog.remember(entry);
+          return entry;
+        } finally {
+          choosingLibrary = false;
+        }
+      },
+    );
     ipcMain.handle("neoread:document-tab-active", (event, active: unknown) => {
       settingsSender(event);
       if (typeof active !== "boolean") throw new Error("Invalid tab state");
@@ -1089,10 +1463,13 @@ app
       settingsSender(event);
       return (await proxyReady).state();
     });
-    ipcMain.handle("neoread:save-proxy-settings", async (event, value: unknown) => {
-      settingsSender(event);
-      return (await proxyReady).save(value);
-    });
+    ipcMain.handle(
+      "neoread:save-proxy-settings",
+      async (event, value: unknown) => {
+        settingsSender(event);
+        return (await proxyReady).save(value);
+      },
+    );
     ipcMain.handle("neoread:check-proxy", async (event, value: unknown) => {
       settingsSender(event);
       return (await proxyReady).check(value, serverBinary());
@@ -1542,6 +1919,11 @@ app
     app.quit();
   });
 app.on("before-quit", (event) => {
+  if (librarySwitching) {
+    event.preventDefault();
+    quitRequested = true;
+    return;
+  }
   quitRequested = true;
   if (window && !window.isDestroyed() && !flushed) {
     event.preventDefault();

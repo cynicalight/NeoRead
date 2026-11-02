@@ -60,9 +60,11 @@ export function EPUBReadingView({
   const [chapter, setChapter] = useState(
     doc.progress?.type === "epub" ? doc.progress.href.split("#")[0] : "",
   );
-  const { translations, error: streamError } = useTranslations(doc.id, [
-    ...new Set(blocks.map((b) => b.location.href)),
-  ]);
+  const { translations, error: streamError } = useTranslations(
+    doc.id,
+    [...new Set(blocks.map((b) => b.location.href))],
+    active,
+  );
   const root = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLDivElement>(null);
   const [sentenceEngine, setSentenceEngine] = useState<ReaderAdapter>();
@@ -572,7 +574,17 @@ export function EPUBReadingView({
                   if (live.current.mode === "parallel")
                     hover("source", id ?? undefined);
                 },
-                epubBlockFocus: (id) => focusBlock(id, "source"),
+                epubBlockFocus: (id) => {
+                  const block = live.current.blocks.find(
+                    (item) => item.id === id,
+                  );
+                  if (block?.image && live.current.mode === "parallel") {
+                    input("source");
+                    live.current.events.epubBlockAction?.(block, "preview");
+                    return;
+                  }
+                  focusBlock(id, "source");
+                },
                 epubReadingAnchor: (id, fraction = 0.5) => {
                   if (
                     !focusMotion.current.moving &&
@@ -707,11 +719,13 @@ export function EPUBReadingView({
                 onClick={(event) => {
                   const pressed = pressedBlock.current;
                   pressedBlock.current = undefined;
+                  const double = theme.translationAlignment === "double";
+                  if (double ? event.detail !== 2 : event.detail > 1) return;
                   if (
                     (event.target as Element).closest(
                       "a, button, input, textarea, select, [role=button], [contenteditable=true]",
                     ) ||
-                    window.getSelection()?.toString().trim() ||
+                    (!double && window.getSelection()?.toString().trim()) ||
                     (event.detail > 0 &&
                       (!pressed ||
                         pressed.id !== block.id ||
@@ -721,6 +735,11 @@ export function EPUBReadingView({
                         ) > 5))
                   )
                     return;
+                  if (double) {
+                    window.getSelection()?.removeAllRanges();
+                    selection.current = null;
+                    live.current.events.selection(null);
+                  }
                   focusBlock(block.id, "translation");
                 }}
                 onKeyDown={(event) => {
@@ -750,6 +769,7 @@ export function EPUBReadingView({
                       : undefined
                   }
                   documentId={doc.id}
+                  onPreview={() => events.epubBlockAction?.(block, "preview")}
                   translation={translations.find((t) => t.blockId === block.id)}
                   paused={processing?.enabled === false}
                   retry={() => retry(block.id)}

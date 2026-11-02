@@ -322,6 +322,52 @@ it("focuses text and image clicks without attaching images, and leaves drags and
   expect(focus).toHaveBeenCalledTimes(2);
   layer.destroy();
 });
+it("aligns on the second click when configured, while preserving single clicks and drags", () => {
+  const host = document.createElement("div");
+  host.innerHTML =
+    '<div class="page" data-page-number="2"><span>Text</span></div>';
+  const page = host.firstElementChild as HTMLElement;
+  page.getBoundingClientRect = () => new DOMRect(10, 20, 1000, 1400);
+  const target = page.firstElementChild!,
+    focus = vi.fn(() => true);
+  const layer = new PDFBlockOverlay(
+    host,
+    undefined,
+    undefined,
+    focus,
+    () => "double",
+  );
+  layer.setBlocks([block]);
+  const click = (detail: number, x = 210) => {
+    target.dispatchEvent(
+      new MouseEvent("pointerdown", {
+        bubbles: true,
+        clientX: 210,
+        clientY: 440,
+      }),
+    );
+    target.dispatchEvent(
+      new MouseEvent("click", {
+        detail,
+        bubbles: true,
+        clientX: x,
+        clientY: 440,
+      }),
+    );
+  };
+  click(1);
+  expect(focus).not.toHaveBeenCalled();
+  const selection = window.getSelection()!,
+    range = document.createRange();
+  range.selectNodeContents(target);
+  selection.addRange(range);
+  click(2);
+  expect(focus).toHaveBeenCalledExactlyOnceWith(block);
+  expect(selection.toString()).toBe("");
+  click(2, 260);
+  expect(focus).toHaveBeenCalledOnce();
+  layer.destroy();
+});
 
 it("keeps the block during fade-out and cancels stale removal when the pointer returns", async () => {
   const host = document.createElement("div");

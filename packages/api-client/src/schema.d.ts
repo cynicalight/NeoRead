@@ -4,6 +4,119 @@
  */
 
 export interface paths {
+    "/api/library/archive/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export a live library snapshot without restarting */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {unknown} */
+                        library?: "books" | "papers";
+                        folder?: string;
+                        smartCategory?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Library ZIP snapshot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": string;
+                    };
+                };
+                /** @description Export failed */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/archive/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare a library from a local ZIP while the current library remains online */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description Absolute ZIP path selected in the desktop dialog. */
+                        file: string;
+                        /** @description New managed directory; existing directories are never overwritten. */
+                        destination: string;
+                        /** @description Merge a committed snapshot of the current library. */
+                        merge: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Prepared library. Desktop switching is a separate operation. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @constant */
+                            prepared: true;
+                        };
+                    };
+                };
+                /** @description Import failed; the current library remains open. */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{id}/navigation": {
         parameters: {
             query?: never;
@@ -4714,6 +4827,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{id}/chat-sessions/{session}/messages/{message}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Withdraw a question and following messages */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    session: string;
+                    message: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        expectedLastMessageId: string;
+                        expectedContent: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated session transcript; message is the edited or withdrawn question */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: components["schemas"]["Message"];
+                            messages: components["schemas"]["Message"][];
+                        };
+                    };
+                };
+                /** @description Error (409 if the session is running or history changed) */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Edit a question and remove its answer and following messages */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    session: string;
+                    message: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        expectedLastMessageId: string;
+                        expectedContent: string;
+                        /** @description Non-empty, at most 16000 UTF-8 bytes */
+                        content: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated session transcript; message is the edited or withdrawn question */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: components["schemas"]["Message"];
+                            messages: components["schemas"]["Message"][];
+                        };
+                    };
+                };
+                /** @description Error (409 if the session is running or history changed) */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/documents/{id}/chat-sessions/{session}/chat": {
         parameters: {
             query?: never;
@@ -5095,6 +5312,11 @@ export interface components {
             progress?: components["schemas"]["DocumentLocation"];
             /** @enum {unknown} */
             library: "books" | "papers";
+            /** @description Reference-section start; absent before layout parsing */
+            bodyEnd?: {
+                page: number;
+                y: number;
+            };
             /** @description Set while the document is in the trash */
             deletedAt?: string;
             metadata: components["schemas"]["PaperMetadata"];

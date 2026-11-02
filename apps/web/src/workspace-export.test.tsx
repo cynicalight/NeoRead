@@ -1,16 +1,30 @@
 // @vitest-environment jsdom
-import { act, type ReactNode, type ComponentProps } from "react";
+import { act, useEffect, type ReactNode, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { defaultTheme, type Processing } from "@neoread/core";
+import {
+  defaultTheme,
+  type Processing,
+  type ReaderEvents,
+  type ReaderAdapter,
+} from "@neoread/core";
 import { TooltipProvider } from "@neoread/ui/components/tooltip";
 import { api } from "@neoread/api";
 import { Workspace } from "./Workspace";
 import { paper } from "./papers/fixtures";
 import { useReaderStore } from "./store";
+import { ChatSession, type ChatInput } from "./chat/chat-session";
 import type { ResizablePanelGroup } from "@neoread/ui/components/resizable";
 type GroupProps = ComponentProps<typeof ResizablePanelGroup>;
 
+const reader = vi.hoisted(() => ({
+  enabled: false,
+  events: undefined as ReaderEvents | undefined,
+  chat: undefined as ChatSession | undefined,
+}));
+vi.mock("./chat/session-registry", () => ({
+  getChatSession: () => reader.chat,
+}));
 const panels = vi.hoisted(() => ({
   props: undefined as GroupProps | undefined,
 }));
@@ -32,6 +46,7 @@ vi.mock("@neoread/api", () => ({
     }),
     navigation: vi.fn(async () => ({ revision: 0, entries: {} })),
     messages: vi.fn(async () => []),
+    chatSessions: vi.fn(async () => []),
     blocks: vi.fn(async () => []),
     documentNote: vi.fn(async () => ({ body: "note", updatedAt: "" })),
     translations: vi.fn(async () => []),
@@ -45,7 +60,32 @@ vi.mock("./progress", () => ({
   scheduleProgress: vi.fn(),
   flushProgress: vi.fn(async () => {}),
 }));
-vi.mock("./translation/PDFReadingView", () => ({ PDFReadingView: () => null }));
+vi.mock("@neoread/ui/components/scroll-area", () => ({
+  ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}));
+vi.mock("./translation/PDFReadingView", () => ({
+  PDFReadingView: ({
+    events,
+    onReady,
+  }: {
+    events: ReaderEvents;
+    onReady: (adapter: ReaderAdapter, toc: []) => void;
+  }) => {
+    reader.events = events;
+    useEffect(() => {
+      if (reader.enabled)
+        onReady(
+          {
+            getLocation: () => ({ type: "pdf", page: 1 }),
+            getContext: async () => "",
+            clearSelection() {},
+          } as ReaderAdapter,
+          [],
+        );
+    }, []);
+    return null;
+  },
+}));
 vi.mock("./translation/EPUBReadingView", () => ({
   EPUBReadingView: () => null,
 }));
@@ -113,8 +153,18 @@ const button = (text: string) =>
   )!;
 beforeEach(() => {
   vi.clearAllMocks();
+  reader.enabled = false;
+  reader.events = undefined;
+  reader.chat = undefined;
   useReaderStore.setState({ theme: defaultTheme });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   vi.stubGlobal("PointerEvent", MouseEvent);
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
   host = document.createElement("div");
@@ -231,4 +281,66 @@ it("activates the independent note tab separately from annotations", async () =>
   expect(note()?.getAttribute("data-active")).toBe("true");
   await act(async () => tab("批注").click());
   expect(note()?.getAttribute("data-active")).toBe("false");
+});
+
+it("clears sent quote chips immediately while the answer is still generating and retains the request references", async () => {
+  reader.enabled = true;
+  let finish!: () => void;
+  let captured: ChatInput | undefined;
+  reader.chat = new ChatSession(doc.id, {
+    messages: async () => [],
+    stream: async (_id, input) => {
+      captured = input;
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  await reader.chat.load();
+  vi.mocked(api.chatSessions).mockResolvedValueOnce([
+    { id: "chat", documentId: doc.id, title: "Chat" },
+  ] as never);
+  vi.mocked(api.aiConfig).mockResolvedValueOnce({
+    primary: "codex",
+    models: {},
+    capabilities: {},
+  } as never);
+  await act(async () => render(0));
+  await act(async () =>
+    reader.events!.selection({
+      text: "隐藏状态 $H'$",
+      location: { type: "pdf", page: 1 },
+      anchor: { x: 50, top: 60, bottom: 80 },
+    }),
+  );
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="引用到对话"]')!.click(),
+  );
+  expect(host.querySelector(".quote-chips")?.textContent).toContain(
+    "隐藏状态 $H'$",
+  );
+  const input = host.querySelector<HTMLTextAreaElement>(
+    '[aria-label="向 AI 提问"]',
+  )!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!.call(input, "解释这句话");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () =>
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    ),
+  );
+  expect(captured?.references[0].text).toBe("隐藏状态 $H'$");
+  expect(reader.chat.getSnapshot().busy).toBe(true);
+  expect(host.querySelector(".quote-chips")).toBeNull();
+  expect(input.value).toBe("");
+  await act(async () => {
+    finish();
+    await Promise.resolve();
+  });
+  reader.chat.dispose();
 });

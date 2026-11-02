@@ -62,7 +62,181 @@ beforeEach(() => {
   vi.stubGlobal("cancelAnimationFrame", clearTimeout);
 });
 afterEach(() => vi.unstubAllGlobals());
+describe("editing and withdrawing saved questions", () => {
+  it("edits with the original sources, clears obsolete output, and regenerates the same question ID", async () => {
+    const original: Message = {
+      ...message("question", "user", "old question"),
+      sessionId: "session",
+      context: "quoted context",
+      references: [
+        {
+          text: "原文 $H'$",
+          location: { type: "pdf", page: 2 },
+          kind: "selection",
+        },
+      ],
+      attachments: [{ id: "image", page: 2, label: "chart" }],
+      readingLocation: { type: "pdf", page: 2 },
+      webSearch: true,
+    };
+    let history = [
+      original,
+      { ...message("answer", "assistant", "old answer"), sessionId: "session" },
+    ];
+    const changeMessage = vi.fn<NonNullable<ChatTransport["changeMessage"]>>(
+      async (_id, change) => {
+        const edited = { ...original, content: change.content! };
+        history = [edited];
+        return { message: edited, messages: history };
+      },
+    );
+    const stream = vi.fn<ChatTransport["stream"]>(
+      async (_id, request, _signal, emit) => {
+        expect(request).toEqual({
+          userMessageId: original.id,
+          prompt: "new question",
+          provider: "api",
+          context: original.context,
+          references: original.references,
+          attachments: original.attachments,
+          readingLocation: original.readingLocation,
+          webSearch: true,
+        });
+        history = [
+          ...history,
+          {
+            ...message("new-answer", "assistant", "new answer"),
+            sessionId: "session",
+          },
+        ];
+        emit({ event: "delta", data: { text: "new answer" } });
+        emit({ event: "done", data: { ok: true } });
+      },
+    );
+    const session = new ChatSession(
+      "doc",
+      { messages: async () => history, changeMessage, stream },
+      "session",
+    );
+    await session.load();
+    await session.changeMessage(original, "new question");
+    expect(changeMessage).toHaveBeenCalledWith("question", {
+      expectedLastMessageId: "answer",
+      expectedContent: "old question",
+      content: "new question",
+    });
+    expect(session.getSnapshot()).toMatchObject({
+      busy: false,
+      archived: [],
+      pending: {
+        phase: "incomplete",
+        content: "",
+        input: { userMessageId: "question", prompt: "new question" },
+      },
+    });
+    expect(session.getSnapshot().messages.map((m) => m.id)).toEqual([
+      "question",
+    ]);
+    await session.regenerate("api");
+    expect(stream).toHaveBeenCalledOnce();
+    expect(session.getSnapshot().pending).toMatchObject({
+      phase: "saved",
+      content: "new answer",
+    });
+    expect(session.getSnapshot().messages.map((m) => m.id)).toEqual([
+      "question",
+      "new-answer",
+    ]);
+    session.dispose();
+  });
+
+  it("withdraws a failed question, removes partial output, and ignores late stream callbacks", async () => {
+    let history: Message[] = [];
+    let late!: Parameters<ChatTransport["stream"]>[3];
+    const changeMessage = vi.fn<NonNullable<ChatTransport["changeMessage"]>>(
+      async () => {
+        const restored = history[0];
+        history = [];
+        return { message: restored, messages: [] };
+      },
+    );
+    const session = new ChatSession("doc", {
+      messages: async () => history,
+      changeMessage,
+      stream: async (_id, request, _signal, emit) => {
+        late = emit;
+        history = [message(request.userMessageId!, "user", request.prompt)];
+        emit({ event: "delta", data: { text: "old partial" } });
+        emit({ event: "error", data: { error: "failed" } });
+      },
+    });
+    await session.load();
+    await session.send(input);
+    const original = session.getSnapshot().messages[0];
+    const restored = await session.changeMessage(original);
+    expect(restored).toEqual(original);
+    expect(changeMessage).toHaveBeenCalledWith(original.id, {
+      expectedLastMessageId: original.id,
+      expectedContent: original.content,
+      content: undefined,
+    });
+    late({ event: "delta", data: { text: "late response" } });
+    late({ event: "done", data: { ok: true } });
+    expect(session.getSnapshot()).toMatchObject({
+      messages: [],
+      messageKeys: {},
+      archived: [],
+      busy: false,
+    });
+    expect(session.getSnapshot().pending).toBeUndefined();
+    session.dispose();
+  });
+
+  it("retains the original transcript when a change is rejected", async () => {
+    const history = [
+      message("user", "user", "question"),
+      message("answer", "assistant", "answer"),
+    ];
+    const changeMessage = vi
+      .fn<NonNullable<ChatTransport["changeMessage"]>>()
+      .mockRejectedValue(new Error("对话记录已改变"));
+    const session = new ChatSession("doc", {
+      messages: async () => history,
+      changeMessage,
+      stream: vi.fn(),
+    });
+    await session.load();
+    await expect(session.changeMessage(history[0], "new")).rejects.toThrow(
+      "对话记录已改变",
+    );
+    expect(session.getSnapshot()).toMatchObject({
+      messages: history,
+      busy: false,
+    });
+    await expect(
+      session.changeMessage(message("unsaved", "user", "new")),
+    ).rejects.toThrow("问题尚未保存");
+    expect(changeMessage).toHaveBeenCalledOnce();
+    session.dispose();
+  });
+});
 describe("chat request lifecycle", () => {
+  it("does not rerender the reading workspace for streamed text or reasoning deltas", async () => {
+    const s = setup();
+    await s.session.load();
+    const completion = s.session.send(input);
+    const composer = s.session.getComposerSnapshot();
+    s.emit({ event: "delta", data: { text: "partial answer" } });
+    s.emit({ event: "reasoning", data: { text: "partial reasoning" } });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    expect(s.session.getSnapshot().pending?.content).toBe("partial answer");
+    expect(s.session.getComposerSnapshot()).toBe(composer);
+    s.wait.resolve();
+    await completion;
+    expect(s.session.getComposerSnapshot().busy).toBe(false);
+    expect(s.session.getComposerSnapshot()).not.toBe(composer);
+    s.session.dispose();
+  });
   it("regenerates a failed question with the current provider and replaces all partial output", async () => {
     let history: Message[] = [];
     const requests: ChatInput[] = [];

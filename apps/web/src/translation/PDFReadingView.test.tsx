@@ -112,7 +112,7 @@ vi.mock("../ReaderView", () => ({
 }));
 import { PDFReadingView } from "./PDFReadingView";
 let root: Root, host: HTMLDivElement;
-const events = { location: vi.fn(), selection: vi.fn() };
+const events = { location: vi.fn(), selection: vi.fn(), blockAction: vi.fn() };
 beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
@@ -360,6 +360,10 @@ it("navigates to the matching bibliography block and restores the translated vie
   )!;
   reference.getBoundingClientRect = () =>
     new DOMRect(40, 1200 - pane.scrollTop, 520, 200);
+  host.querySelector<HTMLElement>(
+    '[data-translation-block="p9-first"]',
+  )!.getBoundingClientRect = () =>
+    new DOMRect(40, 1100 - pane.scrollTop, 520, 100);
   pane.scrollTop = 400;
   await act(async () => {
     pane.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
@@ -632,6 +636,43 @@ it("smoothly centers clicked translation blocks and follows their original witho
     vi.useRealTimers();
   }
 });
+it("uses double click alignment when selected and retains keyboard alignment", async () => {
+  await renderView({ ...defaultTheme, translationAlignment: "double" });
+  await click("原文译文");
+  const { block } = translationGeometry();
+  vi.mocked(adapter.focusBlock!).mockClear();
+  const press = (detail: number) => {
+    block.dispatchEvent(
+      new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+    );
+    block.dispatchEvent(new MouseEvent("click", { bubbles: true, detail }));
+  };
+  await act(async () => press(1));
+  expect(adapter.focusBlock).not.toHaveBeenCalled();
+  const selection = window.getSelection()!,
+    range = document.createRange();
+  range.selectNodeContents(block);
+  selection.addRange(range);
+  await act(async () => {
+    block.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+    press(2);
+    block.dispatchEvent(
+      new MouseEvent("dblclick", { bubbles: true, detail: 2 }),
+    );
+  });
+  expect(adapter.focusBlock).toHaveBeenCalledExactlyOnceWith(
+    "p1-b1",
+    "parallel",
+  );
+  expect(selection.toString()).toBe("");
+  expect(events.selection).toHaveBeenLastCalledWith(null);
+  await act(async () =>
+    block.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    ),
+  );
+  expect(adapter.focusBlock).toHaveBeenCalledTimes(2);
+});
 it("top-aligns tall translation blocks and cancels their motion when the user scrolls", async () => {
   await click("仅译文");
   const { pane, block } = translationGeometry(800);
@@ -696,7 +737,7 @@ it("does not treat drags, native selections or interactive controls as block nav
   expect(pane.scrollTop).toBe(0);
 });
 
-it("replaces an unfinished click with an image focus and does not re-highlight on scroll", async () => {
+it("opens a clicked translation image in the preview and cancels unfinished alignment", async () => {
   await renderView(defaultTheme, [
     {
       id: "p1-image",
@@ -724,12 +765,16 @@ it("replaces an unfinished click with an image focus and does not re-highlight o
     await act(async () => image.querySelector("img")!.click());
     expect(pane.scrollTop).toBe(before);
     expect(block.hasAttribute("data-focused")).toBe(false);
-    expect(image.hasAttribute("data-focused")).toBe(true);
+    expect(image.hasAttribute("data-focused")).toBe(false);
+    expect(events.blockAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: "p1-image" }),
+      "preview",
+    );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
-    expect(pane.scrollTop).toBe(800);
-    expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-image", "parallel");
+    expect(pane.scrollTop).toBe(before);
+    expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "parallel");
     await act(async () => {
       host
         .querySelector(".translation-source")!

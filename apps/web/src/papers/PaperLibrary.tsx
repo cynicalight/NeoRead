@@ -1,4 +1,5 @@
 import { PaperColumns, usePaperColumns } from "./PaperColumns";
+import { bodyReadingProgress } from "./body-progress";
 import { setPaperDragImage } from "./paper-drag-image";
 import type { TableColumn } from "./columns";
 import { PaperTagFilterButton } from "./PaperTagFilter";
@@ -189,7 +190,7 @@ export function PaperLibrary({
   onToggleNav,
 }: PaperLibraryProps) {
   const prefs = useReaderStore((s) => s.libraryPreferences.papers) || {};
-  const sort: PaperSort = prefs.sort || "opened";
+  const sort: PaperSort = prefs.sort || "added";
   const reverse = !!prefs.sortReverse;
   const columnControls = usePaperColumns(prefs);
   const ui = usePaperUI();
@@ -277,7 +278,7 @@ export function PaperLibrary({
     void savePaperPreferences((p) => ({
       ...p,
       sort: next,
-      sortReverse: (p.sort || "opened") === next ? !p.sortReverse : false,
+      sortReverse: (p.sort || "added") === next ? !p.sortReverse : false,
     }));
   const groups = useMemo(() => {
     if (view !== "duplicates") return [];
@@ -1636,6 +1637,10 @@ function PaperRow({
         );
       case "progress":
         return `${percent}%`;
+      case "bodyProgress": {
+        const progress = bodyReadingProgress(doc);
+        return progress === undefined ? "—" : `${Math.round(progress * 100)}%`;
+      }
       case "size":
         return fileSize(doc.size);
       case "doi":

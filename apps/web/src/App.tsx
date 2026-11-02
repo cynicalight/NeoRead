@@ -58,6 +58,8 @@ import { TrashView } from "./TrashView";
 import { useCardZoom } from "./useCardZoom";
 import { PaperLibrary } from "./papers/PaperLibrary";
 import { PaperSidebar } from "./papers/PaperSidebar";
+import { LibraryArchiveProgress } from "./LibraryArchiveProgress";
+import { LibrarySidebarResizer } from "./LibrarySidebarResizer";
 import { usePaperUI } from "./papers/state";
 import { ImportPaperDialog } from "./papers/ImportPaperDialog";
 import { LibraryModeSwitcher, libraryModes } from "./LibraryModeSwitcher";
@@ -669,6 +671,7 @@ export function App() {
                 </Button>
               </div>
             </aside>
+            {nav && <LibrarySidebarResizer />}
             {papers ? (
               <PaperLibrary
                 openDocuments={theme.documentTabs ? openDocuments : undefined}
@@ -1039,6 +1042,7 @@ export function App() {
           }}
         />
         {!window.neoreadDesktop?.setCitationVisible && <CiteHost />}
+        <LibraryArchiveProgress onBackground={() => setSettings(false)} />
         <Toaster
           richColors
           position="bottom-right"

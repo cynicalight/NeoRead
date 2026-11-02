@@ -16,6 +16,7 @@ import {
 } from "pdf-lib";
 import { defaultTheme } from "@neoread/core";
 import { pdfObjectColors, type PDFObjectColors } from "./pdf-dark-mode";
+import { pdfCropOperations } from "./pdf-crop-operations";
 
 const require = createRequire(
   new URL("../../../processor/package.json", import.meta.url),
@@ -170,6 +171,58 @@ async function render(
     await task.destroy();
   }
 }
+
+it("renders the same high-resolution crop pixels while skipping unrelated PDF operations", async () => {
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = getDocument({
+    data: await fixture(null),
+    useSystemFonts: true,
+    disableFontFace: true,
+  });
+  try {
+    const pdf = await task.promise,
+      page = await pdf.getPage(1);
+    const base = page.getViewport({ scale: 1 });
+    const preview = createCanvas(Math.ceil(base.width), Math.ceil(base.height));
+    await page.render({
+      canvas: preview,
+      canvasContext: preview.getContext("2d"),
+      viewport: base,
+      recordOperations: true,
+    }).promise;
+    const bounds = { x: 0, y: 0, width: 0.5, height: 0.7 };
+    const filter = pdfCropOperations(page, bounds)!;
+    const operations = await page.getOperatorList();
+    expect(operations.fnArray.some((_, index) => !filter(index))).toBe(true);
+    const viewport = page.getViewport({ scale: 6 });
+    const crop = async (filtered: boolean) => {
+      const canvas = createCanvas(
+        Math.ceil(viewport.width * bounds.width),
+        Math.ceil(viewport.height * bounds.height),
+      );
+      await page.render({
+        canvas,
+        canvasContext: canvas.getContext("2d"),
+        viewport,
+        transform: [
+          1,
+          0,
+          0,
+          1,
+          -viewport.width * bounds.x,
+          -viewport.height * bounds.y,
+        ],
+        operationsFilter: filtered ? filter : undefined,
+      }).promise;
+      return canvas
+        .getContext("2d")
+        .getImageData(0, 0, canvas.width, canvas.height).data;
+    };
+    expect(await crop(true)).toEqual(await crop(false));
+  } finally {
+    await task.destroy();
+  }
+});
 
 async function stateFixture(colors: PDFObjectColors | null) {
   const doc = await PDFDocument.create();

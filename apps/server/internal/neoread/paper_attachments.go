@@ -261,6 +261,8 @@ func (s *Server) updatePaperAttachment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deletePaperAttachment(w http.ResponseWriter, r *http.Request) {
+	s.libraryArchiveMu.RLock()
+	defer s.libraryArchiveMu.RUnlock()
 	s.importMu.Lock()
 	defer s.importMu.Unlock()
 	if !s.attachmentDocument(w, r.PathValue("id")) {
