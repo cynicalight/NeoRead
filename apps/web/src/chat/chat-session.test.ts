@@ -496,3 +496,48 @@ it("uses persisted completed tool states when history confirms a reply after a s
   expect(h.session.getSnapshot().pending?.phase).toBe("saved");
   expect(h.session.getSnapshot().pending?.tools).toEqual(saved.tools);
 });
+
+it("keeps omitted saved search permission disabled after editing and regenerating", async () => {
+  let history = [message("question", "user", "original")];
+  const stream = vi.fn<ChatTransport["stream"]>(async () => {});
+  const session = new ChatSession("doc", {
+    messages: async () => history,
+    stream,
+    changeMessage: async (_id, change) => {
+      history = [{ ...history[0], content: change.content! }];
+      return { message: history[0], messages: history };
+    },
+  });
+  await session.load();
+  await session.changeMessage(history[0], "edited");
+  await session.regenerate("api");
+  expect(stream.mock.calls[0][1]).toMatchObject({
+    prompt: "edited",
+    userMessageId: "question",
+    webSearch: false,
+  });
+  session.dispose();
+});
+
+it.each([true, false])(
+  "reconciles a withdrawal response loss only when the saved question is gone (committed=%s)",
+  async (committed) => {
+    const original = message("question", "user", "original input");
+    let history = [original, message("answer", "assistant", "answer")];
+    const session = new ChatSession("doc", {
+      messages: async () => history,
+      stream: vi.fn(),
+      changeMessage: async () => {
+        if (committed) history = [];
+        throw new Error("response lost");
+      },
+    });
+    await session.load();
+    const changing = session.changeMessage(original);
+    if (committed) await expect(changing).resolves.toEqual(original);
+    else await expect(changing).rejects.toThrow("response lost");
+    expect(session.getSnapshot().messages).toEqual(history);
+    expect(session.getSnapshot().busy).toBe(false);
+    session.dispose();
+  },
+);

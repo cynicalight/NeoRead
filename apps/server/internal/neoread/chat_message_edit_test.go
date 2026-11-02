@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func chatEditFixture(t *testing.T) (*Server, ChatSession, ChatSession, []Message) {
@@ -155,5 +156,51 @@ func TestChatQuestionChangeRollsBackTranscriptAndSourcesOnSaveFailure(t *testing
 	_ = s.Store.DB.QueryRow("SELECT body FROM annotations WHERE id='linked'").Scan(&raw)
 	if !strings.Contains(raw, `"answerId":"middle-answer"`) {
 		t.Fatal("failed transaction changed annotations", raw)
+	}
+}
+
+func TestChatWithdrawalWaitsForAnnotationSnapshot(t *testing.T) {
+	s, session, _, _ := chatEditFixture(t)
+	s.annotationMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			s.annotationMu.Unlock()
+		}
+	}()
+	finished := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		finished <- changeQuestionTest(t, s, session.ID, "middle-user", "DELETE", chatMessageChange{
+			ExpectedLastMessageID: "last-answer", ExpectedContent: "middle",
+		})
+	}()
+	// A concurrent undo snapshot owns this lock. The chat transaction must
+	// leave answer links untouched until that snapshot has finished.
+	deadline := time.After(100 * time.Millisecond)
+	for waiting := true; waiting; {
+		var body string
+		if err := s.Store.DB.QueryRow("SELECT body FROM annotations WHERE id='linked'").Scan(&body); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(body, `"answerId":"middle-answer"`) {
+			t.Fatal("chat transaction entered an annotation snapshot")
+		}
+		select {
+		case <-finished:
+			t.Fatal("withdrawal completed while annotation snapshot was locked")
+		case <-deadline:
+			waiting = false
+		case <-time.After(time.Millisecond):
+		}
+	}
+	s.annotationMu.Unlock()
+	locked = false
+	select {
+	case out := <-finished:
+		if out.Code != 200 {
+			t.Fatal(out.Code, out.Body.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("withdrawal did not resume")
 	}
 }

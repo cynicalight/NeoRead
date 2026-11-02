@@ -127,6 +127,10 @@ func (s *Server) changeSessionMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer finish()
+	// Unlinking deleted answers must not enter another annotation operation's
+	// undo snapshot. Serialize both the transaction and its notification.
+	s.annotationMu.Lock()
+	defer s.annotationMu.Unlock()
 	s.chatMu.Lock()
 	if _, err = s.Store.chatSession(documentID, sessionID); err != nil {
 		s.chatMu.Unlock()
@@ -149,9 +153,7 @@ func (s *Server) changeSessionMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	s.annotationMu.Lock()
 	s.publishAnnotationChange(documentID)
-	s.annotationMu.Unlock()
 	event := "chat.message_edited"
 	if change.Content == nil {
 		event = "chat.message_withdrawn"

@@ -2,18 +2,29 @@
 import { act, type ReactNode, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { defaultTheme, type Processing } from "@neoread/core";
+import {
+  defaultTheme,
+  type Message,
+  type Processing,
+  type ReaderAdapter,
+} from "@neoread/core";
+import { toast } from "sonner";
 import { TooltipProvider } from "@neoread/ui/components/tooltip";
 import { api } from "@neoread/api";
 import { Workspace } from "./Workspace";
 import { paper } from "./papers/fixtures";
 import { useReaderStore } from "./store";
 import type { ResizablePanelGroup } from "@neoread/ui/components/resizable";
+import type { AssistantPanel } from "./chat/AssistantPanel";
 type GroupProps = ComponentProps<typeof ResizablePanelGroup>;
 
 const panels = vi.hoisted(() => ({
   props: undefined as GroupProps | undefined,
+  readerReady: undefined as ((adapter: ReaderAdapter) => void) | undefined,
+  assistant: undefined as ComponentProps<typeof AssistantPanel> | undefined,
 }));
+
+vi.mock("sonner", () => ({ toast: { info: vi.fn(), error: vi.fn() } }));
 
 vi.mock("@neoread/api", () => ({
   api: {
@@ -45,11 +56,25 @@ vi.mock("./progress", () => ({
   scheduleProgress: vi.fn(),
   flushProgress: vi.fn(async () => {}),
 }));
-vi.mock("./translation/PDFReadingView", () => ({ PDFReadingView: () => null }));
+vi.mock("./translation/PDFReadingView", () => ({
+  PDFReadingView: ({
+    onReady,
+  }: {
+    onReady: (adapter: ReaderAdapter, items: []) => void;
+  }) => {
+    panels.readerReady = (adapter) => onReady(adapter, []);
+    return null;
+  },
+}));
 vi.mock("./translation/EPUBReadingView", () => ({
   EPUBReadingView: () => null,
 }));
-vi.mock("./chat/AssistantPanel", () => ({ AssistantPanel: () => null }));
+vi.mock("./chat/AssistantPanel", () => ({
+  AssistantPanel: (props: ComponentProps<typeof AssistantPanel>) => {
+    panels.assistant = props;
+    return null;
+  },
+}));
 vi.mock("./ModelSelector", () => ({ ModelSelector: () => null }));
 vi.mock("./DocumentOverview", () => ({ DocumentOverviewDialog: () => null }));
 vi.mock("./ProcessingUsage", () => ({ ProcessingUsageDialog: () => null }));
@@ -231,4 +256,51 @@ it("activates the independent note tab separately from annotations", async () =>
   expect(note()?.getAttribute("data-active")).toBe("true");
   await act(async () => tab("批注").click());
   expect(note()?.getAttribute("data-active")).toBe("false");
+});
+
+it("keeps a merged withdrawal draft when it exceeds the image limit", async () => {
+  vi.mocked(api.aiConfig).mockResolvedValueOnce({
+    primary: "api",
+    models: {},
+    capabilities: {},
+  } as Awaited<ReturnType<typeof api.aiConfig>>);
+  await act(async () => render(0));
+  await act(async () => panels.readerReady?.({} as ReaderAdapter));
+  const original: Message = {
+    id: "draft",
+    documentId: doc.id,
+    role: "user",
+    content: "draft question",
+    createdAt: "2026-10-15",
+    attachments: Array.from({ length: 4 }, (_, i) => ({
+      id: `image-${i}`,
+      page: 1,
+      label: "image",
+      caption: "",
+    })),
+  };
+  await act(async () => panels.assistant?.onWithdraw?.(original));
+  await act(async () =>
+    panels.assistant?.onWithdraw?.({
+      ...original,
+      id: "withdrawn",
+      content: "withdrawn question",
+      attachments: [
+        { id: "image-extra", page: 2, label: "image", caption: "" },
+      ],
+    }),
+  );
+  const composer = host.querySelector(
+    'textarea[aria-label="向 AI 提问"]',
+  ) as HTMLTextAreaElement;
+  const send = host.querySelector(
+    '[aria-label="发送问题"]',
+  ) as HTMLButtonElement;
+  expect(send.disabled).toBe(false);
+  await act(async () => send.click());
+  expect(toast.info).toHaveBeenCalledWith(
+    "每次最多附加 4 张图片，请移除多余图片后再发送",
+  );
+  expect(composer.value).toBe("draft question\n\nwithdrawn question");
+  expect(host.querySelectorAll('[aria-label^="移除附件："]')).toHaveLength(5);
 });

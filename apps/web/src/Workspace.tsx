@@ -830,6 +830,10 @@ export function Workspace({
     directImage = false,
   ) => {
     if (abort.current || session.getSnapshot().busy || aiModelSaving) return;
+    if (attachments.length > 4) {
+      toast.info("每次最多附加 4 张图片，请移除多余图片后再发送");
+      return;
+    }
     if (!provider) {
       toast.info("请先在设置中选择 Agent SDK");
       onSettings();

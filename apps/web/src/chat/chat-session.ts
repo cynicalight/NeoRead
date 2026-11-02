@@ -112,7 +112,7 @@ function unansweredQuestion(message: Message): PendingAnswer {
       references: message.references ?? [],
       attachments: message.attachments ?? [],
       readingLocation: message.readingLocation,
-      webSearch: message.webSearch,
+      webSearch: message.webSearch ?? false,
     },
     controller: new AbortController(),
   };
@@ -205,7 +205,7 @@ export class ChatSession {
                 references: question.references ?? [],
                 attachments: question.attachments ?? [],
                 readingLocation: question.readingLocation,
-                webSearch: question.webSearch,
+                webSearch: question.webSearch ?? false,
               },
               this.active,
               run,
@@ -250,11 +250,29 @@ export class ChatSession {
     this.query?.abort();
     this.publish({ busy: true });
     try {
-      const result = await this.io.changeMessage(message.id, {
-        expectedLastMessageId: last.id,
-        expectedContent: message.content,
-        content,
-      });
+      let result: ChatMessageChangeResult;
+      try {
+        result = await this.io.changeMessage(message.id, {
+          expectedLastMessageId: last.id,
+          expectedContent: message.content,
+          content,
+        });
+      } catch (error) {
+        if (content !== undefined) throw error;
+        // DELETE may have committed before its response was lost. Reconcile
+        // with the saved transcript; the caller already preserved the draft.
+        let messages: Message[];
+        try {
+          messages = await this.io.messages(
+            this.documentId,
+            this.querySignal(),
+          );
+        } catch {
+          throw error;
+        }
+        if (messages.some((item) => item.id === message.id)) throw error;
+        result = { message: saved, messages };
+      }
       if (this.current(serial)) {
         this.active?.controller.abort();
         this.active = undefined;

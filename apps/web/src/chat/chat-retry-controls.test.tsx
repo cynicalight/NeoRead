@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import type { Message } from "@neoread/core";
 import { AssistantPanel } from "./AssistantPanel";
+import { QuestionActions } from "./QuestionActions";
 import {
   ChatSession,
   type ChatInput,
@@ -297,4 +298,49 @@ it("offers to restore a saved answer without generating again", async () => {
   expect(button("恢复回答")).toBeUndefined();
   expect(stream).toHaveBeenCalledTimes(1);
   expect(regenerate).not.toHaveBeenCalled();
+});
+
+it("preserves a withdrawal draft before the request and does not duplicate it on retry", async () => {
+  const original: Message = {
+    id: "question",
+    documentId: "doc",
+    role: "user",
+    content: "input with context",
+    context: "original context",
+    createdAt: "2026-10-15",
+  };
+  session = new ChatSession("doc");
+  const change = vi
+    .spyOn(session, "changeMessage")
+    .mockRejectedValue(new Error("offline"));
+  const restore = vi.fn();
+  await act(async () =>
+    root.render(
+      <QuestionActions
+        message={original}
+        following={1}
+        session={session}
+        disabled={false}
+        onRegenerate={() => {}}
+        onWithdraw={restore}
+      />,
+    ),
+  );
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await act(async () =>
+      (
+        host.querySelector('[aria-label="撤回问题"]') as HTMLButtonElement
+      ).click(),
+    );
+    await act(async () =>
+      Array.from(document.querySelectorAll("button"))
+        .find((element) => element.textContent === "确认撤回")!
+        .click(),
+    );
+  }
+  expect(change).toHaveBeenCalledTimes(2);
+  expect(restore).toHaveBeenCalledExactlyOnceWith(original);
+  expect(restore.mock.invocationCallOrder[0]).toBeLessThan(
+    change.mock.invocationCallOrder[0],
+  );
 });

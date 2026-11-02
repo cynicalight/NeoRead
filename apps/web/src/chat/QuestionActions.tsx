@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pencil, Undo2 } from "lucide-react";
 import type { Message } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
@@ -43,6 +43,7 @@ export function QuestionActions({
   const [content, setContent] = useState(message.content);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const restoredDraft = useRef(false);
   const open = (next: "edit" | "withdraw") => {
     setContent(message.content);
     setError("");
@@ -53,13 +54,18 @@ export function QuestionActions({
     setSaving(true);
     setError("");
     try {
-      const restored = await session.changeMessage(
-        message,
-        edit ? content : undefined,
-      );
+      // Keep the original input even if the server commits and the response
+      // is lost. Retrying the same withdrawal must not append it twice.
+      if (!edit && !restoredDraft.current) {
+        onWithdraw(message);
+        restoredDraft.current = true;
+      }
+      await session.changeMessage(message, edit ? content : undefined);
       setMode(undefined);
-      if (edit) onRegenerate();
-      else onWithdraw(restored);
+      if (edit) {
+        restoredDraft.current = false;
+        onRegenerate();
+      }
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
