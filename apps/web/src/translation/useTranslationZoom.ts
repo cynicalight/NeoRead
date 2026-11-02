@@ -7,7 +7,7 @@ import {
 } from "react";
 import { zoomCommand } from "@neoread/core";
 
-/** Scale the laid-out translation, keeping the point under the pointer fixed. */
+/** Scale from the pane's fitted width, keeping the pointer's content fixed. */
 export function useTranslationZoom(
   pane: RefObject<HTMLDivElement | null>,
   enabled: boolean,
@@ -20,7 +20,7 @@ export function useTranslationZoom(
     | undefined
   >(undefined);
   const change = (next: number, pointer?: { x: number; y: number }) => {
-    next = Math.max(0.25, Math.min(5, next));
+    next = Math.max(1, Math.min(5, next));
     const element = pane.current;
     if (element && next !== current.current) {
       anchor.current = {

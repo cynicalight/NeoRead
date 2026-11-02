@@ -176,6 +176,28 @@ async function renderView(
   );
 }
 
+it.each(["仅译文", "原文译文"])(
+  "stops shrinking the translation at its fitted width in %s mode",
+  async (mode) => {
+    await click(mode);
+    const smaller = host.querySelector<HTMLButtonElement>(
+      '[aria-label="缩小译文"]',
+    )!;
+    const zoom = host.querySelector<HTMLButtonElement>(
+      '[aria-label="重置译文缩放"]',
+    )!;
+    expect(smaller.disabled).toBe(true);
+    expect(zoom.textContent).toBe("100%");
+    await click("放大译文");
+    expect(smaller.disabled).toBe(false);
+    expect(zoom.textContent).toBe("125%");
+    await click("缩小译文");
+    await click("缩小译文");
+    expect(smaller.disabled).toBe(true);
+    expect(zoom.textContent).toBe("100%");
+  },
+);
+
 it("uses repaired text for search and focuses the matching block", async () => {
   const results = await fixture.ready!.search("第二句");
   expect(results).toHaveLength(1);

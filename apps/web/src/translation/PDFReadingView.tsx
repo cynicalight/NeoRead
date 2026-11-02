@@ -839,7 +839,7 @@ export function PDFReadingView({
             variant="ghost"
             size="icon-sm"
             aria-label="缩小译文"
-            disabled={translationZoom.zoom <= 0.25}
+            disabled={translationZoom.zoom <= 1}
             onClick={() => translationZoom.change(translationZoom.zoom - 0.25)}
           >
             <Minus />
