@@ -18,11 +18,6 @@ concurrency:
   group: release-${{ inputs.release-tag || github.event.release.tag_name || github.ref }}
   cancel-in-progress: false
 
-env:
-  R2_BUCKET: ${{ vars.R2_BUCKET || 'neoread' }}
-  R2_ENDPOINT_URL: ${{ vars.R2_ENDPOINT_URL || 'https://208624959c9d215edea0720162a740c1.r2.cloudflarestorage.com' }}
-  R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL || 'https://neoread-dl.chatbox.run' }}
-
 jobs:
   prepare:
     runs-on: ubuntu-24.04
@@ -37,15 +32,6 @@ jobs:
         with:
           ref: ${{ inputs.release-tag || github.event.release.tag_name || github.sha }}
           persist-credentials: false
-      # Recovery may build a tag that predates R2 support. Load publishing
-      # tools from the workflow revision, while keeping app sources at the tag.
-      - name: Checkout publishing tools
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.workflow_sha }}
-          path: .release-tools
-          sparse-checkout: scripts
-          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
@@ -54,13 +40,6 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release-tag || github.event.release.tag_name }}
         run: node scripts/release-source.mjs
-
-      - name: Validate R2 configuration before building
-        if: github.event_name == 'release' || inputs.release-tag != ''
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: node .release-tools/scripts/release-r2.mjs --check-config
 
       - name: Require an existing published release for manual recovery
         if: inputs.release-tag != ''
@@ -99,11 +78,6 @@ jobs:
     needs: [prepare, desktop]
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.desktop.result == 'success' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    # Serialize publication across tags because stable download aliases are shared.
-    concurrency:
-      group: neoread-release-publish
-      cancel-in-progress: false
     permissions:
       contents: write
     env:
@@ -112,15 +86,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.prepare.outputs.sha }}
-          persist-credentials: false
-      # Recovery may build a tag that predates R2 support. Load publishing
-      # tools from the workflow revision, while keeping app sources at the tag.
-      - name: Checkout publishing tools
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.workflow_sha }}
-          path: .release-tools
-          sparse-checkout: scripts
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -138,9 +103,6 @@ jobs:
         with:
           name: neoread-checksums
           path: release/SHA256SUMS.txt
-      - name: Preview R2 download links without publishing
-        if: github.event_name == 'workflow_dispatch' && inputs.release-tag == ''
-        run: node .release-tools/scripts/release-r2.mjs --dry-run
       - name: Attach installers to the published release
         if: github.event_name == 'release' || inputs.release-tag != ''
         env:
@@ -148,14 +110,3 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.release-tag || github.event.release.tag_name }}
         run: node scripts/release-assets.mjs --upload
-      - name: Publish installers to R2 and add download links
-        if: github.event_name == 'release' || inputs.release-tag != ''
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.release-tag || github.event.release.tag_name }}
-        run: |
-          aws --version
-          node .release-tools/scripts/release-r2.mjs
