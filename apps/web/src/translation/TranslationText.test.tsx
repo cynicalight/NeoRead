@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PDFBlock, TranslationBlock } from "@neoread/core";
 import { TranslationText } from "./TranslationText";
 import { copyText, copyImage } from "../chat/clipboard";
+import { selectionText } from "../selection-text";
 vi.mock("../chat/clipboard", () => ({
   copyText: vi.fn(async () => true),
   copyImage: vi.fn(async () => {}),
@@ -160,7 +161,7 @@ it("retains the original formula image for invalid LaTeX", async () => {
 });
 
 it.each(["$$\n x=1\n$$", "$$\n\\unknowncommand{x}\n$$", ""])(
-  "keeps the equation number in the formula row: %s",
+  "keeps the equation number visible but excludes it from copied text: %s",
   async (formulaMarkdown) => {
     await render(
       { ...base, label: "display_formula" },
@@ -186,6 +187,11 @@ it.each(["$$\n x=1\n$$", "$$\n\\unknowncommand{x}\n$$", ""])(
     expect(
       host.querySelector("details .translation-formula-number"),
     ).toBeNull();
+    const range = document.createRange();
+    range.selectNodeContents(row!);
+    expect(selectionText(range)).not.toContain("(6)");
+    if (formulaMarkdown === "$$\n x=1\n$$")
+      expect(selectionText(range)).toBe("$x=1$");
   },
 );
 

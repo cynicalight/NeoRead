@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { useReaderStore } from "../store";
 import { ReadingLinkNavigation } from "../reading-links";
+import { selectionText } from "../selection-text";
 import { act, useContext, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -197,6 +198,25 @@ it.each(["仅译文", "原文译文"])(
     expect(zoom.textContent).toBe("100%");
   },
 );
+
+it("excludes unpaired equation-number blocks from copied translation text", async () => {
+  await renderView(defaultTheme, [
+    {
+      id: "p1-number",
+      page: 1,
+      label: "formula_number",
+      text: "(3)",
+      bounds: { x: 0.9, y: 0.5, width: 0.05, height: 0.02 },
+    },
+  ]);
+  await click("仅译文");
+  const pane = host.querySelector(".translation-document")!;
+  expect(pane.textContent).toContain("(3)");
+  const range = document.createRange();
+  range.selectNodeContents(pane);
+  expect(selectionText(range)).toContain("第一句。");
+  expect(selectionText(range)).not.toContain("(3)");
+});
 
 it("uses repaired text for search and focuses the matching block", async () => {
   const results = await fixture.ready!.search("第二句");

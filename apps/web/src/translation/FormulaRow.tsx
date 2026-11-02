@@ -10,7 +10,11 @@ export function FormulaRow({
   return (
     <div className="translation-formula-row">
       <div className="translation-formula-content">{children}</div>
-      {number && <span className="translation-formula-number">{number}</span>}
+      {number && (
+        <span className="translation-formula-number" data-copy-ignore="">
+          {number}
+        </span>
+      )}
     </div>
   );
 }

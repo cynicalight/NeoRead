@@ -49,6 +49,7 @@ export const PDFTranslationBlock = memo(function PDFTranslationBlock({
       data-translation-block={block.id}
       data-block-kind={block.image ? "image" : "text"}
       data-label={block.label}
+      data-copy-ignore={block.label === "formula_number" ? "" : undefined}
       data-hovered={hovered || undefined}
       data-focused={focused || undefined}
       data-search-hit={searchHit || undefined}

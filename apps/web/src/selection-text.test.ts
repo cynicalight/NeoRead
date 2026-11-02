@@ -82,13 +82,13 @@ it("uses the same normalized text for references while keeping existing annotati
   );
 });
 
-it("omits formula actions and expanded originals from a bulk copy but allows an original to be copied separately", () => {
+it("omits equation numbers, formula actions and expanded originals from a bulk copy but allows an original to be copied separately", () => {
   const host = document.createElement("div");
-  host.innerHTML = `<p>正文前</p><div class="translation-formula">${math("x=1")}<button data-copy-ignore>复制 LaTeX</button><details class="translation-formula-source" open><summary>查看原公式</summary><p>原图文字 ${math("x=1")}</p><button>复制原公式</button></details></div><p>正文后</p>`;
+  host.innerHTML = `<p>正文前</p><div class="translation-formula">${math("x=1")}<span class="translation-formula-number" data-copy-ignore>(3)</span><button data-copy-ignore>复制 LaTeX</button><details class="translation-formula-source" open><summary>查看原公式</summary><p>原图文字 ${math("x=1")}</p><button>复制原公式</button></details></div><p>正文后（见式 (3)）</p>`;
   document.body.append(host);
   const range = document.createRange();
   range.selectNodeContents(host);
-  expect(selectionText(range)).toBe("正文前$x=1$正文后");
+  expect(selectionText(range)).toBe("正文前$x=1$正文后（见式 (3)）");
   range.selectNodeContents(host.querySelector("details p")!);
   expect(selectionText(range)).toBe("原图文字 $x=1$");
   range.selectNodeContents(host.querySelector("button")!);
