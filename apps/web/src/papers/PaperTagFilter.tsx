@@ -1,5 +1,6 @@
 import {
   cloneElement,
+  useRef,
   useState,
   type ReactElement,
   type ComponentProps,
@@ -18,6 +19,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@neoread/ui/components/popover";
+import { PaperTagCleanup } from "./PaperTagCleanup";
 import { usePaperUI } from "./state";
 
 interface Props {
@@ -123,32 +125,59 @@ export function PaperTagFilterButton({
   trigger?: ReactElement<ComponentProps<typeof Button>>;
 }) {
   const [open, setOpen] = useState(false);
+  const [managing, setManaging] = useState(false);
+  const column = useRef<HTMLButtonElement>(null);
   const count = usePaperUI((s) => s.tagFilter.tags.length);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={
-          trigger ? (
-            cloneElement(trigger, {
-              "aria-label": "按标签筛选",
-              variant: count ? "secondary" : "ghost",
-            })
-          ) : (
-            <Button
-              variant={count ? "secondary" : "ghost"}
-              size="xs"
-              className="max-w-full min-w-0 px-1.5"
-              aria-label="按标签筛选"
-              title={count ? `筛选标签 · 已选 ${count} 个` : "筛选标签"}
-            />
-          )
-        }
-      >
-        <span className="truncate">标签</span>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-64" aria-label="标签筛选条件">
-        <PaperTagFilter documents={documents} jobs={jobs} />
-      </PopoverContent>
-    </Popover>
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          ref={column}
+          render={
+            trigger ? (
+              cloneElement(trigger, {
+                "aria-label": "按标签筛选",
+                variant: count ? "secondary" : "ghost",
+              })
+            ) : (
+              <Button
+                variant={count ? "secondary" : "ghost"}
+                size="xs"
+                className="max-w-full min-w-0 px-1.5"
+                aria-label="按标签筛选"
+                title={count ? `筛选标签 · 已选 ${count} 个` : "筛选标签"}
+              />
+            )
+          }
+        >
+          <span className="truncate">标签</span>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-64"
+          aria-label="标签筛选条件"
+          finalFocus={managing ? false : undefined}
+        >
+          <PaperTagFilter documents={documents} jobs={jobs} />
+          <Button
+            size="sm"
+            variant="ghost"
+            className="justify-start"
+            onClick={() => {
+              setOpen(false);
+              setManaging(true);
+            }}
+          >
+            管理论文标签
+          </Button>
+        </PopoverContent>
+      </Popover>
+      <PaperTagCleanup
+        documents={documents}
+        open={managing}
+        onClose={() => setManaging(false)}
+        finalFocus={column}
+      />
+    </>
   );
 }

@@ -124,6 +124,7 @@ beforeEach(async () => {
   );
   useReaderStore.setState({
     documents: docs,
+    trash: [],
     libraryPreferences: {
       mode: "papers",
       papers: { sort: "title", layout: "card" },
@@ -166,6 +167,98 @@ const menuItem = (label: string) =>
   [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
     (item) => item.textContent === label,
   )!;
+
+it("confirms library-wide paper tag removal across views, with the count and referenced smart categories", async () => {
+  expect(button("管理论文标签")).toBeUndefined();
+  const papers = Array.from({ length: 30 }, (_, i) =>
+    paper({
+      id: String(i),
+      title: `Paper ${i}`,
+      tags: i < 12 ? ["Draft", "Keep"] : [],
+    }),
+  );
+  await act(async () => {
+    useReaderStore.setState({
+      documents: papers.slice(1),
+      trash: [papers[0]],
+      libraryPreferences: {
+        mode: "papers",
+        papers: {
+          layout: "table",
+          columns: ["tags"],
+          smartCategories: [
+            { id: "a", name: "待审", tags: ["draft", "Keep"] },
+            { id: "b", name: "已审", tags: ["Keep"] },
+          ],
+        },
+      },
+    });
+    usePaperUI.setState({
+      query: "Paper 29",
+      tagFilter: { tags: [], match: "any" },
+    });
+  });
+  const inDialog = (label: string) =>
+    [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+    ].find((b) => b.textContent?.trim() === label)!;
+  const selectDraft = async () => {
+    const trigger = button("按标签筛选");
+    await act(async () => trigger.click());
+    const popover = document.querySelector('[data-slot="popover-content"]')!;
+    expect(popover.textContent).toContain("当前范围暂无标签");
+    const manage = [...popover.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "管理论文标签",
+    );
+    expect(manage).toBeDefined();
+    await act(async () => manage!.click());
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(inDialog("确认移除").disabled).toBe(true);
+    await act(async () => inDialog("#Draft").click());
+    const confirmation =
+      document.querySelector('[role="dialog"]')!.textContent!;
+    expect(confirmation).toContain("12 篇");
+    expect(confirmation).toContain("回收站中有 1 篇");
+    expect(confirmation).toContain("待审");
+    expect(confirmation).not.toContain("已审");
+    expect(confirmation).toContain("规则将保留");
+  };
+  await selectDraft();
+  await act(async () => inDialog("取消").click());
+  expect(api.changeLibraryTag).not.toHaveBeenCalled();
+  await vi.waitFor(() =>
+    expect(document.activeElement).toBe(button("按标签筛选")),
+  );
+  await selectDraft();
+  await act(async () =>
+    usePaperUI
+      .getState()
+      .setTagFilter({ tags: ["Keep", "draft"], match: "any" }),
+  );
+  vi.mocked(api.changeLibraryTag).mockRejectedValueOnce(
+    new Error("影响篇数已变化"),
+  );
+  await act(async () => inDialog("确认移除").click());
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  expect(usePaperUI.getState().tagFilter.tags).toEqual(["Keep", "draft"]);
+  expect(document.querySelector('[role="dialog"]')!.textContent).toContain(
+    "11 篇",
+  );
+  vi.mocked(api.changeLibraryTag).mockResolvedValueOnce({ changed: 11 });
+  await act(async () => inDialog("确认移除").click());
+  expect(api.changeLibraryTag).toHaveBeenLastCalledWith(
+    "papers",
+    "Draft",
+    undefined,
+    11,
+  );
+  expect(api.update).not.toHaveBeenCalled();
+  expect(api.saveLibraryPreferences).not.toHaveBeenCalled();
+  expect(usePaperUI.getState().tagFilter).toEqual({
+    tags: ["Keep"],
+    match: "any",
+  });
+});
 
 it("shows details on click and saves an edited field as manual metadata", async () => {
   await act(async () => row("Attention Is All You Need").click());
