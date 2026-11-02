@@ -7,6 +7,9 @@ import { api } from "@neoread/api";
 import { Settings } from "./Settings";
 import { useReaderStore } from "./store";
 
+// Real Settings/Base UI integration can exceed 10s on shared CI runners.
+vi.setConfig({ testTimeout: 30_000 });
+
 vi.mock("@neoread/api", () => ({
   api: {
     connectorStatus: vi.fn(async () => ({ available: true })),
@@ -45,7 +48,7 @@ vi.mock("@neoread/ui/components/tabs", async (importOriginal) => {
     ...actual,
     TabsContent: (props: ComponentProps<typeof actual.TabsContent>) =>
       props.value === "display" || props.value === "papers" ? null : (
-        <actual.TabsContent {...props} />
+        <actual.TabsContent {...props} keepMounted={false} />
       ),
   };
 });
