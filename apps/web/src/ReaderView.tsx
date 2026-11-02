@@ -150,6 +150,7 @@ export function ReaderView({
       engine.setVisible?.(latest.current.visible);
       const toc = await engine.getTOC();
       if (disposed) return;
+      engine.setVisible?.(latest.current.visible);
       adapter.current = engine;
       latest.current.onReady(engine, toc);
       setLoading(false);

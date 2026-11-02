@@ -8,6 +8,7 @@ const fixture = vi.hoisted(() => ({
   events: new Map<string, ReaderEvents>(),
   destroyed: [] as string[],
   visible: new Map<string, boolean>(),
+  toc: new Map<string, Promise<[]>>(),
 }));
 vi.mock("./readers/pdf", () => ({
   PDFReaderAdapter: class {
@@ -27,7 +28,7 @@ vi.mock("./readers/pdf", () => ({
     }
     async highlight() {}
     async getTOC() {
-      return [];
+      return fixture.toc.get(this.id) ?? [];
     }
     async destroy() {
       fixture.destroyed.push(this.id);
@@ -69,6 +70,7 @@ afterEach(async () => {
   host.remove();
   fixture.events.clear();
   fixture.visible.clear();
+  fixture.toc.clear();
   fixture.destroyed.length = 0;
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -109,5 +111,20 @@ it("does not let hidden reader events change progress or zoom, and reuses its en
   fixture.events.get("a")!.zoom?.(1.25, "layout", 0.5);
   expect(zoom).toHaveBeenLastCalledWith(1.25, "layout", 0.5);
   expect(fixture.events.get("a")).toBe(previous);
+  expect(fixture.destroyed).toEqual([]);
+});
+
+it("restores rendering when a hidden reader is activated while its TOC is loading", async () => {
+  let finish!: (items: []) => void;
+  fixture.toc.set("a", new Promise<[]>((resolve) => (finish = resolve)));
+  await act(async () => root.render(readers("b", ["a"])));
+  await act(async () => {
+    await vi.waitFor(() => expect(fixture.visible.get("a")).toBe(false));
+  });
+  await act(async () => root.render(readers("a", ["a"])));
+  expect(fixture.visible.get("a")).toBe(false);
+  await act(async () => finish([]));
+  expect(host.textContent).not.toContain("正在排版");
+  expect(fixture.visible.get("a")).toBe(true);
   expect(fixture.destroyed).toEqual([]);
 });
