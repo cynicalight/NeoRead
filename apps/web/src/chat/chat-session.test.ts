@@ -520,6 +520,55 @@ it("keeps omitted saved search permission disabled after editing and regeneratin
 });
 
 it.each([true, false])(
+  "reconciles an edit response loss after this session saved a reply (committed=%s)",
+  async (committed) => {
+    let history: Message[] = [];
+    const stream = vi.fn<ChatTransport["stream"]>(
+      async (_id, input, _signal, emit) => {
+        history = [
+          message(input.userMessageId!, "user", input.prompt),
+          message("answer", "assistant", "saved answer"),
+        ];
+        emit({ event: "done", data: { ok: true } });
+      },
+    );
+    const session = new ChatSession("doc", {
+      messages: async () => history,
+      stream,
+      changeMessage: async () => {
+        if (committed) history = [{ ...history[0], content: "edited" }];
+        throw new Error("response lost");
+      },
+    });
+    await session.load();
+    await session.send(input);
+    expect(session.getSnapshot().pending?.phase).toBe("saved");
+    const original = history[0];
+    const change = session.changeMessage(original, " edited ");
+    if (committed) {
+      await expect(change).resolves.toMatchObject({ content: "edited" });
+      expect(session.getSnapshot().pending?.phase).toBe("incomplete");
+      await session.regenerate("api");
+      expect(stream).toHaveBeenLastCalledWith(
+        "doc",
+        expect.objectContaining({
+          prompt: "edited",
+          userMessageId: original.id,
+        }),
+        expect.any(AbortSignal),
+        expect.any(Function),
+      );
+    } else {
+      await expect(change).rejects.toThrow("response lost");
+      expect(session.getSnapshot().pending?.phase).toBe("saved");
+    }
+    expect(session.getSnapshot().messages).toEqual(history);
+    expect(session.getSnapshot().busy).toBe(false);
+    session.dispose();
+  },
+);
+
+it.each([true, false])(
   "reconciles a withdrawal response loss only when the saved question is gone (committed=%s)",
   async (committed) => {
     const original = message("question", "user", "original input");

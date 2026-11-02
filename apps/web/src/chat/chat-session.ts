@@ -258,9 +258,8 @@ export class ChatSession {
           content,
         });
       } catch (error) {
-        if (content !== undefined) throw error;
-        // DELETE may have committed before its response was lost. Reconcile
-        // with the saved transcript; the caller already preserved the draft.
+        // PATCH/DELETE can commit before their response is lost. Verify the
+        // saved transcript before rebuilding the pending answer or draft.
         let messages: Message[];
         try {
           messages = await this.io.messages(
@@ -270,8 +269,19 @@ export class ChatSession {
         } catch {
           throw error;
         }
-        if (messages.some((item) => item.id === message.id)) throw error;
-        result = { message: saved, messages };
+        const current = messages.find((item) => item.id === message.id);
+        if (content === undefined) {
+          if (current) throw error;
+          result = { message: saved, messages };
+        } else {
+          if (
+            current?.role !== "user" ||
+            current.content !== content.trim() ||
+            messages.at(-1)?.id !== current.id
+          )
+            throw error;
+          result = { message: current, messages };
+        }
       }
       if (this.current(serial)) {
         this.active?.controller.abort();

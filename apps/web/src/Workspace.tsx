@@ -842,6 +842,10 @@ export function Workspace({
     if (!question.trim() && attachments.length)
       question = "请解释附件中的图表或公式。";
     if (!question.trim()) return;
+    if (new TextEncoder().encode(question).byteLength > 16000) {
+      toast.info("问题最多 16000 字节，请缩短后再发送");
+      return;
+    }
     if (!session.getSnapshot().loaded) {
       toast.error("对话记录尚未加载，请重新加载。");
       return;

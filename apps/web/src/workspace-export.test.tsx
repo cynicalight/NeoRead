@@ -258,6 +258,41 @@ it("activates the independent note tab separately from annotations", async () =>
   expect(note()?.getAttribute("data-active")).toBe("false");
 });
 
+it.each(["a".repeat(9000), "中".repeat(3000)])(
+  "keeps a withdrawal draft that exceeds the UTF-8 byte limit",
+  async (content) => {
+    vi.mocked(api.aiConfig).mockResolvedValueOnce({
+      primary: "api",
+      models: {},
+      capabilities: {},
+    } as Awaited<ReturnType<typeof api.aiConfig>>);
+    await act(async () => render(0));
+    await act(async () => panels.readerReady?.({} as ReaderAdapter));
+    const original: Message = {
+      id: "original",
+      documentId: doc.id,
+      role: "user",
+      content,
+      createdAt: "2026-10-15",
+    };
+    await act(async () => panels.assistant?.onWithdraw?.(original));
+    await act(async () =>
+      panels.assistant?.onWithdraw?.({ ...original, id: "withdrawn" }),
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="发送问题"]')!.click(),
+    );
+    expect(toast.info).toHaveBeenCalledWith(
+      "问题最多 16000 字节，请缩短后再发送",
+    );
+    expect(
+      host.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="向 AI 提问"]',
+      )!.value,
+    ).toBe(`${content}\n\n${content}`);
+  },
+);
+
 it("keeps a merged withdrawal draft when it exceeds the image limit", async () => {
   vi.mocked(api.aiConfig).mockResolvedValueOnce({
     primary: "api",
