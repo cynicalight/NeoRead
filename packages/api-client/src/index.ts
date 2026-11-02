@@ -502,7 +502,8 @@ export const api = {
     request<void>(`/api/documents/${encodeURIComponent(id)}/overview/job`, {
       method: "DELETE",
     }),
-  processing: () => request<Processing[]>("/api/processing"),
+  processing: (signal?: AbortSignal) =>
+    request<Processing[]>("/api/processing", { signal }),
   reparseDocument: (id: string) =>
     request<{ reparsed: boolean }>(
       `/api/documents/${encodeURIComponent(id)}/reparse`,
