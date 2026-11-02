@@ -326,12 +326,10 @@ it("preserves a withdrawal draft before the request and does not duplicate it on
       />,
     ),
   );
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="撤回问题"]')!.click(),
+  );
   for (let attempt = 0; attempt < 2; attempt++) {
-    await act(async () =>
-      (
-        host.querySelector('[aria-label="撤回问题"]') as HTMLButtonElement
-      ).click(),
-    );
     await act(async () =>
       Array.from(document.querySelectorAll("button"))
         .find((element) => element.textContent === "确认撤回")!
@@ -343,4 +341,21 @@ it("preserves a withdrawal draft before the request and does not duplicate it on
   expect(restore.mock.invocationCallOrder[0]).toBeLessThan(
     change.mock.invocationCallOrder[0],
   );
+  await act(async () =>
+    Array.from(document.querySelectorAll("button"))
+      .find((element) => element.textContent === "取消")!
+      .click(),
+  );
+  // A cancelled operation may be followed by clearing the composer. A fresh
+  // confirmation must restore the source again, even while this row is mounted.
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="撤回问题"]')!.click(),
+  );
+  change.mockResolvedValueOnce(original);
+  await act(async () =>
+    Array.from(document.querySelectorAll("button"))
+      .find((element) => element.textContent === "确认撤回")!
+      .click(),
+  );
+  expect(restore).toHaveBeenCalledTimes(2);
 });

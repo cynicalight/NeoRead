@@ -45,6 +45,7 @@ export function QuestionActions({
   const [error, setError] = useState("");
   const restoredDraft = useRef(false);
   const open = (next: "edit" | "withdraw") => {
+    restoredDraft.current = false;
     setContent(message.content);
     setError("");
     setMode(next);

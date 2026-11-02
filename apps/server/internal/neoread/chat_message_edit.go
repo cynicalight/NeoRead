@@ -17,8 +17,9 @@ type chatMessageChange struct {
 }
 
 type chatMessageChangeResult struct {
-	Message  Message   `json:"message"`
-	Messages []Message `json:"messages"`
+	Message            Message   `json:"message"`
+	Messages           []Message `json:"messages"`
+	unlinkedMessageIDs []string
 }
 
 // A changed question starts a new branch of this session. Transcript, evidence,
@@ -64,6 +65,9 @@ func (s *Store) changeChatMessage(ctx context.Context, documentID, sessionID, me
 		return result, 409, errors.New("对话记录已改变，请重新加载后再操作")
 	}
 	result.Message = history[index]
+	for _, message := range history[index:] {
+		result.unlinkedMessageIDs = append(result.unlinkedMessageIDs, message.ID)
+	}
 	result.Messages = append(result.Messages, history[:index]...)
 	// Include the target question when clearing old runs, even when editing it.
 	tail := "SELECT id FROM messages WHERE document_id=? AND COALESCE(json_extract(body,'$.sessionId'),'')=? AND rowid>=?"
@@ -153,6 +157,7 @@ func (s *Server) changeSessionMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	s.clearChatAnswerHistory(documentID, result.unlinkedMessageIDs)
 	s.publishAnnotationChange(documentID)
 	event := "chat.message_edited"
 	if change.Content == nil {
@@ -160,4 +165,35 @@ func (s *Server) changeSessionMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	s.diagnosticEvent(slog.LevelInfo, event, "requestId", requestID(r.Context()), "documentId", documentID, "sessionId", sessionID)
 	respond(w, 200, result)
+}
+
+// The caller holds annotationMu. Preserve undoable notes/deletions while
+// stripping answer links that the same successful transaction removed.
+func (s *Server) clearChatAnswerHistory(document string, messageIDs []string) {
+	unlinked := make(map[string]bool, len(messageIDs))
+	for _, id := range messageIDs {
+		unlinked[id] = true
+	}
+	for i := range s.annotationHistory {
+		entry := &s.annotationHistory[i]
+		if entry.document != document {
+			continue
+		}
+		for _, snapshot := range []map[string]string{entry.before, entry.after} {
+			for id, body := range snapshot {
+				var fields map[string]json.RawMessage
+				if json.Unmarshal([]byte(body), &fields) != nil {
+					continue
+				}
+				var answer string
+				if json.Unmarshal(fields["answerId"], &answer) != nil || !unlinked[answer] {
+					continue
+				}
+				fields["answerId"], fields["resolved"] = json.RawMessage(`""`), json.RawMessage(`false`)
+				updated := jsonText(fields)
+				entry.size += len(updated) - len(body)
+				snapshot[id] = updated
+			}
+		}
+	}
 }

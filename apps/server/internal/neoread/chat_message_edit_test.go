@@ -132,6 +132,45 @@ func TestEditAndWithdrawChatQuestionPreservesContextAndOtherSessions(t *testing.
 	}
 }
 
+func TestChatChangeKeepsAnnotationUndoWithoutDeletedAnswerLinks(t *testing.T) {
+	for _, method := range []string{"PATCH", "DELETE"} {
+		t.Run(method, func(t *testing.T) {
+			s, session, _, _ := chatEditFixture(t)
+			out := undoRequest(t, s, "notes", "PATCH", "/api/documents/doc/annotations/linked", map[string]any{"note": "changed note"})
+			if out.Code != 200 {
+				t.Fatal(out.Code, out.Body.String())
+			}
+			out = undoRequest(t, s, "notes", "DELETE", "/api/documents/doc/annotations/linked", nil)
+			if out.Code != 204 {
+				t.Fatal(out.Code, out.Body.String())
+			}
+			content := "edited"
+			out = changeQuestionTest(t, s, session.ID, "middle-user", method, chatMessageChange{ExpectedLastMessageID: "last-answer", ExpectedContent: "middle", Content: &content})
+			if out.Code != 200 {
+				t.Fatal(out.Code, out.Body.String())
+			}
+			for _, note := range []string{"changed note", "keep my note"} {
+				undoLast(t, s, "notes")
+				var raw string
+				if err := s.Store.DB.QueryRow("SELECT body FROM annotations WHERE id='linked'").Scan(&raw); err != nil {
+					t.Fatal(err)
+				}
+				var mark Annotation
+				if json.Unmarshal([]byte(raw), &mark) != nil || mark.AnswerID != "" || mark.Resolved || mark.Note != note || mark.Quote != "keep my quote" {
+					t.Fatal("undo restored a deleted answer or lost content", mark)
+				}
+			}
+			var raw string
+			_ = s.Store.DB.QueryRow("SELECT body FROM annotations WHERE id='other'").Scan(&raw)
+			var other Annotation
+			_ = json.Unmarshal([]byte(raw), &other)
+			if other.AnswerID != "other-assistant" || !other.Resolved {
+				t.Fatal("unrelated answer link changed", other)
+			}
+		})
+	}
+}
+
 func TestChatQuestionChangeRollsBackTranscriptAndSourcesOnSaveFailure(t *testing.T) {
 	s, a, _, before := chatEditFixture(t)
 	if _, err := s.Store.DB.Exec("CREATE TRIGGER reject_chat_delete BEFORE DELETE ON messages BEGIN SELECT RAISE(ABORT,'test save failure'); END"); err != nil {
