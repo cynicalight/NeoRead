@@ -586,15 +586,7 @@ export function Workspace({
     if (!active) return;
     lastReadingLocation.current = next;
     setTranslationSelection(null);
-    // PDF x/y change every scroll frame; the navigation UI only needs the page.
-    // Keep the exact position above for persistence, links and close-time saves.
-    setLocation((current) =>
-      next.type === "pdf" &&
-      current?.type === "pdf" &&
-      current.page === next.page
-        ? current
-        : next,
-    );
+    setLocation(next);
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
     if (next.type === "pdf") setPageInput(String(next.page));
     scheduleProgress(

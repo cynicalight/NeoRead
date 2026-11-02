@@ -8,7 +8,10 @@ const styles = readFileSync("apps/web/src/style.css", "utf8");
 const fixture = vi.hoisted(() => ({
   location: vi.fn(),
   pages: 1,
+  currentPage: 1,
   page: undefined as HTMLElement | undefined,
+  visiblePages: undefined as
+    { id: number; view: { div: HTMLElement } }[] | undefined,
   dispatch: undefined as ((name: string, event?: unknown) => void) | undefined,
   reset: vi.fn(),
   refresh: vi.fn(),
@@ -38,6 +41,8 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
       this.listeners.get(name)?.delete(callback);
     }
     dispatch(name: string, event?: unknown) {
+      if (name === "pagechanging")
+        fixture.currentPage = (event as { pageNumber: number }).pageNumber;
       this.listeners.get(name)?.forEach((callback) => callback(event));
     }
   },
@@ -57,6 +62,15 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
     getPageView() {
       return { reset: fixture.reset, div: fixture.page };
     }
+    _getVisiblePages() {
+      return {
+        views:
+          fixture.visiblePages ??
+          (fixture.page
+            ? [{ id: fixture.currentPage, view: { div: fixture.page } }]
+            : []),
+      };
+    }
     refresh = fixture.refresh;
   },
 }));
@@ -68,7 +82,9 @@ let adapter: PDFReaderAdapter;
 beforeEach(() => {
   vi.clearAllMocks();
   fixture.pages = 1;
+  fixture.currentPage = 1;
   fixture.page = undefined;
+  fixture.visiblePages = undefined;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -205,6 +221,31 @@ it("reports the visible page extent during ordinary scroll while keeping the res
   await vi.waitFor(() => expect(fixture.location).toHaveBeenCalled());
   expect(fixture.location.mock.lastCall?.[0]).toMatchObject({
     page: 10,
+    y: 0.5,
+  });
+  expect(fixture.location.mock.lastCall?.[2]).toBe(10);
+  const lastPage = document.createElement("div");
+  let lastTop = 350;
+  lastPage.getBoundingClientRect = () => new DOMRect(0, lastTop, 800, 300);
+  fixture.visiblePages = [
+    { id: 10, view: { div: lastPage } },
+    { id: 9, view: { div: page } },
+  ];
+  fixture.dispatch!("pagechanging", { pageNumber: 9 });
+  fixture.location.mockClear();
+  host.dispatchEvent(new Event("scroll"));
+  await vi.waitFor(() => expect(fixture.location).toHaveBeenCalled());
+  expect(fixture.location.mock.lastCall?.[0]).toMatchObject({
+    page: 9,
+    y: 0.5,
+  });
+  expect(fixture.location.mock.lastCall?.[2]).toBe(9.5);
+  lastTop = 200;
+  fixture.location.mockClear();
+  host.dispatchEvent(new Event("scroll"));
+  await vi.waitFor(() => expect(fixture.location).toHaveBeenCalled());
+  expect(fixture.location.mock.lastCall?.[0]).toMatchObject({
+    page: 9,
     y: 0.5,
   });
   expect(fixture.location.mock.lastCall?.[2]).toBe(10);

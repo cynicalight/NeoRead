@@ -373,13 +373,27 @@ export class PDFReaderAdapter implements ReaderAdapter {
       const bounds = page?.getBoundingClientRect();
       if (!bounds?.height) return;
       const viewport = this.container.getBoundingClientRect();
-      const readPosition =
-        location.page -
-        1 +
-        Math.max(
-          0,
-          Math.min(1, (viewport.bottom - bounds.top) / bounds.height),
+      let readPosition = location.page - 1;
+      const visible = this.viewer._getVisiblePages() as {
+        views: { id: number; view: { div: HTMLElement } }[];
+      };
+      for (const { id, view } of visible.views) {
+        const pageBounds =
+          id === location.page ? bounds : view.div.getBoundingClientRect();
+        if (!pageBounds.height) continue;
+        readPosition = Math.max(
+          readPosition,
+          id -
+            1 +
+            Math.max(
+              0,
+              Math.min(
+                1,
+                (viewport.bottom - pageBounds.top) / pageBounds.height,
+              ),
+            ),
         );
+      }
       this.location = location;
       this.events.location(
         location,
