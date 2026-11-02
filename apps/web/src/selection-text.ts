@@ -1,4 +1,4 @@
-/** Copy each rendered formula from KaTeX's source exactly once. */
+/** Copy KaTeX once: inline math uses $, display formulas use $$. */
 export function selectionText(range: Range): string {
   const element = (node: Node) =>
     node instanceof Element ? node : node.parentElement;
@@ -39,8 +39,14 @@ export function selectionText(range: Range): string {
     const source = formula.querySelector(
       'annotation[encoding="application/x-tex"]',
     )?.textContent;
-    if (source != null)
-      formula.replaceWith(document.createTextNode(`$${source.trim()}$`));
+    if (source != null) {
+      const delimiter = formula.querySelector('math[display="block"]')
+        ? "$$"
+        : "$";
+      formula.replaceWith(
+        document.createTextNode(`${delimiter}${source.trim()}${delimiter}`),
+      );
+    }
   }
   return fragment.textContent ?? "";
 }

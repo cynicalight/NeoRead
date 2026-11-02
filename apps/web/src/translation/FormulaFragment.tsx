@@ -22,8 +22,8 @@ export default function FormulaFragment({
       (match) => match[1].trim(),
     );
     const source = expressions.length
-      ? expressions.map((value) => `$${value}$`).join("\n\n")
-      : `$${content.trim()}$`;
+      ? expressions.map((value) => `$$${value}$$`).join("\n\n")
+      : `$$${content.trim()}$$`;
     if (!expressions.length) return { source };
     try {
       return {

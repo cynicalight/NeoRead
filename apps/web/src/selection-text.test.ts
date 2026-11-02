@@ -9,7 +9,8 @@ afterEach(() => {
   document.body.innerHTML = "";
   window.getSelection()?.removeAllRanges();
 });
-const math = (value: string) => katex.renderToString(value);
+const math = (value: string, displayMode = false) =>
+  katex.renderToString(value, { displayMode });
 it("copies mixed text with single-dollar LaTeX rather than repeating KaTeX's hidden representations", () => {
   const host = document.createElement("p");
   host.innerHTML = `输出隐藏状态 ${math("H'")} 映射为大小为 ${math("v")} 的词表 ${math("X")} 上的词分布。`;
@@ -49,6 +50,42 @@ it("uses a complete formula when the selection starts inside its visual layer an
   range.setEnd(host.firstChild!, 4);
   expect(selectionText(range)).toBe("普通文字");
 });
+it.each([false, true])(
+  "preserves inline/display delimiters for a selection inside the rendered math (display: %s)",
+  (display) => {
+    const host = document.createElement("div");
+    host.innerHTML = math("Q", display);
+    document.body.append(host);
+    const range = document.createRange();
+    range.selectNodeContents(
+      host.querySelector(".katex-html .mord.mathnormal")!.firstChild!,
+    );
+    expect(selectionText(range)).toBe(display ? "$$Q$$" : "$Q$");
+  },
+);
+it("copies inline expressions with single dollars and standalone formulas with double dollars in mixed text", () => {
+  const collection = String.raw`\{Q_s^{(i)}\}_{i=1}^{m}`;
+  const equation = String.raw`\{Q_s^i\}_{i=1}^{m} = \mathcal{G}(Q),`;
+  const host = document.createElement("div");
+  host.innerHTML = `<p>查询 ${math("Q")} 分解为 ${math(collection)}。</p>${math(equation, true)}<p>其中，${math("G")} 是模型，${math("m")} 是数量。</p>`;
+  document.body.append(host);
+  const range = document.createRange();
+  range.selectNodeContents(host);
+  const expected = `查询 $Q$ 分解为 $${collection}$。$$${equation}$$其中，$G$ 是模型，$m$ 是数量。`;
+  expect(selectionText(range)).toBe(expected);
+  const remove = installFormulaClipboard();
+  try {
+    window.getSelection()!.addRange(range);
+    const setData = vi.fn();
+    const event = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: { setData } });
+    document.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(setData).toHaveBeenCalledWith("text/plain", expected);
+  } finally {
+    remove();
+  }
+});
 it("uses the same normalized text for references while keeping existing annotation offsets in the rendered DOM", () => {
   const host = document.createElement("div");
   host.innerHTML = `<section data-translation-block="p1-b1"><span data-sentence="0">隐藏状态 ${math("H'")}</span></section>`;
@@ -84,11 +121,11 @@ it("uses the same normalized text for references while keeping existing annotati
 
 it("omits equation numbers, formula actions and expanded originals from a bulk copy but allows an original to be copied separately", () => {
   const host = document.createElement("div");
-  host.innerHTML = `<p>正文前</p><div class="translation-formula">${math("x=1")}<span class="translation-formula-number" data-copy-ignore>(3)</span><button data-copy-ignore>复制 LaTeX</button><details class="translation-formula-source" open><summary>查看原公式</summary><p>原图文字 ${math("x=1")}</p><button>复制原公式</button></details></div><p>正文后（见式 (3)）</p>`;
+  host.innerHTML = `<p>正文前</p><div class="translation-formula">${math("x=1", true)}<span class="translation-formula-number" data-copy-ignore>(3)</span><button data-copy-ignore>复制 LaTeX</button><details class="translation-formula-source" open><summary>查看原公式</summary><p>原图文字 ${math("x=1")}</p><button>复制原公式</button></details></div><p>正文后（见式 (3)）</p>`;
   document.body.append(host);
   const range = document.createRange();
   range.selectNodeContents(host);
-  expect(selectionText(range)).toBe("正文前$x=1$正文后（见式 (3)）");
+  expect(selectionText(range)).toBe("正文前$$x=1$$正文后（见式 (3)）");
   range.selectNodeContents(host.querySelector("details p")!);
   expect(selectionText(range)).toBe("原图文字 $x=1$");
   range.selectNodeContents(host.querySelector("button")!);

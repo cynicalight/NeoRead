@@ -131,7 +131,7 @@ it("inserts the formula-only Markdown at the formula block", async () => {
       .click(),
   );
   expect(copyText).toHaveBeenLastCalledWith(
-    "$S(i,j)=\\frac{1}{2}\\log p_R(j\\mid i)$",
+    "$$S(i,j)=\\frac{1}{2}\\log p_R(j\\mid i)$$",
     "已复制 LaTeX",
   );
 });
@@ -155,7 +155,7 @@ it("retains the original formula image for invalid LaTeX", async () => {
       .click(),
   );
   expect(copyText).toHaveBeenLastCalledWith(
-    "$\\unknowncommand{x}$",
+    "$$\\unknowncommand{x}$$",
     "已复制 LaTeX",
   );
 });
@@ -191,7 +191,7 @@ it.each(["$$\n x=1\n$$", "$$\n\\unknowncommand{x}\n$$", ""])(
     range.selectNodeContents(row!);
     expect(selectionText(range)).not.toContain("(6)");
     if (formulaMarkdown === "$$\n x=1\n$$")
-      expect(selectionText(range)).toBe("$x=1$");
+      expect(selectionText(range)).toBe("$$x=1$$");
   },
 );
 
