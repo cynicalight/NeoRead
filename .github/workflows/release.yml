@@ -12,6 +12,11 @@ concurrency:
   group: release-${{ github.event.release.tag_name || github.ref }}
   cancel-in-progress: false
 
+env:
+  R2_BUCKET: ${{ vars.R2_BUCKET || 'neoread' }}
+  R2_ENDPOINT_URL: ${{ vars.R2_ENDPOINT_URL || 'https://208624959c9d215edea0720162a740c1.r2.cloudflarestorage.com' }}
+  R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL || 'https://neoread-dl.chatbox.run' }}
+
 jobs:
   prepare:
     runs-on: ubuntu-24.04
@@ -34,6 +39,13 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: node scripts/release-source.mjs
+
+      - name: Validate R2 configuration before building
+        if: github.event_name == 'release'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: node scripts/release-r2.mjs --check-config
 
       - name: Reuse successful CI for this exact source commit
         id: ci
@@ -64,6 +76,11 @@ jobs:
     needs: [prepare, desktop]
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.desktop.result == 'success' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # Serialize publication across tags because stable download aliases are shared.
+    concurrency:
+      group: neoread-release-publish
+      cancel-in-progress: false
     permissions:
       contents: write
     env:
@@ -89,6 +106,9 @@ jobs:
         with:
           name: neoread-checksums
           path: release/SHA256SUMS.txt
+      - name: Preview R2 download links without publishing
+        if: github.event_name == 'workflow_dispatch'
+        run: node scripts/release-r2.mjs --dry-run
       - name: Attach installers to the published release
         if: github.event_name == 'release'
         env:
@@ -96,3 +116,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: node scripts/release-assets.mjs --upload
+      - name: Publish installers to R2 and add download links
+        if: github.event_name == 'release'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          aws --version
+          node scripts/release-r2.mjs

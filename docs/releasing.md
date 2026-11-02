@@ -1,13 +1,13 @@
 # 安装包构建与发版
 
-NeoRead 使用 GitHub Actions 和 electron-builder，发布 GitHub Release 后自动生成以下文件：
+NeoRead 使用 GitHub Actions 和 electron-builder，发布 GitHub Release 后自动生成以下文件，并上传到 GitHub Release 和 Cloudflare R2：
 
-| 文件                                 | 运行平台                   |
-| ------------------------------------ | -------------------------- |
-| `NeoRead-<version>-mac-arm64.dmg`     | Apple Silicon Mac          |
-| `NeoRead-<version>-mac-arm64.zip`     | Mac 应用内原地更新包       |
-| `NeoRead-<version>-win-x64.exe`       | Windows x64（NSIS）        |
-| `SHA256SUMS.txt`                     | 安装包的 SHA-256 校验值    |
+| 文件                              | 运行平台                |
+| --------------------------------- | ----------------------- |
+| `NeoRead-<version>-mac-arm64.dmg` | Apple Silicon Mac       |
+| `NeoRead-<version>-mac-arm64.zip` | Mac 应用内原地更新包    |
+| `NeoRead-<version>-win-x64.exe`   | Windows x64（NSIS）     |
+| `SHA256SUMS.txt`                  | 安装包的 SHA-256 校验值 |
 
 当前工作流不构建 Intel Mac、Windows ARM64 或 Linux 安装包。Intel Mac 暂停构建：`onnxruntime-node` 自 1.24 起不再提供 darwin/x64 原生库，包内检查无法加载版面模型。`builder.config.cjs` 与更新检查仍保留 `mac-intel-x64` 命名，恢复时在 `.github/workflows/build.yml`（`macos-15-intel` runner）和 `scripts/release-assets.mjs` 中加回该目标即可。
 
@@ -34,14 +34,79 @@ gh secret set NEOREAD_MAC_SIGN_P12_PASSWORD < ~/neoread-mac-sign/password.txt
 1. 在独立 worktree/分支完成修改，将根目录 `package.json` 和 `apps/desktop/package.json` 的版本同步，例如都改为 `0.2.0`。提交后 merge 到 `main`。
 2. 推送 `main`，等待单个 Linux runner 的类型检查和测试通过。首次启用时，可先从 Actions 手动运行 **Release installers**；它只保存安装包与校验值为 Actions artifacts，不创建或修改 Release。
 3. 在所需提交上创建 tag，例如 `v0.2.0`，并发布该 tag 对应的 GitHub Release。Release 所在提交必须包含本工作流。预发布版本可用 `0.2.0-beta.1` / `v0.2.0-beta.1`。
-4. **Release installers** 将 tag 解析为固定提交，核对版本，分别在原生 macOS ARM64 和 Windows x64 runner 上构建。同一源提交已经通过的 `main` CI 会直接复用；没有成功记录时，先调用与日常 CI 相同的检查流程。检查通过后才构建安装包，所有平台都成功后统一上传安装包与校验值到同一个 Release。
+4. **Release installers** 将 tag 解析为固定提交，核对版本、更新说明和 R2 必需配置，分别在原生 macOS ARM64 和 Windows x64 runner 上构建。同一源提交已有符合条件的成功 CI 会直接复用；没有成功记录时，先调用与日常 CI 相同的检查流程。检查通过后才构建安装包，所有平台都成功后统一上传安装包与校验值到同一个 Release，再上传 R2 并验证公开下载内容。验证通过后，将 R2 下载链接写入 Release 正文和 Actions 摘要。
 5. 下载并做安装后的人工检查：打开应用，导入 EPUB/PDF，确认阅读、笔记保存及重新打开后恢复；退出后检查服务已停止。AI 功能另用已安装并登录的 CLI 检查。
 
 触发事件为 `release: published`，适用于正式版和预发布版。保存草稿、单独推送 tag 或修改 Release 描述不会触发。Release 页面会先发布，安装包稍后上传；任一构建失败时上传任务不会运行。GitHub 资产上传不是事务操作，上传过程中网络失败可能留下部分文件；修复后重新运行工作流会覆盖同名资产。不要移动已发布的 tag；代码修复请发布新版本。
 
 只发布 macOS 测试版时，在创建 Release 的描述中加入 `<!-- neoread:mac-only -->`。工作流只运行 macOS 构建，并要求 Release 恰好包含 Apple Silicon 的 DMG、原地更新 ZIP 和校验值；Windows 用户不会收到这个版本的安装包。
 
-工作流使用仓库自动提供的 `GITHUB_TOKEN` 和上述两个 macOS 签名 secrets，无需 PAT。构建任务只有 `contents: read`，上传任务才有 `contents: write`。若以后由另一个工作流创建 Release，需要注意：默认 `GITHUB_TOKEN` 产生的事件通常不会触发新的工作流；应改为显式调用构建工作流，或调整发布入口。
+工作流使用仓库自动提供的 `GITHUB_TOKEN`、上述两个 macOS 签名 secrets 和下述两个 R2 secrets，无需 PAT。构建任务只有 `contents: read`，上传任务才有 `contents: write`。若以后由另一个工作流创建 Release，需要注意：默认 `GITHUB_TOKEN` 产生的事件通常不会触发新的工作流；应改为显式调用构建工作流，或调整发布入口。
+
+## Cloudflare R2 下载发布
+
+当前配置使用 `neoread` 桶和公开域名 `https://neoread-dl.chatbox.run`。域名通过桶的 Custom Domains 提供文件访问，无需 Worker。`electron-builder` 保持 `--publish never`；集中发布任务使用 Ubuntu runner 提供的 AWS CLI，通过 R2 的 S3 兼容接口上传已经校验的产物。
+
+`neoread-dl-test.chatbox.run` 也绑定到同一个桶，仅是另一个访问域名，并非独立测试存储。需要切换验证域名时可覆盖 `R2_PUBLIC_BASE_URL`；这不会隔离上传内容。桶从 `neoreader` 迁移到 `neoread` 后，CI 令牌必须明确拥有新桶权限，旧桶的成功测试不能代替新桶验证。
+
+### GitHub 配置
+
+在仓库 **Settings → Secrets and variables → Actions → Secrets** 添加：
+
+| Secret                 | 内容                             |
+| ---------------------- | -------------------------------- |
+| `R2_ACCESS_KEY_ID`     | R2 S3 凭据中的 Access Key ID     |
+| `R2_SECRET_ACCESS_KEY` | 与该 ID 配对的 Secret Access Key |
+
+令牌需要目标桶的 **Object Read & Write** 权限。无需提供 Cloudflare API Token、Global API Key、管理桶或列出全部桶的权限。不要将密钥写入源码、工作流、提交或日志。R2 凭据只在发布配置预检和上传步骤注入；手动试跑无需凭据。
+
+以下是非敏感配置，工作流已有默认值，可在 **Variables** 中覆盖：
+
+| Variable             | 默认值                                                              |
+| -------------------- | ------------------------------------------------------------------- |
+| `R2_BUCKET`          | `neoread`                                                           |
+| `R2_ENDPOINT_URL`    | `https://208624959c9d215edea0720162a740c1.r2.cloudflarestorage.com` |
+| `R2_PUBLIC_BASE_URL` | `https://neoread-dl.chatbox.run`                                    |
+
+两个 URL 都只填 HTTPS origin，不包含对象路径。更换桶或域名时，先在 Cloudflare 完成桶创建、授权和 Custom Domains 绑定，再修改 Variables。上传 endpoint 与公开下载域名用途不同，不能互换。首次启用前，确认域名状态为 Active，并允许普通下载客户端请求。
+
+### 对象路径与固定入口
+
+以 `v0.9.4` 为例，版本文件位于：
+
+```text
+neoread/releases/v0.9.4/NeoRead-0.9.4-mac-arm64.dmg
+neoread/releases/v0.9.4/NeoRead-0.9.4-mac-arm64.zip
+neoread/releases/v0.9.4/NeoRead-0.9.4-win-x64.exe
+neoread/releases/v0.9.4/SHA256SUMS.txt
+```
+
+公开 URL 是 `R2_PUBLIC_BASE_URL + / + 对象 Key`，不包含桶名。Release 正文只列带版本的链接，使历史版本的说明始终指向该版本。工作流只替换 `<!-- neoread:r2-downloads:start -->` 与 `<!-- neoread:r2-downloads:end -->` 之间的区块，保留人工说明及 `mac-only` 标记；重复运行不会追加重复区块。
+
+如果本次版本没有预发布后缀、GitHub Release 未标记 prerelease，且仍是 GitHub `/releases/latest` 返回的版本，则在全部版本文件验证成功后更新固定入口：
+
+| 平台              | 固定下载地址                                         | 下载保存的文件名                  |
+| ----------------- | ---------------------------------------------------- | --------------------------------- |
+| Apple Silicon Mac | `https://neoread-dl.chatbox.run/neoread/install/mac` | `NeoRead-<version>-mac-arm64.dmg` |
+| Windows x64       | `https://neoread-dl.chatbox.run/neoread/install/win` | `NeoRead-<version>-win-x64.exe`   |
+
+固定入口是安装包对象的另一份副本，通过 `Content-Disposition: attachment` 设置正确的下载文件名。Mac ZIP 保留在版本目录。预发布和旧版本重跑不更新正式入口；mac-only 只更新 Mac 入口，保留已有 Windows 入口。发布任务跨 tag 串行，防止并发写入共享入口。GitHub 自身可能替换同一 concurrency group 中尚未开始的 pending job；被取消的发布可重新运行。
+
+上传的对象均使用 `Cache-Control: no-cache`，兼容工作流重跑覆盖同名对象。域名若有缓存规则，不应忽略该设置或强制长期缓存固定入口；否则新版本验证可能持续读到旧内容而失败。
+
+### 验证与失败恢复
+
+每次上传后，通过公开域名流式下载文件并比较大小、SHA-256 和下载文件名，只有通过校验才继续下一个文件。请求使用 `NeoRead/<version> release-ci` User-Agent，拒绝重定向，单次下载最多 10 分钟；验证失败最多尝试 3 次，间隔 2、4 秒。AWS CLI 使用 standard 重试、最多 3 次尝试。版本校验清单最后上传，之后才更新固定入口；Release 链接区块在全部步骤成功后写入。Actions 日志包含上传、验证重试及最终成功/失败阶段，不输出凭据或远端错误正文。
+
+两个发布目的地和多个对象之间没有事务：GitHub 已上传而 R2 失败时，GitHub 资产仍可用；R2 失败也可能留下部分版本文件，或已更新一个平台入口。修复配置/网络后重新运行原工作流会覆盖对应版本对象并继续校验，不删除历史版本或桶内其他文件。不要移动已发布 tag。固定入口只代表对应平台最后成功发布的内容；校验下载时应使用同一版本目录中的文件与 `SHA256SUMS.txt`。
+
+手动运行 **Release installers** 仍不上传 GitHub/R2、不修改固定入口或 Release 正文，只在 Actions 摘要生成标明“未上传”的版本链接预览。发布前配置检查只检查格式和凭据是否存在，不证明云端权限；第一次真实发布仍需验证上传。
+
+应用内更新仍通过 GitHub 获取版本、校验清单与安装包；本流程新增的 R2 链接用于公开分发，不会自动更改客户端更新源。App 内更新说明继续来自 `docs/release-notes.json`。
+
+首次真实发布后人工检查：打开 Actions 摘要中的 Mac/Windows 固定链接，确认保存的文件名、版本及 SHA-256 与该版本清单一致；检查 Release 原有中文说明仍在、R2 下载区块只有一个。真实安装仍按本文的安装验收步骤进行。
+
+依据：[Cloudflare R2 AWS CLI](https://developers.cloudflare.com/r2/examples/aws/aws-cli/)、[R2 凭据权限](https://developers.cloudflare.com/r2/api/tokens/)、[R2 自定义域名](https://developers.cloudflare.com/r2/buckets/public-buckets/)。
 
 ## 本地构建
 
