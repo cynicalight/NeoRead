@@ -142,14 +142,23 @@ func LookPath(ctx context.Context, name string) (string, error) {
 	if err := Default.wait(ctx, Default.path); err != nil {
 		return "", err
 	}
-	return exec.LookPath(name)
+	path, err := exec.LookPath(name)
+	if err == nil && runtime.GOOS == "windows" && isCodexNpmShim(path) {
+		return codexNpmExecutable(ctx, path)
+	}
+	return path, err
 }
 func CommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
 	err := Default.wait(ctx, Default.path)
 	if err == nil {
 		err = Default.wait(ctx, Default.network)
 	}
-	cmd := exec.CommandContext(ctx, name, args...)
+	path := name
+	if err == nil {
+		path, err = LookPath(ctx, name)
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
+	hideCommandWindow(cmd)
 	if err != nil {
 		cmd.Err = err
 	}
