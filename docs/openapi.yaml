@@ -5333,6 +5333,200 @@
                 },
             },
         },
+      "/api/documents/{id}/chat-sessions/{session}/messages/{message}":
+        {
+          "patch":
+            {
+              "summary": "Edit a question and remove its answer and following messages",
+              "parameters":
+                [
+                  {
+                    "in": "path",
+                    "name": "id",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                  {
+                    "in": "path",
+                    "name": "session",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                  {
+                    "in": "path",
+                    "name": "message",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                ],
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "required":
+                                [
+                                  "expectedLastMessageId",
+                                  "expectedContent",
+                                  "content",
+                                ],
+                              "properties":
+                                {
+                                  "expectedLastMessageId": { "type": "string" },
+                                  "expectedContent": { "type": "string" },
+                                  "content":
+                                    {
+                                      "type": "string",
+                                      "description": "Non-empty, at most 16000 UTF-8 bytes",
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Updated session transcript; message is the edited or withdrawn question",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "required": ["message", "messages"],
+                                  "properties":
+                                    {
+                                      "message":
+                                        {
+                                          "$ref": "#/components/schemas/Message",
+                                        },
+                                      "messages":
+                                        {
+                                          "type": "array",
+                                          "items":
+                                            {
+                                              "$ref": "#/components/schemas/Message",
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Error (409 if the session is running or history changed)",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+          "delete":
+            {
+              "summary": "Withdraw a question and following messages",
+              "parameters":
+                [
+                  {
+                    "in": "path",
+                    "name": "id",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                  {
+                    "in": "path",
+                    "name": "session",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                  {
+                    "in": "path",
+                    "name": "message",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                ],
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "required":
+                                ["expectedLastMessageId", "expectedContent"],
+                              "properties":
+                                {
+                                  "expectedLastMessageId": { "type": "string" },
+                                  "expectedContent": { "type": "string" },
+                                },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Updated session transcript; message is the edited or withdrawn question",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "required": ["message", "messages"],
+                                  "properties":
+                                    {
+                                      "message":
+                                        {
+                                          "$ref": "#/components/schemas/Message",
+                                        },
+                                      "messages":
+                                        {
+                                          "type": "array",
+                                          "items":
+                                            {
+                                              "$ref": "#/components/schemas/Message",
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Error (409 if the session is running or history changed)",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
       "/api/documents/{id}/chat-sessions/{session}/chat":
         {
           "post":

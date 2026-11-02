@@ -1,6 +1,8 @@
 import { api, chat, type ChatStreamEvent } from "@neoread/api";
 import type {
   ChatRun,
+  ChatMessageChange,
+  ChatMessageChangeResult,
   ToolActivity,
   DocumentLocation,
   ImageAttachment,
@@ -52,6 +54,10 @@ export type ChatSnapshot = {
 };
 export interface ChatTransport {
   messages: typeof api.messages;
+  changeMessage?: (
+    messageId: string,
+    change: ChatMessageChange,
+  ) => Promise<ChatMessageChangeResult>;
   latestRun?: () => Promise<ChatRun | undefined>;
   resume?: (
     run: ChatRun,
@@ -91,6 +97,26 @@ const transport: ChatTransport = {
     }
   },
 };
+function unansweredQuestion(message: Message): PendingAnswer {
+  return {
+    key: `question-${message.id}`,
+    content: "",
+    phase: "incomplete",
+    notice: "问题已保存，可重新生成回答。",
+    fallback: "",
+    input: {
+      userMessageId: message.id,
+      provider: "",
+      prompt: message.content,
+      context: message.context ?? "",
+      references: message.references ?? [],
+      attachments: message.attachments ?? [],
+      readingLocation: message.readingLocation,
+      webSearch: message.webSearch,
+    },
+    controller: new AbortController(),
+  };
+}
 /** A per-document store keeps delta renders inside AssistantPanel, outside Workspace. */
 export class ChatSession {
   private state: ChatSnapshot = {
@@ -152,24 +178,8 @@ export class ChatSession {
         const last = messages.at(-1);
         const messageKeys = { ...this.state.messageKeys };
         if (!this.active && last?.role === "user") {
-          this.active = {
-            key: `question-${last.id}`,
-            content: "",
-            phase: "incomplete",
-            notice: "上一轮回答未完成，可重新生成。",
-            fallback: "",
-            input: {
-              userMessageId: last.id,
-              provider: "",
-              prompt: last.content,
-              context: last.context ?? "",
-              references: last.references ?? [],
-              attachments: last.attachments ?? [],
-              readingLocation: last.readingLocation,
-              webSearch: last.webSearch,
-            },
-            controller: new AbortController(),
-          };
+          this.active = unansweredQuestion(last);
+          this.active.notice = "上一轮回答未完成，可重新生成。";
           messageKeys[last.id] = `${this.active.key}-user`;
         }
         this.publish({
@@ -226,6 +236,48 @@ export class ChatSession {
       ...structuredClone(input),
       userMessageId: crypto.randomUUID().replaceAll("-", ""),
     });
+  }
+  async changeMessage(message: Message, content?: string) {
+    if (!this.alive || this.state.busy || !this.state.loaded)
+      throw new Error("请等待当前操作结束后再修改问题。");
+    if (!this.io.changeMessage)
+      throw new Error("当前会话不支持修改，请重新打开文档。");
+    const saved = this.state.messages.find((item) => item.id === message.id);
+    const last = this.state.messages.at(-1);
+    if (!saved || saved.role !== "user" || !last)
+      throw new Error("问题尚未保存，请先同步对话记录。");
+    const serial = ++this.serial;
+    this.query?.abort();
+    this.publish({ busy: true });
+    try {
+      const result = await this.io.changeMessage(message.id, {
+        expectedLastMessageId: last.id,
+        expectedContent: message.content,
+        content,
+      });
+      if (this.current(serial)) {
+        this.active?.controller.abort();
+        this.active = undefined;
+        if (this.frame) cancelAnimationFrame(this.frame);
+        this.frame = 0;
+        const question = result.messages.at(-1);
+        const messageKeys: Record<string, string> = {};
+        if (question?.role === "user") {
+          this.active = unansweredQuestion(question);
+          messageKeys[question.id] = `${this.active.key}-user`;
+        }
+        this.publish({
+          messages: result.messages,
+          messageKeys,
+          archived: [],
+          loaded: true,
+          loadError: undefined,
+        });
+      }
+      return result.message;
+    } finally {
+      if (this.current(serial)) this.publish({ busy: false });
+    }
   }
   private async generate(
     input: ChatInput,

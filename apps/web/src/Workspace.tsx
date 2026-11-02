@@ -54,6 +54,7 @@ import { api, blockImageURL } from "@neoread/api";
 import {
   locationLabel,
   type DocumentChatSession,
+  type Message,
   type Annotation,
   type Document as ReaderDocument,
   type DocumentLocation,
@@ -112,6 +113,7 @@ import { ModelSelector } from "./ModelSelector";
 import { SourceReferences } from "./SourceReferences";
 import { ChatSession } from "./chat/chat-session";
 import { getChatSession } from "./chat/session-registry";
+import { restoreWithdrawnQuestion } from "./chat/composer-draft";
 import { SessionPicker } from "./chat/SessionPicker";
 import { AssistantPanel } from "./chat/AssistantPanel";
 import { CodexHandoffButton } from "./chat/CodexHandoffButton";
@@ -442,6 +444,28 @@ export function Workspace({
   const composerValue = useRef({ prompt, quotes, images });
   composerValue.current = { prompt, quotes, images };
   const composerKey = `${doc.id}:${currentSession?.id ?? ""}`;
+  const currentComposerKey = useRef(composerKey);
+  currentComposerKey.current = composerKey;
+  const restoreQuestion = (message: Message) => {
+    const visible = currentComposerKey.current === composerKey;
+    const draft = restoreWithdrawnQuestion(
+      visible
+        ? composerValue.current
+        : (composerDrafts.current.get(composerKey) ?? {
+            prompt: "",
+            quotes: [],
+            images: [],
+          }),
+      message,
+    );
+    composerDrafts.current.set(composerKey, draft);
+    if (visible) {
+      setPrompt(draft.prompt);
+      setQuotes(draft.quotes);
+      setImages(draft.images);
+      requestAnimationFrame(() => composeInput.current?.focus());
+    }
+  };
   useEffect(() => {
     const saved = composerDrafts.current.get(composerKey);
     setPrompt(saved?.prompt ?? "");
@@ -834,7 +858,17 @@ export function Workspace({
       );
       const { context } = captured;
       if (controller.signal.aborted) return;
-      if (!directImage) setPrompt("");
+      if (!directImage) {
+        setPrompt("");
+        setQuotes((current) =>
+          current.filter((quote) => !selected.includes(quote)),
+        );
+        setImages((current) =>
+          current.filter(
+            (image) => !attachments.some((sent) => sent.id === image.id),
+          ),
+        );
+      }
       await session.send({
         provider,
         webSearch,
@@ -846,19 +880,6 @@ export function Workspace({
       });
       if (serial !== sendSerial.current) return;
       const answer = session.getSnapshot().pending;
-      if (
-        !directImage &&
-        ["saved", "syncing"].includes(
-          session.getSnapshot().pending?.phase || "",
-        )
-      ) {
-        setQuotes([]);
-        setImages((current) =>
-          current.filter(
-            (image) => !attachments.some((sent) => sent.id === image.id),
-          ),
-        );
-      }
       return answer?.phase === "saved" ? answer.savedId : undefined;
     } catch (e) {
       if (serial === sendSerial.current && (e as Error).name !== "AbortError")
@@ -1702,6 +1723,7 @@ export function Workspace({
                   key={currentSession?.id ?? doc.id}
                   session={session}
                   onRegenerate={() => void regenerate()}
+                  onWithdraw={restoreQuestion}
                   regenerateDisabled={aiModelSaving || sending}
                   renderAnswer={(message, content) => (
                     <SourceReferences

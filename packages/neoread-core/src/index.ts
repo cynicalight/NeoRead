@@ -647,6 +647,17 @@ export interface Message {
   createdAt: string;
 }
 
+export interface ChatMessageChange {
+  expectedLastMessageId: string;
+  expectedContent: string;
+  /** Omit to withdraw; supplying content edits the question. */
+  content?: string;
+}
+export interface ChatMessageChangeResult {
+  message: Message;
+  messages: Message[];
+}
+
 export interface ProcessingStage {
   status: "queued" | "running" | "waiting" | "failed" | "complete";
   detail: string;

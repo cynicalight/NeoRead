@@ -4714,6 +4714,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{id}/chat-sessions/{session}/messages/{message}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Withdraw a question and following messages */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    session: string;
+                    message: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        expectedLastMessageId: string;
+                        expectedContent: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated session transcript; message is the edited or withdrawn question */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: components["schemas"]["Message"];
+                            messages: components["schemas"]["Message"][];
+                        };
+                    };
+                };
+                /** @description Error (409 if the session is running or history changed) */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Edit a question and remove its answer and following messages */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    session: string;
+                    message: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        expectedLastMessageId: string;
+                        expectedContent: string;
+                        /** @description Non-empty, at most 16000 UTF-8 bytes */
+                        content: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated session transcript; message is the edited or withdrawn question */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: components["schemas"]["Message"];
+                            messages: components["schemas"]["Message"][];
+                        };
+                    };
+                };
+                /** @description Error (409 if the session is running or history changed) */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/documents/{id}/chat-sessions/{session}/chat": {
         parameters: {
             query?: never;
