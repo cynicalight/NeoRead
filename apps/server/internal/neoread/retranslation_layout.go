@@ -126,7 +126,7 @@ ON CONFLICT(document_id) DO UPDATE SET status='queued'`, p.DocumentID); err != n
 		return err
 	}
 	p.LayoutRevision = options.LayoutRun
-	return s.Store.saveBodyEnd(p.DocumentID, m)
+	return s.publishBodyEnd(p.DocumentID, m)
 }
 
 func publishRetranslatedLayout(work, dir, run string, m layoutManifest) error {

@@ -31,6 +31,7 @@ export function scheduleProgress(
   if (patch.progress.type === "pdf") {
     const furthest = Math.max(
       furthestPositions.get(id) ?? 0,
+      patch.bodyReadPosition ?? 0,
       patch.progress.page - 1 + (patch.progress.y ?? 0),
     );
     furthestPositions.set(id, furthest);

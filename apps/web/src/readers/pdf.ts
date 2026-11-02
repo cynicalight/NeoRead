@@ -365,7 +365,28 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private onScroll = () => {
     this.clearSelection();
     cancelAnimationFrame(this.viewportFrame);
-    this.viewportFrame = requestAnimationFrame(() => this.viewport.remember());
+    this.viewportFrame = requestAnimationFrame(() => {
+      this.viewport.remember();
+      if (this.disposed || !this.pdf || !this.container.clientHeight) return;
+      const location = this.getLocation();
+      const page = this.viewer.getPageView(location.page - 1)?.div;
+      const bounds = page?.getBoundingClientRect();
+      if (!bounds?.height) return;
+      const viewport = this.container.getBoundingClientRect();
+      const readPosition =
+        location.page -
+        1 +
+        Math.max(
+          0,
+          Math.min(1, (viewport.bottom - bounds.top) / bounds.height),
+        );
+      this.location = location;
+      this.events.location(
+        location,
+        readPosition / this.pdf.numPages,
+        readPosition,
+      );
+    });
   };
   private onPointerDown = (event: PointerEvent) => {
     this.viewport.cancelAnimation();

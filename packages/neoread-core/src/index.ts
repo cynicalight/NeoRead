@@ -507,7 +507,11 @@ export interface ReaderEvents {
   readingAnchor?: (anchor: PDFReadingAnchor) => void;
   blockFocus?: (block: PDFBlock) => void;
   blockAction?: (block: PDFBlock, action: PDFBlockAction) => void;
-  location: (location: DocumentLocation, percentage: number) => void;
+  location: (
+    location: DocumentLocation,
+    percentage: number,
+    bodyReadPosition?: number,
+  ) => void;
   selection: (selection: ReaderSelection | null) => void;
 }
 export interface ReaderAdapter {

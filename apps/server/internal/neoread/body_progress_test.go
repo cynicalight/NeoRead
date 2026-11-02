@@ -1,6 +1,10 @@
 package neoread
 
 import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -86,5 +90,48 @@ func TestBodyEndNeedsCompleteLayoutAndIgnoresRunningHeaders(t *testing.T) {
 	layout.Blocks = layout.Blocks[:1]
 	if end := layoutBodyEnd(layout); end == nil || end.Page != 10 || end.Y != 1 {
 		t.Fatalf("header-only fallback: %+v", end)
+	}
+}
+
+func TestParsedBodyEndNotifiesOpenLibrary(t *testing.T) {
+	s, p := processingFixture(t)
+	defer s.Close()
+	request(t, s, "PUT", "/api/preferences/library", strings.NewReader(`{"papers":{"autoLookup":false}}`))
+	before := s.connectorRevision.Load()
+	if err := s.learnPDF(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := s.Store.Document("doc")
+	if err != nil || doc.BodyEnd == nil || s.connectorRevision.Load() <= before {
+		t.Fatalf("unpublished body end: %+v %v", doc, err)
+	}
+}
+
+func TestMoveParsedBookInitializesBodyEnd(t *testing.T) {
+	s := testServer(t)
+	bodyProgressPaper(t, s.Store)
+	if _, err := s.Store.DB.Exec(`UPDATE documents SET library='books' WHERE id='paper'`); err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := s.Store.Document("paper")
+	if err := os.WriteFile(s.Store.File(doc), testPDF(2), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := s.analysisDir("paper")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	block := PDFBlock{ID: "p2-b1", Page: 2, Label: "paragraph_title", Text: "References"}
+	block.Bounds.Y = .6
+	block.Bounds.Width = .8
+	block.Bounds.Height = .1
+	manifest := layoutManifest{Pages: 2, Blocks: []PDFBlock{block}}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(jsonText(manifest)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out := request(t, s, "PATCH", "/api/documents/paper", strings.NewReader(`{"library":"papers"}`))
+	var moved Document
+	if out.Code != 200 || json.Unmarshal(out.Body.Bytes(), &moved) != nil || moved.BodyEnd == nil || moved.BodyEnd.Page != 2 || moved.BodyEnd.Y != .6 {
+		t.Fatalf("missing restored body end: %d %s", out.Code, out.Body.String())
 	}
 }

@@ -82,6 +82,15 @@ func (s *Store) saveBodyEnd(id string, layout layoutManifest) error {
 	return err
 }
 
+// Publish parsed metadata through the same revision used by library windows.
+func (s *Server) publishBodyEnd(id string, layout layoutManifest) error {
+	if err := s.Store.saveBodyEnd(id, layout); err != nil {
+		return err
+	}
+	s.connectorRevision.Add(1)
+	return nil
+}
+
 // Existing translated papers get the new metric from their saved layout.
 func (s *Store) refreshBodyEnds() error {
 	rows, err := s.DB.Query("SELECT id FROM documents WHERE type='pdf' AND library='papers' AND body_end IS NULL")

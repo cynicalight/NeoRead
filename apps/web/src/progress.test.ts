@@ -234,3 +234,30 @@ it("discards deleted documents without losing another tab's pending position", a
   await flushProgress();
   expect(update.mock.calls.map(([id]) => id)).toEqual(["kept"]);
 });
+
+it("preserves the furthest visible extent independently of the current restore position", async () => {
+  update.mockResolvedValue({});
+  const { scheduleProgress, flushProgress } = await import("./progress");
+  scheduleProgress(
+    "visible-extent",
+    {
+      progress: { type: "pdf", page: 10, y: 0.2 },
+      percentage: 0.97,
+      bodyReadPosition: 9.7,
+    },
+    () => {},
+  );
+  scheduleProgress(
+    "visible-extent",
+    { progress: { type: "pdf", page: 1, y: 0 }, percentage: 0 },
+    () => {},
+  );
+  await flushProgress();
+  expect(update).toHaveBeenLastCalledWith(
+    "visible-extent",
+    expect.objectContaining({
+      progress: { type: "pdf", page: 1, y: 0 },
+      bodyReadPosition: 9.7,
+    }),
+  );
+});

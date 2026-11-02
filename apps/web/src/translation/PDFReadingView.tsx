@@ -808,12 +808,12 @@ export function PDFReadingView({
                 blockFocus: (block) => {
                   void focusBlock(block, "source");
                 },
-                location: (location, percentage) => {
+                location: (location, percentage, bodyReadPosition) => {
                   if (
                     state.current.mode !== "translation" &&
                     side.current === "source"
                   )
-                    events.location(location, percentage);
+                    events.location(location, percentage, bodyReadPosition);
                 },
                 readingAnchor: (anchor) => {
                   if (

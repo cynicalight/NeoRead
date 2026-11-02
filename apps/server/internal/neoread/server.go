@@ -647,7 +647,7 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &v) {
 		return
 	}
-	var title, author, category, tags, folders, library, metadata, status any
+	var title, author, category, tags, folders, library, metadata, status, bodyEnd any
 	if v.Title != nil {
 		title, err = metadataText(v.Title, 300, false)
 		if err != nil {
@@ -729,6 +729,11 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 				fail(w, 400, reason)
 				return
 			}
+			if layout, layoutErr := s.readLayout(d.ID); layoutErr == nil {
+				if end := layoutBodyEnd(layout); end != nil {
+					bodyEnd = jsonText(end)
+				}
+			}
 			// Moving into the paper library is an explicit classification.
 			if category == nil {
 				category = "paper"
@@ -777,10 +782,13 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		progress = string(v.Progress)
 		bodyReadPosition = max(bodyReadPosition, pdfReadPosition(v.Progress))
 	}
-	_, err = s.Store.DB.Exec("UPDATE documents SET title=COALESCE(?,title),author=COALESCE(?,author),favorite=COALESCE(?,favorite),progress=COALESCE(?,progress),percentage=COALESCE(?,percentage),body_read_position=MAX(body_read_position,?),last_opened_at=COALESCE(?,last_opened_at),category=COALESCE(?,category),tags=COALESCE(?,tags),folders=COALESCE(?,folders),library=COALESCE(?,library),metadata=COALESCE(?,metadata),reading_status=COALESCE(?,reading_status),category_source=CASE WHEN ? IS NOT NULL THEN 'manual' ELSE category_source END,classification_status=CASE WHEN ? IS NOT NULL THEN 'done' ELSE classification_status END,classification_error=CASE WHEN ? IS NOT NULL THEN '' ELSE classification_error END WHERE id=?", title, author, v.Favorite, progress, v.Percentage, bodyReadPosition, openedAt, category, tags, folders, library, metadata, status, category, category, category, d.ID)
+	_, err = s.Store.DB.Exec("UPDATE documents SET title=COALESCE(?,title),author=COALESCE(?,author),favorite=COALESCE(?,favorite),progress=COALESCE(?,progress),percentage=COALESCE(?,percentage),body_read_position=MAX(body_read_position,?),body_end=COALESCE(?,body_end),last_opened_at=COALESCE(?,last_opened_at),category=COALESCE(?,category),tags=COALESCE(?,tags),folders=COALESCE(?,folders),library=COALESCE(?,library),metadata=COALESCE(?,metadata),reading_status=COALESCE(?,reading_status),category_source=CASE WHEN ? IS NOT NULL THEN 'manual' ELSE category_source END,classification_status=CASE WHEN ? IS NOT NULL THEN 'done' ELSE classification_status END,classification_error=CASE WHEN ? IS NOT NULL THEN '' ELSE classification_error END WHERE id=?", title, author, v.Favorite, progress, v.Percentage, bodyReadPosition, bodyEnd, openedAt, category, tags, folders, library, metadata, status, category, category, category, d.ID)
 	if err != nil {
 		fail(w, 500, "保存失败")
 		return
+	}
+	if bodyEnd != nil {
+		s.connectorRevision.Add(1)
 	}
 	d, err = s.Store.Document(d.ID)
 	if err != nil {
