@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, ScanLine, RefreshCw, Languages } from "lucide-react";
 import type { Processing } from "@neoread/core";
 import { api } from "@neoread/api";
@@ -6,29 +6,67 @@ import { Progress } from "@neoread/ui/components/progress";
 import { Button } from "@neoread/ui/components/button";
 import { toast } from "sonner";
 
+const activePollMs = 1200;
+const idlePollMs = 10_000;
+
+function isActive(job: Processing) {
+  return (
+    job.status === "queued" ||
+    job.status === "running" ||
+    job.bookLayout?.status === "queued" ||
+    job.bookLayout?.status === "running"
+  );
+}
+
 export function useProcessing() {
   const [jobs, setJobs] = useState<Processing[]>([]);
   const [error, setError] = useState("");
+  const snapshot = useRef("[]");
+  const lastError = useRef("");
   useEffect(() => {
-    let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
+    let controller: AbortController | undefined;
+    let interval = idlePollMs;
+    const reportError = (message: string) => {
+      if (message === lastError.current) return;
+      lastError.current = message;
+      setError(message);
+    };
+    const poll = async (signal: AbortSignal) => {
       try {
-        const next = await api.processing();
-        if (!stopped) {
+        const next = await api.processing(signal);
+        if (signal.aborted) return;
+        // The server returns ordered JSON records, including independent book layout progress.
+        const encoded = JSON.stringify(next);
+        if (encoded !== snapshot.current) {
+          snapshot.current = encoded;
           setJobs(next);
-          setError("");
         }
+        interval = next.some(isActive) ? activePollMs : idlePollMs;
+        reportError("");
       } catch (e) {
-        if (!stopped) setError((e as Error).message);
-      } finally {
-        if (!stopped) timer = setTimeout(poll, 1200);
+        if (signal.aborted) return;
+        reportError((e as Error).message);
+      }
+      timer = setTimeout(() => void poll(signal), interval);
+    };
+    const stop = () => {
+      controller?.abort();
+      controller = undefined;
+      clearTimeout(timer);
+    };
+    const syncVisibility = () => {
+      if (document.visibilityState === "hidden") stop();
+      else if (!controller) {
+        controller = new AbortController();
+        void poll(controller.signal);
       }
     };
-    void poll();
+    syncVisibility();
+    document.addEventListener("visibilitychange", syncVisibility);
     return () => {
-      stopped = true;
-      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", syncVisibility);
+      stop();
     };
   }, []);
   return { jobs, error };
