@@ -1,7 +1,7 @@
 {
   "name": "neoread",
   "private": true,
-  "version": "0.10.1-experience.2",
+  "version": "0.10.1-experience.3",
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "dev": "node scripts/prepare-assets.mjs && node scripts/dev.mjs",
