@@ -39,7 +39,7 @@ export function PaperTagCleanup({
       }}
     >
       <DialogContent
-        className="sm:max-w-md"
+        className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-md"
         showCloseButton={!saving}
         finalFocus={finalFocus}
       >
@@ -127,44 +127,51 @@ function PaperTagCleanupForm({
           选择要从整个论文库移除的标签，包括回收站中的论文。
         </DialogDescription>
       </DialogHeader>
-      {options.length ? (
-        <ToggleGroup
-          size="sm"
-          variant="outline"
-          aria-label="要移除的标签"
-          className="max-h-48 max-w-full flex-wrap justify-start overflow-y-auto"
-          value={tag ? [tag] : []}
-          onValueChange={(values: string[]) => setTag(values[0] || "")}
-          disabled={saving}
-        >
-          {options.map((name) => (
-            <ToggleGroupItem
-              key={name}
-              value={name}
-              title={name}
-              className="max-w-full px-2"
-            >
-              <span className="truncate">#{name}</span>
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-      ) : (
-        <p className="text-sm text-muted-foreground">论文库中没有标签</p>
-      )}
-      {tag && (
-        <div className="space-y-2 break-words text-sm" aria-live="polite">
-          <p>
-            将从 {count} 篇论文移除“{tag}”
-            {trashCount > 0 && `（回收站中有 ${trashCount} 篇）`}。
-          </p>
-          {referenced.length > 0 && (
+      <div
+        role="region"
+        aria-label="标签与影响范围"
+        tabIndex={0}
+        className="min-h-0 space-y-4 overflow-y-auto overscroll-contain"
+      >
+        {options.length ? (
+          <ToggleGroup
+            size="sm"
+            variant="outline"
+            aria-label="要移除的标签"
+            className="max-w-full flex-wrap justify-start"
+            value={tag ? [tag] : []}
+            onValueChange={(values: string[]) => setTag(values[0] || "")}
+            disabled={saving}
+          >
+            {options.map((name) => (
+              <ToggleGroupItem
+                key={name}
+                value={name}
+                title={name}
+                className="max-w-full px-2"
+              >
+                <span className="truncate">#{name}</span>
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        ) : (
+          <p className="text-sm text-muted-foreground">论文库中没有标签</p>
+        )}
+        {tag && (
+          <div className="space-y-2 break-words text-sm" aria-live="polite">
             <p>
-              智能分类{referenced.map((c) => `“${c.name}”`).join("、")}
-              使用此标签。规则将保留，移除后这些分类将暂时没有匹配论文。
+              将从 {count} 篇论文移除“{tag}”
+              {trashCount > 0 && `（回收站中有 ${trashCount} 篇）`}。
             </p>
-          )}
-        </div>
-      )}
+            {referenced.length > 0 && (
+              <p>
+                智能分类{referenced.map((c) => `“${c.name}”`).join("、")}
+                使用此标签。规则将保留，移除后这些分类将暂时没有匹配论文。
+              </p>
+            )}
+          </div>
+        )}
+      </div>
       <DialogFooter>
         <Button variant="outline" disabled={saving} onClick={onClose}>
           取消

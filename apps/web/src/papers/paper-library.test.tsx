@@ -187,7 +187,11 @@ it("confirms library-wide paper tag removal across views, with the count and ref
           layout: "table",
           columns: ["tags"],
           smartCategories: [
-            { id: "a", name: "待审", tags: ["draft", "Keep"] },
+            ...Array.from({ length: 30 }, (_, i) => ({
+              id: "draft-" + i,
+              name: "待审论文智能分类 " + i,
+              tags: ["draft", "Keep"],
+            })),
             { id: "b", name: "已审", tags: ["Keep"] },
           ],
         },
@@ -219,7 +223,11 @@ it("confirms library-wide paper tag removal across views, with the count and ref
       document.querySelector('[role="dialog"]')!.textContent!;
     expect(confirmation).toContain("12 篇");
     expect(confirmation).toContain("回收站中有 1 篇");
-    expect(confirmation).toContain("待审");
+    const details = document.querySelector(
+      '[role="region"][aria-label="标签与影响范围"]',
+    );
+    expect(details?.textContent).toContain("待审论文智能分类 29");
+    expect(details?.contains(inDialog("确认移除"))).toBe(false);
     expect(confirmation).not.toContain("已审");
     expect(confirmation).toContain("规则将保留");
   };
