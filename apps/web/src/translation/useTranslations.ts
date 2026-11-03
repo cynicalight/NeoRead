@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { TranslationBlock } from "@neoread/core";
 import { api } from "@neoread/api";
-export function useTranslations(documentId: string, hrefs?: string[]) {
+export function useTranslations(
+  documentId: string,
+  hrefs?: string[],
+  active = true,
+) {
   const [translations, setTranslations] = useState<TranslationBlock[]>([]);
   const [error, setError] = useState("");
   const scope = hrefs?.join("\0");
   const previousDocument = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (!active) return;
     if (previousDocument.current !== documentId || scope === "")
       setTranslations([]);
     previousDocument.current = documentId;
@@ -51,6 +56,6 @@ export function useTranslations(documentId: string, hrefs?: string[]) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [documentId, scope]);
+  }, [documentId, scope, active]);
   return { translations, error };
 }

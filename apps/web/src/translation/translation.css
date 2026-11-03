@@ -143,6 +143,30 @@
   margin: 12px auto;
   border-radius: 3px;
 }
+.translation-image-container {
+  position: relative;
+}
+.translation-image-open {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  white-space: normal;
+  cursor: zoom-in;
+}
+.translation-image-open:hover {
+  background: transparent;
+}
+.translation-image-preview {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  opacity: 0;
+}
+.translation-image-container:hover .translation-image-preview,
+.translation-image-container:focus-within .translation-image-preview {
+  opacity: 1;
+}
 .translation-pending {
   min-height: 5em;
   display: flex;

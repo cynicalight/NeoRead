@@ -7,6 +7,13 @@ import type { PDFBlock } from "@neoread/core";
 
 let root: Root, host: HTMLDivElement;
 beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("matchMedia", () => ({
     matches: true,

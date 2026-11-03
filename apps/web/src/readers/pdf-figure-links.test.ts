@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { PDFBlock } from "@neoread/core";
 import { PDFFigureLinks } from "./pdf-figure-links";
+import * as references from "./figure-references";
 const image: PDFBlock = {
   id: "figure-3",
   page: 2,
@@ -11,8 +12,37 @@ const image: PDFBlock = {
   bounds: { x: 0.1, y: 0.1, width: 0.5, height: 0.3 },
 };
 afterEach(() => {
+  vi.restoreAllMocks();
   document.body.replaceChildren();
   window.getSelection()?.removeAllRanges();
+});
+it("rebuilds only the rendered page and caches missing and resolved targets until blocks change", () => {
+  const host = document.createElement("div");
+  host.innerHTML = [1, 2]
+    .map(
+      (page) =>
+        `<div class="page" data-page-number="${page}"><div class="textLayer"><span>Figure 3 and Figure 9</span></div></div>`,
+    )
+    .join("");
+  document.body.append(host);
+  let blocks = [image];
+  const target = vi.spyOn(references, "figureTarget");
+  const links = new PDFFigureLinks(host, () => blocks, vi.fn());
+  links.repaint();
+  expect(target).toHaveBeenCalledTimes(2);
+  const first = host.querySelector("a");
+  const observer = new MutationObserver(() => {});
+  observer.observe(host.firstElementChild!, { subtree: true, childList: true });
+  links.repaint(2);
+  expect(host.querySelector("a")).toBe(first);
+  expect(observer.takeRecords()).toHaveLength(0);
+  expect(target).toHaveBeenCalledTimes(2);
+  blocks = [];
+  links.repaint();
+  expect(host.querySelector("a")).toBeNull();
+  expect(target).toHaveBeenCalledTimes(4);
+  observer.disconnect();
+  links.destroy();
 });
 it("links references split across PDF spans without changing text or transforms", () => {
   const host = document.createElement("div");

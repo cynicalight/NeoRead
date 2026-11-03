@@ -22,6 +22,10 @@ export class PDFReadingNavigation {
   private operation = 0;
   private focus: PDFPassage[] = [];
   private linkedRanges: Range[] = [];
+  private indexedBlocks?: PDFBlock[];
+  private readable: PDFBlock[] = [];
+  private blocksByPage = new Map<number, PDFBlock[]>();
+  private blocksById = new Map<string, PDFBlock>();
   get isNavigating() {
     return this.moving;
   }
@@ -61,6 +65,7 @@ export class PDFReadingNavigation {
   }
   async goTo(page: number, point?: { x: number; y: number }) {
     const operation = ++this.operation;
+    if (!(await this.preparePage(page, operation))) return false;
     const node = this.pageNode(page);
     if (!node || this.disposed || operation !== this.operation) return false;
     this.onFocus(null);
@@ -76,7 +81,22 @@ export class PDFReadingNavigation {
   private pageNode(n: number) {
     return this.viewer.getPageView(n - 1)?.div as HTMLElement | undefined;
   }
+  private async preparePage(
+    n: number,
+    operation: number,
+  ): Promise<pdfjs.PDFPageProxy | undefined> {
+    const view = this.viewer.getPageView(n - 1);
+    if (!view || this.disposed) return;
+    if (view.pdfPage) return view.pdfPage;
+    const page = await this.page(n);
+    if (this.disposed || operation !== this.operation) return;
+    // Lazy PDF.js views initially clone the first page's dimensions. Initialize
+    // only the destination before reading its geometry, including mixed sizes.
+    if (!view.pdfPage) view.setPdfPage(page);
+    return page;
+  }
   private scrolled = () => {
+    if (!this.events.readingAnchor) return;
     cancelAnimationFrame(this.frame);
     this.frame = requestAnimationFrame(() => {
       if (this.disposed || this.moving) return;
@@ -85,27 +105,36 @@ export class PDFReadingNavigation {
     });
   };
   anchor(): PDFReadingAnchor | undefined {
+    this.readableBlocks();
     const viewport = this.host.getBoundingClientRect(),
       y = viewport.top + viewport.height * 0.5,
       x = viewport.left + viewport.width / 2;
     let best: PDFBlock | undefined,
       distance = Infinity,
       fraction = 0;
-    for (const b of this.readableBlocks()) {
-      const node = this.pageNode(b.page);
-      if (!node) continue;
-      const r = node.getBoundingClientRect();
+    // PDF.js already indexes visible pages. Read each page's geometry once,
+    // rather than measuring it again for every paragraph in the document.
+    const visible = this.viewer._getVisiblePages() as {
+      views: { id: number; view: { div: HTMLElement } }[];
+    };
+    for (const { id, view } of visible.views) {
+      const blocks = this.blocksByPage.get(id);
+      if (!blocks) continue;
+      const r = view.div.getBoundingClientRect();
       if (r.bottom < viewport.top || r.top > viewport.bottom) continue;
-      const bx = r.left + b.bounds.x * r.width,
-        by = r.top + b.bounds.y * r.height,
-        bw = b.bounds.width * r.width,
-        bh = b.bounds.height * r.height;
-      const d =
-        Math.max(bx - x, x - bx - bw, 0) * 2 + Math.max(by - y, y - by - bh, 0);
-      if (d < distance) {
-        distance = d;
-        best = b;
-        fraction = Math.max(0, Math.min(1, (y - by) / (bh || 1)));
+      for (const b of blocks) {
+        const bx = r.left + b.bounds.x * r.width,
+          by = r.top + b.bounds.y * r.height,
+          bw = b.bounds.width * r.width,
+          bh = b.bounds.height * r.height;
+        const d =
+          Math.max(bx - x, x - bx - bw, 0) * 2 +
+          Math.max(by - y, y - by - bh, 0);
+        if (d < distance) {
+          distance = d;
+          best = b;
+          fraction = Math.max(0, Math.min(1, (y - by) / (bh || 1)));
+        }
       }
     }
     return best ? { blockId: best.id, fraction } : undefined;
@@ -123,10 +152,22 @@ export class PDFReadingNavigation {
     }
   }
   private readableBlocks() {
+    const blocks = this.blocks();
+    if (blocks === this.indexedBlocks) return this.readable;
+    this.indexedBlocks = blocks;
     // The parser supplies reading order within each page, including figures.
-    return this.blocks()
+    this.readable = blocks
       .filter((b) => !isPDFPageDecoration(b) && (b.image || b.text.trim()))
       .sort((a, b) => a.page - b.page);
+    this.blocksByPage.clear();
+    this.blocksById.clear();
+    for (const block of this.readable) {
+      const page = this.blocksByPage.get(block.page) ?? [];
+      page.push(block);
+      this.blocksByPage.set(block.page, page);
+      this.blocksById.set(block.id, block);
+    }
+    return this.readable;
   }
   cancelMotion() {
     this.interrupt();
@@ -147,13 +188,14 @@ export class PDFReadingNavigation {
     this.host.classList.add("pdf-block-reading");
   }
   async focusBlock(id: string, layout: "source" | "parallel" = "source") {
-    const block = this.readableBlocks().find((b) => b.id === id);
+    this.readableBlocks();
+    const block = this.blocksById.get(id);
     if (!block || this.disposed) return false;
     const operation = ++this.operation;
     this.moving = true;
     try {
-      const page = await this.page(block.page);
-      if (this.disposed || operation !== this.operation) return false;
+      const page = await this.preparePage(block.page, operation);
+      if (!page || this.disposed || operation !== this.operation) return false;
       const node = this.pageNode(block.page);
       if (!node || !this.host.clientWidth || !this.host.clientHeight)
         return false;
@@ -243,9 +285,15 @@ export class PDFReadingNavigation {
     }
   }
   async follow(anchor: PDFReadingAnchor) {
-    const block = this.blocks().find((b) => b.id === anchor.blockId);
+    this.readableBlocks();
+    const block = this.blocksById.get(anchor.blockId);
     if (!block || isPDFPageDecoration(block)) return;
     const operation = ++this.operation;
+    if (
+      !this.viewer.getPageView(block.page - 1)?.pdfPage &&
+      !(await this.preparePage(block.page, operation))
+    )
+      return;
     const node = this.pageNode(block.page);
     if (!node) return;
     const r = node.getBoundingClientRect(),

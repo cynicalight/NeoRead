@@ -2298,34 +2298,61 @@ kbd {
   background: var(--popover);
 }
 [data-slot="dialog-content"].image-preview-dialog {
-  width: min(1040px, calc(100vw - 48px));
+  box-sizing: content-box;
   max-width: none;
-  max-height: calc(100dvh - 48px);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  max-height: none;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  display: grid;
+  background: var(--background);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+/* Electron drag regions can intercept modal controls even above the title bar. */
+body:has(.image-preview-dialog) :is(.window-top-drag, .window-drag-handle, .document-tabbar, .document-tabs-scroll, .library-topbar, .neoread-toolbar),
+.image-preview-dialog * {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.image-preview-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 15%);
 }
 .image-preview-controls {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--background);
 }
 .image-preview-loading {
-  text-align: center;
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--background);
   font-size: 12px;
   color: var(--muted-foreground);
 }
 .image-preview-scroll {
+  width: 100%;
+  height: 100%;
   min-height: 0;
   overflow: auto;
+  scrollbar-width: none;
   background: white;
-  border-radius: 6px;
-  max-height: 70vh;
+  overscroll-behavior: contain;
 }
-.image-preview-scroll img {
-  display: block;
-}
+.image-preview-scroll::-webkit-scrollbar { display: none; }
+.image-preview-scroll img { display: block; }
 
 .library-topbar-actions {
   display: flex;
