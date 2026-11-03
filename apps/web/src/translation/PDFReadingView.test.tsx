@@ -618,11 +618,7 @@ it("reuses follow coordinates and skips identical scroll writes until translatio
   });
   await follow();
   expect(measure).toHaveBeenCalledTimes(4);
-  await act(async () => {
-    pane
-      .querySelector<HTMLElement>(".translation-content")!
-      .setAttribute("style", "zoom: 2");
-  });
+  await click("放大译文");
   await follow();
   expect(measure).toHaveBeenCalledTimes(5);
   await act(async () => fixture.resizes.get(pane)?.());

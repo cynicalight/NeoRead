@@ -167,6 +167,14 @@
 .translation-image-container:focus-within .translation-image-preview {
   opacity: 1;
 }
+.translation-zoom-controls {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.translation-zoom-content {
+  margin-inline: auto;
+}
 .translation-pending {
   min-height: 5em;
   display: flex;

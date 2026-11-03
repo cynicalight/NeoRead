@@ -10,7 +10,8 @@ import {
 } from "react";
 import { useTranslations } from "./useTranslations";
 import { createPortal } from "react-dom";
-import { Crosshair } from "lucide-react";
+import { Crosshair, Minus, Plus } from "lucide-react";
+import { useTranslationZoom } from "./useTranslationZoom";
 import type {
   Annotation,
   Document as ReaderDocument,
@@ -132,6 +133,7 @@ export function PDFReadingView({
     control = useRef(new ReadingSync()),
     side = useRef<"source" | "translation">("source"),
     reading = useRef<PDFReadingAnchor | undefined>(undefined);
+  const translationZoom = useTranslationZoom(pane, active && mode !== "source");
   // Keep only the current follow target. Content coordinates survive scrolling;
   // layout/content changes invalidate them without retaining detached blocks.
   const followGeometry = useRef<
@@ -253,6 +255,8 @@ export function PDFReadingView({
   }, [visibleBlocks, mode]);
   useLayoutEffect(invalidateFollowGeometry, [
     translations,
+    translationZoom.zoom,
+    translationZoom.width,
     theme.translationFontSize,
     theme.translationFontFamily,
     theme.translationFontWeight,
@@ -268,13 +272,9 @@ export function PDFReadingView({
     const resize = new ResizeObserver(invalidateFollowGeometry);
     resize.observe(host);
     resize.observe(body);
-    // CSS zoom changes visual coordinates without changing the content box.
-    const style = new MutationObserver(invalidateFollowGeometry);
-    style.observe(body, { attributes: true, attributeFilter: ["style"] });
     document.fonts?.addEventListener("loadingdone", invalidateFollowGeometry);
     return () => {
       resize.disconnect();
-      style.disconnect();
       document.fonts?.removeEventListener(
         "loadingdone",
         invalidateFollowGeometry,
@@ -901,6 +901,41 @@ export function PDFReadingView({
           <TabsTrigger value="translation">仅译文</TabsTrigger>
         </TabsList>
       </Tabs>
+      {mode !== "source" && (
+        <div
+          className="translation-zoom-controls"
+          role="group"
+          aria-label="译文缩放"
+        >
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="缩小译文"
+            disabled={translationZoom.zoom <= 1}
+            onClick={() => translationZoom.change(translationZoom.zoom - 0.25)}
+          >
+            <Minus />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="重置译文缩放"
+            title="重置译文缩放"
+            onClick={() => translationZoom.change(1)}
+          >
+            {Math.round(translationZoom.zoom * 100)}%
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="放大译文"
+            disabled={translationZoom.zoom >= 5}
+            onClick={() => translationZoom.change(translationZoom.zoom + 0.25)}
+          >
+            <Plus />
+          </Button>
+        </div>
+      )}
     </div>
   );
   return (
@@ -1067,7 +1102,14 @@ export function PDFReadingView({
                 lineHeight: theme.lineHeight,
               }}
             >
-              <div className="translation-content" ref={content}>
+              <div
+                className="translation-content translation-zoom-content"
+                ref={content}
+                style={{
+                  zoom: translationZoom.zoom,
+                  width: translationZoom.width ?? "100%",
+                }}
+              >
                 {error && <p role="alert">{error}</p>}
                 {!visibleBlocks.length && (
                   <p role="status">
@@ -1089,6 +1131,7 @@ export function PDFReadingView({
                     searchHit={searchBlockIds.includes(block.id)}
                     renderImage={blockImages?.url}
                     releaseImage={blockImages?.release}
+                    imageScale={block.image ? translationZoom.zoom : 1}
                     paused={processing?.enabled === false}
                     interactions={blockInteractions}
                   />

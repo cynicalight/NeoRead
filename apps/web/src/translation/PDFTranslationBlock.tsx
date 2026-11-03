@@ -24,6 +24,7 @@ export const PDFTranslationBlock = memo(function PDFTranslationBlock({
   searchHit,
   renderImage,
   releaseImage,
+  imageScale,
   paused,
   interactions,
 }: {
@@ -37,6 +38,7 @@ export const PDFTranslationBlock = memo(function PDFTranslationBlock({
   searchHit: boolean;
   renderImage?: (id: string, width: number, owner?: string) => Promise<string>;
   releaseImage?: (id: string, owner?: string) => void;
+  imageScale: number;
   paused: boolean;
   interactions: RefObject<PDFBlockInteractions>;
 }) {
@@ -97,6 +99,7 @@ export const PDFTranslationBlock = memo(function PDFTranslationBlock({
         documentId={documentId}
         renderImage={renderImage}
         releaseImage={releaseImage}
+        imageScale={imageScale}
         onPreview={() => interactions.current.preview(block)}
         retry={() => interactions.current.translate(block.id)}
         paused={paused}
