@@ -461,6 +461,39 @@ it("restores the latest session draft and text when the composer remounts", asyn
   expect(tabCloseWarning(doc.id)).toBeNull();
 });
 
+it("keeps long Chinese composition and paste native across workspace updates", async () => {
+  await act(async () => render(0));
+  const long = "长中文草稿需要保留输入法候选和光标。".repeat(200);
+  await enterPrompt(long);
+  composer().setSelectionRange(20, 20);
+  await act(async () => render(1));
+  expect(composer().defaultValue).toBe("");
+  expect(composer().value).toBe(long);
+  expect(composer().selectionStart).toBe(20);
+  const renders = panels.readerRenders;
+  await act(async () => {
+    composer().dispatchEvent(
+      new CompositionEvent("compositionstart", { bubbles: true }),
+    );
+  });
+  for (const candidate of ["zh", "zhong", "中文输入"])
+    await enterPrompt(long + candidate);
+  await act(async () => {
+    composer().dispatchEvent(
+      new CompositionEvent("compositionend", {
+        data: "中文输入",
+        bubbles: true,
+      }),
+    );
+  });
+  expect(panels.readerRenders).toBe(renders);
+  expect(composer().value).toBe(long + "中文输入");
+  await enterPrompt(long + "一次粘贴大量中文。".repeat(300));
+  await act(async () => render(2));
+  expect(composer().defaultValue).toBe("");
+  expect(composer().value).toBe(long + "一次粘贴大量中文。".repeat(300));
+});
+
 it("keeps composition and modified Enter keys from sending and submits the latest text with Enter", async () => {
   vi.mocked(api.chatSessions).mockResolvedValue([
     {

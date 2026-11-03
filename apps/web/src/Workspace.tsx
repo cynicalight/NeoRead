@@ -439,6 +439,11 @@ export function Workspace({
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [previewImage, setPreviewImage] = useState<ImageAttachment>();
   const composeInput = useRef<HTMLTextAreaElement>(null);
+  const attachComposeInput = useCallback((node: HTMLTextAreaElement | null) => {
+    composeInput.current = node;
+    if (node) node.value = prompt.current;
+  }, []);
+  const promptHasText = useRef(false);
   const composerDrafts = useRef(
     new Map<
       string,
@@ -448,12 +453,19 @@ export function Workspace({
   const composerValue = useRef({ prompt: prompt.current, quotes, images });
   composerValue.current = { prompt: prompt.current, quotes, images };
   // Native editing keeps each keystroke out of the reader and chat render tree.
-  const setPrompt = (value: string) => {
+  const updatePrompt = (value: string) => {
     prompt.current = value;
     composerValue.current = { ...composerValue.current, prompt: value };
+    const hasText = !!value.trim();
+    if (hasText !== promptHasText.current) {
+      promptHasText.current = hasText;
+      promptContentChanged.current?.(hasText);
+    }
+  };
+  const setPrompt = (value: string) => {
+    updatePrompt(value);
     if (composeInput.current && composeInput.current.value !== value)
       composeInput.current.value = value;
-    promptContentChanged.current?.(!!value.trim());
   };
   const composerKey = `${doc.id}:${currentSession?.id ?? ""}`;
   const currentComposerKey = useRef(composerKey);
@@ -1863,11 +1875,11 @@ export function Workspace({
                   )}
                   {!!images.length && imageAttachments(images, true)}
                   <Textarea
-                    ref={composeInput}
+                    ref={attachComposeInput}
                     aria-label="向 AI 提问"
                     placeholder="问一个问题，或引用选中的文字…"
-                    defaultValue={prompt.current}
-                    onChange={(e) => setPrompt(e.target.value)}
+                    defaultValue=""
+                    onChange={(e) => updatePrompt(e.target.value)}
                     onKeyDown={(e) => {
                       if (
                         e.key === "Enter" &&
