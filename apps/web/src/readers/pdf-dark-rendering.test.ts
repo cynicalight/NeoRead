@@ -15,15 +15,19 @@ const fixture = vi.hoisted(() => ({
   refresh: vi.fn(),
   diagnostic: vi.fn(),
   viewerOptions: undefined as Record<string, unknown> | undefined,
+  documentOptions: undefined as Record<string, unknown> | undefined,
 }));
 vi.mock("../diagnostics", () => ({ reportDiagnostic: fixture.diagnostic }));
 vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: {},
   AnnotationMode: { ENABLE: 1 },
-  getDocument: () => ({
-    promise: Promise.resolve({ numPages: 1 }),
-    destroy: vi.fn(),
-  }),
+  getDocument: (options: Record<string, unknown>) => {
+    fixture.documentOptions = options;
+    return {
+      promise: Promise.resolve({ numPages: 1 }),
+      destroy: vi.fn(),
+    };
+  },
 }));
 vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
   EventBus: class {
@@ -99,6 +103,29 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 const doc = { id: "test", type: "pdf" } as Document;
+
+it("loads PDF ranges on demand and uses hardware canvas acceleration within the existing limits", async () => {
+  await adapter.open(doc);
+  expect(fixture.documentOptions).toMatchObject({
+    disableAutoFetch: true,
+    disableStream: true,
+    rangeChunkSize: 256 * 1024,
+    enableHWA: true,
+  });
+  expect(fixture.viewerOptions).toMatchObject({
+    maxCanvasPixels: 4 * 1024 * 1024,
+    maxCanvasDim: 4096,
+  });
+});
+
+it("does not revisit page overlays for detail canvas updates", async () => {
+  await adapter.open(doc);
+  const query = vi.spyOn(host, "querySelectorAll");
+  fixture.dispatch!("pagerendered", { pageNumber: 1, isDetailView: true });
+  expect(query).not.toHaveBeenCalled();
+  fixture.dispatch!("pagerendered", { pageNumber: 1 });
+  expect(query).toHaveBeenCalledWith('.page[data-page-number="1"]');
+});
 
 it("releases hidden canvases and pauses rendering until the reader is visible again", async () => {
   await adapter.open(doc);

@@ -43,6 +43,11 @@ import { animatePDFScroll } from "../readers/pdf-scroll";
 import { TranslationPanes } from "./TranslationPanes";
 import { formulaNumbers } from "./formulaNumbers";
 import { TranslationText } from "./TranslationText";
+import {
+  PDFTranslationBlock,
+  type PDFBlockInteractions,
+} from "./PDFTranslationBlock";
+import { translationBlockAt } from "./translation-viewport";
 import { blockImageCache } from "./block-images";
 import { useSentenceMarks } from "./useSentenceMarks";
 import { translatedSelection as captureTranslationSelection } from "./selection";
@@ -96,9 +101,16 @@ export function PDFReadingView({
   const [engine, setEngine] = useState<ReaderAdapter>();
   const [hoveredBlock, setHoveredBlock] = useState<string>();
   const [focusedBlock, setFocusedBlock] = useState<string>();
+  const hoverBlock = useRef<string | undefined>(undefined);
   const hoverOwner = useRef<"source" | "translation" | undefined>(undefined);
   const hover = (origin: "source" | "translation", blockId?: string) => {
     if (!blockId && hoverOwner.current !== origin) return;
+    if (
+      hoverBlock.current === blockId &&
+      hoverOwner.current === (blockId ? origin : undefined)
+    )
+      return;
+    hoverBlock.current = blockId;
     hoverOwner.current = blockId ? origin : undefined;
     setHoveredBlock(blockId);
     engine?.hoverBlock?.(
@@ -116,9 +128,29 @@ export function PDFReadingView({
   });
   const root = useRef<HTMLDivElement>(null),
     pane = useRef<HTMLDivElement>(null),
+    content = useRef<HTMLDivElement>(null),
     control = useRef(new ReadingSync()),
     side = useRef<"source" | "translation">("source"),
     reading = useRef<PDFReadingAnchor | undefined>(undefined);
+  // Keep only the current follow target. Content coordinates survive scrolling;
+  // layout/content changes invalidate them without retaining detached blocks.
+  const followGeometry = useRef<
+    | {
+        node: HTMLElement;
+        host: HTMLElement;
+        top: number;
+        left: number;
+        width: number;
+        height: number;
+        viewportHeight: number;
+        viewportWidth: number;
+        maxTop: number;
+      }
+    | undefined
+  >(undefined);
+  const invalidateFollowGeometry = () => {
+    followGeometry.current = undefined;
+  };
   const recordReading = (anchor: PDFReadingAnchor) => {
     reading.current = anchor;
   };
@@ -143,6 +175,7 @@ export function PDFReadingView({
     const frame = host.parentElement ?? host;
     let initialized = false;
     const resize = () => {
+      invalidateFollowGeometry();
       const node = Array.from(
         host.querySelectorAll<HTMLElement>("[data-translation-block]"),
       ).find(
@@ -162,6 +195,7 @@ export function PDFReadingView({
     observer.observe(frame);
     return () => {
       observer.disconnect();
+      invalidateFollowGeometry();
       cancelTranslationMotion();
     };
   }, [mode, doc.id, active]);
@@ -198,9 +232,81 @@ export function PDFReadingView({
       setBlockImages(undefined);
     };
   }, [engine, blocks]);
-  const visibleBlocks = blocks.filter(
-    (b) => !isPDFPageDecoration(b) && !equationNumbers.pairedIds.has(b.id),
+  const visibleBlocks = useMemo(
+    () =>
+      blocks.filter(
+        (b) => !isPDFPageDecoration(b) && !equationNumbers.pairedIds.has(b.id),
+      ),
+    [blocks, equationNumbers],
   );
+  const nodes = useRef<HTMLElement[]>([]);
+  const nodesById = useRef(new Map<string, HTMLElement>());
+  useLayoutEffect(() => {
+    invalidateFollowGeometry();
+    nodes.current = Array.from(
+      pane.current?.querySelectorAll<HTMLElement>("[data-translation-block]") ??
+        [],
+    );
+    nodesById.current = new Map(
+      nodes.current.map((node) => [node.dataset.translationBlock!, node]),
+    );
+  }, [visibleBlocks, mode]);
+  useLayoutEffect(invalidateFollowGeometry, [
+    translations,
+    theme.translationFontSize,
+    theme.translationFontFamily,
+    theme.translationFontWeight,
+    theme.lineHeight,
+    sourceWidth,
+    swapped,
+    active,
+  ]);
+  useLayoutEffect(() => {
+    const host = pane.current,
+      body = content.current;
+    if (!active || !host || !body) return;
+    const resize = new ResizeObserver(invalidateFollowGeometry);
+    resize.observe(host);
+    resize.observe(body);
+    // CSS zoom changes visual coordinates without changing the content box.
+    const style = new MutationObserver(invalidateFollowGeometry);
+    style.observe(body, { attributes: true, attributeFilter: ["style"] });
+    document.fonts?.addEventListener("loadingdone", invalidateFollowGeometry);
+    return () => {
+      resize.disconnect();
+      style.disconnect();
+      document.fonts?.removeEventListener(
+        "loadingdone",
+        invalidateFollowGeometry,
+      );
+      invalidateFollowGeometry();
+    };
+  }, [mode, doc.id, active]);
+  const sourceAnnotations = useMemo(
+    () =>
+      annotations.filter(
+        (a) => a.location.type !== "pdf" || !a.location.translation,
+      ),
+    [annotations],
+  );
+  const annotatedBlocks = useMemo(() => {
+    const result = new Set<string>();
+    for (const annotation of annotations) {
+      const mark =
+        annotation.location.type === "pdf"
+          ? annotation.location.translation
+          : undefined;
+      if (!mark) continue;
+      for (const part of mark.ranges ?? [mark]) {
+        if (
+          part.sourceHash === byId.get(part.blockId)?.sourceHash &&
+          part.sentenceIndexes.length
+        )
+          result.add(part.blockId);
+      }
+    }
+    return result;
+  }, [annotations, byId]);
   const searchBlockIds = useMemo(
     () => [
       ...new Set(
@@ -224,11 +330,7 @@ export function PDFReadingView({
       toast.error((e as Error).message);
     }
   };
-  const targetNode = (id: string) =>
-    Array.from(
-      pane.current?.querySelectorAll<HTMLElement>("[data-translation-block]") ??
-        [],
-    ).find((n) => n.dataset.translationBlock === id);
+  const targetNode = (id: string) => nodesById.current.get(id);
   const followTranslation = (
     anchor: PDFReadingAnchor,
     sentenceIndex?: number,
@@ -238,31 +340,57 @@ export function PDFReadingView({
       host = pane.current;
     if (!node || !host) return;
     control.current.following("translation");
-    const target =
-      sentenceIndex === undefined
-        ? node
-        : (node.querySelector<HTMLElement>(
-            `[data-sentence="${sentenceIndex}"]`,
-          ) ?? node);
-    const r = target.getBoundingClientRect(),
-      v = host.getBoundingClientRect();
-    const top =
-      host.scrollTop +
-      r.top -
-      v.top -
-      (options.center
-        ? Math.max(0, (v.height - r.height) / 2)
-        : v.height * 0.5 -
-          (sentenceIndex === undefined ? r.height * anchor.fraction : 0));
     if (
       translationMotion.current.moving &&
       translationMotion.current.blockId === anchor.blockId &&
       !options.center
     )
       return;
+    const target =
+      sentenceIndex === undefined
+        ? node
+        : (node.querySelector<HTMLElement>(
+            `[data-sentence="${sentenceIndex}"]`,
+          ) ?? node);
+    let geometry = followGeometry.current;
+    if (
+      geometry?.node !== target ||
+      geometry.host !== host ||
+      sentenceIndex !== undefined ||
+      options.center ||
+      options.smooth
+    ) {
+      const r = target.getBoundingClientRect(),
+        v = host.getBoundingClientRect();
+      geometry = {
+        node: target,
+        host,
+        top: host.scrollTop + r.top - v.top,
+        left: host.scrollLeft + r.left - v.left,
+        width: r.width,
+        height: r.height,
+        viewportHeight: v.height,
+        viewportWidth: host.clientWidth,
+        maxTop: Math.max(0, host.scrollHeight - host.clientHeight),
+      };
+      if (sentenceIndex === undefined) followGeometry.current = geometry;
+    }
+    const top = Math.max(
+      0,
+      Math.min(
+        geometry.maxTop,
+        geometry.top -
+          (options.center
+            ? Math.max(0, (geometry.viewportHeight - geometry.height) / 2)
+            : geometry.viewportHeight * 0.5 -
+              (sentenceIndex === undefined
+                ? geometry.height * anchor.fraction
+                : 0)),
+      ),
+    );
     cancelTranslationMotion();
     if (!options.smooth) {
-      host.scrollTop = top;
+      if (Math.abs(host.scrollTop - top) > 0.5) host.scrollTop = top;
       return;
     }
     const motion = translationMotion.current;
@@ -272,7 +400,7 @@ export function PDFReadingView({
     return animatePDFScroll(
       host,
       options.center
-        ? host.scrollLeft + r.left - v.left + r.width / 2 - host.clientWidth / 2
+        ? geometry.left + geometry.width / 2 - geometry.viewportWidth / 2
         : host.scrollLeft,
       top,
       () => operation !== motion.operation || pane.current !== host,
@@ -561,6 +689,7 @@ export function PDFReadingView({
   useEffect(() => {
     if (!engine || !active) return;
     hoverOwner.current = undefined;
+    hoverBlock.current = undefined;
     setHoveredBlock(undefined);
     engine.hoverBlock?.(null);
     const previous = previousMode.current;
@@ -618,7 +747,10 @@ export function PDFReadingView({
   }, []);
   const input = (active: typeof side.current) => {
     cancelTranslationMotion();
-    if (explicitFocus.current.moving || active === "translation")
+    if (
+      mode !== "translation" &&
+      (explicitFocus.current.moving || active === "translation")
+    )
       engine?.cancelBlockFocus?.();
     explicitFocus.current.operation++;
     explicitFocus.current.moving = false;
@@ -659,10 +791,7 @@ export function PDFReadingView({
         return;
       const v = pane.current.getBoundingClientRect(),
         y = v.top + v.height * 0.5;
-      const nodes = Array.from(
-        pane.current.querySelectorAll<HTMLElement>("[data-translation-block]"),
-      );
-      const node = nodes.find((n) => n.getBoundingClientRect().bottom > y);
+      const node = translationBlockAt(nodes.current, y);
       if (!node) return;
       const r = node.getBoundingClientRect(),
         anchor = {
@@ -731,6 +860,19 @@ export function PDFReadingView({
       </TooltipContent>
     </Tooltip>
   );
+  const blockInteractions = useRef<PDFBlockInteractions>(null!);
+  blockInteractions.current = {
+    pressed: pressedBlock,
+    selecting,
+    focus: focusTranslation,
+    hover: (id) => hover("translation", id),
+    preview: (block) => {
+      input("translation");
+      events.blockAction?.(block, "preview");
+    },
+    cite: (id, label) => void visitCitation(id, label),
+    translate: (id) => void translate(id),
+  };
   const toolbar = (
     <div className="translation-toolbar">
       {!autoCenterHost && autoCenterButton}
@@ -798,15 +940,18 @@ export function PDFReadingView({
               visible={active && mode !== "translation"}
               document={doc}
               theme={theme}
-              annotations={annotations.filter(
-                (a) => a.location.type !== "pdf" || !a.location.translation,
-              )}
+              annotations={sourceAnnotations}
               blocks={blocks}
               onReady={ready}
               events={{
                 ...events,
                 selection: sourceSelection,
                 blockFocus: (block) => {
+                  if (block.image && state.current.mode === "parallel") {
+                    input("source");
+                    events.blockAction?.(block, "preview");
+                    return;
+                  }
                   void focusBlock(block, "source");
                 },
                 location: (location, percentage) => {
@@ -922,107 +1067,33 @@ export function PDFReadingView({
                 lineHeight: theme.lineHeight,
               }}
             >
-              {error && <p role="alert">{error}</p>}
-              {!visibleBlocks.length && (
-                <p role="status">
-                  {doc.library === "books"
-                    ? "尚未翻译任何章节，可在工具栏翻译本章。"
-                    : "正文仍在解析中，完成的段落会在这里显示。"}
-                </p>
-              )}
-              {visibleBlocks.map((block) => {
-                const translated = byId.get(block.id),
-                  noteIndexes = annotations.flatMap((a) => {
-                    const mark =
-                      a.location.type === "pdf"
-                        ? a.location.translation
-                        : undefined;
-                    return mark
-                      ? (mark.ranges ?? [mark])
-                          .filter(
-                            (r) =>
-                              r.blockId === block.id &&
-                              r.sourceHash === translated?.sourceHash,
-                          )
-                          .flatMap((r) => r.sentenceIndexes)
-                      : [];
-                  });
-                return (
-                  <section
+              <div className="translation-content" ref={content}>
+                {error && <p role="alert">{error}</p>}
+                {!visibleBlocks.length && (
+                  <p role="status">
+                    {doc.library === "books"
+                      ? "尚未翻译任何章节，可在工具栏翻译本章。"
+                      : "正文仍在解析中，完成的段落会在这里显示。"}
+                  </p>
+                )}
+                {visibleBlocks.map((block) => (
+                  <PDFTranslationBlock
                     key={block.id}
-                    data-translation-block={block.id}
-                    data-block-kind={block.image ? "image" : "text"}
-                    data-label={block.label}
-                    data-hovered={hoveredBlock === block.id || undefined}
-                    data-focused={focusedBlock === block.id || undefined}
-                    data-search-hit={
-                      searchBlockIds.includes(block.id) || undefined
-                    }
-                    aria-current={focusedBlock === block.id || undefined}
-                    tabIndex={0}
-                    onClick={(event) => {
-                      const pressed = pressedBlock.current;
-                      pressedBlock.current = undefined;
-                      if (
-                        (event.target as Element).closest(
-                          "a, button, input, textarea, select, [role=button], [contenteditable=true]",
-                        ) ||
-                        window.getSelection()?.toString().trim() ||
-                        (event.detail > 0 &&
-                          (!pressed ||
-                            pressed.id !== block.id ||
-                            Math.hypot(
-                              event.clientX - pressed.x,
-                              event.clientY - pressed.y,
-                            ) > 5))
-                      )
-                        return;
-                      focusTranslation(block);
-                    }}
-                    onKeyDown={(event) => {
-                      if (
-                        event.target === event.currentTarget &&
-                        (event.key === "Enter" || event.key === " ")
-                      ) {
-                        event.preventDefault();
-                        focusTranslation(block);
-                      }
-                    }}
-                    onPointerEnter={(event) => {
-                      if (!event.buttons && !selecting.current)
-                        hover("translation", block.id);
-                    }}
-                    onPointerMove={(event) => {
-                      if (!event.buttons && !selecting.current)
-                        hover("translation", block.id);
-                    }}
-                    onPointerLeave={() => hover("translation")}
-                    className={
-                      noteIndexes.length ? "translation-annotated" : ""
-                    }
-                  >
-                    <TranslationText
-                      block={block}
-                      onCitation={(blockId, label) =>
-                        void visitCitation(blockId, label)
-                      }
-                      formulaNumber={equationNumbers.byFormula.get(block.id)}
-                      translation={translated}
-                      documentId={doc.id}
-                      renderImage={blockImages?.url}
-                      retry={() => void translate(block.id)}
-                      paused={processing?.enabled === false}
-                    />
-                    {noteIndexes.length > 0 && (
-                      <span
-                        className="translation-note-indicator"
-                        title="此段有已保存的标注"
-                        aria-label="此段有已保存的标注"
-                      />
-                    )}
-                  </section>
-                );
-              })}
+                    block={block}
+                    translation={byId.get(block.id)}
+                    documentId={doc.id}
+                    number={equationNumbers.byFormula.get(block.id)}
+                    annotated={annotatedBlocks.has(block.id)}
+                    hovered={hoveredBlock === block.id}
+                    focused={focusedBlock === block.id}
+                    searchHit={searchBlockIds.includes(block.id)}
+                    renderImage={blockImages?.url}
+                    releaseImage={blockImages?.release}
+                    paused={processing?.enabled === false}
+                    interactions={blockInteractions}
+                  />
+                ))}
+              </div>
             </div>
           )
         }
@@ -1052,6 +1123,8 @@ export function PDFReadingView({
                 translation={activePopup}
                 documentId={doc.id}
                 renderImage={blockImages?.url}
+                releaseImage={blockImages?.release}
+                onPreview={() => events.blockAction?.(popup.block, "preview")}
                 retry={() => void translate(popup.block.id)}
                 paused={processing?.enabled === false}
               />

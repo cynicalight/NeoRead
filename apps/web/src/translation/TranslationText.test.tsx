@@ -14,6 +14,13 @@ const base: PDFBlock = {
   bounds: { x: 0, y: 0, width: 1, height: 1 },
 };
 beforeEach(async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("matchMedia", () => ({
     matches: false,
@@ -228,7 +235,7 @@ it("replaces a loaded layout crop with a display-sized render", async () => {
   await act(async () => {
     image.dispatchEvent(new Event("load"));
   });
-  expect(renderImage).toHaveBeenCalledWith("p1-b1", 600);
+  expect(renderImage).toHaveBeenCalledWith("p1-b1", 600, expect.any(String));
   expect(image.getAttribute("src")).toBe("blob:sharp");
   // Keeps the crop's layout width so small figures are not enlarged.
   expect(image.getAttribute("width")).toBe("480");
@@ -262,4 +269,72 @@ it("replaces an old sharp image after a full layout reparse", async () => {
   expect(image.getAttribute("src")).toContain(
     "?v=assets%2F0123456789abcdef0123456789abcdef_p1-b1.png",
   );
+});
+
+it("keeps a sharp crop during short scroll reversals and releases it after sustained distance", async () => {
+  vi.useFakeTimers();
+  let notify!: IntersectionObserverCallback;
+  let observedRoot: Element | Document | null | undefined;
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(
+        callback: IntersectionObserverCallback,
+        options?: IntersectionObserverInit,
+      ) {
+        notify = callback;
+        observedRoot = options?.root;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  host.classList.add("translation-document");
+  const renderImage = vi.fn(async () => "blob:nearby");
+  const releaseImage = vi.fn();
+  try {
+    await act(async () =>
+      root.render(
+        <TranslationText
+          block={base}
+          documentId="doc"
+          retry={() => {}}
+          renderImage={renderImage}
+          releaseImage={releaseImage}
+        />,
+      ),
+    );
+    const img = host.querySelector("img")!;
+    Object.defineProperties(img, {
+      naturalWidth: { value: 480 },
+      clientWidth: { value: 300 },
+      complete: { value: true },
+    });
+    const visibility = (visible: boolean) =>
+      notify(
+        [{ isIntersecting: visible } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    expect(observedRoot).toBe(host);
+    await act(async () => visibility(true));
+    expect(renderImage).toHaveBeenCalledOnce();
+    expect(img.getAttribute("src")).toBe("blob:nearby");
+    await act(async () => {
+      visibility(false);
+      await vi.advanceTimersByTimeAsync(400);
+      visibility(true);
+    });
+    expect(renderImage).toHaveBeenCalledOnce();
+    expect(releaseImage).not.toHaveBeenCalled();
+    expect(img.getAttribute("src")).toBe("blob:nearby");
+    await act(async () => {
+      visibility(false);
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(releaseImage).toHaveBeenCalledWith(base.id, expect.any(String));
+    expect(img.getAttribute("src")).not.toBe("blob:nearby");
+  } finally {
+    await act(async () => root.render(null));
+    vi.useRealTimers();
+  }
 });
