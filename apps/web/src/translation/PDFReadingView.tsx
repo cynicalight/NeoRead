@@ -662,7 +662,8 @@ export function PDFReadingView({
       const nodes = Array.from(
         pane.current.querySelectorAll<HTMLElement>("[data-translation-block]"),
       );
-      const node = nodes.find((n) => n.getBoundingClientRect().bottom > y);
+      const node =
+        nodes.find((n) => n.getBoundingClientRect().bottom > y) ?? nodes.at(-1);
       if (!node) return;
       const r = node.getBoundingClientRect(),
         anchor = {
@@ -671,7 +672,9 @@ export function PDFReadingView({
         };
       recordReading(anchor);
       const block = blocks.find((b) => b.id === anchor.blockId);
-      if (block)
+      if (block) {
+        const pageCount =
+          engine?.getPageCount?.() || Math.max(1, ...blocks.map((b) => b.page));
         events.location(
           {
             type: "pdf",
@@ -679,10 +682,22 @@ export function PDFReadingView({
             x: block.bounds.x,
             y: block.bounds.y + anchor.fraction * block.bounds.height,
           },
-          block.page /
-            (engine?.getPageCount?.() ||
-              Math.max(1, ...blocks.map((b) => b.page))),
+          block.page / pageCount,
+          node === nodes.at(-1) && block.page === pageCount && y >= r.bottom
+            ? pageCount
+            : block.page -
+                1 +
+                Math.min(
+                  1,
+                  block.bounds.y +
+                    Math.max(
+                      0,
+                      Math.min(1, (v.bottom - r.top) / (r.height || 1)),
+                    ) *
+                      block.bounds.height,
+                ),
         );
+      }
       if (mode === "parallel" && syncEnabledRef.current) {
         control.current.following("source");
         void engine?.followBlock?.(anchor);
@@ -808,12 +823,12 @@ export function PDFReadingView({
                 blockFocus: (block) => {
                   void focusBlock(block, "source");
                 },
-                location: (location, percentage) => {
+                location: (location, percentage, bodyReadPosition) => {
                   if (
                     state.current.mode !== "translation" &&
                     side.current === "source"
                   )
-                    events.location(location, percentage);
+                    events.location(location, percentage, bodyReadPosition);
                 },
                 readingAnchor: (anchor) => {
                   if (

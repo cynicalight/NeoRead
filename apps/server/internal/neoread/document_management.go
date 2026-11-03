@@ -121,6 +121,8 @@ func (s *Server) purgeDocument(ctx context.Context, id string) (int, string) {
 		}
 	}
 	s.codexChat.deleteDocument(id)
+	s.libraryArchiveMu.RLock()
+	defer s.libraryArchiveMu.RUnlock()
 	s.documentCodex.deleteDocument(id)
 	attachments, err := s.Store.paperAttachments(id)
 	if err != nil {

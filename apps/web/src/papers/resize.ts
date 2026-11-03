@@ -6,6 +6,29 @@ export const resizeStep = 16;
 export const detailWidthRange = { min: 280, max: 720 };
 type ColumnWidths = Partial<Record<"title" | PaperColumn, number>>;
 
+/** Fit saved widths to this pane without changing preferences or hiding columns. */
+export function fitColumnWidths(
+  widths: ColumnWidths,
+  columns: readonly ("title" | PaperColumn)[],
+  minimums: ColumnWidths,
+  availableWidth: number,
+): ColumnWidths {
+  if (availableWidth <= 0) return widths;
+  const measured = Object.fromEntries(
+    columns.map((column) => [
+      column,
+      Math.max(widths[column] ?? 160, minimums[column] ?? 0),
+    ]),
+  );
+  const overflow =
+    columns.reduce((sum, column) => sum + measured[column], 0) - availableWidth;
+  if (overflow <= 0) return widths;
+  return {
+    ...widths,
+    ...resizeBoundary(measured, columns, [], -overflow, minimums).widths,
+  };
+}
+
 /** Measure the unwrapped header, including controls and cell padding. */
 export function columnMinimums(root: Element): ColumnWidths {
   return Object.fromEntries(

@@ -176,3 +176,35 @@ func TestRetranslationResumesPublishedLayoutWithoutParsingAgain(t *testing.T) {
 		t.Fatal("resume repeated layout inference", string(data))
 	}
 }
+
+func TestRetranslationReadyRetriesBodyEndPublication(t *testing.T) {
+	s, _, m := completedTranslationFixture(t)
+	prepareReparseDocument(t, s)
+	calls := reparseFixture(t, m)
+	if _, err := s.Store.DB.Exec(`UPDATE documents SET body_end='{"page":1,"y":0.1}' WHERE id='doc'`); err != nil {
+		t.Fatal(err)
+	}
+	p := assistanceRequest(t, s, "retranslate")
+	if _, err := s.Store.DB.Exec(`CREATE TRIGGER reject_body_end BEFORE UPDATE OF body_end ON documents BEGIN SELECT RAISE(FAIL,'disk failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.refreshRetranslationLayout(t.Context(), &p); err == nil {
+		t.Fatal("body end failure was lost")
+	}
+	options, err := s.retranslationOptions(&p)
+	if err != nil || !options.LayoutReady {
+		t.Fatal("missing ready checkpoint", options, err)
+	}
+	_, _ = s.Store.DB.Exec("DROP TRIGGER reject_body_end")
+	if err := s.refreshRetranslationLayout(t.Context(), &p); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := s.Store.Document("doc")
+	if want := layoutBodyEnd(m); err != nil || doc.BodyEnd == nil || *doc.BodyEnd != *want {
+		t.Fatal("stale body end after ready recovery", doc.BodyEnd, want, err)
+	}
+	data, _ := os.ReadFile(calls)
+	if strings.Count(string(data), "parse\n") != 1 {
+		t.Fatal("ready recovery repeated inference", string(data))
+	}
+}

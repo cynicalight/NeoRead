@@ -21,6 +21,8 @@ import createClient from "openapi-fetch";
 import type { components, paths } from "./schema";
 import type {
   ChatRun,
+  ChatMessageChange,
+  ChatMessageChangeResult,
   DocumentChatSession,
   Document,
   DocumentOverview,
@@ -744,6 +746,20 @@ export const api = {
     request<Message[]>(
       `/api/documents/${id}/chat-sessions/${sessionId}/messages`,
       { signal },
+    ),
+  changeSessionMessage: (
+    id: string,
+    sessionId: string,
+    messageId: string,
+    change: ChatMessageChange,
+  ) =>
+    request<ChatMessageChangeResult>(
+      `/api/documents/${id}/chat-sessions/${sessionId}/messages/${messageId}`,
+      {
+        method: change.content === undefined ? "DELETE" : "PATCH",
+        body: JSON.stringify(change),
+        signal: AbortSignal.timeout(30_000),
+      },
     ),
   startChatRun: (
     id: string,

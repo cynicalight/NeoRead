@@ -49,11 +49,20 @@ func (s *Store) migrateOrganization() error {
 		{"metadata", "TEXT NOT NULL DEFAULT '{}'"},
 		{"reading_status", "TEXT NOT NULL DEFAULT 'unread' CHECK(reading_status IN ('unread','reading','done'))"},
 		{"folders", "TEXT NOT NULL DEFAULT '[]'"},
+		{"body_end", "TEXT"},
+		{"body_read_position", "REAL NOT NULL DEFAULT 0"},
 	} {
 		if !columns[column.name] {
 			if _, err = tx.Exec("ALTER TABLE documents ADD COLUMN " + column.name + " " + column.definition); err != nil {
 				return err
 			}
+		}
+	}
+	if !columns["body_read_position"] {
+		if _, err = tx.Exec(`UPDATE documents SET body_read_position=MAX(0,
+ COALESCE(json_extract(progress,'$.page'),1)-1 + MIN(1,MAX(0,COALESCE(json_extract(progress,'$.y'),0))))
+ WHERE type='pdf' AND percentage>0 AND json_valid(progress) AND json_extract(progress,'$.type')='pdf'`); err != nil {
+			return err
 		}
 	}
 	if !columns["category"] {

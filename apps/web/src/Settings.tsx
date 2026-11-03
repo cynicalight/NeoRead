@@ -23,6 +23,7 @@ import { LegacyAnnotationMigration } from "./LegacyAnnotationMigration";
 import { DiagnosticExport } from "./DiagnosticExport";
 import { PaperRefreshSettings } from "./PaperRefreshSettings";
 import { LibraryLocationSettings } from "./LibraryLocationSettings";
+import { LibraryArchiveSettings } from "./LibraryArchiveSettings";
 import { CommandLineSettings } from "./CommandLineSettings";
 import { ProviderIcon, providerLabel } from "./ProviderIdentity";
 import { TaskModels } from "./TaskModels";
@@ -1030,6 +1031,7 @@ export function Settings({
             {window.neoreadDesktop?.libraryLocation && (
               <LibraryLocationSettings open={open} />
             )}
+            <LibraryArchiveSettings />
             {currentLibrary === "papers" && (
               <>
                 <CitePluginSettings open={open} />

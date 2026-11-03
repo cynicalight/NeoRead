@@ -1,4 +1,5 @@
 import { PaperColumns, usePaperColumns } from "./PaperColumns";
+import { bodyReadingProgress } from "./body-progress";
 import { setPaperDragImage } from "./paper-drag-image";
 import type { TableColumn } from "./columns";
 import { PaperTagFilterButton } from "./PaperTagFilter";
@@ -150,6 +151,7 @@ import {
   dragHorizontally,
   resizeBoundary,
   columnMinimums,
+  fitColumnWidths,
   resizeStep,
 } from "./resize";
 
@@ -189,7 +191,7 @@ export function PaperLibrary({
   onToggleNav,
 }: PaperLibraryProps) {
   const prefs = useReaderStore((s) => s.libraryPreferences.papers) || {};
-  const sort: PaperSort = prefs.sort || "opened";
+  const sort: PaperSort = prefs.sort || "added";
   const reverse = !!prefs.sortReverse;
   const columnControls = usePaperColumns(prefs);
   const ui = usePaperUI();
@@ -277,7 +279,7 @@ export function PaperLibrary({
     void savePaperPreferences((p) => ({
       ...p,
       sort: next,
-      sortReverse: (p.sort || "opened") === next ? !p.sortReverse : false,
+      sortReverse: (p.sort || "added") === next ? !p.sortReverse : false,
     }));
   const groups = useMemo(() => {
     if (view !== "duplicates") return [];
@@ -403,11 +405,13 @@ export function PaperLibrary({
   const [minimumWidths, setMinimumWidths] = useState<
     Partial<Record<TableColumn, number>>
   >({});
+  const [tableViewportWidth, setTableViewportWidth] = useState(0);
   const visibleColumnKey = columnControls.visible.join(",");
   useLayoutEffect(() => {
     const root = listRef.current;
     if (loading || !table || !root) return;
     const measure = () => {
+      setTableViewportWidth(root.clientWidth);
       const measured = columnMinimums(root);
       setMinimumWidths((previous) =>
         JSON.stringify(previous) === JSON.stringify(measured)
@@ -417,12 +421,13 @@ export function PaperLibrary({
     };
     measure();
     const observer = new ResizeObserver(measure);
+    observer.observe(root);
     root
       .querySelectorAll(".paper-column-heading")
       .forEach((heading) => observer.observe(heading));
     return () => observer.disconnect();
   }, [loading, table, visibleColumnKey]);
-  const columnWidths = {
+  let columnWidths: Partial<Record<TableColumn, number>> = {
     ...defaultColumnWidths,
     ...prefs.columnWidths,
     ...draftWidths,
@@ -432,6 +437,12 @@ export function PaperLibrary({
     if (width !== undefined)
       columnWidths[column] = Math.max(width, minimumWidths[column] ?? 0);
   }
+  columnWidths = fitColumnWidths(
+    columnWidths,
+    columnControls.visible,
+    minimumWidths,
+    tableViewportWidth - 32 - (picking ? 32 : 0),
+  );
   const tableWidth = columnControls.visible.reduce(
     (sum, c) => sum + (columnWidths[c] ?? Math.max(160, minimumWidths[c] ?? 0)),
     32 + (picking ? 32 : 0),
@@ -1636,6 +1647,10 @@ function PaperRow({
         );
       case "progress":
         return `${percent}%`;
+      case "bodyProgress": {
+        const progress = bodyReadingProgress(doc);
+        return progress === undefined ? "—" : `${Math.round(progress * 100)}%`;
+      }
       case "size":
         return fileSize(doc.size);
       case "doi":

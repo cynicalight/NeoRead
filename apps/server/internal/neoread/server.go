@@ -30,6 +30,7 @@ import (
 )
 
 type Server struct {
+	libraryArchiveMu       sync.RWMutex
 	startupSettings        json.RawMessage
 	processingReady        <-chan struct{}
 	chatReservations       map[string]bool
@@ -128,6 +129,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/diagnostics/paper-refresh", s.paperRefreshStatus)
 	mux.HandleFunc("POST /api/diagnostics/paper-refresh", s.startPaperRefresh)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("POST /api/library/archive/export", s.exportLibraryHTTP)
+	mux.HandleFunc("POST /api/library/archive/import", s.importLibraryHTTP)
 	mux.HandleFunc("GET /api/documents", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Store.Documents()
 		if e != nil {
@@ -224,6 +227,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions", s.createChatSession)
 	mux.HandleFunc("PATCH /api/documents/{id}/chat-sessions/{session}", s.updateChatSession)
 	mux.HandleFunc("GET /api/documents/{id}/chat-sessions/{session}/messages", s.sessionMessages)
+	mux.HandleFunc("PATCH /api/documents/{id}/chat-sessions/{session}/messages/{message}", s.changeSessionMessage)
+	mux.HandleFunc("DELETE /api/documents/{id}/chat-sessions/{session}/messages/{message}", s.changeSessionMessage)
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/chat", s.chat)
 	mux.HandleFunc("GET /api/documents/{id}/chat-sessions/{session}/runs/{run}/events", s.sessionRunEvents)
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/runs/{run}/cancel", s.cancelSessionRun)
@@ -631,22 +636,23 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var v struct {
-		Title      json.RawMessage            `json:"title"`
-		Author     json.RawMessage            `json:"author"`
-		Category   json.RawMessage            `json:"category"`
-		Tags       json.RawMessage            `json:"tags"`
-		Folders    json.RawMessage            `json:"folders"`
-		Favorite   *bool                      `json:"favorite"`
-		Progress   json.RawMessage            `json:"progress"`
-		Percentage *float64                   `json:"percentage"`
-		Library    *string                    `json:"library"`
-		Metadata   map[string]json.RawMessage `json:"metadata"`
-		Status     *string                    `json:"readingStatus"`
+		Title            json.RawMessage            `json:"title"`
+		Author           json.RawMessage            `json:"author"`
+		Category         json.RawMessage            `json:"category"`
+		Tags             json.RawMessage            `json:"tags"`
+		Folders          json.RawMessage            `json:"folders"`
+		Favorite         *bool                      `json:"favorite"`
+		Progress         json.RawMessage            `json:"progress"`
+		Percentage       *float64                   `json:"percentage"`
+		BodyReadPosition *float64                   `json:"bodyReadPosition"`
+		Library          *string                    `json:"library"`
+		Metadata         map[string]json.RawMessage `json:"metadata"`
+		Status           *string                    `json:"readingStatus"`
 	}
 	if !decode(w, r, &v) {
 		return
 	}
-	var title, author, category, tags, folders, library, metadata, status any
+	var title, author, category, tags, folders, library, metadata, status, bodyEnd any
 	if v.Title != nil {
 		title, err = metadataText(v.Title, 300, false)
 		if err != nil {
@@ -728,6 +734,11 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 				fail(w, 400, reason)
 				return
 			}
+			if layout, layoutErr := s.readLayout(d.ID); layoutErr == nil {
+				if end := layoutBodyEnd(layout); end != nil {
+					bodyEnd = jsonText(end)
+				}
+			}
 			// Moving into the paper library is an explicit classification.
 			if category == nil {
 				category = "paper"
@@ -764,13 +775,25 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		openedAt = now()
 	}
 	var progress any
+	bodyReadPosition := pdfReadPosition(d.Progress)
+	if v.BodyReadPosition != nil {
+		if *v.BodyReadPosition < 0 || d.Type != "pdf" {
+			fail(w, 400, "正文阅读位置无效")
+			return
+		}
+		bodyReadPosition = max(bodyReadPosition, *v.BodyReadPosition)
+	}
 	if v.Progress != nil {
 		progress = string(v.Progress)
+		bodyReadPosition = max(bodyReadPosition, pdfReadPosition(v.Progress))
 	}
-	_, err = s.Store.DB.Exec("UPDATE documents SET title=COALESCE(?,title),author=COALESCE(?,author),favorite=COALESCE(?,favorite),progress=COALESCE(?,progress),percentage=COALESCE(?,percentage),last_opened_at=COALESCE(?,last_opened_at),category=COALESCE(?,category),tags=COALESCE(?,tags),folders=COALESCE(?,folders),library=COALESCE(?,library),metadata=COALESCE(?,metadata),reading_status=COALESCE(?,reading_status),category_source=CASE WHEN ? IS NOT NULL THEN 'manual' ELSE category_source END,classification_status=CASE WHEN ? IS NOT NULL THEN 'done' ELSE classification_status END,classification_error=CASE WHEN ? IS NOT NULL THEN '' ELSE classification_error END WHERE id=?", title, author, v.Favorite, progress, v.Percentage, openedAt, category, tags, folders, library, metadata, status, category, category, category, d.ID)
+	_, err = s.Store.DB.Exec("UPDATE documents SET title=COALESCE(?,title),author=COALESCE(?,author),favorite=COALESCE(?,favorite),progress=COALESCE(?,progress),percentage=COALESCE(?,percentage),body_read_position=MAX(body_read_position,?),body_end=COALESCE(?,body_end),last_opened_at=COALESCE(?,last_opened_at),category=COALESCE(?,category),tags=COALESCE(?,tags),folders=COALESCE(?,folders),library=COALESCE(?,library),metadata=COALESCE(?,metadata),reading_status=COALESCE(?,reading_status),category_source=CASE WHEN ? IS NOT NULL THEN 'manual' ELSE category_source END,classification_status=CASE WHEN ? IS NOT NULL THEN 'done' ELSE classification_status END,classification_error=CASE WHEN ? IS NOT NULL THEN '' ELSE classification_error END WHERE id=?", title, author, v.Favorite, progress, v.Percentage, bodyReadPosition, bodyEnd, openedAt, category, tags, folders, library, metadata, status, category, category, category, d.ID)
 	if err != nil {
 		fail(w, 500, "保存失败")
 		return
+	}
+	if bodyEnd != nil {
+		s.connectorRevision.Add(1)
 	}
 	d, err = s.Store.Document(d.ID)
 	if err != nil {

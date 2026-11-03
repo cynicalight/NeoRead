@@ -18,6 +18,7 @@ import {
   type PendingAnswer,
 } from "./chat-session";
 import { AnswerActions } from "./AnswerActions";
+import { QuestionActions } from "./QuestionActions";
 import { Thinking } from "./Thinking";
 const MessageMarkdown = lazy(() =>
   import("./MessageMarkdown").then((module) => ({
@@ -70,6 +71,7 @@ export function AssistantPanel({
   extras,
   references,
   onRegenerate,
+  onWithdraw,
   regenerateDisabled = false,
   renderAnswer = (_message, content) => content,
 }: {
@@ -78,6 +80,7 @@ export function AssistantPanel({
   extras: (message: Message) => ReactNode;
   references: (message: Message) => ReactNode;
   onRegenerate: () => void;
+  onWithdraw?: (message: Message) => void;
   regenerateDisabled?: boolean;
   renderAnswer?: (message: Message, content: ReactNode) => ReactNode;
 }) {
@@ -187,6 +190,25 @@ export function AssistantPanel({
                 {assistant && !!content && (
                   <AnswerActions content={content} timestamp={timestamp} />
                 )}
+                {!assistant &&
+                  message &&
+                  onWithdraw &&
+                  state.messages.some((item) => item.id === message.id) && (
+                    <QuestionActions
+                      message={message}
+                      following={
+                        state.messages.length -
+                        state.messages.findIndex(
+                          (item) => item.id === message.id,
+                        ) -
+                        1
+                      }
+                      session={session}
+                      disabled={state.busy || regenerateDisabled}
+                      onRegenerate={onRegenerate}
+                      onWithdraw={onWithdraw}
+                    />
+                  )}
                 {message && extras(message)}
               </div>
             );

@@ -559,6 +559,36 @@ function translationGeometry(height = 200) {
     new DOMRect(40, 600 - pane.scrollTop, 520, height);
   return { pane, block };
 }
+it.each(["仅译文", "原文译文"])(
+  "reports body completion at the end of %s without changing its restore position",
+  async (mode) => {
+    await renderView(defaultTheme, [
+      {
+        id: "last",
+        page: 2,
+        label: "text",
+        text: "last",
+        bounds: { x: 0.1, y: 0.8, width: 0.8, height: 0.1 },
+      },
+    ]);
+    await click(mode);
+    const { pane, block } = translationGeometry();
+    block.getBoundingClientRect = () => new DOMRect(0, -500, 600, 200);
+    pane.querySelector<HTMLElement>(
+      '[data-translation-block="last"]',
+    )!.getBoundingClientRect = () => new DOMRect(0, 100, 600, 200);
+    await act(async () => {
+      pane.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 1 }));
+      pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await new Promise(requestAnimationFrame);
+    });
+    expect(events.location).toHaveBeenLastCalledWith(
+      { type: "pdf", page: 2, x: 0.1, y: 0.9 },
+      1,
+      2,
+    );
+  },
+);
 it.each([false, true])(
   "lets either scrollbar lead without wheel input or follower feedback (swapped: %s)",
   async (swapped) => {

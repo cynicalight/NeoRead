@@ -45,7 +45,45 @@ func main() {
 	shutdownOnStdin := flag.Bool("shutdown-on-stdin", false, "shut down when the desktop closes stdin")
 	checkLibrary := flag.Bool("check-library", false, "validate an existing library and exit")
 	desktopRuntime := flag.Bool("desktop-runtime", false, "receive desktop environment after local service readiness")
+	exportArchive := flag.String("export-library", "", "export a stopped library to ZIP")
+	importArchive := flag.String("import-library-archive", "", "import a NeoRead library ZIP")
+	archiveDestination := flag.String("archive-destination", "", "new directory for imported library")
+	archiveLibrary := flag.String("archive-library", "", "export books or papers; empty exports both")
+	archiveFolder := flag.String("archive-folder", "", "export a paper category and its descendants")
+	archiveSmart := flag.String("archive-smart", "", "export a saved smart category")
+	archiveMerge := flag.Bool("archive-merge", false, "merge imported documents with the stopped source library")
 	flag.Parse()
+	if *exportArchive != "" || *importArchive != "" {
+		if *exportArchive != "" && *importArchive != "" {
+			fmt.Fprintln(os.Stderr, "请选择导出或导入操作")
+			os.Exit(2)
+		}
+		if *logs != "" {
+			recorder, e := diagnostics.New(*logs, *session)
+			if e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				os.Exit(1)
+			}
+			slog.SetDefault(recorder.Logger())
+		}
+		var err error
+		if *exportArchive != "" {
+			err = neoread.ExportLibraryArchive(*data, *exportArchive, neoread.LibraryArchiveOptions{Library: *archiveLibrary, Folder: *archiveFolder, SmartCategory: *archiveSmart})
+		} else if *archiveDestination == "" {
+			err = fmt.Errorf("请选择导入书库保存位置")
+		} else {
+			mergeSource := ""
+			if *archiveMerge {
+				mergeSource = *data
+			}
+			err = neoread.ImportLibraryArchive(*importArchive, *archiveDestination, mergeSource)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *retryLegacyCleanup && (*legacyCleanup != "delete" || *legacySource != "") {
 		fmt.Fprintln(os.Stderr, "--retry-reader-cleanup requires --cleanup-reader-data delete")
 		os.Exit(2)

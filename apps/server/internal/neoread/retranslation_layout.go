@@ -33,6 +33,15 @@ func (s *Server) refreshRetranslationLayout(ctx context.Context, p *Processing) 
 		return err
 	}
 	if options.LayoutReady {
+		// A previous run can have committed readiness before publishing body_end.
+		// Retry that publication as well, including papers with an older boundary.
+		layout, err := s.readLayout(p.DocumentID)
+		if err != nil {
+			return err
+		}
+		if err := s.publishBodyEnd(p.DocumentID, layout); err != nil {
+			return err
+		}
 		p.LayoutRevision = options.LayoutRun
 		return nil
 	}
@@ -84,7 +93,10 @@ func (s *Server) refreshRetranslationLayout(ctx context.Context, p *Processing) 
 		if err = ctx.Err(); err != nil {
 			return err
 		}
-		if err = publishRetranslatedLayout(work, dir, options.LayoutRun, m); err != nil {
+		s.libraryArchiveMu.RLock()
+		err = publishRetranslatedLayout(work, dir, options.LayoutRun, m)
+		s.libraryArchiveMu.RUnlock()
+		if err != nil {
 			return err
 		}
 		m, err = s.readLayout(p.DocumentID)
@@ -126,7 +138,7 @@ ON CONFLICT(document_id) DO UPDATE SET status='queued'`, p.DocumentID); err != n
 		return err
 	}
 	p.LayoutRevision = options.LayoutRun
-	return nil
+	return s.publishBodyEnd(p.DocumentID, m)
 }
 
 func publishRetranslatedLayout(work, dir, run string, m layoutManifest) error {

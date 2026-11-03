@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "@neoread/ui/components/button";
 import { copyText } from "./clipboard";
@@ -14,9 +14,11 @@ export const COPIED_HOLD_MS = 3000;
 export function AnswerActions({
   content,
   timestamp,
+  children,
 }: {
   content: string;
   timestamp?: Date;
+  children?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Counts copies so a repeated click restarts the hold and replays the check animation.
@@ -40,7 +42,7 @@ export function AnswerActions({
   return (
     <div
       ref={ref}
-      className="chat-message-actions"
+      className={`chat-message-actions${children ? " chat-question-actions" : ""}`}
       data-copied={copied ? "" : undefined}
       data-dismissed={dismissed ? "" : undefined}
     >
@@ -48,8 +50,8 @@ export function AnswerActions({
         size="icon-xs"
         variant="ghost"
         className="chat-copy-button"
-        aria-label={copied ? "已复制" : "复制回答"}
-        title={copied ? "已复制" : "复制回答"}
+        aria-label={copied ? "已复制" : children ? "复制问题" : "复制回答"}
+        title={copied ? "已复制" : children ? "复制问题" : "复制回答"}
         onClick={async () => {
           if (!(await copyText(content))) return;
           setDismissed(false);
@@ -66,6 +68,7 @@ export function AnswerActions({
           <Copy aria-hidden="true" />
         )}
       </Button>
+      {children}
       {timestamp && !Number.isNaN(timestamp.getTime()) && (
         <time
           dateTime={timestamp.toISOString()}
