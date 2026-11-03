@@ -580,7 +580,14 @@ export interface Provider {
   authenticated: boolean;
   status: string;
 }
-export interface SourceReference {
+/** User-selected conversation text, separate from document evidence. */
+export interface ChatQuote {
+  kind: "chat";
+  text: string;
+  location?: never;
+}
+export type SourceReference = DocumentSourceReference | ChatQuote;
+export interface DocumentSourceReference {
   /** Rendered page evidence, separate from extracted text. */
   pageImage?: {
     page: number;
@@ -645,6 +652,17 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+}
+
+export interface ChatMessageChange {
+  expectedLastMessageId: string;
+  expectedContent: string;
+  /** Omit to withdraw; supplying content edits the question. */
+  content?: string;
+}
+export interface ChatMessageChangeResult {
+  message: Message;
+  messages: Message[];
 }
 
 export interface ProcessingStage {

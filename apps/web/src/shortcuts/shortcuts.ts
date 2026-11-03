@@ -139,6 +139,7 @@ export function useShortcut(
         event.defaultPrevented ||
         event.isComposing ||
         event.repeat ||
+        !matches(event, id) ||
         (event.target instanceof Element &&
           event.target.closest("[data-neoread-floating-preview]")) ||
         document.querySelector(
@@ -146,7 +147,6 @@ export function useShortcut(
         )
       )
         return;
-      if (!matches(event, id)) return;
       event.preventDefault();
       action();
     };

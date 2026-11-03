@@ -1,10 +1,10 @@
 import {
   locationLabel,
   type ReaderAdapter,
-  type ReaderSelection,
   type SourceReference,
 } from "@neoread/core";
 import { contextReferences } from "../references";
+import type { ComposerQuote } from "./composer-draft";
 
 // Mirrors the server request limit. Explicit quotations are never shortened.
 export const chatContextBytes = 256000;
@@ -13,7 +13,7 @@ export const chatContextBytes = 256000;
 export async function readingContext(
   adapter: Pick<ReaderAdapter, "getLocation" | "getContext"> | undefined,
   provider: string,
-  selected: ReaderSelection[],
+  selected: ComposerQuote[],
   useSection: boolean,
   hasImages: boolean,
 ) {
@@ -39,13 +39,15 @@ export async function readingContext(
     : undefined;
   const quotes = structuredClone(useSection ? [] : selected);
   let context = quotes
-    .map((quote) => `[选区 · ${locationLabel(quote.location)}]\n${quote.text}`)
+    .map((quote) =>
+      quote.location
+        ? `[选区 · ${locationLabel(quote.location)}]\n${quote.text}`
+        : `[引用对话 · 不作为原文证据]\n${quote.text}`,
+    )
     .join("\n\n");
-  let references: SourceReference[] = quotes.map(({ text, location }) => ({
-    text,
-    location,
-    kind: "selection",
-  }));
+  let references: SourceReference[] = quotes.map(({ text, location }) =>
+    location ? { text, location, kind: "selection" } : { text, kind: "chat" },
+  );
   // Only an explicit page/chapter action needs renderer text for providers
   // without document tools. Merely attaching an image never reads the page.
   const documentAgent =

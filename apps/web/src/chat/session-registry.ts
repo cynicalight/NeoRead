@@ -21,6 +21,8 @@ export function getChatSession(
   const io: ChatTransport = {
     messages: (_id, signal) =>
       api.sessionMessages(documentId, sessionId, signal),
+    changeMessage: (messageId, change) =>
+      api.changeSessionMessage(documentId, sessionId, messageId, change),
     latestRun,
     resume: async (active, signal, emit) => {
       run = active;

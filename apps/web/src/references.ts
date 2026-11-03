@@ -6,6 +6,7 @@ import type {
 } from "@neoread/core";
 
 export interface ReferenceCard {
+  kind?: "chat";
   sourceId?: string;
   id: string;
   text: string;
@@ -38,15 +39,22 @@ export function referenceCards(
 ): ReferenceCard[] {
   const refs = message.references || [];
   if (refs.length)
-    return refs.map((ref, index) => ({
-      ...card(
-        ref.text,
-        index,
-        `${ref.sourceId ? `[${ref.sourceId}] · ` : ""}${referenceLabel(ref.location, toc)}${ref.kind === "section" ? "" : " · 重点句"}`,
-        ref.location,
-      ),
-      sourceId: ref.sourceId,
-    }));
+    return refs.map((ref, index) =>
+      ref.kind === "chat"
+        ? {
+            ...card(ref.text, index, "引用对话"),
+            kind: "chat" as const,
+          }
+        : {
+            ...card(
+              ref.text,
+              index,
+              `${ref.sourceId ? `[${ref.sourceId}] · ` : ""}${referenceLabel(ref.location, toc)}${ref.kind === "section" ? "" : " · 重点句"}`,
+              ref.location,
+            ),
+            sourceId: ref.sourceId,
+          },
+    );
   // Older conversations stored only the raw context. Keep excerpts searchable;
   // never assign today's reading position to historical text.
   const parts: string[] = [];

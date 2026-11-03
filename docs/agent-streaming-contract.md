@@ -48,7 +48,7 @@ Codex 文档会话保留持久 thread，并在同一 turn 内读取和回答。A
 
 | 项目             | 本轮固定约定                                                                                                                                                                                    |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 接口与认证       | `POST /api/documents/{documentId}/chat`；NeoRead 会话 Bearer token；JSON 请求。不是 Agent API Key。                                                                                              |
+| 接口与认证       | `POST /api/documents/{documentId}/chat`；NeoRead 会话 Bearer token；JSON 请求。不是 Agent API Key。                                                                                             |
 | 必填请求字段     | `provider: "codex" \| "claude" \| "kimi" \| "api"`、`prompt: string`、`context: string`；context 可为空。                                                                                       |
 | 可选请求字段     | `references: SourceReference[]`、`attachments: string[]`，省略等价于空数组；附件是当前文档块 ID。不新增 connectionId 或客户端模型/认证字段。                                                    |
 | 事件与 JSON data | `status {status:"reading"\|"reading-image"}`、`delta {text:string}`、`fallback {message:string}`、`error {error:string}`、`done {ok:true}`。仍使用独立 SSE event 行，不另包 type/payload 外壳。 |
@@ -93,6 +93,8 @@ type ChatRequest = {
 `claude` 对应 Claude Code，`kimi` 对应 Kimi Code，`api` 对应设置中填写的 OpenAI 兼容 API（地址与 Key）。`references` 用于保存来源引用；EPUB 使用自身的 `href`、`locator` 等位置字段，PDF 使用页码，类型见 [neoread-core](../packages/neoread-core/src/index.ts)。
 
 普通提问默认传空 `context` 和 `references`，并记录发送时的原生 `readingLocation`。手动引用、解释选区或提问批注时，只发送用户主动选择的原文和位置，不附带所在整章、邻近段落或全篇批注。图片附件不自动附加当前页文字。Codex/API 文档 Agent 根据概要、位置和问题调用工具；未具备文档工具的 CLI，仅在用户主动点击“总结当前页面／章节”等操作时通过阅读器取得该范围文字。无工具 API 的预检索仍复用后端原文索引。
+
+聊天选文使用 `references` 中的 `{kind:"chat",text:string}`，与原文、译文引用一起显示在输入框上方；不改写问题正文。其文字在 `context` 中标注为聊天摘录，不带文档 `location` 或证据编号，不作为原文来源跳转。沿用现有引用保存、重新生成和撤回流程，原文引用继续要求有效的原生位置。
 
 持久文档 Agent 直接使用结构化会话、当前问题和明确引用，不再提前组装旧式完整历史提示词。只有普通无工具／图片适配路径按需组装兼容提示词。
 

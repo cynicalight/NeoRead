@@ -122,6 +122,23 @@ it("loads restored tabs lazily and keeps drafts/readers alive when switching or 
   expect(useReaderStore.getState().tabIds).toHaveLength(3);
   expect(fixture.unmounts).toEqual([]);
 });
+it("does not scan the document for ordinary typing or IME composition", async () => {
+  const input = host.querySelector<HTMLInputElement>("input")!;
+  const scan = vi.spyOn(document, "querySelector");
+  await act(async () => {
+    for (const options of [
+      { key: "a" },
+      { key: "中" },
+      { key: "Process", isComposing: true },
+      { key: "w", metaKey: true, isComposing: true },
+    ])
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { ...options, bubbles: true }),
+      );
+  });
+  expect(scan).not.toHaveBeenCalled();
+  scan.mockRestore();
+});
 it("warns before discarding a background draft and disposes only the explicitly closed tab", async () => {
   const input = host.querySelector<HTMLInputElement>("input")!;
   await act(async () => {

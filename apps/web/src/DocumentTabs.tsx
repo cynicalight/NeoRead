@@ -155,7 +155,9 @@ export function DocumentTabs({
   }, [enabled, extra]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
+      const command = documentTabCommand(event);
       if (
+        !command ||
         !enabled ||
         event.defaultPrevented ||
         event.repeat ||
@@ -164,8 +166,6 @@ export function DocumentTabs({
         )
       )
         return;
-      const command = documentTabCommand(event);
-      if (!command) return;
       if (command.type === "reopen") {
         if (closedTabGroups.length) {
           event.preventDefault();
@@ -240,9 +240,7 @@ export function DocumentTabs({
     update();
     element.addEventListener("scroll", update, { passive: true });
     const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(update);
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
     observer?.observe(element);
     for (const child of element.children) observer?.observe(child);
     return () => {

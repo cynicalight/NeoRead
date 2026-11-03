@@ -1,3 +1,4 @@
+import { ComposerSendButton } from "./chat/ComposerSendButton";
 import { useAnnotationUpdates } from "./useAnnotationUpdates";
 import { webSearchEnabled } from "./chat/web-search";
 import { NavigationTree } from "./NavigationTree";
@@ -54,6 +55,7 @@ import { api, blockImageURL } from "@neoread/api";
 import {
   locationLabel,
   type DocumentChatSession,
+  type Message,
   type Annotation,
   type Document as ReaderDocument,
   type DocumentLocation,
@@ -112,6 +114,11 @@ import { ModelSelector } from "./ModelSelector";
 import { SourceReferences } from "./SourceReferences";
 import { ChatSession } from "./chat/chat-session";
 import { getChatSession } from "./chat/session-registry";
+import {
+  restoreWithdrawnQuestion,
+  type ComposerDraft,
+  type ComposerQuote,
+} from "./chat/composer-draft";
 import { SessionPicker } from "./chat/SessionPicker";
 import { AssistantPanel } from "./chat/AssistantPanel";
 import { CodexHandoffButton } from "./chat/CodexHandoffButton";
@@ -400,7 +407,12 @@ export function Workspace({
       currentDocument.current === doc.id &&
       serial === sessionListSerial.current
     ) {
-      setSessionCatalog({ documentId: doc.id, items });
+      setSessionCatalog((current) =>
+        current.documentId === doc.id &&
+        JSON.stringify(current.items) === JSON.stringify(items)
+          ? current
+          : { documentId: doc.id, items },
+      );
       setSessionError("");
     }
   }, [doc.id]);
@@ -411,6 +423,7 @@ export function Workspace({
     } catch {}
   };
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -426,29 +439,103 @@ export function Workspace({
     return () => {
       alive = false;
       clearTimeout(timer);
+      sessionListSerial.current++;
     };
-  }, [refreshSessions]);
-  const [prompt, setPrompt] = useState("");
-  const [quotes, setQuotes] = useState<ReaderSelection[]>([]);
+  }, [refreshSessions, active]);
+  const savedPrompt = useRef("");
+  const promptContentChanged = useRef<((hasText: boolean) => void) | undefined>(
+    undefined,
+  );
+  const [quotes, setQuotes] = useState<ComposerQuote[]>([]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [previewImage, setPreviewImage] = useState<ImageAttachment>();
   const composeInput = useRef<HTMLTextAreaElement>(null);
-  const composerDrafts = useRef(
-    new Map<
-      string,
-      { prompt: string; quotes: ReaderSelection[]; images: ImageAttachment[] }
-    >(),
+  const prompt = useMemo(
+    () => ({
+      get current() {
+        return composeInput.current?.value ?? savedPrompt.current;
+      },
+    }),
+    [],
   );
-  const composerValue = useRef({ prompt, quotes, images });
-  composerValue.current = { prompt, quotes, images };
+  const promptHasText = useRef(false);
+  const composerDrafts = useRef(new Map<string, ComposerDraft>());
+  const composerValue = useRef({ quotes, images });
+  composerValue.current = { quotes, images };
+  const captureComposerDraft = (): ComposerDraft => ({
+    ...composerValue.current,
+    prompt: prompt.current,
+  });
+  const updatePromptPresence = useCallback((hasText: boolean) => {
+    if (hasText !== promptHasText.current) {
+      promptHasText.current = hasText;
+      promptContentChanged.current?.(hasText);
+    }
+  }, []);
+  const nativePromptInput = useCallback(
+    (event: Event) => {
+      // React's change plugin reads and tracks the entire textarea value on input.
+      // Keep native IME/undo editing local; read the draft at send/save boundaries.
+      event.stopPropagation();
+      const node = event.currentTarget as HTMLTextAreaElement;
+      const data = (event as InputEvent).data;
+      updatePromptPresence(
+        node.textLength > 0 && (data?.trim() ? true : !!node.value.trim()),
+      );
+    },
+    [updatePromptPresence],
+  );
+  const attachComposeInput = useCallback(
+    (node: HTMLTextAreaElement | null) => {
+      const previous = composeInput.current;
+      const value = previous?.value ?? savedPrompt.current;
+      previous?.removeEventListener("input", nativePromptInput);
+      composeInput.current = node;
+      savedPrompt.current = value;
+      if (node) {
+        node.value = value;
+        node.setAttribute("writingsuggestions", "false");
+        node.addEventListener("input", nativePromptInput);
+      }
+    },
+    [nativePromptInput],
+  );
+  const setPrompt = (value: string) => {
+    savedPrompt.current = value;
+    if (composeInput.current && composeInput.current.value !== value)
+      composeInput.current.value = value;
+    updatePromptPresence(!!value.trim());
+  };
   const composerKey = `${doc.id}:${currentSession?.id ?? ""}`;
+  const currentComposerKey = useRef(composerKey);
+  currentComposerKey.current = composerKey;
+  const restoreQuestion = (message: Message) => {
+    const visible = currentComposerKey.current === composerKey;
+    const draft = restoreWithdrawnQuestion(
+      visible
+        ? captureComposerDraft()
+        : (composerDrafts.current.get(composerKey) ?? {
+            prompt: "",
+            quotes: [],
+            images: [],
+          }),
+      message,
+    );
+    composerDrafts.current.set(composerKey, draft);
+    if (visible) {
+      setPrompt(draft.prompt);
+      setQuotes(draft.quotes);
+      setImages(draft.images);
+      requestAnimationFrame(() => composeInput.current?.focus());
+    }
+  };
   useEffect(() => {
     const saved = composerDrafts.current.get(composerKey);
     setPrompt(saved?.prompt ?? "");
     setQuotes(saved?.quotes ?? []);
     setImages(saved?.images ?? []);
     return () => {
-      composerDrafts.current.set(composerKey, composerValue.current);
+      composerDrafts.current.set(composerKey, captureComposerDraft());
     };
   }, [composerKey]);
   useEffect(() => {
@@ -469,7 +556,7 @@ export function Workspace({
   const session = currentSession
     ? getChatSession(doc.id, currentSession.id)
     : emptySession;
-  const chat = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const chat = useSyncExternalStore(session.subscribe, session.getSummary);
   useEffect(() => {
     if (
       !currentSession ||
@@ -789,6 +876,17 @@ export function Workspace({
       : adapter?.goTo(result.location);
     void go?.catch((error) => toast.error(error.message));
   };
+  const quoteChatText = (text: string) => {
+    setQuotes((items) => [...items, { text, kind: "chat" as const }].slice(-6));
+    setRight(true);
+    setRightTab("ai");
+    requestAnimationFrame(() => {
+      const input = composeInput.current;
+      input?.focus();
+      if (input)
+        input.setSelectionRange(input.value.length, input.value.length);
+    });
+  };
   const addQuote = () => {
     if (selection) {
       setQuotes((items) => [...items, selection].slice(-6));
@@ -799,13 +897,17 @@ export function Workspace({
     }
   };
   const send = async (
-    question = prompt,
+    question = prompt.current,
     selected = quotes,
     useSection = false,
     attachments = images,
     directImage = false,
   ) => {
     if (abort.current || session.getSnapshot().busy || aiModelSaving) return;
+    if (attachments.length > 4) {
+      toast.info("每次最多附加 4 张图片，请移除多余图片后再发送");
+      return;
+    }
     if (!provider) {
       toast.info("请先在设置中选择 Agent SDK");
       onSettings();
@@ -814,6 +916,10 @@ export function Workspace({
     if (!question.trim() && attachments.length)
       question = "请解释附件中的图表或公式。";
     if (!question.trim()) return;
+    if (new TextEncoder().encode(question).byteLength > 16000) {
+      toast.info("问题最多 16000 字节，请缩短后再发送");
+      return;
+    }
     if (!session.getSnapshot().loaded) {
       toast.error("对话记录尚未加载，请重新加载。");
       return;
@@ -834,7 +940,17 @@ export function Workspace({
       );
       const { context } = captured;
       if (controller.signal.aborted) return;
-      if (!directImage) setPrompt("");
+      if (!directImage) {
+        setPrompt("");
+        setQuotes((current) =>
+          current.filter((quote) => !selected.includes(quote)),
+        );
+        setImages((current) =>
+          current.filter(
+            (image) => !attachments.some((sent) => sent.id === image.id),
+          ),
+        );
+      }
       await session.send({
         provider,
         webSearch,
@@ -846,19 +962,6 @@ export function Workspace({
       });
       if (serial !== sendSerial.current) return;
       const answer = session.getSnapshot().pending;
-      if (
-        !directImage &&
-        ["saved", "syncing"].includes(
-          session.getSnapshot().pending?.phase || "",
-        )
-      ) {
-        setQuotes([]);
-        setImages((current) =>
-          current.filter(
-            (image) => !attachments.some((sent) => sent.id === image.id),
-          ),
-        );
-      }
       return answer?.phase === "saved" ? answer.savedId : undefined;
     } catch (e) {
       if (serial === sendSerial.current && (e as Error).name !== "AbortError")
@@ -1069,10 +1172,7 @@ export function Workspace({
   closeState.current = {
     busy: chat.busy || sending,
     draft:
-      !!prompt.trim() ||
-      quotes.length > 0 ||
-      images.length > 0 ||
-      (noteOpen && !!note.trim()),
+      quotes.length > 0 || images.length > 0 || (noteOpen && !!note.trim()),
     saving: noteSaving || annotationSaving.current,
   };
   useEffect(
@@ -1083,7 +1183,11 @@ export function Workspace({
             blocked: true,
             message: "批注正在保存，请保存完成后再关闭。",
           };
-        if (closeState.current.busy || closeState.current.draft)
+        if (
+          closeState.current.busy ||
+          closeState.current.draft ||
+          !!prompt.current.trim()
+        )
           return {
             message:
               "关闭后会清除未发送的问题、附件和未保存的批注。已保存的阅读记录与对话会保留，后台回答会继续，可重新打开查看。",
@@ -1702,6 +1806,8 @@ export function Workspace({
                   key={currentSession?.id ?? doc.id}
                   session={session}
                   onRegenerate={() => void regenerate()}
+                  onWithdraw={restoreQuestion}
+                  onQuote={quoteChatText}
                   regenerateDisabled={aiModelSaving || sending}
                   renderAnswer={(message, content) => (
                     <SourceReferences
@@ -1803,11 +1909,13 @@ export function Workspace({
                   )}
                   {!!images.length && imageAttachments(images, true)}
                   <Textarea
-                    ref={composeInput}
+                    ref={attachComposeInput}
                     aria-label="向 AI 提问"
                     placeholder="问一个问题，或引用选中的文字…"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
+                    defaultValue=""
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="off"
                     onKeyDown={(e) => {
                       if (
                         e.key === "Enter" &&
@@ -1840,19 +1948,13 @@ export function Workspace({
                         <Square className="size-3" />
                       </Button>
                     ) : (
-                      <Button
-                        size="icon-sm"
-                        aria-label="发送问题"
-                        disabled={
-                          !adapter ||
-                          aiModelSaving ||
-                          !provider ||
-                          (!prompt.trim() && !images.length)
-                        }
-                        onClick={() => void send()}
-                      >
-                        <Send className="size-3.5" />
-                      </Button>
+                      <ComposerSendButton
+                        prompt={prompt}
+                        changed={promptContentChanged}
+                        available={!!adapter && !aiModelSaving && !!provider}
+                        hasImages={images.length > 0}
+                        onSend={() => void send()}
+                      />
                     )}
                   </div>
                 </div>
@@ -1891,7 +1993,7 @@ export function Workspace({
       </ResizablePanelGroup>
 
       <SelectionTranslation
-        key={doc.id}
+        key={`selection-translation-${doc.id}`}
         selection={active ? translationSelection : null}
         onClose={() => setTranslationSelection(null)}
       />
@@ -1901,7 +2003,7 @@ export function Workspace({
         onEdit={editAnnotationNote}
       />
       <LinkPreviewPanel
-        key={doc.id}
+        key={`link-preview-${doc.id}`}
         preview={active ? linkPreview : null}
         onDismiss={() => setLinkPreview(null)}
         onNavigate={(location) =>
@@ -2014,7 +2116,7 @@ export function Workspace({
         />
       )}
       <DocumentOverviewDialog
-        key={doc.id}
+        key={`document-overview-${doc.id}`}
         document={active && overviewOpen ? doc : null}
         onClose={() => setOverviewOpen(false)}
         onNavigate={async (location) => {

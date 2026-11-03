@@ -4,6 +4,22 @@ import { referenceCards, contextReferences } from "./references";
 import { ReferenceNavigation } from "./reference-navigation";
 import { pdfQuotePoint } from "./readers/pdf-reference-location";
 
+it("keeps quoted conversation text separate from original-document navigation", () => {
+  const cards = referenceCards(
+    { references: [{ kind: "chat", text: "quoted conversation" }] },
+    [],
+  );
+  expect(cards).toEqual([
+    expect.objectContaining({
+      kind: "chat",
+      label: "引用对话",
+      text: "quoted conversation",
+    }),
+  ]);
+  expect(cards[0].location).toBeUndefined();
+  expect(cards[0].sourceId).toBeUndefined();
+});
+
 it("uses exact saved locations for selected passages and bounds long previews", () => {
   const location: DocumentLocation = {
     type: "epub",

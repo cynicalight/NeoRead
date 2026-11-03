@@ -496,3 +496,120 @@ it("uses persisted completed tool states when history confirms a reply after a s
   expect(h.session.getSnapshot().pending?.phase).toBe("saved");
   expect(h.session.getSnapshot().pending?.tools).toEqual(saved.tools);
 });
+
+it("keeps omitted saved search permission disabled after editing and regenerating", async () => {
+  let history = [message("question", "user", "original")];
+  const stream = vi.fn<ChatTransport["stream"]>(async () => {});
+  const session = new ChatSession("doc", {
+    messages: async () => history,
+    stream,
+    changeMessage: async (_id, change) => {
+      history = [{ ...history[0], content: change.content! }];
+      return { message: history[0], messages: history };
+    },
+  });
+  await session.load();
+  await session.changeMessage(history[0], "edited");
+  await session.regenerate("api");
+  expect(stream.mock.calls[0][1]).toMatchObject({
+    prompt: "edited",
+    userMessageId: "question",
+    webSearch: false,
+  });
+  session.dispose();
+});
+
+it.each([true, false])(
+  "reconciles an edit response loss after this session saved a reply (committed=%s)",
+  async (committed) => {
+    let history: Message[] = [];
+    const stream = vi.fn<ChatTransport["stream"]>(
+      async (_id, input, _signal, emit) => {
+        history = [
+          message(input.userMessageId!, "user", input.prompt),
+          message("answer", "assistant", "saved answer"),
+        ];
+        emit({ event: "done", data: { ok: true } });
+      },
+    );
+    const session = new ChatSession("doc", {
+      messages: async () => history,
+      stream,
+      changeMessage: async () => {
+        if (committed) history = [{ ...history[0], content: "edited" }];
+        throw new Error("response lost");
+      },
+    });
+    await session.load();
+    await session.send(input);
+    expect(session.getSnapshot().pending?.phase).toBe("saved");
+    const original = history[0];
+    const change = session.changeMessage(original, " edited ");
+    if (committed) {
+      await expect(change).resolves.toMatchObject({ content: "edited" });
+      expect(session.getSnapshot().pending?.phase).toBe("incomplete");
+      await session.regenerate("api");
+      expect(stream).toHaveBeenLastCalledWith(
+        "doc",
+        expect.objectContaining({
+          prompt: "edited",
+          userMessageId: original.id,
+        }),
+        expect.any(AbortSignal),
+        expect.any(Function),
+      );
+    } else {
+      await expect(change).rejects.toThrow("response lost");
+      expect(session.getSnapshot().pending?.phase).toBe("saved");
+    }
+    expect(session.getSnapshot().messages).toEqual(history);
+    expect(session.getSnapshot().busy).toBe(false);
+    session.dispose();
+  },
+);
+
+it.each([true, false])(
+  "reconciles a withdrawal response loss only when the saved question is gone (committed=%s)",
+  async (committed) => {
+    const original = message("question", "user", "original input");
+    let history = [original, message("answer", "assistant", "answer")];
+    const session = new ChatSession("doc", {
+      messages: async () => history,
+      stream: vi.fn(),
+      changeMessage: async () => {
+        if (committed) history = [];
+        throw new Error("response lost");
+      },
+    });
+    await session.load();
+    const changing = session.changeMessage(original);
+    if (committed) await expect(changing).resolves.toEqual(original);
+    else await expect(changing).rejects.toThrow("response lost");
+    expect(session.getSnapshot().messages).toEqual(history);
+    expect(session.getSnapshot().busy).toBe(false);
+    session.dispose();
+  },
+);
+
+it("keeps the reader summary stable across streamed deltas but publishes lifecycle and saved history", async () => {
+  const { session, emit, wait } = setup();
+  const initial = session.getSummary();
+  await session.load();
+  expect(session.getSummary()).not.toBe(initial);
+  const idle = session.getSummary();
+  const running = session.send(input);
+  const active = session.getSummary();
+  expect(active).not.toBe(idle);
+  expect(active.busy).toBe(true);
+  for (const text of ["第一段", "第二段", "第三段"]) {
+    emit({ event: "delta", data: { text } });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(session.getSummary()).toBe(active);
+  }
+  expect(session.getSnapshot().pending?.content).toBe("第一段第二段第三段");
+  wait.resolve();
+  await running;
+  expect(session.getSummary()).not.toBe(active);
+  expect(session.getSummary().busy).toBe(false);
+  session.dispose();
+});
