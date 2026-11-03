@@ -97,39 +97,50 @@ function BlockImage({
   useEffect(() => {
     mounted.current = true;
     let retirement: ReturnType<typeof setTimeout> | undefined;
-    const visibility =
-      typeof IntersectionObserver === "undefined"
-        ? undefined
-        : new IntersectionObserver(
-            ([entry]) => {
-              const wasVisible = visible.current;
-              visible.current = entry.isIntersecting;
-              clearTimeout(retirement);
-              const image = imageRef.current;
-              if (entry.isIntersecting && image?.complete)
-                update.current(image);
-              else if (wasVisible && !entry.isIntersecting) {
-                // Keep decoded pixels during brief boundary crossings.
-                retirement = setTimeout(() => {
-                  generation.current++;
-                  requested.current = 0;
-                  setSharp(undefined);
-                  releaseRef.current?.();
-                }, 800);
-              }
-            },
-            {
-              root: imageRef.current?.closest(".translation-document") ?? null,
-              rootMargin: "1200px 0px",
-            },
-          );
+    const root = imageRef.current?.closest(".translation-document") ?? null;
+    let visibility: IntersectionObserver | undefined;
+    let preRenderHeight = -1;
+    const observeVisibility = () => {
+      if (typeof IntersectionObserver === "undefined") return;
+      const height = root?.clientHeight ?? window.innerHeight;
+      if (height === preRenderHeight) return;
+      preRenderHeight = height;
+      visibility?.disconnect();
+      visibility = new IntersectionObserver(
+        ([entry], observed) => {
+          if (!mounted.current || observed !== visibility) return;
+          const wasVisible = visible.current;
+          visible.current = entry.isIntersecting;
+          clearTimeout(retirement);
+          const image = imageRef.current;
+          if (entry.isIntersecting && image) image.loading = "eager";
+          if (entry.isIntersecting && image?.complete) update.current(image);
+          else if (wasVisible && !entry.isIntersecting) {
+            // Keep decoded pixels during brief boundary crossings.
+            retirement = setTimeout(() => {
+              generation.current++;
+              requested.current = 0;
+              setSharp(undefined);
+              releaseRef.current?.();
+            }, 800);
+          }
+        },
+        {
+          root,
+          rootMargin: `${height}px 0px`,
+        },
+      );
+      if (imageRef.current) visibility.observe(imageRef.current);
+    };
     const observer = new ResizeObserver(() => {
+      observeVisibility();
       const image = imageRef.current;
       if (!image?.complete) return;
       if (visible.current) update.current(image);
     });
     if (imageRef.current) observer.observe(imageRef.current);
-    if (imageRef.current) visibility?.observe(imageRef.current);
+    observer.observe(root ?? document.documentElement);
+    observeVisibility();
     return () => {
       mounted.current = false;
       clearTimeout(retirement);

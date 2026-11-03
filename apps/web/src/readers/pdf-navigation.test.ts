@@ -214,3 +214,40 @@ it.each(["restore", "follow"])(
     }
   },
 );
+
+it("applies continuous follow positions without restarting a scroll animation", async () => {
+  const host = document.createElement("div"),
+    node = document.createElement("div");
+  const frames = vi.fn();
+  vi.stubGlobal("requestAnimationFrame", frames);
+  Object.defineProperty(host, "clientHeight", { value: 600 });
+  host.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+  node.getBoundingClientRect = () =>
+    new DOMRect(0, 1200 - host.scrollTop, 800, 1000);
+  const nav = new PDFReadingNavigation(
+    host,
+    { getPageView: () => ({ div: node, pdfPage: {} }) } as unknown as PDFViewer,
+    vi.fn(),
+    () => [
+      {
+        id: "follow",
+        page: 1,
+        label: "text",
+        text: "Paragraph",
+        bounds: { x: 0.1, y: 0.2, width: 0.8, height: 0.4 },
+      },
+    ],
+    { location: vi.fn(), selection: vi.fn() },
+  );
+  try {
+    const first = nav.follow({ blockId: "follow", fraction: 0.5 });
+    expect(host.scrollTop).toBe(1300);
+    const second = nav.follow({ blockId: "follow", fraction: 0.25 });
+    expect(host.scrollTop).toBe(1200);
+    await Promise.all([first, second]);
+    expect(frames).not.toHaveBeenCalled();
+  } finally {
+    nav.destroy();
+    vi.unstubAllGlobals();
+  }
+});

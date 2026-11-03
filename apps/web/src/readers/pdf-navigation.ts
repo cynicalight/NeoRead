@@ -46,7 +46,12 @@ export class PDFReadingNavigation {
     this.moving = false;
     this.onFocus(null);
   };
-  private async moveTo(left: number, top: number, operation: number) {
+  private async moveTo(
+    left: number,
+    top: number,
+    operation: number,
+    smooth = true,
+  ) {
     this.moving = true;
     try {
       await animatePDFScroll(
@@ -55,6 +60,7 @@ export class PDFReadingNavigation {
         top,
         () => this.disposed || operation !== this.operation,
         () => {},
+        smooth,
       );
     } finally {
       if (operation === this.operation) {
@@ -284,7 +290,7 @@ export class PDFReadingNavigation {
       }
     }
   }
-  async follow(anchor: PDFReadingAnchor) {
+  async follow(anchor: PDFReadingAnchor, smooth = false) {
     this.readableBlocks();
     const block = this.blocksById.get(anchor.blockId);
     if (!block || isPDFPageDecoration(block)) return;
@@ -310,6 +316,7 @@ export class PDFReadingNavigation {
         (block.bounds.y + anchor.fraction * block.bounds.height) * r.height -
         this.host.clientHeight * 0.5,
       operation,
+      smooth,
     );
   }
   focusSentences(blockId: string, sources: string[], scroll = false) {
@@ -333,17 +340,20 @@ export class PDFReadingNavigation {
       : undefined;
     // An unrendered sentence can still scroll to its paragraph. It must never
     // use that paragraph's bounds as the visible sentence highlight.
-    await this.follow({
-      blockId: block.id,
-      fraction: Math.max(
-        0,
-        Math.min(
-          1,
-          ((top ?? block.bounds.y) - block.bounds.y) /
-            (block.bounds.height || 1),
+    await this.follow(
+      {
+        blockId: block.id,
+        fraction: Math.max(
+          0,
+          Math.min(
+            1,
+            ((top ?? block.bounds.y) - block.bounds.y) /
+              (block.bounds.height || 1),
+          ),
         ),
-      ),
-    });
+      },
+      true,
+    );
     if (!this.disposed && this.focus === passages) this.paintFocus();
   }
   sentenceRanges(passages: PDFPassage[]): Range[] {

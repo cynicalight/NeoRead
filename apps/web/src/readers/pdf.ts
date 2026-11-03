@@ -137,6 +137,8 @@ export class PDFReaderAdapter implements ReaderAdapter {
       // megapixel textures. PDF.js keeps detail rendering for the visible area.
       maxCanvasPixels: 4 * 1024 * 1024,
       maxCanvasDim: 4096,
+      // Prepare every page intersecting one viewport above and below the screen.
+      preRenderViewports: 1,
       imagesRightClickMinSize: -1,
     });
     this.links.setViewer(this.viewer);

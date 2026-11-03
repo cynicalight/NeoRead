@@ -275,6 +275,21 @@ it("keeps a sharp crop during short scroll reversals and releases it after susta
   vi.useFakeTimers();
   let notify!: IntersectionObserverCallback;
   let observedRoot: Element | Document | null | undefined;
+  let observedMargin: string | undefined;
+  let observedVisibility!: IntersectionObserver;
+  let resized!: ResizeObserverCallback;
+  let height = 600;
+  Object.defineProperty(host, "clientHeight", { get: () => height });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        resized = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
   vi.stubGlobal(
     "IntersectionObserver",
     class {
@@ -284,6 +299,8 @@ it("keeps a sharp crop during short scroll reversals and releases it after susta
       ) {
         notify = callback;
         observedRoot = options?.root;
+        observedMargin = options?.rootMargin;
+        observedVisibility = this as unknown as IntersectionObserver;
       }
       observe() {}
       disconnect() {}
@@ -313,12 +330,27 @@ it("keeps a sharp crop during short scroll reversals and releases it after susta
     const visibility = (visible: boolean) =>
       notify(
         [{ isIntersecting: visible } as IntersectionObserverEntry],
-        {} as IntersectionObserver,
+        observedVisibility,
       );
     expect(observedRoot).toBe(host);
+    expect(observedMargin).toBe("600px 0px");
     await act(async () => visibility(true));
+    expect(img.loading).toBe("eager");
     expect(renderImage).toHaveBeenCalledOnce();
     expect(img.getAttribute("src")).toBe("blob:nearby");
+    const oldNotify = notify,
+      oldVisibility = observedVisibility;
+    height = 300;
+    await act(async () => resized([], {} as ResizeObserver));
+    expect(observedMargin).toBe("300px 0px");
+    await act(async () => {
+      oldNotify(
+        [{ isIntersecting: false } as IntersectionObserverEntry],
+        oldVisibility,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(releaseImage).not.toHaveBeenCalled();
     await act(async () => {
       visibility(false);
       await vi.advanceTimersByTimeAsync(400);

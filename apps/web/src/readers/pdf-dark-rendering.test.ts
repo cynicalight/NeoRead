@@ -115,6 +115,7 @@ it("loads PDF ranges on demand and uses hardware canvas acceleration within the 
   expect(fixture.viewerOptions).toMatchObject({
     maxCanvasPixels: 4 * 1024 * 1024,
     maxCanvasDim: 4096,
+    preRenderViewports: 1,
   });
 });
 
