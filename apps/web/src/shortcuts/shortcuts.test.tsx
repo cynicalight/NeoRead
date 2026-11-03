@@ -320,3 +320,35 @@ it("forwards library function keys from EPUB frames and blocks them in dialogs",
   dialog.remove();
   expect(run).toHaveBeenCalledTimes(1);
 });
+
+it("does not scan the document while typing ordinary text in an empty composer", async () => {
+  function Editor() {
+    useShortcut("readerLeft", () => {});
+    useShortcut("readerRight", () => {});
+    useShortcut("search", () => {});
+    return <textarea aria-label="empty composer" />;
+  }
+  await act(async () => root.render(<Editor />));
+  const input = host.querySelector("textarea")!;
+  const scan = vi.spyOn(document, "querySelector");
+  for (const key of [
+    "h",
+    "e",
+    "l",
+    "l",
+    "o",
+    "你",
+    "好",
+    "Backspace",
+    "ArrowLeft",
+  ]) {
+    const event = new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  }
+  expect(scan).not.toHaveBeenCalled();
+});

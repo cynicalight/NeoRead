@@ -1,5 +1,12 @@
 import { ToolActivities } from "./ToolActivities";
-import { lazy, Suspense, useSyncExternalStore, type ReactNode } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useMemo,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { ArrowDown, BookOpen, LoaderCircle } from "lucide-react";
 import { ProviderGlyph } from "../ProviderIdentity";
 import type { Message } from "@neoread/core";
@@ -65,16 +72,7 @@ export function chatRows(state: ChatSnapshot): ChatRow[] {
   }
   return rows;
 }
-export function AssistantPanel({
-  session,
-  empty,
-  extras,
-  references,
-  onRegenerate,
-  onWithdraw,
-  regenerateDisabled = false,
-  renderAnswer = (_message, content) => content,
-}: {
+type AssistantPanelProps = {
   session: ChatSession;
   empty: ReactNode;
   extras: (message: Message) => ReactNode;
@@ -83,9 +81,25 @@ export function AssistantPanel({
   onWithdraw?: (message: Message) => void;
   regenerateDisabled?: boolean;
   renderAnswer?: (message: Message, content: ReactNode) => ReactNode;
-}) {
+};
+const plainAnswer = (_message: Message, content: ReactNode) => content;
+
+export function AssistantPanel({
+  session,
+  empty,
+  extras,
+  references,
+  onRegenerate,
+  onWithdraw,
+  regenerateDisabled = false,
+  renderAnswer = plainAnswer,
+}: AssistantPanelProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const scroll = useChatScroll(state.pending?.key);
+  const savedIndexes = useMemo(
+    () => new Map(state.messages.map((message, index) => [message.id, index])),
+    [state.messages],
+  );
   const pending = state.pending;
   const retryAction = chatRetryAction(state);
   return (
@@ -96,123 +110,29 @@ export function AssistantPanel({
             <p className="chat-status">{state.loadError || "正在加载对话…"}</p>
           )}
           {!state.messages.length && !pending && state.loaded && empty}
-          {chatRows(state).map(({ key, message, pending: answer }) => {
-            const assistant = answer || message?.role === "assistant",
-              content = answer
-                ? answer.content + (answer.draft || "")
-                : (message?.content ?? "");
-            const reasoning = answer?.reasoning ?? message?.reasoning ?? "";
-            const waiting =
-              answer?.phase === "generating" &&
-              !content &&
-              (!reasoning || !!answer.activity);
-            const timestamp = message?.createdAt
-              ? new Date(message.createdAt)
-              : undefined;
-            const markdown = (
-              <Suspense
-                fallback={
-                  <div style={{ whiteSpace: "pre-wrap" }}>{content}</div>
-                }
-              >
-                <MessageMarkdown
-                  content={content}
-                  generating={answer?.phase === "generating"}
-                />
-              </Suspense>
-            );
-            return (
-              <div
-                key={key}
-                data-message-id={message?.id}
-                className={`chat-message ${assistant ? "assistant" : "user"}`}
-              >
-                <ToolActivities
-                  tools={answer?.tools ?? message?.tools}
-                  sources={message?.webSources}
-                />
-                {(waiting || answer?.activity) && (
-                  <Trace className="mb-2" role="status">
-                    <TraceLine status="running">
-                      <TraceIcon>
-                        {answer.activity ? (
-                          <BookOpen size={16} strokeWidth={1.5} />
-                        ) : answer.fallback ||
-                          !["codex", "claude", "kimi", "api"].includes(
-                            answer.input.provider,
-                          ) ? (
-                          <LoaderCircle size={16} />
-                        ) : (
-                          <ProviderGlyph
-                            provider={answer.input.provider}
-                            size={16}
-                          />
-                        )}
-                      </TraceIcon>
-                      <TraceTitle title={answer.notice}>
-                        {answer.notice || "正在等待回答…"}
-                      </TraceTitle>
-                    </TraceLine>
-                  </Trace>
-                )}
-                {assistant && reasoning && (
-                  <Thinking
-                    text={reasoning}
-                    active={answer?.phase === "generating" && !content}
-                    incomplete={
-                      !!answer &&
-                      ["incomplete", "unconfirmed", "cancelled"].includes(
-                        answer.phase,
-                      )
-                    }
-                  />
-                )}
-                {assistant ? (
-                  message ? (
-                    renderAnswer(message, markdown)
-                  ) : (
-                    markdown
-                  )
-                ) : (
-                  <>
-                    {message && references(message)}
-                    <div className="chat-question">{content}</div>
-                  </>
-                )}
-                {answer?.fallback && (
-                  <p className="chat-status">{answer.fallback}</p>
-                )}
-                {answer?.notice && !waiting && !answer.activity && (
-                  <p role="status" className="chat-status">
-                    {answer.notice}
-                  </p>
-                )}
-                {assistant && !!content && (
-                  <AnswerActions content={content} timestamp={timestamp} />
-                )}
-                {!assistant &&
-                  message &&
-                  onWithdraw &&
-                  state.messages.some((item) => item.id === message.id) && (
-                    <QuestionActions
-                      message={message}
-                      following={
-                        state.messages.length -
-                        state.messages.findIndex(
-                          (item) => item.id === message.id,
-                        ) -
-                        1
-                      }
-                      session={session}
-                      disabled={state.busy || regenerateDisabled}
-                      onRegenerate={onRegenerate}
-                      onWithdraw={onWithdraw}
-                    />
-                  )}
-                {message && extras(message)}
-              </div>
-            );
-          })}
+          {chatRows(state).map(({ key, message, pending: answer }) => (
+            <ChatMessage
+              key={key}
+              message={message}
+              answer={answer}
+              saved={!!message && savedIndexes.has(message.id)}
+              following={
+                message
+                  ? state.messages.length -
+                    (savedIndexes.get(message.id) ?? state.messages.length) -
+                    1
+                  : 0
+              }
+              session={session}
+              busy={state.busy}
+              extras={extras}
+              references={references}
+              renderAnswer={renderAnswer}
+              onRegenerate={onRegenerate}
+              onWithdraw={onWithdraw}
+              regenerateDisabled={regenerateDisabled}
+            />
+          ))}
           {retryAction && (
             <Button
               variant="ghost"
@@ -253,3 +173,122 @@ export function AssistantPanel({
     </div>
   );
 }
+
+const ChatMessage = memo(function ChatMessage({
+  message,
+  answer,
+  saved,
+  following,
+  session,
+  busy,
+  extras,
+  references,
+  renderAnswer = plainAnswer,
+  onRegenerate,
+  onWithdraw,
+  regenerateDisabled = false,
+}: Omit<AssistantPanelProps, "empty"> & {
+  message?: Message;
+  answer?: PendingAnswer;
+  saved: boolean;
+  following: number;
+  busy: boolean;
+}) {
+  const assistant = answer || message?.role === "assistant",
+    content = answer
+      ? answer.content + (answer.draft || "")
+      : (message?.content ?? "");
+  const reasoning = answer?.reasoning ?? message?.reasoning ?? "";
+  const waiting =
+    answer?.phase === "generating" &&
+    !content &&
+    (!reasoning || !!answer.activity);
+  const timestamp = message?.createdAt
+    ? new Date(message.createdAt)
+    : undefined;
+  const markdown = (
+    <Suspense
+      fallback={<div style={{ whiteSpace: "pre-wrap" }}>{content}</div>}
+    >
+      <MessageMarkdown
+        content={content}
+        generating={answer?.phase === "generating"}
+      />
+    </Suspense>
+  );
+  return (
+    <div
+      data-message-id={message?.id}
+      data-generating={answer?.phase === "generating" || undefined}
+      className={`chat-message ${assistant ? "assistant" : "user"}`}
+    >
+      <ToolActivities
+        tools={answer?.tools ?? message?.tools}
+        sources={message?.webSources}
+      />
+      {(waiting || answer?.activity) && (
+        <Trace className="mb-2" role="status">
+          <TraceLine status="running">
+            <TraceIcon>
+              {answer.activity ? (
+                <BookOpen size={16} strokeWidth={1.5} />
+              ) : answer.fallback ||
+                !["codex", "claude", "kimi", "api"].includes(
+                  answer.input.provider,
+                ) ? (
+                <LoaderCircle size={16} />
+              ) : (
+                <ProviderGlyph provider={answer.input.provider} size={16} />
+              )}
+            </TraceIcon>
+            <TraceTitle title={answer.notice}>
+              {answer.notice || "正在等待回答…"}
+            </TraceTitle>
+          </TraceLine>
+        </Trace>
+      )}
+      {assistant && reasoning && (
+        <Thinking
+          text={reasoning}
+          active={answer?.phase === "generating" && !content}
+          incomplete={
+            !!answer &&
+            ["incomplete", "unconfirmed", "cancelled"].includes(answer.phase)
+          }
+        />
+      )}
+      {assistant ? (
+        message ? (
+          renderAnswer(message, markdown)
+        ) : (
+          markdown
+        )
+      ) : (
+        <>
+          {message && references(message)}
+          <div className="chat-question">{content}</div>
+        </>
+      )}
+      {answer?.fallback && <p className="chat-status">{answer.fallback}</p>}
+      {answer?.notice && !waiting && !answer.activity && (
+        <p role="status" className="chat-status">
+          {answer.notice}
+        </p>
+      )}
+      {assistant && !!content && (
+        <AnswerActions content={content} timestamp={timestamp} />
+      )}
+      {!assistant && message && onWithdraw && saved && (
+        <QuestionActions
+          message={message}
+          following={following}
+          session={session}
+          disabled={busy || regenerateDisabled}
+          onRegenerate={onRegenerate}
+          onWithdraw={onWithdraw}
+        />
+      )}
+      {message && extras(message)}
+    </div>
+  );
+});

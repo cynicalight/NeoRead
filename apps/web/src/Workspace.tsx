@@ -504,7 +504,7 @@ export function Workspace({
   const session = currentSession
     ? getChatSession(doc.id, currentSession.id)
     : emptySession;
-  const chat = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const chat = useSyncExternalStore(session.subscribe, session.getSummary);
   useEffect(() => {
     if (
       !currentSession ||

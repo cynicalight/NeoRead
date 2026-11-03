@@ -1092,6 +1092,7 @@ kbd {
   gap: 0;
 }
 .chat-thread {
+  contain: layout style;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1127,6 +1128,10 @@ kbd {
     #000 calc(100% - min(32px, var(--scroll-area-overflow-y-end, 32px))),
     transparent 100%
   );
+}
+.chat-message:not([data-generating]) {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 12em;
 }
 .chat-messages {
   padding: 0 18px;
@@ -1262,6 +1267,7 @@ kbd {
   background: color-mix(in oklab, var(--input) 30%, var(--background));
 }
 .chat-compose textarea {
+  field-sizing: fixed;
   background: transparent;
   border: 0;
   box-shadow: none !important;

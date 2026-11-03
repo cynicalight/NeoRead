@@ -139,6 +139,19 @@ export class ChatSession {
     readonly sessionId?: string,
   ) {}
   getSnapshot = () => this.state;
+  private summary?: Pick<ChatSnapshot, "messages" | "busy" | "loaded">;
+  // Reader/composer controls need lifecycle and saved history, not each delta.
+  getSummary = () => {
+    const { messages, busy, loaded } = this.state;
+    if (
+      !this.summary ||
+      this.summary.messages !== messages ||
+      this.summary.busy !== busy ||
+      this.summary.loaded !== loaded
+    )
+      this.summary = { messages, busy, loaded };
+    return this.summary;
+  };
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => {

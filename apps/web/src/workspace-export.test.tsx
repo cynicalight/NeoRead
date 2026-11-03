@@ -15,6 +15,8 @@ import { Workspace } from "./Workspace";
 import { paper } from "./papers/fixtures";
 import { useReaderStore } from "./store";
 import { ChatSession } from "./chat/chat-session";
+import * as sessionRegistry from "./chat/session-registry";
+import type { ChatStreamEvent } from "@neoread/api";
 import { tabCloseWarning } from "./document-tab-guards";
 import type { SessionPicker } from "./chat/SessionPicker";
 import type { ResizablePanelGroup } from "@neoread/ui/components/resizable";
@@ -509,4 +511,65 @@ it("keeps composition and modified Enter keys from sending and submits the lates
     expect.objectContaining({ prompt: "你好，新问题" }),
   );
   expect(composer().value).toBe("");
+});
+
+it("keeps streamed answer deltas out of the reader while accepting new draft input", async () => {
+  vi.mocked(api.chatSessions).mockResolvedValue([
+    {
+      id: "stream",
+      documentId: doc.id,
+      title: "test",
+      provider: "api",
+      createdAt: "now",
+      updatedAt: "now",
+    },
+  ]);
+  let emit!: (event: ChatStreamEvent) => void, finish!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const session = new ChatSession(doc.id, {
+    messages: async () => [],
+    stream: async (_doc, _input, _signal, callback) => {
+      emit = callback;
+      await waiting;
+    },
+  });
+  vi.spyOn(sessionRegistry, "getChatSession").mockReturnValue(session);
+  let running: Promise<void> | undefined;
+  try {
+    await act(async () => render(0));
+    await act(async () =>
+      panels.readerReady?.({
+        getLocation: () => undefined,
+      } as unknown as ReaderAdapter),
+    );
+    await act(async () => {
+      running = session.send({
+        provider: "api",
+        prompt: "question",
+        context: "",
+        references: [],
+        attachments: [],
+      });
+    });
+    await enterPrompt("new draft");
+    const before = panels.readerRenders;
+    for (const text of ["first", " second", " third"]) {
+      await act(async () => {
+        emit({ event: "delta", data: { text } });
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+    }
+    await enterPrompt("new draft typed while streaming");
+    expect(panels.readerRenders).toBe(before);
+    expect(composer().value).toBe("new draft typed while streaming");
+    expect(session.getSnapshot().pending?.content).toBe("first second third");
+  } finally {
+    await act(async () => {
+      finish();
+      await running;
+    });
+    session.dispose();
+  }
 });

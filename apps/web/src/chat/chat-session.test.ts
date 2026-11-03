@@ -590,3 +590,26 @@ it.each([true, false])(
     session.dispose();
   },
 );
+
+it("keeps the reader summary stable across streamed deltas but publishes lifecycle and saved history", async () => {
+  const { session, emit, wait } = setup();
+  const initial = session.getSummary();
+  await session.load();
+  expect(session.getSummary()).not.toBe(initial);
+  const idle = session.getSummary();
+  const running = session.send(input);
+  const active = session.getSummary();
+  expect(active).not.toBe(idle);
+  expect(active.busy).toBe(true);
+  for (const text of ["第一段", "第二段", "第三段"]) {
+    emit({ event: "delta", data: { text } });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(session.getSummary()).toBe(active);
+  }
+  expect(session.getSnapshot().pending?.content).toBe("第一段第二段第三段");
+  wait.resolve();
+  await running;
+  expect(session.getSummary()).not.toBe(active);
+  expect(session.getSummary().busy).toBe(false);
+  session.dispose();
+});
