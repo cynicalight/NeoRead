@@ -184,6 +184,53 @@ it("updates the active outline heading when reading moves within one PDF page", 
   expect(heading("Section 1").classList.contains("selected")).toBe(false);
 });
 
+it("dismisses stale selection toolbars on collapse or outside clicks while keeping toolbar actions usable", async () => {
+  await act(async () => render(0));
+  const text = document.createElement("p");
+  text.textContent = "selected reading text";
+  host.append(text);
+  const select = async () => {
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    await act(async () =>
+      panels.readerEvents!.selection({
+        text: text.textContent!,
+        location: { type: "pdf", page: 1 },
+        anchor: { x: 30, top: 20, bottom: 40 },
+      }),
+    );
+    expect(host.querySelector(".selection-bar")).not.toBeNull();
+  };
+  await select();
+  await act(async () =>
+    host
+      .querySelector(".selection-bar button")!
+      .dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      ),
+  );
+  expect(host.querySelector(".selection-bar")).not.toBeNull();
+  await act(async () => {
+    window.getSelection()!.collapseToStart();
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  expect(host.querySelector(".selection-bar")).toBeNull();
+  await select();
+  await act(async () =>
+    document.body.dispatchEvent(
+      new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+    ),
+  );
+  expect(host.querySelector(".selection-bar")).toBeNull();
+  await select();
+  await act(async () => window.dispatchEvent(new Event("blur")));
+  expect(host.querySelector(".selection-bar")).toBeNull();
+  window.getSelection()!.removeAllRanges();
+  text.remove();
+});
+
 it("restores user sidebar sizes and collapsed state without replacing expanded sizes with zero", async () => {
   function NeoRead() {
     const theme = useReaderStore((state) => state.theme);

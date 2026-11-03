@@ -282,6 +282,40 @@ export function Workspace({
   const selectionClipboard = useSelectionClipboard(theme.autoCopySelection);
   const [annotationTarget, setAnnotationTarget] =
     useState<ReaderAnnotationTarget | null>(null);
+  useEffect(() => {
+    if (!active || (!selection && !annotationTarget)) return;
+    const dismiss = () => {
+      setSelection(null);
+      setAnnotationTarget(null);
+      adapter?.clearSelection();
+    };
+    const pointer = (event: PointerEvent) => {
+      if (
+        event.button === 0 &&
+        !(
+          event.target instanceof Element &&
+          event.target.closest(".selection-bar")
+        )
+      )
+        dismiss();
+    };
+    const changed = () => {
+      if (
+        selection &&
+        (!window.getSelection()?.rangeCount ||
+          window.getSelection()?.isCollapsed)
+      )
+        dismiss();
+    };
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("selectionchange", changed);
+    window.addEventListener("blur", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", pointer, true);
+      document.removeEventListener("selectionchange", changed);
+      window.removeEventListener("blur", dismiss);
+    };
+  }, [active, selection, annotationTarget, adapter]);
   const { deleting, remove: removeAnnotation } = useAnnotationDeletion(
     doc.id,
     (id) => {
