@@ -113,9 +113,9 @@ it("loads PDF ranges on demand and uses hardware canvas acceleration within the 
     enableHWA: true,
   });
   expect(fixture.viewerOptions).toMatchObject({
-    maxCanvasPixels: 4 * 1024 * 1024,
-    maxCanvasDim: 4096,
-    preRenderViewports: 1,
+    maxCanvasPixels: 16 * 1024 * 1024,
+    maxCanvasDim: 8192,
+    preRenderViewports: 2,
   });
 });
 

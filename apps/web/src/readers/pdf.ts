@@ -133,12 +133,12 @@ export class PDFReaderAdapter implements ReaderAdapter {
       pageColors: pdfObjectColors(this.theme) ?? undefined,
       annotationMode: pdfjs.AnnotationMode.ENABLE,
       removePageBorders: true,
-      // Cap each PDF canvas so large zoom levels cannot allocate dozens of
-      // megapixel textures. PDF.js keeps detail rendering for the visible area.
-      maxCanvasPixels: 4 * 1024 * 1024,
-      maxCanvasDim: 4096,
-      // Prepare every page intersecting one viewport above and below the screen.
-      preRenderViewports: 1,
+      // Retain full-page Retina canvases at normal reading zoom rather than
+      // repainting detail tiles on every scroll. Extreme zoom stays bounded.
+      maxCanvasPixels: 16 * 1024 * 1024,
+      maxCanvasDim: 8192,
+      // Prepare two viewports in either direction before they enter the screen.
+      preRenderViewports: 2,
       imagesRightClickMinSize: -1,
     });
     this.links.setViewer(this.viewer);

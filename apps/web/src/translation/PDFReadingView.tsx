@@ -219,6 +219,10 @@ export function PDFReadingView({
     () => new Map(translations.map((t) => [t.blockId, t])),
     [translations],
   );
+  const blocksById = useMemo(
+    () => new Map(blocks.map((block) => [block.id, block])),
+    [blocks],
+  );
   const selecting = useRef(false),
     selection = useRef<ReaderSelection | null>(null),
     scrollFrame = useRef(0);
@@ -799,7 +803,7 @@ export function PDFReadingView({
           fraction: Math.max(0, Math.min(1, (y - r.top) / (r.height || 1))),
         };
       recordReading(anchor);
-      const block = blocks.find((b) => b.id === anchor.blockId);
+      const block = blocksById.get(anchor.blockId);
       if (block)
         events.location(
           {
@@ -873,6 +877,40 @@ export function PDFReadingView({
     cite: (id, label) => void visitCitation(id, label),
     translate: (id) => void translate(id),
   };
+  const translatedBlocks = useMemo(
+    () =>
+      visibleBlocks.map((block) => (
+        <PDFTranslationBlock
+          key={block.id}
+          block={block}
+          translation={byId.get(block.id)}
+          documentId={doc.id}
+          number={equationNumbers.byFormula.get(block.id)}
+          annotated={annotatedBlocks.has(block.id)}
+          hovered={hoveredBlock === block.id}
+          focused={focusedBlock === block.id}
+          searchHit={searchBlockIds.includes(block.id)}
+          renderImage={blockImages?.url}
+          releaseImage={blockImages?.release}
+          imageScale={block.image ? translationZoom.zoom : 1}
+          paused={processing?.enabled === false}
+          interactions={blockInteractions}
+        />
+      )),
+    [
+      visibleBlocks,
+      byId,
+      doc.id,
+      equationNumbers,
+      annotatedBlocks,
+      hoveredBlock,
+      focusedBlock,
+      searchBlockIds,
+      blockImages,
+      translationZoom.zoom,
+      processing?.enabled,
+    ],
+  );
   const toolbar = (
     <div className="translation-toolbar">
       {!autoCenterHost && autoCenterButton}
@@ -1118,24 +1156,7 @@ export function PDFReadingView({
                       : "正文仍在解析中，完成的段落会在这里显示。"}
                   </p>
                 )}
-                {visibleBlocks.map((block) => (
-                  <PDFTranslationBlock
-                    key={block.id}
-                    block={block}
-                    translation={byId.get(block.id)}
-                    documentId={doc.id}
-                    number={equationNumbers.byFormula.get(block.id)}
-                    annotated={annotatedBlocks.has(block.id)}
-                    hovered={hoveredBlock === block.id}
-                    focused={focusedBlock === block.id}
-                    searchHit={searchBlockIds.includes(block.id)}
-                    renderImage={blockImages?.url}
-                    releaseImage={blockImages?.release}
-                    imageScale={block.image ? translationZoom.zoom : 1}
-                    paused={processing?.enabled === false}
-                    interactions={blockInteractions}
-                  />
-                ))}
+                {translatedBlocks}
               </div>
             </div>
           )

@@ -467,9 +467,9 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
 -    const pageView = this.renderingQueue.getHighestPriority(visiblePages, this._pages, scrollAhead, preRenderExtra, ignoreDetailViews);
 +    const renderAhead = this.#preRenderViewports ? this._getVisiblePages(this.#preRenderViewports) : null;
 +    if (renderAhead) {
-+      // Re-evaluate after lazy page sizes resolve, retaining two recently used
-+      // pages outside the window without evicting pages still being prepared.
-+      this.#buffer.resize(renderAhead.views.length + 2, renderAhead.ids);
++      // Preserve PDF.js's normal cache as well as every page being prepared,
++      // so reversing a scroll can reuse recently rendered full-page canvases.
++      this.#buffer.resize(Math.max(DEFAULT_CACHE_SIZE, renderAhead.views.length + 2), renderAhead.ids);
 +    }
 +    const pageView = this.renderingQueue.getHighestPriority(visiblePages, this._pages, scrollAhead, preRenderExtra, ignoreDetailViews, renderAhead);
      if (pageView) {
