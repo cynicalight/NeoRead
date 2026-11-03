@@ -138,10 +138,11 @@ const processing: Processing = {
   updatedAt: "",
 };
 let root: Root, host: HTMLDivElement;
-const render = (tick: number) =>
+const render = (tick: number, active = true) =>
   root.render(
     <TooltipProvider>
       <Workspace
+        active={active}
         document={doc}
         theme={defaultTheme}
         processing={{ ...processing, updatedAt: String(tick) }}
@@ -473,6 +474,7 @@ it("restores the latest session draft and text when the composer remounts", asyn
 });
 
 it("keeps long Chinese composition and paste native across workspace updates", async () => {
+  const errors = vi.spyOn(console, "error");
   await act(async () => render(0));
   const long = "长中文草稿需要保留输入法候选和光标。".repeat(200);
   await enterPrompt(long);
@@ -483,6 +485,9 @@ it("keeps long Chinese composition and paste native across workspace updates", a
   expect(composer().defaultValue).toBe("");
   expect(composer().value).toBe(long);
   expect(composer().selectionStart).toBe(20);
+  expect(
+    errors.mock.calls.filter((call) => String(call[0]).includes("same key")),
+  ).toHaveLength(0);
   const renders = panels.readerRenders;
   await act(async () => {
     composer().dispatchEvent(
@@ -505,6 +510,57 @@ it("keeps long Chinese composition and paste native across workspace updates", a
   await act(async () => render(21));
   expect(composer().defaultValue).toBe("");
   expect(composer().value).toBe(long + "一次粘贴大量中文。".repeat(300));
+});
+
+it("avoids unchanged session refreshes and pauses catalog polling for background tabs", async () => {
+  vi.useFakeTimers();
+  try {
+    const catalog = [
+      {
+        id: "polling",
+        documentId: doc.id,
+        title: "original",
+        provider: "api",
+        createdAt: "now",
+        updatedAt: "now",
+      },
+    ];
+    vi.mocked(api.chatSessions).mockResolvedValue(catalog);
+    await act(async () => render(0));
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    const reads = vi.mocked(api.chatSessions).mock.calls.length;
+    const renders = panels.readerRenders;
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
+    expect(api.chatSessions).toHaveBeenCalledTimes(reads + 1);
+    expect(panels.readerRenders).toBe(renders);
+    vi.mocked(api.chatSessions).mockResolvedValue([
+      { ...catalog[0], title: "renamed" },
+    ]);
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
+    expect(panels.sessions?.sessions[0].title).toBe("renamed");
+    let resolveCatalog!: (items: typeof catalog) => void;
+    vi.mocked(api.chatSessions).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCatalog = resolve;
+        }),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
+    await act(async () => render(1, false));
+    const backgroundRenders = panels.readerRenders;
+    await act(async () =>
+      resolveCatalog([{ ...catalog[0], title: "late background response" }]),
+    );
+    expect(panels.sessions?.sessions[0].title).toBe("renamed");
+    expect(panels.readerRenders).toBe(backgroundRenders);
+    const paused = vi.mocked(api.chatSessions).mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(9000));
+    expect(api.chatSessions).toHaveBeenCalledTimes(paused);
+    await act(async () => render(2, true));
+    expect(api.chatSessions).toHaveBeenCalledTimes(paused + 1);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("keeps composition and modified Enter keys from sending and submits the latest text with Enter", async () => {
@@ -569,6 +625,7 @@ it("keeps composition and modified Enter keys from sending and submits the lates
 });
 
 it("keeps streamed answer deltas out of the reader while accepting new draft input", async () => {
+  vi.useFakeTimers();
   vi.mocked(api.chatSessions).mockResolvedValue([
     {
       id: "stream",
@@ -609,17 +666,15 @@ it("keeps streamed answer deltas out of the reader while accepting new draft inp
       });
     });
     await enterPrompt("new draft");
-    // Settle the reader's initial frame before measuring streamed updates.
-    await act(async () => {
-      await new Promise((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(resolve)),
-      );
-    });
+    // Settle initial annotation loading (50 ms) and the reader frame before
+    // measuring streamed updates, so initialization is not counted as a delta.
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    expect(api.annotations).toHaveBeenCalledOnce();
     const before = panels.readerRenders;
     for (const text of ["first", " second", " third"]) {
       await act(async () => {
         emit({ event: "delta", data: { text } });
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        await vi.advanceTimersByTimeAsync(25);
       });
     }
     await enterPrompt("new draft typed while streaming");
@@ -632,6 +687,7 @@ it("keeps streamed answer deltas out of the reader while accepting new draft inp
       await running;
     });
     session.dispose();
+    vi.useRealTimers();
   }
 });
 

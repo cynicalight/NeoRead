@@ -407,7 +407,12 @@ export function Workspace({
       currentDocument.current === doc.id &&
       serial === sessionListSerial.current
     ) {
-      setSessionCatalog({ documentId: doc.id, items });
+      setSessionCatalog((current) =>
+        current.documentId === doc.id &&
+        JSON.stringify(current.items) === JSON.stringify(items)
+          ? current
+          : { documentId: doc.id, items },
+      );
       setSessionError("");
     }
   }, [doc.id]);
@@ -418,6 +423,7 @@ export function Workspace({
     } catch {}
   };
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -433,8 +439,9 @@ export function Workspace({
     return () => {
       alive = false;
       clearTimeout(timer);
+      sessionListSerial.current++;
     };
-  }, [refreshSessions]);
+  }, [refreshSessions, active]);
   const prompt = useRef("");
   const promptContentChanged = useRef<((hasText: boolean) => void) | undefined>(
     undefined,
@@ -1951,7 +1958,7 @@ export function Workspace({
       </ResizablePanelGroup>
 
       <SelectionTranslation
-        key={doc.id}
+        key={`selection-translation-${doc.id}`}
         selection={active ? translationSelection : null}
         onClose={() => setTranslationSelection(null)}
       />
@@ -1961,7 +1968,7 @@ export function Workspace({
         onEdit={editAnnotationNote}
       />
       <LinkPreviewPanel
-        key={doc.id}
+        key={`link-preview-${doc.id}`}
         preview={active ? linkPreview : null}
         onDismiss={() => setLinkPreview(null)}
         onNavigate={(location) =>
@@ -2074,7 +2081,7 @@ export function Workspace({
         />
       )}
       <DocumentOverviewDialog
-        key={doc.id}
+        key={`document-overview-${doc.id}`}
         document={active && overviewOpen ? doc : null}
         onClose={() => setOverviewOpen(false)}
         onNavigate={async (location) => {
