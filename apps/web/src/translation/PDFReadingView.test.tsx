@@ -26,7 +26,7 @@ const fixture = vi.hoisted(() => ({
       ) => void)
     | undefined,
   signal: undefined as AbortSignal | undefined,
-  resizes: new Map<Element, () => void>(),
+  resizes: new Map<Element, Set<() => void>>(),
 }));
 vi.mock("@neoread/api", () => ({
   api: {
@@ -124,10 +124,16 @@ beforeEach(async () => {
       constructor(private callback: () => void) {}
       observe(node: Element) {
         this.nodes.add(node);
-        fixture.resizes.set(node, this.callback);
+        const callbacks = fixture.resizes.get(node) ?? new Set();
+        callbacks.add(this.callback);
+        fixture.resizes.set(node, callbacks);
       }
       disconnect() {
-        for (const node of this.nodes) fixture.resizes.delete(node);
+        for (const node of this.nodes) {
+          const callbacks = fixture.resizes.get(node);
+          callbacks?.delete(this.callback);
+          if (!callbacks?.size) fixture.resizes.delete(node);
+        }
       }
     },
   );
@@ -235,6 +241,9 @@ async function click(label: string) {
       );
     });
   }
+}
+function notifyResize(node: Element) {
+  fixture.resizes.get(node)?.forEach((callback) => callback());
 }
 it("switches modes without recreating the PDF or marking the opposite selection", async () => {
   await click("原文译文");
@@ -572,6 +581,38 @@ function translationGeometry(height = 200) {
     new DOMRect(40, 600 - pane.scrollTop, 520, height);
   return { pane, block };
 }
+it("updates translation insets once after a window-height transition settles", async () => {
+  await click("原文译文");
+  const { pane } = translationGeometry();
+  const frame = pane.parentElement!;
+  let height = 600;
+  Object.defineProperty(frame, "clientHeight", {
+    get: () => height,
+    configurable: true,
+  });
+  const write = vi.spyOn(pane.style, "setProperty");
+  vi.useFakeTimers();
+  try {
+    for (const next of [700, 800, 1000]) {
+      height = next;
+      await act(async () => {
+        notifyResize(frame);
+        await vi.advanceTimersByTimeAsync(32);
+      });
+      expect(write).not.toHaveBeenCalled();
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    expect(write).toHaveBeenCalledExactlyOnceWith(
+      "--translation-inset",
+      "500px",
+    );
+  } finally {
+    vi.useRealTimers();
+    write.mockRestore();
+  }
+});
 it("reuses follow coordinates and skips identical scroll writes until translation layout changes", async () => {
   await click("原文译文");
   const { pane, block } = translationGeometry();
@@ -599,7 +640,7 @@ it("reuses follow coordinates and skips identical scroll writes until translatio
   expect(write).toHaveBeenCalledTimes(2);
 
   await act(async () =>
-    fixture.resizes.get(pane.querySelector(".translation-content")!)?.(),
+    notifyResize(pane.querySelector(".translation-content")!),
   );
   await follow();
   expect(measure).toHaveBeenCalledTimes(2);
@@ -621,14 +662,14 @@ it("reuses follow coordinates and skips identical scroll writes until translatio
   await click("放大译文");
   await follow();
   expect(measure).toHaveBeenCalledTimes(5);
-  await act(async () => fixture.resizes.get(pane)?.());
+  await act(async () => notifyResize(pane));
   await follow();
   expect(measure).toHaveBeenCalledTimes(6);
   await click("仅原文");
   await click("原文译文");
   const restored = translationGeometry();
   const remeasure = vi.spyOn(restored.block, "getBoundingClientRect");
-  await act(async () => fixture.resizes.get(restored.pane)?.());
+  await act(async () => notifyResize(restored.pane));
   await follow();
   expect(remeasure).toHaveBeenCalledTimes(1);
 });

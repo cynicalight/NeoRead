@@ -17,6 +17,7 @@ import { sourcePassage, translatedSentenceRanges } from "./sentence-links";
 import { blockRange, resolveEPUBLocation } from "../readers/epub-web-location";
 import { epubSentenceSlice } from "./epub-links";
 import { searchRanges } from "./search-ranges";
+import { PDFResizeObserver } from "../readers/pdf-resize";
 
 type Mark = { annotation: Annotation; range: Range };
 const emptySearchResults: SearchResult[] = [];
@@ -553,8 +554,7 @@ export function useSentenceMarks(
       subtree: true,
       characterData: true,
     });
-    const resize = new ResizeObserver(schedule);
-    resize.observe(host);
+    const resize = new PDFResizeObserver(host, paint, interruptHover);
     repaint.current = paint;
     paint();
     host.addEventListener("pointermove", move);

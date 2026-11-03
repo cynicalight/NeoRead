@@ -205,6 +205,38 @@ it("applies the final scale without animation for reduced motion", () => {
   }
 });
 
+it("preserves the reading point on native maximize and restore without a second scale animation", () => {
+  const s = setup();
+  const point = s.point();
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const element = document.createElement("div");
+  const animate = vi.fn();
+  Object.defineProperty(element, "animate", { value: animate });
+  s.viewer.viewer = element;
+  const scale = vi.spyOn(s.viewer, "updateScale");
+
+  vi.stubGlobal("innerWidth", width + 600);
+  vi.stubGlobal("innerHeight", height + 300);
+  s.size.width = 1200;
+  s.size.height = 900;
+  s.resize();
+  expect(s.viewer.currentScale).toBeCloseTo(2.4);
+  expect(s.point().x).toBeCloseTo(point.x);
+  expect(s.point().y).toBeCloseTo(point.y);
+
+  vi.stubGlobal("innerWidth", width);
+  vi.stubGlobal("innerHeight", height);
+  s.size.width = 800;
+  s.size.height = 600;
+  s.resize();
+  expect(s.viewer.currentScale).toBeCloseTo(1.6);
+  expect(s.point().x).toBeCloseTo(point.x);
+  expect(s.point().y).toBeCloseTo(point.y);
+  expect(scale).toHaveBeenCalledTimes(2);
+  expect(animate).not.toHaveBeenCalled();
+});
+
 async function renderingWindow(heights: number[], top: number, height: number) {
   vi.stubGlobal(
     "ResizeObserver",

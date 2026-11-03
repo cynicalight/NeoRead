@@ -6,6 +6,7 @@ import {
   type RefObject,
 } from "react";
 import { zoomCommand } from "@neoread/core";
+import { PDFResizeObserver } from "../readers/pdf-resize";
 
 /** Scale from the pane's fitted width, keeping the pointer's content fixed. */
 export function useTranslationZoom(
@@ -48,8 +49,7 @@ export function useTranslationZoom(
     if (!enabled || !element) return;
     const resize = () => setWidth(Math.max(1, element.clientWidth - 32));
     resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(element);
+    const observer = new PDFResizeObserver(element, resize, () => {});
     const wheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();

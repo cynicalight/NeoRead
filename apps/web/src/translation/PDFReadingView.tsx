@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import { ReaderView } from "../ReaderView";
 import { overlap, ReadingSync } from "../readers/pdf-reading";
 import { animatePDFScroll } from "../readers/pdf-scroll";
+import { PDFResizeObserver } from "../readers/pdf-resize";
 import { TranslationPanes } from "./TranslationPanes";
 import { formulaNumbers } from "./formulaNumbers";
 import { TranslationText } from "./TranslationText";
@@ -178,23 +179,25 @@ export function PDFReadingView({
     let initialized = false;
     const resize = () => {
       invalidateFollowGeometry();
-      const node = Array.from(
-        host.querySelectorAll<HTMLElement>("[data-translation-block]"),
-      ).find(
-        (node) => node.dataset.translationBlock === reading.current?.blockId,
-      );
+      const inset = `${frame.clientHeight / 2}px`;
+      if (host.style.getPropertyValue("--translation-inset") === inset) {
+        initialized = true;
+        return;
+      }
+      const node =
+        reading.current && nodesById.current.get(reading.current.blockId);
       const before = node?.getBoundingClientRect().top;
-      host.style.setProperty(
-        "--translation-inset",
-        `${frame.clientHeight / 2}px`,
-      );
+      host.style.setProperty("--translation-inset", inset);
       if (initialized && node && before !== undefined)
         host.scrollTop += node.getBoundingClientRect().top - before;
       initialized = true;
     };
     resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(frame);
+    const observer = new PDFResizeObserver(
+      frame,
+      resize,
+      invalidateFollowGeometry,
+    );
     return () => {
       observer.disconnect();
       invalidateFollowGeometry();

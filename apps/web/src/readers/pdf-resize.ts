@@ -1,4 +1,4 @@
-/** Coalesce layout changes, keeping the PDF fixed until a panel gesture ends. */
+/** Coalesce reader layout changes until the window or panel gesture settles. */
 export class PDFResizeObserver {
   private observer: ResizeObserver;
   private mutations: MutationObserver;
