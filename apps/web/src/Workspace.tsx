@@ -4,7 +4,7 @@ import {
   selectAllInScope,
 } from "./readers/scoped-selection";
 import { webSearchEnabled } from "./chat/web-search";
-import { NavigationTree } from "./NavigationTree";
+import { LiveNavigationTree } from "./LiveNavigationTree";
 import { useShortcut } from "./shortcuts/shortcuts";
 import { registerTabCloseGuard } from "./document-tab-guards";
 import { useDocumentTheme } from "./useDocumentTheme";
@@ -255,9 +255,10 @@ export function Workspace({
     }
   };
   const [toc, setTOC] = useState<TOCItem[]>([]);
-  const [location, setLocation] = useState<DocumentLocation | undefined>(
-    doc.progress,
-  );
+  const location = useRef<DocumentLocation | undefined>(doc.progress);
+  const locationChanged = useRef<
+    ((next: DocumentLocation) => void) | undefined
+  >(undefined);
   const lastReadingLocation = useRef(doc.progress);
   const resumeReading = useRef(false);
   useEffect(() => {
@@ -614,7 +615,8 @@ export function Workspace({
     if (!active) return;
     lastReadingLocation.current = next;
     setTranslationSelection(null);
-    setLocation(next);
+    location.current = next;
+    locationChanged.current?.(next);
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
     if (next.type === "pdf") setPageInput(String(next.page));
     scheduleProgress(doc.id, { progress: next, percentage: percent }, (e) =>
@@ -630,7 +632,9 @@ export function Workspace({
     const source = written ? noteSelection : selection;
     const target =
       kind === "bookmark"
-        ? (adapter?.getLocation() ?? lastReadingLocation.current ?? location)
+        ? (adapter?.getLocation() ??
+          lastReadingLocation.current ??
+          location.current)
         : source?.location;
     if (!target || annotationSaving.current) return;
     annotationSaving.current = true;
@@ -1438,7 +1442,7 @@ export function Workspace({
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="toc" className="min-h-0 flex-1">
-                <NavigationTree
+                <LiveNavigationTree
                   key={doc.id}
                   documentId={doc.id}
                   type={doc.type}
@@ -1446,6 +1450,7 @@ export function Workspace({
                   blocks={blocks}
                   annotations={annotations}
                   location={location}
+                  changed={locationChanged}
                   go={move}
                 />
               </TabsContent>

@@ -18,6 +18,7 @@ type GroupProps = ComponentProps<typeof ResizablePanelGroup>;
 const panels = vi.hoisted(() => ({
   props: undefined as GroupProps | undefined,
   readerEvents: undefined as ReaderEvents | undefined,
+  readerRenders: 0,
 }));
 
 vi.mock("@neoread/api", () => ({
@@ -56,6 +57,7 @@ vi.mock("@neoread/ui/components/scroll-area", () => ({
 }));
 vi.mock("./translation/PDFReadingView", () => ({
   PDFReadingView: ({ events }: { events: ReaderEvents }) => {
+    panels.readerRenders++;
     panels.readerEvents = events;
     return null;
   },
@@ -163,6 +165,15 @@ it("updates the active outline heading when reading moves within one PDF page", 
     ),
   );
   expect(heading("Section 1").classList.contains("selected")).toBe(true);
+  const renders = panels.readerRenders;
+  for (let i = 0; i < 30; i++)
+    await act(async () =>
+      panels.readerEvents!.location(
+        { type: "pdf", page: 1, x: 0.1, y: 0.15 + i * 0.019 },
+        0.5,
+      ),
+    );
+  expect(panels.readerRenders).toBe(renders);
   await act(async () =>
     panels.readerEvents!.location(
       { type: "pdf", page: 1, x: 0.1, y: 0.72 },
