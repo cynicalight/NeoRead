@@ -11,6 +11,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"rsc.io/pdf"
 )
 
@@ -190,6 +192,8 @@ func (s *Server) savePreferences(w http.ResponseWriter, r *http.Request) {
 // errInvalidTag is a rename that would produce an invalid tag on some document.
 type errInvalidTag struct{ error }
 
+var errLabelCountChanged = errors.New("使用此标签的文档数量已变化，请重新确认")
+
 // tagSuffix reports whether tag is name or nested under it, and the remainder.
 func tagSuffix(tag, name string) (string, bool) {
 	if strings.EqualFold(tag, name) {
@@ -201,8 +205,12 @@ func tagSuffix(tag, name string) (string, bool) {
 	return "", false
 }
 
-func (s *Store) changeLabels(library, column, from, to string) (int, error) {
+func (s *Store) changeLabels(library, column, from, to string, expectedCount *int) (int, error) {
 	nested := column == "folders"
+	removePaperTag := library == "papers" && !nested && to == ""
+	// Match the paper filter's Unicode toLowerCase, including contextual Greek sigma.
+	lower := cases.Lower(language.Und)
+	tagKey := lower.String(from)
 	tx, err := s.DB.Begin()
 	if err != nil {
 		return 0, err
@@ -223,7 +231,12 @@ func (s *Store) changeLabels(library, column, from, to string) (int, error) {
 		}
 		next, hit := []string{}, false
 		for _, tag := range tags {
-			if rest, ok := tagSuffix(tag, from); ok && (nested || rest == "") {
+			if removePaperTag {
+				if lower.String(tag) == tagKey {
+					hit = true
+					continue
+				}
+			} else if rest, ok := tagSuffix(tag, from); ok && (nested || rest == "") {
 				hit = true
 				if to == "" {
 					continue
@@ -236,15 +249,24 @@ func (s *Store) changeLabels(library, column, from, to string) (int, error) {
 			continue
 		}
 		b, _ := json.Marshal(next)
-		normalized, e := normalizeTags(b)
-		if e != nil {
-			rows.Close()
-			return 0, errInvalidTag{e}
+		// Removing a paper tag must preserve all surviving labels verbatim.
+		if !removePaperTag {
+			normalized, e := normalizeTags(b)
+			if e != nil {
+				rows.Close()
+				return 0, errInvalidTag{e}
+			}
+			b, _ = json.Marshal(normalized)
 		}
-		b, _ = json.Marshal(normalized)
 		changes = append(changes, change{id, string(b)})
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if expectedCount != nil && *expectedCount != len(changes) {
+		return 0, errLabelCountChanged
+	}
 	for _, c := range changes {
 		if _, err = tx.Exec("UPDATE documents SET "+column+"=? WHERE id=?", c.tags, c.id); err != nil {
 			return 0, err
@@ -265,8 +287,9 @@ func (s *Server) changeLibraryLabel(w http.ResponseWriter, r *http.Request, colu
 		return
 	}
 	var v struct {
-		From string  `json:"from"`
-		To   *string `json:"to"`
+		From          string  `json:"from"`
+		To            *string `json:"to"`
+		ExpectedCount *int    `json:"expectedCount"`
 	}
 	if !decode(w, r, &v) {
 		return
@@ -286,7 +309,15 @@ func (s *Server) changeLibraryLabel(w http.ResponseWriter, r *http.Request, colu
 		fail(w, 400, "请指定名称")
 		return
 	}
-	count, err := s.Store.changeLabels(library, column, from, to)
+	if v.ExpectedCount != nil && (column != "tags" || *v.ExpectedCount < 0) {
+		fail(w, 400, "无效的影响数量")
+		return
+	}
+	count, err := s.Store.changeLabels(library, column, from, to, v.ExpectedCount)
+	if errors.Is(err, errLabelCountChanged) {
+		fail(w, 409, err.Error())
+		return
+	}
 	var invalid errInvalidTag
 	if errors.As(err, &invalid) {
 		fail(w, 400, "改名后的名称须为 1–40 个字符（分类含上级分类）")

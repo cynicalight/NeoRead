@@ -4726,6 +4726,12 @@
                               "properties":
                                 {
                                   "from": { "type": "string", "minLength": 1 },
+                                  "expectedCount":
+                                    {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "description": "Return 409 without changing any document if the affected count differs from the confirmed count.",
+                                    },
                                   "to":
                                     {
                                       "type": "string",

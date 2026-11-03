@@ -262,6 +262,87 @@ func TestRenameAndRemoveLibraryTag(t *testing.T) {
 	}
 }
 
+func TestRemoveConfirmedPaperTag(t *testing.T) {
+	s := testServer(t)
+	const metadata = `{"venue":"Conference"}`
+	const note = `{"tags":["Draft"]}`
+	const prefs = `{"papers":{"smartCategories":[{"id":"s","name":"待审","tags":["Draft","Keep"]}]}}`
+	for i := 0; i <= 30; i++ {
+		library, tags, deleted := "papers", `["Keep"]`, ""
+		if i < 12 || i == 30 {
+			tags = `["Keep","dRaFt","Draft/child","Keep"]`
+		}
+		if i == 11 {
+			deleted = now()
+		}
+		if i == 30 {
+			library = "books"
+		}
+		if _, err := s.Store.DB.Exec(`INSERT INTO documents(id,type,title,author,size,created_at,last_opened_at,library,tags,metadata,deleted_at)
+			VALUES(?,'pdf','Title','Author',1,'t','t',?,?,?,?)`, fmt.Sprint(i), library, tags, metadata, deleted); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Store.DB.Exec("INSERT INTO annotations VALUES('note','0',?)", note); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Store.DB.Exec("INSERT INTO settings VALUES('preferences:library',?)", prefs); err != nil {
+		t.Fatal(err)
+	}
+	remove := func(expected int) *httptest.ResponseRecorder {
+		return request(t, s, "POST", "/api/libraries/papers/tags", strings.NewReader(fmt.Sprintf(`{"from":"Draft","expectedCount":%d}`, expected)))
+	}
+	if w := remove(11); w.Code != 409 {
+		t.Fatalf("stale confirmation: got %d %s", w.Code, w.Body.String())
+	}
+	if _, err := s.Store.DB.Exec(`CREATE TRIGGER fail_tag BEFORE UPDATE OF tags ON documents WHEN OLD.id='11' BEGIN SELECT RAISE(ABORT, 'blocked'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if w := remove(12); w.Code != 500 {
+		t.Fatalf("write failure: got %d %s", w.Code, w.Body.String())
+	}
+	if _, err := s.Store.DB.Exec("DROP TRIGGER fail_tag"); err != nil {
+		t.Fatal(err)
+	}
+	if w := remove(12); w.Code != 200 || !strings.Contains(w.Body.String(), `"changed":12`) {
+		t.Fatalf("confirmed removal: got %d %s", w.Code, w.Body.String())
+	}
+	for i := 0; i <= 30; i++ {
+		var tags, savedMetadata string
+		want := `["Keep"]`
+		if i < 12 {
+			want = `["Keep","Draft/child","Keep"]`
+		} else if i == 30 {
+			want = `["Keep","dRaFt","Draft/child","Keep"]`
+		}
+		if err := s.Store.DB.QueryRow("SELECT tags,metadata FROM documents WHERE id=?", fmt.Sprint(i)).Scan(&tags, &savedMetadata); err != nil || tags != want || savedMetadata != metadata {
+			t.Fatalf("document %d: tags=%s metadata=%s err=%v", i, tags, savedMetadata, err)
+		}
+	}
+	var savedPrefs string
+	if err := s.Store.DB.QueryRow("SELECT value FROM settings WHERE key='preferences:library'").Scan(&savedPrefs); err != nil || savedPrefs != prefs {
+		t.Fatalf("smart category: %s err=%v", savedPrefs, err)
+	}
+	var savedNote string
+	if err := s.Store.DB.QueryRow("SELECT body FROM annotations WHERE id='note'").Scan(&savedNote); err != nil || savedNote != note {
+		t.Fatalf("annotation: %s err=%v", savedNote, err)
+	}
+}
+
+func TestPaperTagRemovalMatchesTheDisplayedTag(t *testing.T) {
+	s := testServer(t)
+	// The renderer lowercases "ΟΣ" to "ος", but displays "οσ" separately.
+	if _, err := s.Store.DB.Exec(`INSERT INTO documents(id,type,title,author,size,created_at,last_opened_at,library,tags)
+		VALUES ('doc','pdf','Paper','',1,'t','t','papers','["ΟΣ","ος","οσ"]')`); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, s, "POST", "/api/libraries/papers/tags", strings.NewReader(`{"from":"ΟΣ","expectedCount":1}`))
+	d, err := s.Store.Document("doc")
+	if w.Code != 200 || err != nil || strings.Join(d.Tags, ",") != "οσ" {
+		t.Fatalf("remaining tags=%v, status=%d, err=%v", d.Tags, w.Code, err)
+	}
+}
+
 func TestFoldersNestButTagsStayFlat(t *testing.T) {
 	s := testServer(t)
 	w := uploadTo(t, s, "papers", "p.pdf", testPDF(1))
