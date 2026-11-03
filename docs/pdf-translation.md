@@ -78,6 +78,8 @@
 
 ## 原文块修复
 
+- 根据 PDF 的 CMSY / MSBM 字体恢复花体和双线体数学大写字母（如 `𝒯`、`ℝ`），保留普通正文和数学斜体。译文分别使用 `\mathcal{T}`、`\mathbb{R}`，不退化为普通字母。新版提取标记为 `textExtractionVersion: 3`；既有缓存保持不变，可用下述离线工具生成文字修复候选。
+
 - 文字坐标统一使用有效的字体 ascent；为零或无效时依次使用有效 descent 和 0.8 的回退值。正文提取和前端句子定位共用这条规则。
 - 同一栏中互不重叠的块按上下位置约束排序；跨栏部分保留模型顺序，全宽区域约束两侧。排序不改变现有缓存的 block ID、矩形和图片引用。
 - `node apps/processor/dist/repair-text.mjs --input PDF --manifest 原缓存/manifest.json --output 空目录` 可生成修复候选，不重新调用 Paddle，也不覆盖原缓存。输入 PDF 必须匹配原 manifest 的 SHA256。

@@ -209,7 +209,7 @@ try {
   stage("manifest_write");
   const manifest = {
     schemaVersion: 1,
-    textExtractionVersion: 2,
+    textExtractionVersion: 3,
     inputSHA256: await digest(input),
     model,
     pages: pdf.numPages,
