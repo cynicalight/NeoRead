@@ -1,9 +1,14 @@
 import type { DocumentLocation } from "@neoread/core";
 import { api } from "@neoread/api";
-type Progress = { progress: DocumentLocation; percentage: number };
+type Progress = {
+  progress: DocumentLocation;
+  percentage: number;
+  bodyReadPosition?: number;
+};
 type Update = { id: string; patch: Progress; version: number };
 const latest = new Map<string, Update>();
 const versions = new Map<string, number>();
+const furthestPositions = new Map<string, number>();
 let timer: ReturnType<typeof setTimeout> | undefined;
 let saving: Promise<unknown> = Promise.resolve();
 const errors = new Map<string, unknown>();
@@ -13,6 +18,7 @@ export function forgetProgress(ids: string[]) {
     versions.set(id, (versions.get(id) || 0) + 1);
     latest.delete(id);
     errors.delete(id);
+    furthestPositions.delete(id);
   }
 }
 export function scheduleProgress(
@@ -22,6 +28,18 @@ export function scheduleProgress(
 ) {
   const version = (versions.get(id) || 0) + 1;
   versions.set(id, version);
+  if (patch.progress.type === "pdf") {
+    const furthest = Math.max(
+      furthestPositions.get(id) ?? 0,
+      patch.bodyReadPosition ?? 0,
+      patch.progress.page - 1 + (patch.progress.y ?? 0),
+    );
+    furthestPositions.set(id, furthest);
+    patch = {
+      ...patch,
+      bodyReadPosition: furthest,
+    };
+  }
   latest.set(id, { id, patch, version });
   clearTimeout(timer);
   timer = setTimeout(() => {

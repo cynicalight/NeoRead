@@ -165,6 +165,9 @@ func (s *Server) reparsePDF(ctx context.Context, d Document) error {
 			return nil
 		}
 	}
+	if err = s.Store.saveBodyEnd(d.ID, m); err != nil {
+		return err
+	}
 	if err = s.Store.queueDocumentCorpus(d.ID); err != nil {
 		s.diagnosticEvent(slog.LevelWarn, "document.reparse.index_failed", "documentId", d.ID, "errorCode", errorKind(err))
 	}

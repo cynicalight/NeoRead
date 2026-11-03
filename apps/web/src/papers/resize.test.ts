@@ -1,11 +1,48 @@
 import { expect, it } from "vitest";
 import {
   clampDetailWidth,
+  fitColumnWidths,
   resizeBoundary as calculateBoundary,
 } from "./resize";
 
 // Explicit minimums keep the cascade examples independent of font metrics.
 const minimums = { title: 160, authors: 48, year: 48, status: 48, venue: 48 };
+it("fits oversized saved columns to the current pane and keeps the final body-progress column", () => {
+  const saved = {
+    title: 770,
+    published: 106,
+    added: 183,
+    venue: 708,
+    bodyProgress: 112,
+  };
+  const columns = [
+    "title",
+    "published",
+    "added",
+    "venue",
+    "bodyProgress",
+  ] as const;
+  const minimums = {
+    title: 72,
+    published: 100,
+    added: 100,
+    venue: 80,
+    bodyProgress: 112,
+  };
+  const fitted = fitColumnWidths(saved, columns, minimums, 800);
+  expect(fitted).toEqual({
+    title: 408,
+    published: 100,
+    added: 100,
+    venue: 80,
+    bodyProgress: 112,
+  });
+  expect(saved.venue).toBe(708);
+  expect(fitColumnWidths(saved, columns, minimums, 2200)).toBe(saved);
+  expect(fitColumnWidths(saved, columns, minimums, 0)).toBe(saved);
+  const narrow = fitColumnWidths(saved, columns, minimums, 300);
+  expect(narrow).toEqual(minimums);
+});
 const resizeBoundary = (
   widths: Parameters<typeof calculateBoundary>[0],
   left: Parameters<typeof calculateBoundary>[1],

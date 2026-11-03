@@ -578,15 +578,21 @@ export function Workspace({
         .goTo({ type: "pdf", page: linkTarget.page })
         .catch((e) => toast.error(e.message));
   }, [linkTarget, adapter, annotationsLoaded, annotations, doc.id, doc.type]);
-  const saveLocation = (next: DocumentLocation, percent: number) => {
+  const saveLocation = (
+    next: DocumentLocation,
+    percent: number,
+    bodyReadPosition?: number,
+  ) => {
     if (!active) return;
     lastReadingLocation.current = next;
     setTranslationSelection(null);
     setLocation(next);
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
     if (next.type === "pdf") setPageInput(String(next.page));
-    scheduleProgress(doc.id, { progress: next, percentage: percent }, (e) =>
-      toast.error(e.message),
+    scheduleProgress(
+      doc.id,
+      { progress: next, percentage: percent, bodyReadPosition },
+      (e) => toast.error(e.message),
     );
   };
   const annotate = async (

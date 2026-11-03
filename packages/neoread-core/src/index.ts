@@ -153,6 +153,7 @@ export type PaperColumn =
   | "published"
   | "tags"
   | "progress"
+  | "bodyProgress"
   | "doi"
   | "arxiv"
   | "size"
@@ -257,6 +258,9 @@ export interface TagBoard {
   match: "all" | "any";
 }
 export interface Document {
+  bodyEnd?: { page: number; y: number };
+  /** Furthest PDF position, in completed pages plus the fraction of the next page. */
+  bodyReadPosition?: number;
   category: DocumentCategory;
   categorySource: "default" | "ai" | "manual";
   classificationStatus: "idle" | "pending" | "running" | "failed" | "done";
@@ -503,7 +507,11 @@ export interface ReaderEvents {
   readingAnchor?: (anchor: PDFReadingAnchor) => void;
   blockFocus?: (block: PDFBlock) => void;
   blockAction?: (block: PDFBlock, action: PDFBlockAction) => void;
-  location: (location: DocumentLocation, percentage: number) => void;
+  location: (
+    location: DocumentLocation,
+    percentage: number,
+    bodyReadPosition?: number,
+  ) => void;
   selection: (selection: ReaderSelection | null) => void;
 }
 export interface ReaderAdapter {

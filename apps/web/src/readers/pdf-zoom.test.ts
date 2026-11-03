@@ -48,6 +48,13 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
     getPageView() {
       return state.pageNode ? { div: state.pageNode } : undefined;
     }
+    _getVisiblePages() {
+      return {
+        views: state.pageNode
+          ? [{ id: this.currentPageNumber, view: { div: state.pageNode } }]
+          : [],
+      };
+    }
     get currentScale() {
       return state.scale;
     }

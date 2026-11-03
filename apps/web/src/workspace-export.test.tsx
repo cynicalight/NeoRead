@@ -2,7 +2,11 @@
 import { act, type ReactNode, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { defaultTheme, type Processing } from "@neoread/core";
+import {
+  defaultTheme,
+  type Processing,
+  type ReaderEvents,
+} from "@neoread/core";
 import { TooltipProvider } from "@neoread/ui/components/tooltip";
 import { api } from "@neoread/api";
 import { Workspace } from "./Workspace";
@@ -13,6 +17,7 @@ type GroupProps = ComponentProps<typeof ResizablePanelGroup>;
 
 const panels = vi.hoisted(() => ({
   props: undefined as GroupProps | undefined,
+  readerEvents: undefined as ReaderEvents | undefined,
 }));
 
 vi.mock("@neoread/api", () => ({
@@ -45,7 +50,12 @@ vi.mock("./progress", () => ({
   scheduleProgress: vi.fn(),
   flushProgress: vi.fn(async () => {}),
 }));
-vi.mock("./translation/PDFReadingView", () => ({ PDFReadingView: () => null }));
+vi.mock("./translation/PDFReadingView", () => ({
+  PDFReadingView: ({ events }: { events: ReaderEvents }) => {
+    panels.readerEvents = events;
+    return null;
+  },
+}));
 vi.mock("./translation/EPUBReadingView", () => ({
   EPUBReadingView: () => null,
 }));
@@ -120,6 +130,36 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+});
+
+it("updates the active outline heading when reading moves within one PDF page", async () => {
+  vi.mocked(api.blocks).mockResolvedValueOnce(
+    [0.1, 0.7].map((y, i) => ({
+      id: `heading-${i}`,
+      page: 1,
+      label: "paragraph_title",
+      text: `Section ${i + 1}`,
+      bounds: { x: 0.1, y, width: 0.8, height: 0.05 },
+    })),
+  );
+  await act(async () => render(0));
+  const heading = (name: string) =>
+    host.querySelector<HTMLElement>(`[aria-label="目录：${name}"]`)!;
+  await act(async () =>
+    panels.readerEvents!.location(
+      { type: "pdf", page: 1, x: 0.1, y: 0.12 },
+      0.5,
+    ),
+  );
+  expect(heading("Section 1").classList.contains("selected")).toBe(true);
+  await act(async () =>
+    panels.readerEvents!.location(
+      { type: "pdf", page: 1, x: 0.1, y: 0.72 },
+      0.5,
+    ),
+  );
+  expect(heading("Section 2").classList.contains("selected")).toBe(true);
+  expect(heading("Section 1").classList.contains("selected")).toBe(false);
 });
 
 it("restores user sidebar sizes and collapsed state without replacing expanded sizes with zero", async () => {
