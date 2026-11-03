@@ -14,12 +14,18 @@ import { api } from "@neoread/api";
 import { Workspace } from "./Workspace";
 import { paper } from "./papers/fixtures";
 import { useReaderStore } from "./store";
+import { ChatSession } from "./chat/chat-session";
+import { tabCloseWarning } from "./document-tab-guards";
+import type { SessionPicker } from "./chat/SessionPicker";
 import type { ResizablePanelGroup } from "@neoread/ui/components/resizable";
 import type { AssistantPanel } from "./chat/AssistantPanel";
 type GroupProps = ComponentProps<typeof ResizablePanelGroup>;
 
 const panels = vi.hoisted(() => ({
   props: undefined as GroupProps | undefined,
+  readerRenders: 0,
+  assistantRenders: 0,
+  sessions: undefined as ComponentProps<typeof SessionPicker> | undefined,
   readerReady: undefined as ((adapter: ReaderAdapter) => void) | undefined,
   assistant: undefined as ComponentProps<typeof AssistantPanel> | undefined,
 }));
@@ -43,6 +49,8 @@ vi.mock("@neoread/api", () => ({
     }),
     navigation: vi.fn(async () => ({ revision: 0, entries: {} })),
     messages: vi.fn(async () => []),
+    chatSessions: vi.fn(async () => []),
+    sessionMessages: vi.fn(async () => []),
     blocks: vi.fn(async () => []),
     documentNote: vi.fn(async () => ({ body: "note", updatedAt: "" })),
     translations: vi.fn(async () => []),
@@ -62,6 +70,7 @@ vi.mock("./translation/PDFReadingView", () => ({
   }: {
     onReady: (adapter: ReaderAdapter, items: []) => void;
   }) => {
+    panels.readerRenders++;
     panels.readerReady = (adapter) => onReady(adapter, []);
     return null;
   },
@@ -71,7 +80,14 @@ vi.mock("./translation/EPUBReadingView", () => ({
 }));
 vi.mock("./chat/AssistantPanel", () => ({
   AssistantPanel: (props: ComponentProps<typeof AssistantPanel>) => {
+    panels.assistantRenders++;
     panels.assistant = props;
+    return null;
+  },
+}));
+vi.mock("./chat/SessionPicker", () => ({
+  SessionPicker: (props: ComponentProps<typeof SessionPicker>) => {
+    panels.sessions = props;
     return null;
   },
 }));
@@ -138,6 +154,8 @@ const button = (text: string) =>
   )!;
 beforeEach(() => {
   vi.clearAllMocks();
+  panels.readerRenders = panels.assistantRenders = 0;
+  vi.mocked(api.chatSessions).mockResolvedValue([]);
   useReaderStore.setState({ theme: defaultTheme });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("PointerEvent", MouseEvent);
@@ -209,6 +227,7 @@ afterEach(async () => {
   host.remove();
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 it.each(["取消", "Close"])(
@@ -338,4 +357,156 @@ it("keeps a merged withdrawal draft when it exceeds the image limit", async () =
   );
   expect(composer.value).toBe("draft question\n\nwithdrawn question");
   expect(host.querySelectorAll('[aria-label^="移除附件："]')).toHaveLength(5);
+});
+
+const composer = () =>
+  host.querySelector<HTMLTextAreaElement>('textarea[aria-label="向 AI 提问"]')!;
+const enterPrompt = async (text: string) => {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!.call(composer(), text);
+    composer().dispatchEvent(new Event("input", { bubbles: true }));
+  });
+};
+
+it("keeps typing local and preserves the latest text across workspace updates", async () => {
+  vi.mocked(api.chatSessions).mockResolvedValue([
+    {
+      id: "typing",
+      documentId: doc.id,
+      title: "test",
+      provider: "api",
+      createdAt: "now",
+      updatedAt: "now",
+    },
+  ]);
+  vi.mocked(api.aiConfig).mockResolvedValueOnce({
+    primary: "api",
+    models: {},
+    capabilities: {},
+  } as Awaited<ReturnType<typeof api.aiConfig>>);
+  await act(async () => render(0));
+  await act(async () =>
+    panels.readerReady?.({
+      getLocation: () => undefined,
+    } as unknown as ReaderAdapter),
+  );
+  const send = host.querySelector<HTMLButtonElement>(
+    '[aria-label="发送问题"]',
+  )!;
+  expect(send.disabled).toBe(true);
+  await enterPrompt("第");
+  expect(send.disabled).toBe(false);
+  expect(tabCloseWarning(doc.id)).not.toBeNull();
+  const readerRenders = panels.readerRenders,
+    assistantRenders = panels.assistantRenders;
+  for (const text of ["第二", "第二个问题", "第二个问题\n补充条件"])
+    await enterPrompt(text);
+  expect(panels.readerRenders).toBe(readerRenders);
+  expect(panels.assistantRenders).toBe(assistantRenders);
+  await act(async () => render(1));
+  expect(composer().value).toBe("第二个问题\n补充条件");
+  const sent = vi
+    .spyOn(ChatSession.prototype, "send")
+    .mockResolvedValue(undefined);
+  await act(async () => send.click());
+  expect(sent).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ prompt: "第二个问题\n补充条件" }),
+  );
+  expect(composer().value).toBe("");
+  expect(send.disabled).toBe(true);
+  expect(tabCloseWarning(doc.id)).toBeNull();
+});
+
+it("restores the latest session draft and text when the composer remounts", async () => {
+  vi.mocked(api.chatSessions).mockResolvedValue(
+    ["draft-a", "draft-b"].map((id) => ({
+      id,
+      documentId: doc.id,
+      title: id,
+      provider: "api",
+      createdAt: "now",
+      updatedAt: "now",
+    })),
+  );
+  await act(async () => render(0));
+  await enterPrompt("first draft");
+  await enterPrompt("first draft with latest typing");
+  await act(async () => panels.sessions!.onChange("draft-b"));
+  expect(composer().value).toBe("");
+  await enterPrompt("second draft");
+  await act(async () => panels.sessions!.onChange("draft-a"));
+  expect(composer().value).toBe("first draft with latest typing");
+  const tab = (name: string) =>
+    [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+      (el) => el.textContent === name,
+    )!;
+  await act(async () => tab("笔记").click());
+  await act(async () => tab("Agent").click());
+  expect(composer().value).toBe("first draft with latest typing");
+  await enterPrompt("   ");
+  expect(tabCloseWarning(doc.id)).toBeNull();
+});
+
+it("keeps composition and modified Enter keys from sending and submits the latest text with Enter", async () => {
+  vi.mocked(api.chatSessions).mockResolvedValue([
+    {
+      id: "keyboard",
+      documentId: doc.id,
+      title: "test",
+      provider: "api",
+      createdAt: "now",
+      updatedAt: "now",
+    },
+  ]);
+  vi.mocked(api.aiConfig).mockResolvedValueOnce({
+    primary: "api",
+    models: {},
+    capabilities: {},
+  } as Awaited<ReturnType<typeof api.aiConfig>>);
+  await act(async () => render(0));
+  await act(async () =>
+    panels.readerReady?.({
+      getLocation: () => undefined,
+    } as unknown as ReaderAdapter),
+  );
+  const sent = vi
+    .spyOn(ChatSession.prototype, "send")
+    .mockResolvedValue(undefined);
+  await enterPrompt("你好");
+  for (const options of [
+    { isComposing: true },
+    { keyCode: 229 },
+    { shiftKey: true },
+    { altKey: true },
+    { repeat: true },
+  ]) {
+    await act(async () =>
+      composer().dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+          ...options,
+        }),
+      ),
+    );
+  }
+  expect(sent).not.toHaveBeenCalled();
+  await enterPrompt("你好，新问题");
+  await act(async () =>
+    composer().dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  expect(sent).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ prompt: "你好，新问题" }),
+  );
+  expect(composer().value).toBe("");
 });
