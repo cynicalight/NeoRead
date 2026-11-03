@@ -17,6 +17,21 @@ async function proxyRequest(channel: string, ...args: unknown[]) {
     );
   }
 }
+async function archiveRequest(
+  kind: "export" | "import",
+  value: unknown,
+  onStarted?: () => void,
+) {
+  const listener = (_event: unknown, started: string) => {
+    if (started === kind) onStarted?.();
+  };
+  ipcRenderer.on("neoread:library-archive-started", listener);
+  try {
+    return await proxyRequest(`neoread:${kind}-library-archive`, value);
+  } finally {
+    ipcRenderer.removeListener("neoread:library-archive-started", listener);
+  }
+}
 contextBridge.exposeInMainWorld("neoreadDesktop", {
   platform: process.platform,
   startupAppearance: startupAppearanceFromArguments(process.argv),
@@ -40,9 +55,21 @@ contextBridge.exposeInMainWorld("neoreadDesktop", {
     proxyRequest("neoread:check-proxy", settings),
   restart: () => proxyRequest("neoread:restart"),
   libraryLocation: () => proxyRequest("neoread:library-location"),
+  libraryCatalog: () => proxyRequest("neoread:library-catalog"),
+  switchLibrary: (id: string) => proxyRequest("neoread:switch-library", id),
+  renameLibrary: (id: string, name: string) =>
+    proxyRequest("neoread:rename-library", id, name),
   libraryWarning: () => proxyRequest("neoread:library-warning"),
   importLibrary: () => proxyRequest("neoread:import-library"),
   moveLibrary: () => proxyRequest("neoread:move-library"),
+  exportLibraryArchive: (
+    options: import("../../../packages/neoread-core/src/library-archive").LibraryArchiveOptions,
+    onStarted?: () => void,
+  ) => archiveRequest("export", options, onStarted),
+  importLibraryArchive: (
+    mode: import("../../../packages/neoread-core/src/library-archive").LibraryArchiveImportMode,
+    onStarted?: () => void,
+  ) => archiveRequest("import", mode, onStarted),
   commandLine: () => proxyRequest("neoread:command-line"),
   setCommandLine: (installed: boolean) =>
     proxyRequest("neoread:set-command-line", installed),

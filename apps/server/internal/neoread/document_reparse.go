@@ -76,6 +76,8 @@ func (s *Server) reparseEPUB(ctx context.Context, d Document) error {
 		return err
 	}
 	backup := filepath.Join(root, d.ID+"-previous-"+id())
+	s.libraryArchiveMu.RLock()
+	defer s.libraryArchiveMu.RUnlock()
 	hadOld := true
 	if _, err = os.Stat(active); errors.Is(err, os.ErrNotExist) {
 		hadOld = false
@@ -148,6 +150,8 @@ func (s *Server) reparsePDF(ctx context.Context, d Document) error {
 		return err
 	}
 	oldPaper, paperErr := os.ReadFile(filepath.Join(dir, "paper.md"))
+	s.libraryArchiveMu.RLock()
+	defer s.libraryArchiveMu.RUnlock()
 	if paperErr != nil && !errors.Is(paperErr, os.ErrNotExist) {
 		return paperErr
 	}

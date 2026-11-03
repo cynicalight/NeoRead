@@ -261,8 +261,11 @@ func (s *Server) updatePaperAttachment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deletePaperAttachment(w http.ResponseWriter, r *http.Request) {
+	// Match purgeDocument: wait for imports before taking the archive read lock.
 	s.importMu.Lock()
 	defer s.importMu.Unlock()
+	s.libraryArchiveMu.RLock()
+	defer s.libraryArchiveMu.RUnlock()
 	if !s.attachmentDocument(w, r.PathValue("id")) {
 		return
 	}

@@ -11,7 +11,9 @@ let app: EventEmitter & {
 };
 let window: EventEmitter & {
   close: () => void;
+  isDestroyed: () => boolean;
   hide: ReturnType<typeof vi.fn>;
+  setEnabled: ReturnType<typeof vi.fn>;
   webContents: EventEmitter & {
     send: ReturnType<typeof vi.fn>;
     mainFrame: { url: string };
@@ -49,6 +51,11 @@ let recoveryStart: ReturnType<typeof vi.fn>;
 let loadURL = vi.fn<(url: string) => void>();
 let showMessageBox: ReturnType<typeof vi.fn>;
 let showOpenDialog: ReturnType<typeof vi.fn>;
+let showSaveDialog: ReturnType<typeof vi.fn>;
+let archiveTransfer: ReturnType<typeof vi.fn>;
+let archivePrepare: ReturnType<typeof vi.fn>;
+let archiveDownload: ReturnType<typeof vi.fn>;
+let catalogRemember: ReturnType<typeof vi.fn>;
 const event = () => ({
   sender: window.webContents,
   senderFrame: window.webContents.mainFrame,
@@ -142,11 +149,51 @@ beforeEach(async ({ task }) => {
     .fn()
     .mockResolvedValue({ canceled: false, filePaths: ["/destination"] });
   showMessageBox = vi.fn().mockResolvedValue({ response: 0 });
+  showSaveDialog = vi
+    .fn()
+    .mockResolvedValue({ canceled: false, filePath: "/export/library.zip" });
+  archiveTransfer = vi.fn().mockResolvedValue(undefined);
+  archiveDownload = vi.fn().mockResolvedValue(undefined);
+  archivePrepare = vi.fn().mockResolvedValue(undefined);
+  vi.doMock("./library-archive", () => ({
+    transferLibraryArchive: archiveTransfer,
+    downloadLibraryArchive: archiveDownload,
+    prepareLibraryArchive: archivePrepare,
+  }));
+  catalogRemember = vi.fn(async () => {});
+  vi.doMock("./library-catalog", () => ({
+    LibraryCatalog: class {
+      cachedName = () => "论文库";
+      list = vi.fn(async (active: string) => ({
+        activeId: active === "/old/library" ? "original" : "imported",
+        libraries: [
+          { id: "original", name: "论文库", directory: "/old/library" },
+          {
+            id: "imported",
+            name: "archive",
+            directory: "/userdata/libraries/imported",
+          },
+        ],
+      }));
+      allocate = vi.fn(async () => ({
+        id: "imported",
+        name: "archive",
+        directory: "/userdata/libraries/imported",
+      }));
+      remember = catalogRemember;
+      rename = vi.fn();
+    },
+  }));
   vi.doMock("electron", () => ({
     app,
     autoUpdater: new EventEmitter(),
     ipcMain: ipc,
-    dialog: { showOpenDialog, showMessageBox, showErrorBox: vi.fn() },
+    dialog: {
+      showOpenDialog,
+      showSaveDialog,
+      showMessageBox,
+      showErrorBox: vi.fn(),
+    },
     session: {
       defaultSession: {
         setProxy: async () => {},
@@ -171,14 +218,19 @@ beforeEach(async ({ task }) => {
         return this.destroyed;
       }
       async loadURL(url: string) {
-        loadURL(url);
+        await loadURL(url);
       }
       show = vi.fn();
       hide = vi.fn();
+      setEnabled = vi.fn();
       setBounds = vi.fn();
       maximize = vi.fn();
       focus = vi.fn();
       isMinimized = () => false;
+      destroy() {
+        this.destroyed = true;
+        this.emit("closed");
+      }
       close() {
         if (this.destroyed) return;
         let prevented = false;
@@ -552,6 +604,73 @@ it("waits for Reader migration before choosing or opening the library", async ()
 });
 
 const importLibrary = () => handlers.get("neoread:import-library")!(event());
+const importedEntry = {
+  id: "imported",
+  name: "archive",
+  directory: "/userdata/libraries/imported",
+};
+const prepareArchive = async (mode = "new") => {
+  window.webContents.send.mockClear();
+  const result = handlers.get("neoread:import-library-archive")!(event(), mode);
+  await vi.waitFor(() =>
+    expect(window.webContents.send).toHaveBeenCalledWith("neoread:flush"),
+  );
+  ipc.emit("neoread:flushed", event(), null);
+  return result;
+};
+const switchTo = async (id: string) => {
+  window.webContents.send.mockClear();
+  const result = handlers.get("neoread:switch-library")!(event(), id);
+  await vi.waitFor(() =>
+    expect(window.webContents.send).toHaveBeenCalledWith("neoread:flush"),
+  );
+  ipc.emit("neoread:flushed", event(), null);
+  return result;
+};
+it("restores editing without stopping the old library when the final switch flush fails", async () => {
+  const original = window;
+  original.webContents.send.mockClear();
+  const switching = handlers.get("neoread:switch-library")!(
+    event(),
+    "imported",
+  );
+  const rejected = expect(switching).rejects.toThrow("save failed");
+  await vi.waitFor(() =>
+    expect(original.webContents.send).toHaveBeenCalledWith("neoread:flush"),
+  );
+  expect(original.setEnabled).toHaveBeenLastCalledWith(false);
+  ipc.emit("neoread:flushed", event(), "save failed");
+  await rejected;
+  expect(original.setEnabled).toHaveBeenLastCalledWith(true);
+  expect(original.isDestroyed()).toBe(false);
+  expect(stop).not.toHaveBeenCalled();
+});
+it("can switch to the prepared archive and back to the original library without restarting", async () => {
+  expect(await prepareArchive()).toEqual(importedEntry);
+  expect(await switchTo("imported")).toBe(true);
+  expect(serverSpawn).toHaveBeenCalledTimes(2);
+  expect(serverSpawn.mock.calls[1][1]).toEqual(
+    expect.arrayContaining([
+      "--port",
+      "1234",
+      "--data",
+      importedEntry.directory,
+    ]),
+  );
+  expect(serverSpawn.mock.calls[1][2].env.NEOREAD_TOKEN).toBe(
+    serverSpawn.mock.calls[0][2].env.NEOREAD_TOKEN,
+  );
+  const snapshot = await handlers.get("neoread:library-catalog")!(event());
+  expect(snapshot.libraries).toHaveLength(2);
+  expect(await switchTo("original")).toBe(true);
+  expect(validate).toHaveBeenCalledWith("/old/library", expect.any(String));
+  expect(serverSpawn).toHaveBeenCalledTimes(3);
+  expect(serverSpawn.mock.calls[2][1]).toEqual(
+    expect.arrayContaining(["--data", "/old/library"]),
+  );
+  expect(saveLocation).toHaveBeenLastCalledWith("/userdata", "/old/library");
+  expect(app.relaunch).not.toHaveBeenCalled();
+});
 it("validates an imported library before shutdown and saves only after flush", async () => {
   const result = importLibrary();
   await vi.waitFor(() =>
@@ -991,7 +1110,10 @@ it("installs loading feedback before showing the real window and reveals it afte
   const { createStartupWindow } = await import("./startup-window");
   const feedback = vi.mocked(createStartupWindow).mock.results[0].value;
   expect(main.setBounds).toHaveBeenCalledWith({
-    x: 50, y: 60, width: 1440, height: 940,
+    x: 50,
+    y: 60,
+    width: 1440,
+    height: 940,
   });
   expect(prepareExit).toHaveBeenCalledWith(feedback.nativeWindow, main);
   expect(prepareExit.mock.invocationCallOrder[0]).toBeLessThan(
@@ -1021,7 +1143,9 @@ it("returns to reading after cancelling quit while preparing startup exit", asyn
   ipc.emit("neoread:flushed", event(), "save failed");
   await vi.waitFor(() => expect(showMessageBox).toHaveBeenCalled());
   finishPreparation();
-  await vi.waitFor(() => expect(handlers.has("neoread:check-updates")).toBe(true));
+  await vi.waitFor(() =>
+    expect(handlers.has("neoread:check-updates")).toBe(true),
+  );
   expect(exitAnimation).toHaveBeenCalledWith(true);
   expect(diagnostics.failure).not.toHaveBeenCalled();
 });
@@ -1034,12 +1158,19 @@ it("continues startup if the refusal marker cannot be saved", async () => {
   detectMigration.mockResolvedValue("resume");
   confirmMigration.mockResolvedValue(false);
   const { declineReaderMigration } = await import("./legacy-data");
-  vi.mocked(declineReaderMigration).mockRejectedValueOnce(new Error("disk full"));
+  vi.mocked(declineReaderMigration).mockRejectedValueOnce(
+    new Error("disk full"),
+  );
   await import("./index");
-  await vi.waitFor(() => expect(handlers.has("neoread:check-updates")).toBe(true));
+  await vi.waitFor(() =>
+    expect(handlers.has("neoread:check-updates")).toBe(true),
+  );
   expect(legacyMigrate).not.toHaveBeenCalled();
   expect(serverSpawn).toHaveBeenCalledOnce();
-  expect(diagnostics.record).toHaveBeenCalledWith("migration.decline_save_failed", expect.any(Error));
+  expect(diagnostics.record).toHaveBeenCalledWith(
+    "migration.decline_save_failed",
+    expect.any(Error),
+  );
 });
 
 it("acknowledges a discarded note warning and continues closing without a retry choice", async () => {

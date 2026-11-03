@@ -4,6 +4,119 @@
  */
 
 export interface paths {
+    "/api/library/archive/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export a live library snapshot without restarting */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {unknown} */
+                        library?: "books" | "papers";
+                        folder?: string;
+                        smartCategory?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Library ZIP snapshot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": string;
+                    };
+                };
+                /** @description Export failed */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/archive/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare a library from a local ZIP while the current library remains online */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description Absolute ZIP path selected in the desktop dialog. */
+                        file: string;
+                        /** @description New managed directory; existing directories are never overwritten. */
+                        destination: string;
+                        /** @description Merge a committed snapshot of the current library. */
+                        merge: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Prepared library. Desktop switching is a separate operation. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @constant */
+                            prepared: true;
+                        };
+                    };
+                };
+                /** @description Import failed; the current library remains open. */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{id}/navigation": {
         parameters: {
             query?: never;

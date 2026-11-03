@@ -24,9 +24,30 @@ interface Window {
     ) => Promise<import("@neoread/core").ProxyCheckResult>;
     restart?: () => Promise<void>;
     libraryLocation?: () => Promise<string>;
+    libraryCatalog?: () => Promise<
+      import("../../../packages/neoread-core/src/library-archive").LibraryCatalogSnapshot
+    >;
+    switchLibrary?: (id: string) => Promise<boolean>;
+    renameLibrary?: (
+      id: string,
+      name: string,
+    ) => Promise<
+      import("../../../packages/neoread-core/src/library-archive").LibraryCatalogSnapshot
+    >;
     libraryWarning?: () => Promise<string>;
     importLibrary?: () => Promise<boolean>;
     moveLibrary?: () => Promise<boolean>;
+    exportLibraryArchive?: (
+      options: import("../../../packages/neoread-core/src/library-archive").LibraryArchiveOptions,
+      onStarted?: () => void,
+    ) => Promise<boolean>;
+    importLibraryArchive?: (
+      mode: import("../../../packages/neoread-core/src/library-archive").LibraryArchiveImportMode,
+      onStarted?: () => void,
+    ) => Promise<
+      | import("../../../packages/neoread-core/src/library-archive").LibraryEntry
+      | false
+    >;
     commandLine?: () => Promise<import("@neoread/core").CommandLineStatus>;
     setCommandLine?: (
       installed: boolean,

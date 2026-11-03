@@ -4,6 +4,136 @@
   "security": [{ "session": [] }],
   "paths":
     {
+      "/api/library/archive/export":
+        {
+          "post":
+            {
+              "summary": "Export a live library snapshot without restarting",
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties":
+                                {
+                                  "library": { "enum": ["books", "papers"] },
+                                  "folder": { "type": "string" },
+                                  "smartCategory": { "type": "string" },
+                                },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Library ZIP snapshot",
+                      "content":
+                        {
+                          "application/zip":
+                            {
+                              "schema":
+                                { "type": "string", "format": "binary" },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Export failed",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+      "/api/library/archive/import":
+        {
+          "post":
+            {
+              "summary": "Prepare a library from a local ZIP while the current library remains online",
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "required": ["file", "destination", "merge"],
+                              "properties":
+                                {
+                                  "file":
+                                    {
+                                      "type": "string",
+                                      "description": "Absolute ZIP path selected in the desktop dialog.",
+                                    },
+                                  "destination":
+                                    {
+                                      "type": "string",
+                                      "description": "New managed directory; existing directories are never overwritten.",
+                                    },
+                                  "merge":
+                                    {
+                                      "type": "boolean",
+                                      "description": "Merge a committed snapshot of the current library.",
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Prepared library. Desktop switching is a separate operation.",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "required": ["prepared"],
+                                  "properties":
+                                    {
+                                      "prepared":
+                                        { "type": "boolean", "const": true },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Import failed; the current library remains open.",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
       "/api/documents/{id}/navigation":
         {
           "get":

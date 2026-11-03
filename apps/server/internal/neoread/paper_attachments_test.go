@@ -27,6 +27,63 @@ func attachmentPaper(t *testing.T, s *Server, pages int) Document {
 	}
 	return d
 }
+
+func TestPaperAttachmentDeleteDoesNotHoldArchiveLockWhileWaitingForImport(t *testing.T) {
+	s := testServer(t)
+	d := attachmentPaper(t, s, 1)
+	a := addedAttachment(t, s, d.ID, "supplement.txt", []byte("supplement"))
+	s.importMu.Lock()
+	locked := true
+	done := make(chan struct{})
+	var code int
+	defer func() {
+		if locked {
+			s.importMu.Unlock()
+		}
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("attachment deletion did not finish")
+		}
+	}()
+	go func() {
+		code = request(t, s, "DELETE", "/api/documents/"+d.ID+"/attachments/"+a.ID, nil).Code
+		close(done)
+	}()
+	// Wait for the real handler to block on importMu before testing writer access.
+	blocked := false
+	deadline := time.Now().Add(2 * time.Second)
+	buffer := make([]byte, 1<<20)
+	for !blocked && time.Now().Before(deadline) {
+		for _, stack := range strings.Split(string(buffer[:runtime.Stack(buffer, true)]), "\n\n") {
+			if strings.Contains(stack, "(*Server).deletePaperAttachment") && strings.Contains(stack, "sync.runtime_SemacquireMutex") {
+				blocked = true
+				break
+			}
+		}
+		if !blocked {
+			runtime.Gosched()
+		}
+	}
+	if !blocked {
+		t.Fatal("deletion did not reach the import lock")
+	}
+	if s.libraryArchiveMu.TryLock() {
+		s.libraryArchiveMu.Unlock()
+	} else {
+		t.Error("waiting attachment deletion blocks archive writers and can deadlock document cleanup")
+	}
+	s.importMu.Unlock()
+	locked = false
+	select {
+	case <-done:
+		if code != 204 {
+			t.Fatalf("delete: %d", code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("deletion stalled after releasing import lock")
+	}
+}
 func attachmentBody(t *testing.T, names []string, data []byte) (*bytes.Buffer, string) {
 	t.Helper()
 	var body bytes.Buffer
