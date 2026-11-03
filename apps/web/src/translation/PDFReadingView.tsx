@@ -862,8 +862,14 @@ export function PDFReadingView({
   );
   const blockInteractions = useRef<PDFBlockInteractions>(null!);
   blockInteractions.current = {
+    double: theme.translationAlignment === "double",
     pressed: pressedBlock,
     selecting,
+    clearSelection: () => {
+      window.getSelection()?.removeAllRanges();
+      selection.current = null;
+      events.selection(null);
+    },
     focus: focusTranslation,
     hover: (id) => hover("translation", id),
     preview: (block) => {
@@ -1038,6 +1044,7 @@ export function PDFReadingView({
               }}
               onPointerUp={translatedSelection}
               onDoubleClick={(event) => {
+                if (theme.translationAlignment === "double") return;
                 // Select the translated sentence; untranslated text falls
                 // back to the sentence around the word.
                 const target = event.target as Element;

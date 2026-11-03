@@ -114,6 +114,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
         else void this.focusBlock(block.id, "source");
         return true;
       },
+      () => this.theme.translationAlignment,
     );
     const viewer = document.createElement("div");
     viewer.className = "pdfViewer";
@@ -502,7 +503,9 @@ export class PDFReaderAdapter implements ReaderAdapter {
     if (!isSelectionToolbar(event.target)) {
       // A double click selects the whole sentence instead of one word.
       const layer =
-        event.detail === 2 && event.target instanceof Element
+        this.theme.translationAlignment !== "double" &&
+        event.detail === 2 &&
+        event.target instanceof Element
           ? event.target.closest(".textLayer")
           : null;
       if (layer && this.container.contains(layer))

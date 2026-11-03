@@ -89,6 +89,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       },
       () => this.blocks,
       (block, action) => this.events.epubBlockAction?.(block, action),
+      () => this.theme.translationAlignment,
     );
     const signal = this.abort.signal;
     container.addEventListener("scroll", this.onScroll, {
@@ -133,6 +134,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     container.addEventListener(
       "dblclick",
       () => {
+        if (this.theme.translationAlignment === "double") return;
         const selection = window.getSelection();
         if (!selection?.rangeCount) return;
         const current = selection.getRangeAt(0);
@@ -953,7 +955,11 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       );
       return;
     }
-    if (window.getSelection()?.toString().trim()) return;
+    if (
+      !(this.theme.translationAlignment === "double" && event.detail === 2) &&
+      window.getSelection()?.toString().trim()
+    )
+      return;
     const hits = this.marks.filter((mark) =>
       Array.from(mark.range.getClientRects()).some(
         (r) =>

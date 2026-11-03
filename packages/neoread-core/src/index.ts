@@ -378,6 +378,8 @@ export interface ReaderTheme {
   readerLayout?: Partial<ReaderLayout>;
   /** Opt in to copying text selections and selected annotations. */
   autoCopySelection?: boolean;
+  /** Click gesture for aligning source and translation blocks; single by default. */
+  translationAlignment?: "single" | "double";
   autoTranslatePDF?: boolean;
   /** 0 means manual only; otherwise auto translate papers up to this many pages. */
   autoTranslateMaxPages?: number;
@@ -424,6 +426,7 @@ export const defaultTheme: ReaderTheme = {
   documentTabs: false,
   reducedMotion: false,
   autoCopySelection: false,
+  translationAlignment: "single",
   autoTranslatePDF: true,
   pdfDarkImageMode: "adaptive",
   pdfDarkContrast: "soft",

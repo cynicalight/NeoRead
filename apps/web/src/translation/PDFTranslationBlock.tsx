@@ -3,8 +3,10 @@ import type { PDFBlock, TranslationBlock } from "@neoread/core";
 import { TranslationText } from "./TranslationText";
 
 export type PDFBlockInteractions = {
+  double: boolean;
   pressed: RefObject<{ id: string; x: number; y: number } | undefined>;
   selecting: RefObject<boolean>;
+  clearSelection: () => void;
   focus: (block: PDFBlock) => void;
   hover: (id?: string) => void;
   preview: (block: PDFBlock) => void;
@@ -54,12 +56,12 @@ export const PDFTranslationBlock = memo(function PDFTranslationBlock({
         const action = interactions.current;
         const pressed = action.pressed.current;
         action.pressed.current = undefined;
-        if (event.detail > 1) return;
+        if (action.double ? event.detail !== 2 : event.detail > 1) return;
         if (
           (event.target as Element).closest(
             "a, button, input, textarea, select, [role=button], [contenteditable=true]",
           ) ||
-          window.getSelection()?.toString().trim() ||
+          (!action.double && window.getSelection()?.toString().trim()) ||
           (event.detail > 0 &&
             (!pressed ||
               pressed.id !== block.id ||
@@ -67,6 +69,7 @@ export const PDFTranslationBlock = memo(function PDFTranslationBlock({
                 5))
         )
           return;
+        if (action.double) action.clearSelection();
         action.focus(block);
       }}
       onKeyDown={(event) => {

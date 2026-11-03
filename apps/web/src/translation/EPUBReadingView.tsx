@@ -719,11 +719,13 @@ export function EPUBReadingView({
                 onClick={(event) => {
                   const pressed = pressedBlock.current;
                   pressedBlock.current = undefined;
+                  const double = theme.translationAlignment === "double";
+                  if (double ? event.detail !== 2 : event.detail > 1) return;
                   if (
                     (event.target as Element).closest(
                       "a, button, input, textarea, select, [role=button], [contenteditable=true]",
                     ) ||
-                    window.getSelection()?.toString().trim() ||
+                    (!double && window.getSelection()?.toString().trim()) ||
                     (event.detail > 0 &&
                       (!pressed ||
                         pressed.id !== block.id ||
@@ -733,6 +735,11 @@ export function EPUBReadingView({
                         ) > 5))
                   )
                     return;
+                  if (double) {
+                    window.getSelection()?.removeAllRanges();
+                    selection.current = null;
+                    live.current.events.selection(null);
+                  }
                   focusBlock(block.id, "translation");
                 }}
                 onKeyDown={(event) => {
