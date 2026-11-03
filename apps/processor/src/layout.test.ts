@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assignText, decodeRegions, isAsset } from "./layout";
+import forceFigures from "./fixtures/force-figure-groups.json";
 describe("layout boundary", () => {
   it("rejects invalid boxes, clips coordinates and retains logical reading order", () => {
     const regions = decodeRegions(
@@ -67,6 +68,53 @@ describe("layout boundary", () => {
 });
 
 import { readingRegions } from "./layout";
+// Actual PP-DocLayoutV3 detections and PDF.js labels from FORCE figures 3 and 4.
+it.each(forceFigures)(
+  "keeps the complete FORCE figure on page $page",
+  ({ detections, spans, titles }) => {
+    const regions = readingRegions(decodeRegions(detections, 800, 800), spans);
+    const figures = regions.filter((r) => ["chart", "image"].includes(r.label));
+    expect(figures).toHaveLength(1);
+    for (const title of titles) expect(figures[0].text).toContain(title);
+    const caption = regions.find(
+      (r) => r.label === "figure_title" && /^Figure [34]\./.test(r.text),
+    );
+    expect(caption).toBeDefined();
+    expect(figures[0].bounds.y + figures[0].bounds.height).toBeLessThanOrEqual(
+      caption!.bounds.y,
+    );
+    expect(figures[0].text).not.toContain(caption!.text);
+  },
+);
+
+it("discards an isolated low-confidence graphic without a numbered caption", () => {
+  expect(
+    readingRegions(decodeRegions([3, 0.4, 10, 10, 90, 40, 0], 100, 100), []),
+  ).toEqual([]);
+});
+
+it("does not join panels across intervening prose", () => {
+  const regions = decodeRegions(
+    [
+      3, 0.9, 10, 5, 45, 15, 0, 22, 0.9, 10, 16, 45, 19, 1, 3, 0.9, 10, 20, 45,
+      30, 2, 7, 0.9, 10, 32, 45, 36, 3,
+    ],
+    100,
+    100,
+  );
+  const blocks = readingRegions(regions, [
+    {
+      text: "Intervening paragraph",
+      bounds: { x: 0.11, y: 0.16, width: 0.3, height: 0.03 },
+    },
+    {
+      text: "Figure 2. Separate figure",
+      bounds: { x: 0.11, y: 0.32, width: 0.3, height: 0.03 },
+    },
+  ]);
+  expect(blocks.filter((b) => b.label === "chart")).toHaveLength(2);
+});
+
 it("keeps inline symbols in prose and groups panels under their shared numbered caption", () => {
   const r = decodeRegions(
     [
