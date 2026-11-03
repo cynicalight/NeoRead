@@ -1,6 +1,6 @@
 import { reducedMotion } from "../motion";
 export const pdfFocusMotion = {
-  duration: 380,
+  duration: 480,
   easing: "cubic-bezier(0.333333, 0, 0.666667, 1)",
 };
 export const pdfFocusProgress = (progress: number) =>
