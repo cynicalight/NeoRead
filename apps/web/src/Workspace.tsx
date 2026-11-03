@@ -442,7 +442,7 @@ export function Workspace({
       sessionListSerial.current++;
     };
   }, [refreshSessions, active]);
-  const prompt = useRef("");
+  const savedPrompt = useRef("");
   const promptContentChanged = useRef<((hasText: boolean) => void) | undefined>(
     undefined,
   );
@@ -450,28 +450,61 @@ export function Workspace({
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [previewImage, setPreviewImage] = useState<ImageAttachment>();
   const composeInput = useRef<HTMLTextAreaElement>(null);
-  const attachComposeInput = useCallback((node: HTMLTextAreaElement | null) => {
-    composeInput.current = node;
-    if (node) node.value = prompt.current;
-  }, []);
+  const prompt = useMemo(
+    () => ({
+      get current() {
+        return composeInput.current?.value ?? savedPrompt.current;
+      },
+    }),
+    [],
+  );
   const promptHasText = useRef(false);
   const composerDrafts = useRef(new Map<string, ComposerDraft>());
-  const composerValue = useRef({ prompt: prompt.current, quotes, images });
-  composerValue.current = { prompt: prompt.current, quotes, images };
-  // Native editing keeps each keystroke out of the reader and chat render tree.
-  const updatePrompt = (value: string) => {
-    prompt.current = value;
-    composerValue.current = { ...composerValue.current, prompt: value };
-    const hasText = !!value.trim();
+  const composerValue = useRef({ quotes, images });
+  composerValue.current = { quotes, images };
+  const captureComposerDraft = (): ComposerDraft => ({
+    ...composerValue.current,
+    prompt: prompt.current,
+  });
+  const updatePromptPresence = useCallback((hasText: boolean) => {
     if (hasText !== promptHasText.current) {
       promptHasText.current = hasText;
       promptContentChanged.current?.(hasText);
     }
-  };
+  }, []);
+  const nativePromptInput = useCallback(
+    (event: Event) => {
+      // React's change plugin reads and tracks the entire textarea value on input.
+      // Keep native IME/undo editing local; read the draft at send/save boundaries.
+      event.stopPropagation();
+      const node = event.currentTarget as HTMLTextAreaElement;
+      const data = (event as InputEvent).data;
+      updatePromptPresence(
+        node.textLength > 0 && (data?.trim() ? true : !!node.value.trim()),
+      );
+    },
+    [updatePromptPresence],
+  );
+  const attachComposeInput = useCallback(
+    (node: HTMLTextAreaElement | null) => {
+      const previous = composeInput.current;
+      const value = previous?.value ?? savedPrompt.current;
+      previous?.removeEventListener("input", nativePromptInput);
+      composeInput.current = node;
+      savedPrompt.current = value;
+      if (node) {
+        node.value = value;
+        node.setAttribute("writingsuggestions", "false");
+        node.addEventListener("input", nativePromptInput);
+      }
+    },
+    [nativePromptInput],
+  );
   const setPrompt = (value: string) => {
-    updatePrompt(value);
+    savedPrompt.current = value;
     if (composeInput.current && composeInput.current.value !== value)
       composeInput.current.value = value;
+    updatePromptPresence(!!value.trim());
   };
   const composerKey = `${doc.id}:${currentSession?.id ?? ""}`;
   const currentComposerKey = useRef(composerKey);
@@ -480,7 +513,7 @@ export function Workspace({
     const visible = currentComposerKey.current === composerKey;
     const draft = restoreWithdrawnQuestion(
       visible
-        ? composerValue.current
+        ? captureComposerDraft()
         : (composerDrafts.current.get(composerKey) ?? {
             prompt: "",
             quotes: [],
@@ -502,7 +535,7 @@ export function Workspace({
     setQuotes(saved?.quotes ?? []);
     setImages(saved?.images ?? []);
     return () => {
-      composerDrafts.current.set(composerKey, composerValue.current);
+      composerDrafts.current.set(composerKey, captureComposerDraft());
     };
   }, [composerKey]);
   useEffect(() => {
@@ -1880,7 +1913,9 @@ export function Workspace({
                     aria-label="向 AI 提问"
                     placeholder="问一个问题，或引用选中的文字…"
                     defaultValue=""
-                    onChange={(e) => updatePrompt(e.target.value)}
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="off"
                     onKeyDown={(e) => {
                       if (
                         e.key === "Enter" &&

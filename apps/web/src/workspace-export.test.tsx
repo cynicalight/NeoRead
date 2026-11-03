@@ -519,6 +519,49 @@ it("keeps long Chinese composition and paste native across workspace updates", a
   expect(composer().value).toBe(long + "一次粘贴大量中文。".repeat(300));
 });
 
+it("does not copy the full long draft for native typing or IME updates", async () => {
+  vi.useFakeTimers();
+  await act(async () => render(0));
+  await act(async () => vi.advanceTimersByTimeAsync(100));
+  const input = composer();
+  expect(input.getAttribute("spellcheck")).toBe("false");
+  expect(input.getAttribute("writingsuggestions")).toBe("false");
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )!.set!;
+  const reads = vi.spyOn(HTMLTextAreaElement.prototype, "value", "get");
+  let text = "长草稿和中文输入法保持原生编辑。".repeat(500);
+  for (const candidate of ["zh", "zhong", "中文", "继续输入"]) {
+    text += candidate;
+    await act(async () => {
+      setter.call(input, text);
+      input.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          data: candidate,
+          inputType: "insertCompositionText",
+          isComposing: true,
+        }),
+      );
+    });
+  }
+  expect(reads).not.toHaveBeenCalled();
+  reads.mockRestore();
+  expect(input.value).toBe(text);
+  expect(tabCloseWarning(doc.id)).not.toBeNull();
+  await act(async () => {
+    setter.call(input, " ");
+    input.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "deleteContentBackward",
+      }),
+    );
+  });
+  expect(tabCloseWarning(doc.id)).toBeNull();
+});
+
 it("avoids unchanged session refreshes and pauses catalog polling for background tabs", async () => {
   vi.useFakeTimers();
   try {
