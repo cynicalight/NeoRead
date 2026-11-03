@@ -519,6 +519,8 @@ export interface ReaderAdapter {
   clearSelection(): void;
   highlight(annotations: Annotation[]): Promise<void>;
   setTheme(theme: ReaderTheme): Promise<void>;
+  /** Release hidden rendering surfaces while retaining navigation and document state. */
+  setVisible?(visible: boolean): void;
   /** Layout choices that must apply before the first page is shown. */
   preferTheme?(theme: ReaderTheme): void;
   getContext(): Promise<string>;

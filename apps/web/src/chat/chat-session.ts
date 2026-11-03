@@ -113,6 +113,18 @@ export class ChatSession {
     readonly sessionId?: string,
   ) {}
   getSnapshot = () => this.state;
+  private composerSnapshot?: Pick<ChatSnapshot, "messages" | "busy" | "loaded">;
+  getComposerSnapshot = () => {
+    const { messages, busy, loaded } = this.state;
+    if (
+      !this.composerSnapshot ||
+      this.composerSnapshot.messages !== messages ||
+      this.composerSnapshot.busy !== busy ||
+      this.composerSnapshot.loaded !== loaded
+    )
+      this.composerSnapshot = { messages, busy, loaded };
+    return this.composerSnapshot;
+  };
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => {

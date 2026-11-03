@@ -2,6 +2,7 @@ import ReactDOM from "react-dom/client";
 import { configureAPI } from "@neoread/api";
 import { App } from "./App";
 import { installCloseFlush } from "./close-flush";
+import { installFormulaClipboard } from "./selection-text";
 import { AppCrash, ErrorBoundary } from "./ErrorBoundary";
 import "./style.css";
 import { installDiagnostics } from "./diagnostics";
@@ -11,6 +12,8 @@ import { migrateReaderPreferences } from "./legacy-preferences";
 import { initialDesktopTheme } from "./appearance";
 import { useReaderStore } from "./store";
 migrateReaderPreferences();
+const removeFormulaClipboard = installFormulaClipboard();
+if (import.meta.hot) import.meta.hot.dispose(removeFormulaClipboard);
 if (window.neoreadDesktop?.startupAppearance) {
   useReaderStore
     .getState()
