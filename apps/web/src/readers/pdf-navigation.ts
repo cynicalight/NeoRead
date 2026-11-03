@@ -26,6 +26,11 @@ export class PDFReadingNavigation {
   private readable: PDFBlock[] = [];
   private blocksByPage = new Map<number, PDFBlock[]>();
   private blocksById = new Map<string, PDFBlock>();
+  private focusAnimation?: {
+    animation: Animation;
+    node: HTMLElement;
+    scale: number;
+  };
   get isNavigating() {
     return this.moving;
   }
@@ -36,16 +41,43 @@ export class PDFReadingNavigation {
     private blocks: () => PDFBlock[],
     private events: ReaderEvents,
     private onFocus: (blockId: string | null) => void = () => {},
+    private onLayout: () => void = () => {},
   ) {
     host.addEventListener("pointerdown", this.interrupt);
     host.addEventListener("scroll", this.scrolled, { passive: true });
     host.addEventListener("wheel", this.interrupt, { passive: true });
   }
   private interrupt = () => {
+    this.cancelFocusAnimation();
     this.operation++;
     this.moving = false;
     this.onFocus(null);
   };
+  private cancelFocusAnimation() {
+    const current = this.focusAnimation;
+    if (!current) return;
+    this.focusAnimation = undefined;
+    const presented = current.node.getBoundingClientRect();
+    current.animation.cancel();
+    if (this.disposed) return;
+    const actual = current.node.getBoundingClientRect();
+    const scale = actual.width
+      ? (current.scale * presented.width) / actual.width
+      : current.scale;
+    if (Math.abs(this.viewer.currentScale - scale) > 0.0001) {
+      if (this.viewer.updateScale)
+        this.viewer.updateScale({
+          scaleFactor: scale / this.viewer.currentScale,
+          drawingDelay: 300,
+        });
+      else this.viewer.currentScaleValue = String(scale);
+    }
+    const restored = current.node.getBoundingClientRect();
+    this.host.scrollLeft += restored.left - presented.left;
+    this.host.scrollTop += restored.top - presented.top;
+    this.viewer.refresh?.();
+    this.onLayout();
+  }
   private async moveTo(
     left: number,
     top: number,
@@ -197,6 +229,7 @@ export class PDFReadingNavigation {
     this.readableBlocks();
     const block = this.blocksById.get(id);
     if (!block || this.disposed) return false;
+    this.cancelFocusAnimation();
     const operation = ++this.operation;
     this.moving = true;
     try {
@@ -229,6 +262,65 @@ export class PDFReadingNavigation {
       const fromY = initial.top - view.top + block.bounds.y * initial.height;
       this.onFocus(block.id);
       const reduced = reducedMotion();
+      const element = this.viewer.viewer;
+      if (element?.animate && !reduced) {
+        // Commit PDF.js layout once, keeping its completed bitmap. Interpolate
+        // only presentation so focus does not resize every PDF page per frame.
+        this.updateInsets();
+        const zoomed = Math.abs(initialScale - scale) > 0.0001;
+        if (zoomed) {
+          if (this.viewer.updateScale)
+            this.viewer.updateScale({
+              scaleFactor: scale / initialScale,
+              drawingDelay: 300,
+            });
+          else this.viewer.currentScaleValue = String(scale);
+        }
+        const r = node.getBoundingClientRect(),
+          v = this.host.getBoundingClientRect();
+        this.host.scrollLeft +=
+          r.left -
+          v.left +
+          (block.bounds.x + block.bounds.width / 2) * r.width -
+          this.host.clientWidth / 2;
+        this.host.scrollTop +=
+          r.top -
+          v.top +
+          block.bounds.y * r.height -
+          Math.max(
+            0,
+            (this.host.clientHeight - block.bounds.height * r.height) / 2,
+          );
+        this.onLayout();
+        const final = node.getBoundingClientRect(),
+          body = element.getBoundingClientRect();
+        const origin = `${final.left - body.left}px ${final.top - body.top}px`;
+        const animation = element.animate(
+          [
+            {
+              transform: `translate(${initial.left - final.left}px, ${initial.top - final.top}px) scale(${initialScale / scale})`,
+              transformOrigin: origin,
+            },
+            {
+              transform: "translate(0px, 0px) scale(1)",
+              transformOrigin: origin,
+            },
+          ],
+          { duration: 240, easing: "cubic-bezier(0.333333, 1, 0.666667, 1)" },
+        );
+        this.focusAnimation = { animation, node, scale };
+        await new Promise<void>((resolve) => {
+          animation.onfinish = () => resolve();
+          animation.oncancel = () => resolve();
+        });
+        if (this.focusAnimation?.animation === animation)
+          this.focusAnimation = undefined;
+        if (this.disposed || operation !== this.operation) return false;
+        if (zoomed) this.viewer.refresh?.();
+        const anchor = this.anchor();
+        if (anchor) this.events.readingAnchor?.(anchor);
+        return true;
+      }
       let started: number | undefined;
       let zoomed = false;
       await new Promise<void>((resolve) => {

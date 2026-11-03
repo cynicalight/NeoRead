@@ -389,6 +389,51 @@ it("coalesces focus zoom into one final redraw and does not redraw on an identic
   }
 });
 
+it("uses a native transition with one PDF layout commit and keeps it interruptible", async () => {
+  const s = setup(),
+    element = document.createElement("div");
+  let animation: Animation;
+  const animate = vi.fn(() => {
+    animation = {
+      onfinish: null,
+      oncancel: null,
+      cancel: vi.fn(() =>
+        animation.oncancel?.call(animation, {} as AnimationPlaybackEvent),
+      ),
+    } as unknown as Animation;
+    return animation;
+  });
+  element.animate = animate;
+  Object.defineProperty(s.viewer, "viewer", { value: element });
+  try {
+    const pending = s.nav.focusBlock("a", "parallel");
+    await vi.advanceTimersByTimeAsync(32);
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(s.viewer.updateScale).toHaveBeenCalledTimes(1);
+    expect(s.viewer.refresh).not.toHaveBeenCalled();
+    expect(animate.mock.calls[0]).toEqual([
+      [
+        expect.objectContaining({
+          transform: expect.stringContaining("scale("),
+        }),
+        expect.objectContaining({ transform: "translate(0px, 0px) scale(1)" }),
+      ],
+      expect.objectContaining({ duration: 240 }),
+    ]);
+    animation!.onfinish?.call(animation!, {} as AnimationPlaybackEvent);
+    expect(await pending).toBe(true);
+    centered(s, "a");
+    expect(s.viewer.refresh).toHaveBeenCalledTimes(1);
+    const next = s.nav.focusBlock("b", "parallel");
+    await vi.advanceTimersByTimeAsync(32);
+    s.nav.cancelMotion();
+    expect(await next).toBe(false);
+    expect(animation!.cancel).toHaveBeenCalledTimes(1);
+  } finally {
+    s.nav.destroy();
+  }
+});
+
 it("keeps a wide source-only block within the reading viewport", async () => {
   const s = setup();
   await finish(s.nav.focusBlock("b", "source"));

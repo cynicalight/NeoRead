@@ -158,6 +158,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
       () => this.blockData,
       this.events,
       (blockId) => this.blocks.setFocusBlock(blockId),
+      () => this.viewport.reset(),
     );
     this.bus.on("pagechanging", ({ pageNumber }: { pageNumber: number }) => {
       this.location = { type: "pdf", page: pageNumber };
