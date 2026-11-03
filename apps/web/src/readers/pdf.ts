@@ -8,6 +8,7 @@ import { pdfQuotePoint } from "./pdf-reference-location";
 import { PDFBlockOverlay, referenceBlock } from "./pdf-blocks";
 import { PDFReadingNavigation } from "./pdf-navigation";
 import { PDFViewport } from "./pdf-viewport";
+import { backgroundPDFCache } from "./pdf-tab-cache";
 import { PDFLocationHighlight } from "./pdf-location-highlight";
 import { PDFAnnotationLayer } from "./pdf-annotations";
 import { PDFLinkPreview } from "./pdf-link-preview";
@@ -184,6 +185,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
           });
         }
         // A detail canvas replaces pixels only; page/text geometry is unchanged.
+        if (!this.visible && !this.disposed) this.retainPageCache();
         if (event.isDetailView) return;
         this.annotationLayer.paint(event.pageNumber);
         this.locationHighlight.paint();
@@ -576,19 +578,37 @@ export class PDFReaderAdapter implements ReaderAdapter {
       };
     }
     if (visible) {
+      backgroundPDFCache.forget(this);
       this.viewer.update();
       return;
     }
     this.viewport.cancelAnimation();
     this.navigation.cancelMotion();
     this.linkPreview.hide();
-    // PDF.js otherwise retains the canvas buffer of every visited tab. Reset
-    // page views through PDF.js so showing the source renders only its viewport.
-    for (let i = 0; i < this.viewer.pagesCount; i++) {
-      const page = this.viewer.getPageView(i);
-      if (page?.renderingState) page.reset();
-      page?.pdfPage?.cleanup();
+    // Preserve the current page and its neighbors for immediate tab switching.
+    // The shared background budget retires the least recently used reader.
+    this.releasePageCache(this.viewer.currentPageNumber);
+    this.retainPageCache();
+  }
+  private releasePageCache(keepPage?: number) {
+    for (const page of this.viewer.getCachedPageViews()) {
+      if (keepPage !== undefined && Math.abs(page.id - keepPage) <= 1) continue;
+      page.reset();
+      page.pdfPage?.cleanup();
     }
+  }
+  private retainPageCache() {
+    const bytes = Array.from(
+      this.container.querySelectorAll(".page canvas"),
+    ).reduce(
+      (total, canvas) =>
+        total +
+        (canvas as HTMLCanvasElement).width *
+          (canvas as HTMLCanvasElement).height *
+          4,
+      0,
+    );
+    backgroundPDFCache.retain(this, bytes, () => this.releasePageCache());
   }
   async highlight(annotations: Annotation[]) {
     this.annotationLayer.setAnnotations(annotations);
@@ -823,6 +843,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     }
   }
   async destroy() {
+    backgroundPDFCache.forget(this);
     this.cropPreparations.clear();
     if (this.disposed) return;
     this.navigation.destroy();

@@ -6,8 +6,12 @@ import { readFileSync } from "node:fs";
 const styles = readFileSync("apps/web/src/style.css", "utf8");
 
 const fixture = vi.hoisted(() => ({
+  currentPage: 1,
+  cachedPages: undefined as number[] | undefined,
   dispatch: undefined as ((name: string, event?: unknown) => void) | undefined,
   reset: vi.fn(),
+  cleanup: vi.fn(),
+  opened: vi.fn(),
   render: vi.fn(),
   update: vi.fn(),
   queue: undefined as
@@ -22,6 +26,7 @@ vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: {},
   AnnotationMode: { ENABLE: 1 },
   getDocument: (options: Record<string, unknown>) => {
+    fixture.opened();
     fixture.documentOptions = options;
     return {
       promise: Promise.resolve({ numPages: 1 }),
@@ -54,6 +59,9 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
     pagesCount = 1;
     renderingQueue = { renderHighestPriority: fixture.render };
     currentScale = 1;
+    get currentPageNumber() {
+      return fixture.currentPage;
+    }
     currentScaleValue = "page-width";
     constructor(options: Record<string, unknown>) {
       fixture.viewerOptions = options;
@@ -63,7 +71,14 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
       if (doc) fixture.dispatch!("pagesinit");
     }
     getPageView() {
-      return { reset: fixture.reset, renderingState: 3 };
+      return { id: fixture.currentPage, reset: fixture.reset, renderingState: 3,
+        pdfPage: { cleanup: fixture.cleanup } };
+    }
+    getCachedPageViews() {
+      return new Set((fixture.cachedPages ?? [fixture.currentPage]).map((id) => ({
+        ...this.getPageView(), id, reset: () => fixture.reset(id),
+        pdfPage: { cleanup: () => fixture.cleanup(id) },
+      })));
     }
     refresh = fixture.refresh;
     update = fixture.update;
@@ -76,6 +91,9 @@ let adapter: PDFReaderAdapter;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fixture.reset.mockReset();
+  fixture.cachedPages = undefined;
+  fixture.currentPage = 1;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -128,20 +146,41 @@ it("does not revisit page overlays for detail canvas updates", async () => {
   expect(query).toHaveBeenCalledWith('.page[data-page-number="1"]');
 });
 
-it("releases hidden canvases and pauses rendering until the reader is visible again", async () => {
+it("keeps rendered pages when switching tabs and pauses background drawing without reopening the PDF", async () => {
   await adapter.open(doc);
+  const page = document.createElement("div");
+  page.className = "page";
+  const canvas = document.createElement("canvas");
+  page.append(canvas);
+  host.querySelector(".pdfViewer")!.append(page);
+  fixture.reset.mockImplementation(() => page.replaceChildren());
   const location = adapter.getLocation();
   adapter.setVisible(false);
-  expect(fixture.reset).toHaveBeenCalledOnce();
+  expect(host.querySelector("canvas")).toBe(canvas);
+  expect(fixture.reset).not.toHaveBeenCalled();
+  expect(fixture.cleanup).not.toHaveBeenCalled();
   fixture.queue!.renderHighestPriority();
   expect(fixture.render).not.toHaveBeenCalled();
   adapter.setVisible(false);
-  expect(fixture.reset).toHaveBeenCalledOnce();
+  expect(fixture.reset).not.toHaveBeenCalled();
   adapter.setVisible(true);
   expect(fixture.update).toHaveBeenCalledOnce();
   fixture.queue!.renderHighestPriority();
   expect(fixture.render).toHaveBeenCalledOnce();
   expect(adapter.getLocation()).toEqual(location);
+  expect(fixture.opened).toHaveBeenCalledOnce();
+  expect(host.querySelector("canvas")).toBe(canvas);
+  await adapter.destroy();
+  expect(host.querySelector("canvas")).toBeNull();
+});
+
+it("keeps only the current page and neighbors in a hidden reader", async () => {
+  fixture.currentPage = 3;
+  fixture.cachedPages = [1, 2, 3, 4, 5];
+  await adapter.open(doc);
+  adapter.setVisible(false);
+  expect(fixture.reset.mock.calls).toEqual([[1], [5]]);
+  expect(fixture.cleanup.mock.calls).toEqual([[1], [5]]);
 });
 
 it("uses object colors and never reads back or hides a completed canvas", async () => {
