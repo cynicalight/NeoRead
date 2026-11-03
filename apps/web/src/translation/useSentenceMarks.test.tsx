@@ -71,7 +71,7 @@ function App({
   annotations = [],
   translations = [t],
   searchQuery = "",
-  searchResults = [],
+  searchResults,
 }: {
   linked?: boolean;
   epub?: boolean;
@@ -179,6 +179,21 @@ const texts = (ranges: Set<Range> | undefined) =>
   [...(ranges ?? [])].map((r) => r.toString());
 const search = () =>
   [...registry.entries()].find(([name]) => name.endsWith("-search"))?.[1];
+it("does not rebuild sentence highlights on unrelated renders without search results", async () => {
+  const translations = [t];
+  const annotations: Annotation[] = [];
+  await act(async () =>
+    root.render(<App translations={translations} annotations={annotations} />),
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(32);
+  });
+  const remove = vi.spyOn(registry, "delete");
+  await act(async () =>
+    root.render(<App translations={translations} annotations={annotations} />),
+  );
+  expect(remove).not.toHaveBeenCalled();
+});
 it("highlights only matching words in translation and clears when search changes", async () => {
   const result: SearchResult = {
     id: "p1-b1:translation:0",

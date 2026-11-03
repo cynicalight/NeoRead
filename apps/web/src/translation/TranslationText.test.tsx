@@ -78,6 +78,36 @@ it.each(["table", "chart", "image"])(
     expect(host.textContent).not.toContain("正在翻译");
   },
 );
+it("uses the latest preview callback when the image content stays cached", async () => {
+  const first = vi.fn(),
+    latest = vi.fn();
+  const retry = () => {};
+  await act(async () =>
+    root.render(
+      <TranslationText
+        block={base}
+        documentId="doc"
+        retry={retry}
+        onPreview={first}
+      />,
+    ),
+  );
+  await act(async () =>
+    root.render(
+      <TranslationText
+        block={base}
+        documentId="doc"
+        retry={retry}
+        onPreview={latest}
+      />,
+    ),
+  );
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>(".translation-image-open")!.click(),
+  );
+  expect(first).not.toHaveBeenCalled();
+  expect(latest).toHaveBeenCalledOnce();
+});
 it("renders only the translated caption alongside the table image", async () => {
   const caption = "Table 5. Results.";
   await render(

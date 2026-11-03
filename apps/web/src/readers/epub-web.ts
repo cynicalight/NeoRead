@@ -1084,6 +1084,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
         this.container.clientHeight / 2,
       cancelled,
       () => {},
+      false,
     );
     if (!cancelled()) this.rememberAnchor();
   }

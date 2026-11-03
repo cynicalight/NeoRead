@@ -2,7 +2,16 @@ import { FormulaRow } from "./FormulaRow";
 import type { PDFBlock, TranslationBlock } from "@neoread/core";
 import { blockImageURL } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
-import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ReadingLinkNavigation } from "../reading-links";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { Expand } from "lucide-react";
@@ -177,6 +186,31 @@ function BlockImage({
 }
 
 export function TranslationText(props: TranslationTextProps) {
+  const latest = useRef(props);
+  latest.current = props;
+  // Progress and hover updates recreate the caller's handlers. Keep the heavy
+  // Markdown/formula subtree cached while dispatching to the latest callbacks.
+  const actions = useMemo(
+    () => ({
+      retry: () => latest.current.retry(),
+      onPreview: () => latest.current.onPreview?.(),
+      onCitation: (id: string, label: string) =>
+        latest.current.onCitation?.(id, label),
+    }),
+    [],
+  );
+  return (
+    <TranslationBody
+      {...props}
+      retry={actions.retry}
+      onPreview={props.onPreview ? actions.onPreview : undefined}
+      onCitation={props.onCitation ? actions.onCitation : undefined}
+    />
+  );
+}
+const TranslationBody = memo(function TranslationBody(
+  props: TranslationTextProps,
+) {
   return (
     <ErrorBoundary
       resetKey={props.translation}
@@ -185,7 +219,7 @@ export function TranslationText(props: TranslationTextProps) {
       <TranslationContent {...props} />
     </ErrorBoundary>
   );
-}
+});
 type TranslationTextProps = Parameters<typeof TranslationContent>[0];
 function TranslationContent({
   block,

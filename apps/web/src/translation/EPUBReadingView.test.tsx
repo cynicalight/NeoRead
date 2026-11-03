@@ -22,6 +22,7 @@ const fixture = vi.hoisted(() => ({
       ) => void)
     | undefined,
   signal: undefined as AbortSignal | undefined,
+  markdown: vi.fn(),
 }));
 vi.mock("@neoread/api", () => ({
   api: {
@@ -49,7 +50,10 @@ vi.mock("@neoread/api", () => ({
   publicationURL: (_id: string, path: string) => `/publication/${path}`,
 }));
 vi.mock("../chat/MessageMarkdown", () => ({
-  MessageMarkdown: ({ content }: { content: string }) => <p>{content}</p>,
+  MessageMarkdown: ({ content }: { content: string }) => {
+    fixture.markdown(content);
+    return <p>{content}</p>;
+  },
 }));
 const adapter = {
   open: vi.fn(async () => {}),
@@ -528,7 +532,7 @@ it.each(["source", "translation"] as const)(
   },
 );
 
-it("smoothly retargets the translated midpoint and cancels following on user input", async () => {
+it("follows the translated midpoint without restarting an animation and yields to user input", async () => {
   await click("原文译文");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
@@ -545,19 +549,13 @@ it("smoothly retargets the translated midpoint and cancels following on user inp
       fixture.events!.epubInteraction?.();
       fixture.events!.epubReadingAnchor?.("e-b", 0.5);
     });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-    expect(pane.scrollTop).toBeGreaterThan(0);
-    expect(pane.scrollTop).toBeLessThan(450);
+    expect(pane.scrollTop).toBe(450);
     await act(async () => {
       fixture.events!.epubReadingAnchor?.("e-b", 0.75);
-      await vi.advanceTimersByTimeAsync(300);
     });
     expect(pane.scrollTop).toBe(475);
     await act(async () => {
       fixture.events!.epubReadingAnchor?.("e-b", 0.25);
-      await vi.advanceTimersByTimeAsync(100);
       pane.dispatchEvent(new Event("wheel", { bubbles: true }));
     });
     const stopped = pane.scrollTop;
@@ -569,4 +567,33 @@ it("smoothly retargets the translated midpoint and cancels following on user inp
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("reuses rendered Markdown across hover and reading-progress updates while accepting streamed text", async () => {
+  await click("原文译文");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+  expect(fixture.markdown).toHaveBeenCalledWith("第一句。");
+  fixture.markdown.mockClear();
+  for (let i = 0; i < 10; i++) {
+    await act(async () => {
+      fixture.events!.epubBlockHover?.(i % 2 ? "p1-b1" : "e-b");
+      fixture.events!.location(
+        { type: "epub", href: "a.xhtml", progression: i / 10 },
+        i / 10,
+      );
+    });
+    await renderView();
+  }
+  expect(fixture.markdown).not.toHaveBeenCalled();
+  await act(async () =>
+    fixture.push!({
+      event: "translation",
+      data: {
+        ...fixture.translations[0],
+        sentences: [{ source: "First sentence.", target: "新译文。" }],
+      },
+    }),
+  );
+  expect(host.textContent).toContain("新译文。");
+  expect(fixture.markdown).toHaveBeenCalledWith("新译文。");
 });

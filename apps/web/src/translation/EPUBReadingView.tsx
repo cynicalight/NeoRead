@@ -4,6 +4,7 @@ import { readerLayout, updateReaderLayout } from "../neoread-layout";
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -35,6 +36,7 @@ import { ReadingSync } from "../readers/pdf-reading";
 import { animatePDFScroll } from "../readers/pdf-scroll";
 import { isSelectionToolbar } from "../readers/selection-anchor";
 import { defaultTheme } from "@neoread/core";
+import { translationBlockAt } from "./translation-viewport";
 import { translationFont } from "../appearance";
 import "./translation.css";
 
@@ -111,13 +113,28 @@ export function EPUBReadingView({
     events,
   );
   const visible = blocks;
-  const targetNode = (id: string) =>
-    Array.from(
+  const nodes = useRef<HTMLElement[]>([]);
+  const nodesById = useRef(new Map<string, HTMLElement>());
+  const blocksById = useMemo(
+    () => new Map(blocks.map((b) => [b.id, b])),
+    [blocks],
+  );
+  const translationsById = useMemo(
+    () => new Map(translations.map((t) => [t.blockId, t])),
+    [translations],
+  );
+  useLayoutEffect(() => {
+    nodes.current = Array.from(
       pane.current?.querySelectorAll<HTMLElement>("[data-translation-block]") ??
         [],
-    ).find((n) => n.dataset.translationBlock === id);
+    );
+    nodesById.current = new Map(
+      nodes.current.map((node) => [node.dataset.translationBlock!, node]),
+    );
+  }, [blocks, mode]);
+  const targetNode = (id: string) => nodesById.current.get(id);
   const follow = (id: string, fraction = 0.5) => {
-    const block = live.current.blocks.find((b) => b.id === id);
+    const block = blocksById.get(id);
     if (!block) return;
     pendingFollow.current = { blockId: id, fraction };
     if (block.location.href !== live.current.chapter)
@@ -141,6 +158,7 @@ export function EPUBReadingView({
           () =>
             operation !== translationMotion.current || pane.current !== host,
           () => {},
+          false,
         ).finally(() => {
           if (operation === translationMotion.current)
             sync.current.following("translation");
@@ -406,12 +424,8 @@ export function EPUBReadingView({
       const top =
         pane.current.getBoundingClientRect().top +
         pane.current.clientHeight * 0.5;
-      const node = Array.from(
-        pane.current.querySelectorAll<HTMLElement>("[data-translation-block]"),
-      ).find((n) => n.getBoundingClientRect().bottom > top);
-      const block = live.current.blocks.find(
-        (b) => b.id === node?.dataset.translationBlock,
-      );
+      const node = translationBlockAt(nodes.current, top);
+      const block = node && blocksById.get(node.dataset.translationBlock!);
       if (block) {
         if (
           live.current.mode === "translation" &&
@@ -763,7 +777,7 @@ export function EPUBReadingView({
                   }
                   documentId={doc.id}
                   onPreview={() => events.epubBlockAction?.(block, "preview")}
-                  translation={translations.find((t) => t.blockId === block.id)}
+                  translation={translationsById.get(block.id)}
                   paused={processing?.enabled === false}
                   retry={() => retry(block.id)}
                 />

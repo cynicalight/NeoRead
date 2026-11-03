@@ -19,6 +19,7 @@ import { epubSentenceSlice } from "./epub-links";
 import { searchRanges } from "./search-ranges";
 
 type Mark = { annotation: Annotation; range: Range };
+const emptySearchResults: SearchResult[] = [];
 const hit = (range: Range, x: number, y: number) =>
   Array.from(range.getClientRects()).some(
     (r) =>
@@ -41,7 +42,7 @@ export function useSentenceMarks(
   mode: string,
   events: ReaderEvents,
   searchQuery = "",
-  searchResults: SearchResult[] = [],
+  searchResults: SearchResult[] = emptySearchResults,
 ) {
   const prefix = `neoread-sentences-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const latest = useRef({
