@@ -85,7 +85,7 @@ it("keeps all sentences and annotation ranges when a selection crosses paragraph
     { blockId: "b", sentenceIndexes: [0] },
   ]);
   expect(result.passages.map((p) => p.sourceOffset)).toEqual([6, 0]);
-  expect(result.selection.text).toBe("第二句。第三句。");
+  expect(result.selection.text).toBe("第二句。\n\n第三句。");
   expect(result.selection.location.translation?.ranges?.[0]).toMatchObject({
     sourceText: "Second.",
     targetText: "第一句。第二句。",

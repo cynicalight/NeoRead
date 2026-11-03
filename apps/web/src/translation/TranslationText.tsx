@@ -6,6 +6,7 @@ import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import { ReadingLinkNavigation } from "../reading-links";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { Expand } from "lucide-react";
+import { copyImage } from "../chat/clipboard";
 const FormulaFragment = lazy(() => import("./FormulaFragment"));
 const Markdown = lazy(() =>
   import("../chat/MessageMarkdown").then((module) => ({
@@ -282,6 +283,16 @@ function TranslationContent({
           content={translation.formulaMarkdown}
           fallback={formulaFallback}
           number={formulaNumber}
+          onCopyOriginal={
+            block.image
+              ? () =>
+                  void copyImage(
+                    imageURL ??
+                      blockImageURL(documentId, block.id, block.image),
+                    block.text.trim(),
+                  )
+              : undefined
+          }
         />
       </Suspense>
     );
