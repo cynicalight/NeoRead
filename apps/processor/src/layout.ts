@@ -1,5 +1,6 @@
 import { pdfAssetBounds } from "../../../packages/neoread-core/src/pdf-asset-bounds";
 import { orderPageBlocks } from "./reading-order";
+import { joinInlineText } from "./inline-math";
 export const labels = [
   "abstract",
   "algorithm",
@@ -42,6 +43,9 @@ export interface Region {
 export interface TextSpan {
   text: string;
   bounds: Box;
+  baseline?: number;
+  fontSize?: number;
+  math?: boolean;
 }
 export const isAsset = (label: string) =>
   [
@@ -142,6 +146,11 @@ const readingSort = (spans: TextSpan[]) =>
     sameLine(a, b) ? a.bounds.x - b.bounds.x : a.bounds.y - b.bounds.y,
   );
 function joinSpans(spans: TextSpan[]) {
+  if (
+    spans.length &&
+    spans.every((s) => s.baseline !== undefined && s.fontSize !== undefined)
+  )
+    return joinInlineText(spans);
   return readingSort(spans)
     .map((s) => s.text)
     .join(" ")

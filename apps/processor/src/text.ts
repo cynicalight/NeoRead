@@ -28,9 +28,16 @@ export async function extractTextSpans(
     const transform = Util.transform(viewport.transform, item.transform);
     const h = Math.hypot(transform[2], transform[3]);
     const ascent = pdfFontAscent(content.styles[item.fontName]);
+    const font = (fonts.get(item.fontName) ?? "").replace(/^[A-Z]{6}\+/, "");
     return [
       {
         text: mathFontText(item.str, fonts.get(item.fontName) ?? ""),
+        baseline: transform[5] / height,
+        fontSize: h / height,
+        math:
+          /^(?:CMMI|CMSY|MSBM|CMEX)\d+$/i.test(font) ||
+          (/^CMBX\d+$/i.test(font) && item.str.length === 1) ||
+          (/^CMR\d+$/i.test(font) && /^[\d˜ˆ¯˙¨=+()\[\],.\-]+$/.test(item.str)),
         bounds: {
           x: transform[4] / width,
           y: (transform[5] - h * ascent) / height,
@@ -49,6 +56,12 @@ const doubleStruck = Array.from("𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃�
 // Only restore the known font encodings; ordinary prose and math italic stay intact.
 export function mathFontText(text: string, fontName: string) {
   const name = fontName.replace(/^[A-Z]{6}\+/, "");
+  if (/^CMEX\d+$/i.test(name) && /^[b-g]$/.test(text))
+    return text <= "d" ? "ˆ" : "˜";
+  if (/^CMBX\d+$/i.test(name) && /^[A-Za-z]$/.test(text))
+    return String.fromCodePoint(
+      text.charCodeAt(0) + (text <= "Z" ? 0x1d400 - 65 : 0x1d41a - 97),
+    );
   const alphabet = /^CMSY\d+$/i.test(name)
     ? script
     : /^MSBM\d+$/i.test(name)

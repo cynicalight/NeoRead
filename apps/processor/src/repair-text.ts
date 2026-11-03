@@ -76,7 +76,7 @@ try {
   await writeFile(
     join(output, "manifest.json"),
     JSON.stringify(
-      { ...manifest, blocks: repaired.blocks, textExtractionVersion: 3 },
+      { ...manifest, blocks: repaired.blocks, textExtractionVersion: 4 },
       null,
       2,
     ) + "\n",

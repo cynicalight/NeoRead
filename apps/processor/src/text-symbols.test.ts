@@ -7,6 +7,9 @@ it("preserves TeX mathematical alphabets without changing ordinary italic letter
   expect(mathFontText("B E F H I L M R", "CMSY7")).toBe("ℬ ℰ ℱ ℋ ℐ ℒ ℳ ℛ");
   expect(mathFontText("R C N Z", "XSBJNE+MSBM10")).toBe("ℝ ℂ ℕ ℤ");
   expect(mathFontText("T", "PFXWVE+CMMI10")).toBe("T");
+  expect(mathFontText("x", "RTXNFC+CMBX10")).toBe("𝐱");
+  expect(mathFontText("e", "YIEXCM+CMEX10")).toBe("˜");
+  expect(mathFontText("c", "YIEXCM+CMEX10")).toBe("ˆ");
   expect(mathFontText("Text", "Times-Roman")).toBe("Text");
 });
 

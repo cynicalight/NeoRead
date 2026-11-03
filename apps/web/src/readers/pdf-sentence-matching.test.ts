@@ -9,6 +9,32 @@ const pdf = normalized(
   "Each time 𝑡𝑖 merges a record-local graph, it checks all followers.",
 );
 
+it("maps structured inline scripts to native glyph order without accepting different variables", () => {
+  const first = normalized("where CS denotes the cosine similarity.");
+  const second = normalized(
+    "By maximizing $\\mathcal{M}_{\\mathcal{T}_{s},\\mathcal{T}_{t}}$, each $\\tilde{\\mathbf{x}}_{i}^{s}$ effectively captures certain semantic $\\hat{\\mathbf{x}}_{i}^{t}$ from the target image.",
+  );
+  const native = normalized(
+    "By maximizing MTs,Tt, each ˜xsi effectively captures certain semantic ˆxti from the target image.",
+  );
+  expect(
+    sentenceTextRanges(first + native, first + second, [first, second]),
+  ).toEqual([
+    { start: 0, end: first.length },
+    { start: first.length, end: first.length + native.length },
+  ]);
+  expect(
+    sentenceTextRanges(first + native.replace("xti", "xji"), first + second, [
+      second,
+    ]),
+  ).toEqual([]);
+  expect(
+    sentenceTextRanges(first + native + first + native, first + second, [
+      second,
+    ]),
+  ).toEqual([]);
+});
+
 it("keeps reordered subscripts in the full PDF sentence range", () => {
   const text = "preceding." + pdf + "following.";
   expect(sentenceTextRanges(text, source, [source])).toEqual([
