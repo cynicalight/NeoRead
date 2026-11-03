@@ -232,6 +232,7 @@ it("restores user sidebar sizes and collapsed state without replacing expanded s
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  vi.useRealTimers();
   host.remove();
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
@@ -380,6 +381,7 @@ const enterPrompt = async (text: string) => {
 };
 
 it("keeps typing local and preserves the latest text across workspace updates", async () => {
+  vi.useFakeTimers();
   vi.mocked(api.chatSessions).mockResolvedValue([
     {
       id: "typing",
@@ -401,6 +403,8 @@ it("keeps typing local and preserves the latest text across workspace updates", 
       getLocation: () => undefined,
     } as unknown as ReaderAdapter),
   );
+  await act(async () => vi.advanceTimersByTimeAsync(100));
+  expect(api.annotations).toHaveBeenCalledOnce();
   const send = host.querySelector<HTMLButtonElement>(
     '[aria-label="发送问题"]',
   )!;
@@ -474,8 +478,11 @@ it("restores the latest session draft and text when the composer remounts", asyn
 });
 
 it("keeps long Chinese composition and paste native across workspace updates", async () => {
+  vi.useFakeTimers();
   const errors = vi.spyOn(console, "error");
   await act(async () => render(0));
+  await act(async () => vi.advanceTimersByTimeAsync(100));
+  expect(api.annotations).toHaveBeenCalledOnce();
   const long = "长中文草稿需要保留输入法候选和光标。".repeat(200);
   await enterPrompt(long);
   composer().setSelectionRange(20, 20);
