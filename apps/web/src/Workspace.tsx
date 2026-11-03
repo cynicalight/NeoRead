@@ -1,4 +1,8 @@
 import { useAnnotationUpdates } from "./useAnnotationUpdates";
+import {
+  focusSelectionScope,
+  selectAllInScope,
+} from "./readers/scoped-selection";
 import { webSearchEnabled } from "./chat/web-search";
 import { NavigationTree } from "./NavigationTree";
 import { useShortcut } from "./shortcuts/shortcuts";
@@ -1134,7 +1138,11 @@ export function Workspace({
     void flushProgress().catch((e) => toast.error(e.message));
   }, [active, adapter]);
   return (
-    <div className="workspace">
+    <div
+      className="workspace"
+      onPointerDownCapture={(event) => focusSelectionScope(event.nativeEvent)}
+      onKeyDownCapture={(event) => selectAllInScope(event.nativeEvent)}
+    >
       <header className="neoread-toolbar">
         <div className="neoread-title-group">
           <IconButton
