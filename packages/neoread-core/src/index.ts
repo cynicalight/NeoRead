@@ -580,7 +580,14 @@ export interface Provider {
   authenticated: boolean;
   status: string;
 }
-export interface SourceReference {
+/** User-selected conversation text, separate from document evidence. */
+export interface ChatQuote {
+  kind: "chat";
+  text: string;
+  location?: never;
+}
+export type SourceReference = DocumentSourceReference | ChatQuote;
+export interface DocumentSourceReference {
   /** Rendered page evidence, separate from extracted text. */
   pageImage?: {
     page: number;

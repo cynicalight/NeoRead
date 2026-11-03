@@ -112,25 +112,32 @@ export function SourceReferences({
       <div className="chat-user-references">
         {candidates && <p className="reference-prompt">选择原文位置</p>}
         {(!children || candidates) && (
-          <div className="reference-list" role="list" aria-label="原文引用列表">
+          <div className="reference-list" role="list" aria-label="引用列表">
             {(candidates || cards).map((card) => (
               <div role="listitem" key={card.id}>
-                <Button
-                  variant="ghost"
-                  className="reference-card"
-                  disabled={!adapter || !!pending}
-                  onClick={() => void choose(card)}
-                >
-                  <span className="reference-card-heading">
-                    <span title={card.label}>引用原文 · {card.label}</span>
-                    {pending === card.id ? (
-                      <Loader2 className="size-3 animate-spin" />
-                    ) : (
-                      <ArrowUpRight className="size-3" />
-                    )}
-                  </span>
-                  <span className="reference-card-excerpt">{card.text}</span>
-                </Button>
+                {card.kind === "chat" ? (
+                  <div className="reference-card">
+                    <span className="reference-card-heading">引用对话</span>
+                    <span className="reference-card-excerpt">{card.text}</span>
+                  </div>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    className="reference-card"
+                    disabled={!adapter || !!pending}
+                    onClick={() => void choose(card)}
+                  >
+                    <span className="reference-card-heading">
+                      <span title={card.label}>引用原文 · {card.label}</span>
+                      {pending === card.id ? (
+                        <Loader2 className="size-3 animate-spin" />
+                      ) : (
+                        <ArrowUpRight className="size-3" />
+                      )}
+                    </span>
+                    <span className="reference-card-excerpt">{card.text}</span>
+                  </Button>
+                )}
               </div>
             ))}
           </div>

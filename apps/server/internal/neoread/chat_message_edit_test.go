@@ -16,7 +16,7 @@ func chatEditFixture(t *testing.T) (*Server, ChatSession, ChatSession, []Message
 	var history []Message
 	for i, key := range []string{"first", "middle", "last"} {
 		user := Message{ID: key + "-user", DocumentID: "doc", SessionID: a.ID, Role: "user", Content: key, CreatedAt: "2021-02-03T04:05:06Z", Context: "original context", WebSearch: true,
-			References: json.RawMessage(`[{"text":"原文 $H'$","location":{"type":"pdf","page":2},"kind":"selection"}]`), ReadingLocation: json.RawMessage(`{"type":"pdf","page":2}`), Attachments: []ImageAttachment{{ID: "p2-b1", Page: 2, Label: "chart", Caption: "原图"}}}
+			References: json.RawMessage(`[{"text":"原文 $H'$","location":{"type":"pdf","page":2},"kind":"selection"},{"kind":"chat","text":"之前回答的选中文字"}]`), ReadingLocation: json.RawMessage(`{"type":"pdf","page":2}`), Attachments: []ImageAttachment{{ID: "p2-b1", Page: 2, Label: "chart", Caption: "原图"}}}
 		answer := Message{ID: key + "-answer", DocumentID: "doc", SessionID: a.ID, Role: "assistant", Content: "answer " + key, Reasoning: "thinking", CreatedAt: user.CreatedAt}
 		for _, m := range []Message{user, answer} {
 			if _, err := s.Store.DB.Exec("INSERT INTO messages VALUES(?,?,?,?)", m.ID, m.DocumentID, jsonText(m), m.CreatedAt); err != nil {

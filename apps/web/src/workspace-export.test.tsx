@@ -445,11 +445,16 @@ it("restores the latest session draft and text when the composer remounts", asyn
   await act(async () => render(0));
   await enterPrompt("first draft");
   await enterPrompt("first draft with latest typing");
+  await act(async () => panels.assistant!.onQuote!("quote for draft A"));
   await act(async () => panels.sessions!.onChange("draft-b"));
   expect(composer().value).toBe("");
+  expect(host.querySelector(".quote-chips")).toBeNull();
   await enterPrompt("second draft");
   await act(async () => panels.sessions!.onChange("draft-a"));
   expect(composer().value).toBe("first draft with latest typing");
+  expect(host.querySelector(".quote-chips")?.textContent).toContain(
+    "quote for draft A",
+  );
   const tab = (name: string) =>
     [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
       (el) => el.textContent === name,
@@ -457,6 +462,12 @@ it("restores the latest session draft and text when the composer remounts", asyn
   await act(async () => tab("笔记").click());
   await act(async () => tab("Agent").click());
   expect(composer().value).toBe("first draft with latest typing");
+  expect(host.querySelector(".quote-chips")?.textContent).toContain(
+    "quote for draft A",
+  );
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="移除引用"]')!.click(),
+  );
   await enterPrompt("   ");
   expect(tabCloseWarning(doc.id)).toBeNull();
 });
@@ -622,15 +633,75 @@ it("keeps streamed answer deltas out of the reader while accepting new draft inp
   }
 });
 
-it("appends selected chat text to the current draft without creating a document citation", async () => {
+it("keeps chat quotations in the existing quote chips through sending and withdrawal", async () => {
+  vi.mocked(api.chatSessions).mockResolvedValue([
+    {
+      id: "quotes",
+      documentId: doc.id,
+      title: "test",
+      provider: "api",
+      createdAt: "now",
+      updatedAt: "now",
+    },
+  ]);
+  vi.mocked(api.aiConfig).mockResolvedValueOnce({
+    primary: "api",
+    models: {},
+    capabilities: {},
+  } as Awaited<ReturnType<typeof api.aiConfig>>);
   await act(async () => render(0));
+  await act(async () =>
+    panels.readerReady?.({
+      getLocation: () => undefined,
+    } as unknown as ReaderAdapter),
+  );
   await enterPrompt("existing draft");
   await act(async () => panels.assistant!.onQuote!("first line\nsecond line"));
-  expect(composer().value).toBe(
-    "existing draft\n\n> first line\n> second line\n\n",
+  expect(composer().value).toBe("existing draft");
+  expect(host.querySelector(".quote-chips")?.textContent).toContain(
+    "first line",
   );
-  expect(host.querySelector(".quote-chips")).toBeNull();
   expect(tabCloseWarning(doc.id)).not.toBeNull();
   await act(async () => render(1));
-  expect(composer().value).toContain("> second line");
+  expect(host.querySelector(".quote-chips")?.textContent).toContain(
+    "second line",
+  );
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="移除引用"]')!.click(),
+  );
+  expect(host.querySelector(".quote-chips")).toBeNull();
+  expect(composer().value).toBe("existing draft");
+  await act(async () => panels.assistant!.onQuote!("first line\nsecond line"));
+  const sent = vi
+    .spyOn(ChatSession.prototype, "send")
+    .mockResolvedValue(undefined);
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="发送问题"]')!.click(),
+  );
+  const references = [
+    { kind: "chat" as const, text: "first line\nsecond line" },
+  ];
+  expect(sent).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      prompt: "existing draft",
+      references,
+      context: "[引用对话 · 不作为原文证据]\nfirst line\nsecond line",
+    }),
+  );
+  expect(host.querySelector(".quote-chips")).toBeNull();
+  expect(composer().value).toBe("");
+  await act(async () =>
+    panels.assistant!.onWithdraw!({
+      id: "withdraw",
+      documentId: doc.id,
+      role: "user",
+      content: "existing draft",
+      references,
+      createdAt: "now",
+    }),
+  );
+  expect(composer().value).toBe("existing draft");
+  expect(host.querySelector(".quote-chips")?.textContent).toContain(
+    "first line",
+  );
 });

@@ -114,7 +114,11 @@ import { ModelSelector } from "./ModelSelector";
 import { SourceReferences } from "./SourceReferences";
 import { ChatSession } from "./chat/chat-session";
 import { getChatSession } from "./chat/session-registry";
-import { restoreWithdrawnQuestion } from "./chat/composer-draft";
+import {
+  restoreWithdrawnQuestion,
+  type ComposerDraft,
+  type ComposerQuote,
+} from "./chat/composer-draft";
 import { SessionPicker } from "./chat/SessionPicker";
 import { AssistantPanel } from "./chat/AssistantPanel";
 import { CodexHandoffButton } from "./chat/CodexHandoffButton";
@@ -435,7 +439,7 @@ export function Workspace({
   const promptContentChanged = useRef<((hasText: boolean) => void) | undefined>(
     undefined,
   );
-  const [quotes, setQuotes] = useState<ReaderSelection[]>([]);
+  const [quotes, setQuotes] = useState<ComposerQuote[]>([]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [previewImage, setPreviewImage] = useState<ImageAttachment>();
   const composeInput = useRef<HTMLTextAreaElement>(null);
@@ -444,12 +448,7 @@ export function Workspace({
     if (node) node.value = prompt.current;
   }, []);
   const promptHasText = useRef(false);
-  const composerDrafts = useRef(
-    new Map<
-      string,
-      { prompt: string; quotes: ReaderSelection[]; images: ImageAttachment[] }
-    >(),
-  );
+  const composerDrafts = useRef(new Map<string, ComposerDraft>());
   const composerValue = useRef({ prompt: prompt.current, quotes, images });
   composerValue.current = { prompt: prompt.current, quotes, images };
   // Native editing keeps each keystroke out of the reader and chat render tree.
@@ -838,12 +837,7 @@ export function Workspace({
     void go?.catch((error) => toast.error(error.message));
   };
   const quoteChatText = (text: string) => {
-    const quoted = text
-      .replace(/\r\n?/g, "\n")
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n");
-    setPrompt(`${prompt.current ? `${prompt.current}\n\n` : ""}${quoted}\n\n`);
+    setQuotes((items) => [...items, { text, kind: "chat" as const }].slice(-6));
     setRight(true);
     setRightTab("ai");
     requestAnimationFrame(() => {

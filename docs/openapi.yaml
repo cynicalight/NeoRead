@@ -2669,40 +2669,62 @@
                                       "type": "array",
                                       "items":
                                         {
-                                          "type": "object",
-                                          "properties":
-                                            {
-                                              "text": { "type": "string" },
-                                              "kind":
-                                                {
-                                                  "enum":
-                                                    ["selection", "section"],
-                                                },
-                                              "location":
-                                                {
-                                                  "$ref": "#/components/schemas/DocumentLocation",
-                                                },
-                                              "sourceId": { "type": "string" },
-                                              "pageImage":
-                                                {
-                                                  "$ref": "#/components/schemas/PageImageEvidence",
-                                                },
-                                              "corpusRevision":
-                                                { "type": "string" },
-                                              "contentHash":
-                                                { "type": "string" },
-                                              "precision":
-                                                {
-                                                  "type": "string",
-                                                  "enum":
-                                                    [
-                                                      "page",
-                                                      "block",
-                                                      "paragraph",
-                                                    ],
-                                                },
-                                            },
-                                          "required": ["text", "location"],
+                                          "anyOf":
+                                            [
+                                              {
+                                                "type": "object",
+                                                "properties":
+                                                  {
+                                                    "text":
+                                                      { "type": "string" },
+                                                    "kind":
+                                                      {
+                                                        "enum":
+                                                          [
+                                                            "selection",
+                                                            "section",
+                                                          ],
+                                                      },
+                                                    "location":
+                                                      {
+                                                        "$ref": "#/components/schemas/DocumentLocation",
+                                                      },
+                                                    "sourceId":
+                                                      { "type": "string" },
+                                                    "pageImage":
+                                                      {
+                                                        "$ref": "#/components/schemas/PageImageEvidence",
+                                                      },
+                                                    "corpusRevision":
+                                                      { "type": "string" },
+                                                    "contentHash":
+                                                      { "type": "string" },
+                                                    "precision":
+                                                      {
+                                                        "type": "string",
+                                                        "enum":
+                                                          [
+                                                            "page",
+                                                            "block",
+                                                            "paragraph",
+                                                          ],
+                                                      },
+                                                  },
+                                                "required":
+                                                  ["text", "location"],
+                                              },
+                                              {
+                                                "type": "object",
+                                                "description": "User-selected conversation text. Stored with the question; does not identify document evidence or a document location.",
+                                                "properties":
+                                                  {
+                                                    "kind": { "const": "chat" },
+                                                    "text":
+                                                      { "type": "string" },
+                                                  },
+                                                "required": ["kind", "text"],
+                                              },
+                                            ],
                                         },
                                     },
                                   "webSearch":
@@ -5618,40 +5640,62 @@
                                       "type": "array",
                                       "items":
                                         {
-                                          "type": "object",
-                                          "properties":
-                                            {
-                                              "text": { "type": "string" },
-                                              "kind":
-                                                {
-                                                  "enum":
-                                                    ["selection", "section"],
-                                                },
-                                              "location":
-                                                {
-                                                  "$ref": "#/components/schemas/DocumentLocation",
-                                                },
-                                              "sourceId": { "type": "string" },
-                                              "pageImage":
-                                                {
-                                                  "$ref": "#/components/schemas/PageImageEvidence",
-                                                },
-                                              "corpusRevision":
-                                                { "type": "string" },
-                                              "contentHash":
-                                                { "type": "string" },
-                                              "precision":
-                                                {
-                                                  "type": "string",
-                                                  "enum":
-                                                    [
-                                                      "page",
-                                                      "block",
-                                                      "paragraph",
-                                                    ],
-                                                },
-                                            },
-                                          "required": ["text", "location"],
+                                          "anyOf":
+                                            [
+                                              {
+                                                "type": "object",
+                                                "properties":
+                                                  {
+                                                    "text":
+                                                      { "type": "string" },
+                                                    "kind":
+                                                      {
+                                                        "enum":
+                                                          [
+                                                            "selection",
+                                                            "section",
+                                                          ],
+                                                      },
+                                                    "location":
+                                                      {
+                                                        "$ref": "#/components/schemas/DocumentLocation",
+                                                      },
+                                                    "sourceId":
+                                                      { "type": "string" },
+                                                    "pageImage":
+                                                      {
+                                                        "$ref": "#/components/schemas/PageImageEvidence",
+                                                      },
+                                                    "corpusRevision":
+                                                      { "type": "string" },
+                                                    "contentHash":
+                                                      { "type": "string" },
+                                                    "precision":
+                                                      {
+                                                        "type": "string",
+                                                        "enum":
+                                                          [
+                                                            "page",
+                                                            "block",
+                                                            "paragraph",
+                                                          ],
+                                                      },
+                                                  },
+                                                "required":
+                                                  ["text", "location"],
+                                              },
+                                              {
+                                                "type": "object",
+                                                "description": "User-selected conversation text. Stored with the question; does not identify document evidence or a document location.",
+                                                "properties":
+                                                  {
+                                                    "kind": { "const": "chat" },
+                                                    "text":
+                                                      { "type": "string" },
+                                                  },
+                                                "required": ["kind", "text"],
+                                              },
+                                            ],
                                         },
                                     },
                                   "webSearch":
@@ -6584,29 +6628,45 @@
                       "type": "array",
                       "items":
                         {
-                          "type": "object",
-                          "properties":
-                            {
-                              "text": { "type": "string" },
-                              "kind": { "enum": ["selection", "section"] },
-                              "location":
-                                {
-                                  "$ref": "#/components/schemas/DocumentLocation",
-                                },
-                              "sourceId": { "type": "string" },
-                              "pageImage":
-                                {
-                                  "$ref": "#/components/schemas/PageImageEvidence",
-                                },
-                              "corpusRevision": { "type": "string" },
-                              "contentHash": { "type": "string" },
-                              "precision":
-                                {
-                                  "type": "string",
-                                  "enum": ["page", "block", "paragraph"],
-                                },
-                            },
-                          "required": ["text", "location"],
+                          "anyOf":
+                            [
+                              {
+                                "type": "object",
+                                "properties":
+                                  {
+                                    "text": { "type": "string" },
+                                    "kind":
+                                      { "enum": ["selection", "section"] },
+                                    "location":
+                                      {
+                                        "$ref": "#/components/schemas/DocumentLocation",
+                                      },
+                                    "sourceId": { "type": "string" },
+                                    "pageImage":
+                                      {
+                                        "$ref": "#/components/schemas/PageImageEvidence",
+                                      },
+                                    "corpusRevision": { "type": "string" },
+                                    "contentHash": { "type": "string" },
+                                    "precision":
+                                      {
+                                        "type": "string",
+                                        "enum": ["page", "block", "paragraph"],
+                                      },
+                                  },
+                                "required": ["text", "location"],
+                              },
+                              {
+                                "type": "object",
+                                "description": "User-selected conversation text. Stored with the question; does not identify document evidence or a document location.",
+                                "properties":
+                                  {
+                                    "kind": { "const": "chat" },
+                                    "text": { "type": "string" },
+                                  },
+                                "required": ["kind", "text"],
+                              },
+                            ],
                         },
                     },
                   "sessionId":

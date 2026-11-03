@@ -1,8 +1,15 @@
-import type { ImageAttachment, Message, ReaderSelection } from "@neoread/core";
+import type {
+  ChatQuote,
+  ImageAttachment,
+  Message,
+  ReaderSelection,
+} from "@neoread/core";
+
+export type ComposerQuote = ReaderSelection | ChatQuote;
 
 export type ComposerDraft = {
   prompt: string;
-  quotes: ReaderSelection[];
+  quotes: ComposerQuote[];
   images: ImageAttachment[];
 };
 

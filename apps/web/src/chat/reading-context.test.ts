@@ -2,6 +2,40 @@ import { expect, it, vi } from "vitest";
 import type { EPUBLocation, PDFLocation, ReaderSelection } from "@neoread/core";
 import { readingContext } from "./reading-context";
 
+it("keeps conversation quotes distinct from mixed original and translated selections", async () => {
+  const result = await readingContext(
+    undefined,
+    "api",
+    [
+      { kind: "chat", text: "quoted answer" },
+      { text: "original selection", location: { type: "pdf", page: 4 } },
+      {
+        text: "translated selection",
+        location: { type: "epub", href: "chapter.xhtml" },
+      },
+    ],
+    false,
+    false,
+  );
+  expect(result.references).toEqual([
+    { kind: "chat", text: "quoted answer" },
+    {
+      kind: "selection",
+      text: "original selection",
+      location: { type: "pdf", page: 4 },
+    },
+    {
+      kind: "selection",
+      text: "translated selection",
+      location: { type: "epub", href: "chapter.xhtml" },
+    },
+  ]);
+  expect(result.context).toContain(
+    "[引用对话 · 不作为原文证据]\nquoted answer",
+  );
+  expect(result.context).toContain("[选区 · 第 4 页]\noriginal selection");
+});
+
 it.each(["codex", "api", "claude", "kimi"])(
   "%s never extracts page text for ordinary questions or image attachments",
   async (provider) => {
