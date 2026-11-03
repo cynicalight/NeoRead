@@ -48,11 +48,11 @@ export class PDFViewport {
   private visible() {
     return (
       this.host.isConnected &&
+      !this.host.closest("[inert]") &&
       this.host.clientWidth > 0 &&
       this.host.clientHeight > 0 &&
       Number.isFinite(this.viewer.currentScale) &&
-      this.viewer.currentScale > 0 &&
-      !this.host.closest("[inert]")
+      this.viewer.currentScale > 0
     );
   }
   private capture() {

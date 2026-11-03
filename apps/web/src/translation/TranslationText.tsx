@@ -2,9 +2,10 @@ import { FormulaRow } from "./FormulaRow";
 import type { PDFBlock, TranslationBlock } from "@neoread/core";
 import { blockImageURL } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import { ReadingLinkNavigation } from "../reading-links";
 import { ErrorBoundary } from "../ErrorBoundary";
+import { Expand } from "lucide-react";
 const FormulaFragment = lazy(() => import("./FormulaFragment"));
 const Markdown = lazy(() =>
   import("../chat/MessageMarkdown").then((module) => ({
@@ -41,36 +42,124 @@ function BlockImage({
   src,
   alt,
   render,
+  release,
+  scale = 1,
 }: {
   src: string;
   alt: string;
   render?: (width: number) => Promise<string>;
+  release?: () => void;
+  scale?: number;
 }) {
-  const [sharp, setSharp] = useState<{ url: string; width: number }>();
+  const [sharp, setSharp] = useState<{
+    url: string;
+    width: number;
+    pixels: number;
+  }>();
+  const imageRef = useRef<HTMLImageElement>(null);
+  const visible = useRef(typeof IntersectionObserver === "undefined");
+  const originalWidth = useRef<number | undefined>(undefined);
+  const originalHeight = useRef<number | undefined>(undefined);
+  const generation = useRef(0);
+  const releaseRef = useRef(release);
+  releaseRef.current = release;
+  const requested = useRef(0);
+  const sharpen = (image: HTMLImageElement) => {
+    if (!visible.current || !render || !image.naturalWidth) return;
+    originalWidth.current ??= image.naturalWidth;
+    if (image.naturalHeight) originalHeight.current ??= image.naturalHeight;
+    const width = originalWidth.current;
+    const pixels = Math.ceil(
+      Math.min(width, image.clientWidth || width) *
+        scale *
+        (window.devicePixelRatio || 1),
+    );
+    if (pixels <= requested.current) return;
+    requested.current = pixels;
+    const version = generation.current;
+    render(pixels)
+      .then((url) => {
+        if (mounted.current && generation.current === version)
+          setSharp((previous) =>
+            previous && previous.pixels > pixels
+              ? previous
+              : { url, width, pixels },
+          );
+      })
+      .catch(() => {
+        if (generation.current === version && requested.current === pixels)
+          requested.current = 0;
+      });
+  };
   const mounted = useRef(false);
+  const update = useRef(sharpen);
+  update.current = sharpen;
   useEffect(() => {
     mounted.current = true;
+    let retirement: ReturnType<typeof setTimeout> | undefined;
+    const visibility =
+      typeof IntersectionObserver === "undefined"
+        ? undefined
+        : new IntersectionObserver(
+            ([entry]) => {
+              const wasVisible = visible.current;
+              visible.current = entry.isIntersecting;
+              clearTimeout(retirement);
+              const image = imageRef.current;
+              if (entry.isIntersecting && image?.complete)
+                update.current(image);
+              else if (wasVisible && !entry.isIntersecting) {
+                // Keep decoded pixels during brief boundary crossings.
+                retirement = setTimeout(() => {
+                  generation.current++;
+                  requested.current = 0;
+                  setSharp(undefined);
+                  releaseRef.current?.();
+                }, 800);
+              }
+            },
+            {
+              root: imageRef.current?.closest(".translation-document") ?? null,
+              rootMargin: "1200px 0px",
+            },
+          );
+    const observer = new ResizeObserver(() => {
+      const image = imageRef.current;
+      if (!image?.complete) return;
+      if (visible.current) update.current(image);
+    });
+    if (imageRef.current) observer.observe(imageRef.current);
+    if (imageRef.current) visibility?.observe(imageRef.current);
     return () => {
       mounted.current = false;
+      clearTimeout(retirement);
+      observer.disconnect();
+      visibility?.disconnect();
+      generation.current++;
+      releaseRef.current?.();
     };
   }, []);
+  useEffect(() => {
+    const image = imageRef.current;
+    if (!image?.complete) return;
+    sharpen(image);
+  }, [scale]);
   return (
     <img
       className="translation-image"
+      ref={imageRef}
       src={sharp?.url ?? src}
-      width={sharp?.width}
+      width={originalWidth.current}
+      style={{
+        aspectRatio:
+          originalWidth.current && originalHeight.current
+            ? `${originalWidth.current} / ${originalHeight.current}`
+            : undefined,
+      }}
       alt={alt}
       loading="lazy"
       onLoad={(event) => {
-        if (sharp || !render) return;
-        const image = event.currentTarget;
-        const width = image.naturalWidth;
-        const pixels = Math.min(width, image.clientWidth || width);
-        render(Math.ceil(pixels * (window.devicePixelRatio || 1)))
-          .then((url) => {
-            if (mounted.current) setSharp({ url, width });
-          })
-          .catch(() => {});
+        sharpen(event.currentTarget);
       }}
     />
   );
@@ -98,6 +187,9 @@ function TranslationContent({
   onCitation,
   imageURL,
   renderImage,
+  releaseImage,
+  onPreview,
+  imageScale,
 }: {
   // PDF blocks and EPUB paragraphs share these fields.
   block: Pick<PDFBlock, "id" | "label" | "text" | "image" | "caption"> &
@@ -113,25 +205,77 @@ function TranslationContent({
   /** EPUB images come from the publication rather than the PDF asset store. */
   imageURL?: string;
   /** Replaces the low-resolution layout crop with a render sized for display. */
-  renderImage?: (blockId: string, width: number) => Promise<string>;
+  renderImage?: (
+    blockId: string,
+    width: number,
+    owner?: string,
+  ) => Promise<string>;
+  releaseImage?: (blockId: string, owner?: string) => void;
+  onPreview?: () => void;
+  imageScale?: number;
 }) {
+  const imageOwner = useId();
   const formula = ["display_formula", "inline_formula"].includes(block.label);
   const idle = translation?.status === "idle";
   const halted = paused && translation?.status === "pending";
   const asset =
     !!block.image ||
     ["algorithm", "table", "chart", "image"].includes(block.label);
-  const image = block.image ? (
+  const crop = block.image ? (
     <BlockImage
       key={`${block.id}:${block.image}`}
       src={imageURL ?? blockImageURL(documentId, block.id, block.image)}
       alt={block.caption || block.text || block.label}
+      scale={imageScale}
       render={
         imageURL || !renderImage
           ? undefined
-          : (width) => renderImage(block.id, width)
+          : (width) => renderImage(block.id, width, imageOwner)
+      }
+      release={
+        releaseImage ? () => releaseImage(block.id, imageOwner) : undefined
       }
     />
+  ) : null;
+  const image = block.image ? (
+    <div className="translation-image-container">
+      {onPreview ? (
+        <Button
+          variant="ghost"
+          className="translation-image-open"
+          aria-label="双击放大查看图片"
+          title="双击放大查看图片"
+          onClick={(event) => {
+            if (event.detail !== 0) return;
+            event.stopPropagation();
+            onPreview();
+          }}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            onPreview();
+          }}
+        >
+          {crop}
+        </Button>
+      ) : (
+        crop
+      )}
+      {onPreview && (
+        <Button
+          variant="secondary"
+          size="icon-sm"
+          className="translation-image-preview"
+          aria-label="放大查看原图"
+          title="放大查看原图"
+          onClick={(event) => {
+            event.stopPropagation();
+            onPreview();
+          }}
+        >
+          <Expand />
+        </Button>
+      )}
+    </div>
   ) : null;
   const formulaFallback = image || <MessageMarkdown content={block.text} />;
   if (
