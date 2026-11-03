@@ -272,7 +272,7 @@ index 3ed4812a365d3a2996de7ad7ef6f1ba56e828c5e..d3a5b96521878c11fa998dd4a310fa47
      /**
       * @private
 diff --git a/web/pdf_viewer.mjs b/web/pdf_viewer.mjs
-index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c15524c892 100644
+index 29b3492cd9cb0869a906785739c34fc364ec1c17..474e4950418a026cc0caf3198856c1cbeeac4913 100644
 --- a/web/pdf_viewer.mjs
 +++ b/web/pdf_viewer.mjs
 @@ -5044,8 +5044,11 @@ class BasePDFPageView extends RenderableView {
@@ -314,7 +314,31 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
          this.renderTask = null;
          if (this.enableOptimizedPartialRendering) {
            this.recordedBBoxes ??= renderTask.recordedBBoxes;
-@@ -6933,8 +6943,14 @@ class PDFPageView extends BasePDFPageView {
+@@ -6297,10 +6307,19 @@ class TextLayerBuilder {
+     this.#selectionChangeAC = new AbortController();
+     const signal = globalAbortSignal ? AbortSignal.any([this.#selectionChangeAC.signal, globalAbortSignal]) : this.#selectionChangeAC.signal;
+     const reset = (end, textLayer) => {
+-      textLayer.append(end);
+-      end.style.width = "";
+-      end.style.height = "";
+-      textLayer.classList.remove("selecting");
++      // Global editor/selection events must leave already-reset PDF layers alone.
++      if (end.parentNode !== textLayer || textLayer.lastChild !== end) {
++        textLayer.append(end);
++      }
++      if (end.style.width) {
++        end.style.width = "";
++      }
++      if (end.style.height) {
++        end.style.height = "";
++      }
++      if (textLayer.classList.contains("selecting")) {
++        textLayer.classList.remove("selecting");
++      }
+     };
+     let isPointerDown = false;
+     document.addEventListener("pointerdown", () => {
+@@ -6933,8 +6952,14 @@ class PDFPageView extends BasePDFPageView {
      scale = 0,
      rotation = null,
      optionalContentConfigPromise = null,
@@ -330,7 +354,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
      this.scale = scale || this.scale;
      if (typeof rotation === "number") {
        this.rotation = rotation;
-@@ -6960,7 +6976,7 @@ class PDFPageView extends BasePDFPageView {
+@@ -6960,7 +6985,7 @@ class PDFPageView extends BasePDFPageView {
      }
      this.#computeScale();
      if (this.canvas) {
@@ -339,7 +363,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
        const postponeDrawing = drawingDelay >= 0 && drawingDelay < 1000;
        if (postponeDrawing || onlyCssZoom) {
          if (postponeDrawing && !onlyCssZoom && this.renderingState !== RenderingStates.FINISHED) {
-@@ -7251,8 +7267,15 @@ class PDFPageView extends BasePDFPageView {
+@@ -7251,8 +7276,15 @@ class PDFPageView extends BasePDFPageView {
      const recordImages = this.imagesRightClickMinSize !== -1 && !this.imageCoordinates;
      const transform = outputScale.scaled ? [outputScale.sx, 0, 0, outputScale.sy, 0, 0] : null;
      const resultPromise = this._drawCanvas(this._getRenderingContext(canvas, transform, recordBBoxes, recordImages), () => {
@@ -357,7 +381,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
      }, renderTask => {
        this.#useThumbnailCanvas.regularAnnotations = !renderTask.separateAnnots;
        this.dispatchPageRendered(false, false);
-@@ -7821,7 +7844,7 @@ class PDFRenderingQueue {
+@@ -7821,7 +7853,7 @@ class PDFRenderingQueue {
        this.#idleTimeout = setTimeout(this.onIdle.bind(this), CLEANUP_TIMEOUT);
      }
    }
@@ -366,7 +390,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
      const visibleViews = visible.views,
        numVisible = visibleViews.length;
      if (numVisible === 0) {
-@@ -7833,6 +7856,21 @@ class PDFRenderingQueue {
+@@ -7833,6 +7865,21 @@ class PDFRenderingQueue {
          return view;
        }
      }
@@ -388,7 +412,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
      if (!ignoreDetailViews) {
        for (let i = 0; i < numVisible; i++) {
          const {
-@@ -7843,6 +7881,9 @@ class PDFRenderingQueue {
+@@ -7843,6 +7890,9 @@ class PDFRenderingQueue {
          }
        }
      }
@@ -398,7 +422,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
      const firstId = visible.first.id,
        lastId = visible.last.id;
      if (lastId - firstId + 1 > numVisible) {
-@@ -7969,6 +8010,7 @@ class PDFPageViewBuffer {
+@@ -7969,6 +8019,7 @@ class PDFPageViewBuffer {
    }
  }
  class PDFViewer {
@@ -406,7 +430,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
    #buffer = null;
    #altTextManager = null;
    #annotationEditorHighlightColors = null;
-@@ -8047,6 +8089,7 @@ class PDFViewer {
+@@ -8047,6 +8098,7 @@ class PDFViewer {
      this.maxCanvasDim = options.maxCanvasDim;
      this.capCanvasAreaFactor = options.capCanvasAreaFactor;
      this.enableDetailCanvas = options.enableDetailCanvas ?? true;
@@ -414,7 +438,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
      this.enableOptimizedPartialRendering = options.enableOptimizedPartialRendering ?? false;
      this.enableSelectionRendering = options.enableSelectionRendering !== false;
      this.imagesRightClickMinSize = options.imagesRightClickMinSize ?? -1;
-@@ -9167,13 +9210,16 @@ class PDFViewer {
+@@ -9167,13 +9219,16 @@ class PDFViewer {
      if (numVisiblePages === 0) {
        return;
      }
@@ -434,7 +458,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
      }
      for (const view of this.#buffer) {
        if (!visible.ids.has(view.id)) {
-@@ -9249,14 +9295,22 @@ class PDFViewer {
+@@ -9249,14 +9304,22 @@ class PDFViewer {
    get isVerticalScrollbarEnabled() {
      return this.isInPresentationMode ? false : this.container.scrollHeight > this.container.clientHeight;
    }
@@ -460,7 +484,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..9a4d8ca3cdd71d5178b1909f9ddbb9c1
        horizontal,
        rtl
      });
-@@ -9307,9 +9361,19 @@ class PDFViewer {
+@@ -9307,9 +9370,19 @@ class PDFViewer {
      const scrollAhead = this.#getScrollAhead(visiblePages);
      const preRenderExtra = this._spreadMode !== SpreadMode.NONE && this._scrollMode !== ScrollMode.HORIZONTAL;
      const ignoreDetailViews = this.#scaleTimeoutId !== null || this.#scrollTimeoutId !== null && visiblePages.views.some(page => page.detailView?.renderingCancelled);
