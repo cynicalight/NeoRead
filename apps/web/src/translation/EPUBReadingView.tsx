@@ -1,3 +1,4 @@
+import { useTranslationRendering } from "./useTranslationRendering";
 import { useSentenceMarks } from "./useSentenceMarks";
 import { useTranslations } from "./useTranslations";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
@@ -132,7 +133,8 @@ export function EPUBReadingView({
       nodes.current.map((node) => [node.dataset.translationBlock!, node]),
     );
   }, [blocks, mode]);
-  const targetNode = (id: string) => nodesById.current.get(id);
+  const renderTarget = useTranslationRendering(doc.id, mode);
+  const targetNode = (id: string) => renderTarget(nodesById.current.get(id));
   const follow = (id: string, fraction = 0.5) => {
     const block = blocksById.get(id);
     if (!block) return;

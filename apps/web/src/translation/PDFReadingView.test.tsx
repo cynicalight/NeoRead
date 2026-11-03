@@ -1270,3 +1270,40 @@ it("strips legacy cross-side links when preparing a mark without losing its posi
     "parallel",
   );
 });
+
+it("lays out only the current navigation target before measuring and releases it on a mode change", async () => {
+  const extraBlocks: PDFBlock[] = [2, 3].map((page) => ({
+    id: `p${page}-b1`,
+    page,
+    label: "text",
+    text: `Page ${page}.`,
+    bounds: { x: 0.1, y: 0.2, width: 0.7, height: 0.3 },
+  }));
+  await renderView(defaultTheme, extraBlocks);
+  await click("原文译文");
+  const second = host.querySelector<HTMLElement>(
+    '[data-translation-block="p2-b1"]',
+  )!;
+  const third = host.querySelector<HTMLElement>(
+    '[data-translation-block="p3-b1"]',
+  )!;
+  const child = second.firstElementChild;
+  const measured = vi
+    .spyOn(second, "getBoundingClientRect")
+    .mockImplementation(() => {
+      expect(second.hasAttribute("data-translation-render-target")).toBe(true);
+      return new DOMRect(0, 200, 500, 500);
+    });
+  await act(async () => fixture.ready!.goTo({ type: "pdf", page: 2 }));
+  expect(measured).toHaveBeenCalled();
+  expect(
+    host.querySelectorAll("[data-translation-render-target]"),
+  ).toHaveLength(1);
+  expect(third.hasAttribute("data-translation-render-target")).toBe(false);
+  await act(async () => fixture.ready!.goTo({ type: "pdf", page: 3 }));
+  expect(second.hasAttribute("data-translation-render-target")).toBe(false);
+  expect(second.firstElementChild).toBe(child);
+  expect(third.hasAttribute("data-translation-render-target")).toBe(true);
+  await click("仅原文");
+  expect(third.hasAttribute("data-translation-render-target")).toBe(false);
+});

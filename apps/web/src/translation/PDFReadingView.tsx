@@ -1,3 +1,4 @@
+import { useTranslationRendering } from "./useTranslationRendering";
 import { figureTarget } from "../readers/figure-references";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
 import {
@@ -337,7 +338,12 @@ export function PDFReadingView({
       toast.error((e as Error).message);
     }
   };
-  const targetNode = (id: string) => nodesById.current.get(id);
+  const renderTarget = useTranslationRendering(
+    doc.id,
+    mode,
+    invalidateFollowGeometry,
+  );
+  const targetNode = (id: string) => renderTarget(nodesById.current.get(id));
   const followTranslation = (
     anchor: PDFReadingAnchor,
     sentenceIndex?: number,

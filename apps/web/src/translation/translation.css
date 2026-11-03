@@ -105,6 +105,15 @@
     outline-color 180ms ease-out,
     box-shadow 180ms ease-out;
 }
+/* Keep native text, selection and find-in-page available. Chromium lays out
+   nearby blocks and remembers their measured heights when they leave view. */
+.translation-document [data-translation-block] {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 12em;
+}
+.translation-document [data-translation-render-target] {
+  content-visibility: visible;
+}
 .translation-document [data-label="doc_title"] {
   font-size: 1.45em;
   font-weight: 600;
