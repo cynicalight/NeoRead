@@ -8,9 +8,11 @@ import { pdfQuotePoint } from "./pdf-reference-location";
 import { PDFBlockOverlay, referenceBlock } from "./pdf-blocks";
 import { PDFReadingNavigation } from "./pdf-navigation";
 import { PDFViewport } from "./pdf-viewport";
+import { backgroundPDFCache } from "./pdf-tab-cache";
 import { PDFLocationHighlight } from "./pdf-location-highlight";
 import { PDFAnnotationLayer } from "./pdf-annotations";
 import { PDFLinkPreview } from "./pdf-link-preview";
+import { pdfCropOperations } from "./pdf-crop-operations";
 import * as pdfjs from "pdfjs-dist";
 import {
   EventBus,
@@ -63,10 +65,15 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private wheelScale?: number;
   private wheelAppliedScale?: number;
   private disposed = false;
+  private visible = true;
+  private renderVisible?: NonNullable<
+    PDFViewer["renderingQueue"]
+  >["renderHighestPriority"];
   private renderErrorReported = false;
   private navigationRequest = 0;
   private blocks: PDFBlockOverlay;
   private blockData: PDFBlock[] = [];
+  private cropPreparations = new Map<number, Promise<void>>();
   private selecting = false;
   private navigation: PDFReadingNavigation;
   private pointer?: { x: number; y: number };
@@ -127,8 +134,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
       pageColors: pdfObjectColors(this.theme) ?? undefined,
       annotationMode: pdfjs.AnnotationMode.ENABLE,
       removePageBorders: true,
-      // Cap each PDF canvas so large zoom levels cannot allocate dozens of
-      // megapixel textures. PDF.js keeps detail rendering for the visible area.
+      // Match the upstream reader's canvas limits and standard visible-page queue.
       maxCanvasPixels: 4 * 1024 * 1024,
       maxCanvasDim: 4096,
       imagesRightClickMinSize: -1,
@@ -152,6 +158,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
       () => this.blockData,
       this.events,
       (blockId) => this.blocks.setFocusBlock(blockId),
+      () => this.viewport.reset(),
     );
     this.bus.on("pagechanging", ({ pageNumber }: { pageNumber: number }) => {
       this.location = { type: "pdf", page: pageNumber };
@@ -162,7 +169,11 @@ export class PDFReaderAdapter implements ReaderAdapter {
     });
     this.bus.on(
       "pagerendered",
-      (event: { error?: unknown; isDetailView?: boolean }) => {
+      (event: {
+        pageNumber: number;
+        error?: unknown;
+        isDetailView?: boolean;
+      }) => {
         if (event?.error && !this.renderErrorReported) {
           this.renderErrorReported = true;
           reportDiagnostic({
@@ -171,17 +182,23 @@ export class PDFReaderAdapter implements ReaderAdapter {
             detail: `pipeline=${pdfObjectColors(this.theme) ? "object-colors" : "original"}; layer=${event.isDetailView ? "detail" : "page"}`,
           });
         }
-        this.paintHighlights();
+        // A detail canvas replaces pixels only; page/text geometry is unchanged.
+        if (!this.visible && !this.disposed) this.retainPageCache();
+        if (event.isDetailView) return;
+        this.annotationLayer.paint(event.pageNumber);
         this.locationHighlight.paint();
         this.navigation.repaint();
         this.blocks.repaint();
       },
     );
-    this.bus.on("textlayerrendered", () => {
-      this.navigation.repaint();
-      this.figureLinks.repaint();
-      this.locationHighlight.paint();
-    });
+    this.bus.on(
+      "textlayerrendered",
+      ({ pageNumber }: { pageNumber: number }) => {
+        this.navigation.repaint();
+        this.figureLinks.repaint(pageNumber);
+        this.locationHighlight.paint();
+      },
+    );
     document.addEventListener("mouseup", this.onMouseUp);
     document.addEventListener("pointerdown", this.onPointerDown);
     document.addEventListener("selectionchange", this.onSelectionChange);
@@ -229,6 +246,11 @@ export class PDFReaderAdapter implements ReaderAdapter {
   async open(doc: Document) {
     this.task = pdfjs.getDocument({
       url: publicationURL(doc.id, "original.pdf"),
+      // Both flags are required to stop background full-file fetching. PDF.js
+      // still requests the ranges needed for the visible/restored page.
+      disableAutoFetch: true,
+      disableStream: true,
+      rangeChunkSize: 256 * 1024,
       cMapUrl: "/pdf-assets/cmaps/",
       cMapPacked: true,
       standardFontDataUrl: "/pdf-assets/standard_fonts/",
@@ -363,11 +385,13 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.clearState();
   };
   private onScroll = () => {
+    if (this.container.closest("[inert]")) return;
     this.clearSelection();
     cancelAnimationFrame(this.viewportFrame);
     this.viewportFrame = requestAnimationFrame(() => this.viewport.remember());
   };
   private onPointerDown = (event: PointerEvent) => {
+    if (this.container.closest("[inert]")) return;
     this.viewport.cancelAnimation();
     if (isSelectionToolbar(event.target)) return;
     this.locationHighlight.clear();
@@ -379,6 +403,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     else this.clearSelection();
   };
   private onKeyDown = (event: KeyboardEvent) => {
+    if (this.container.closest("[inert]")) return;
     this.selecting = false;
     this.pointer = undefined;
     if (event.key === "Escape") this.clearSelection();
@@ -473,6 +498,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.wheelAppliedScale = this.viewer.currentScale;
   };
   private onMouseUp = (event: MouseEvent) => {
+    if (this.container.closest("[inert]")) return;
     this.selecting = false;
     if (!isSelectionToolbar(event.target)) {
       // A double click selects the whole sentence instead of one word.
@@ -487,6 +513,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     }
   };
   private onSelectionChange = () => {
+    if (this.container.closest("[inert]")) return;
     if (!this.selecting) this.onSelection();
   };
   private onSelection = () => {
@@ -537,11 +564,51 @@ export class PDFReaderAdapter implements ReaderAdapter {
   getSelection() {
     return this.selection;
   }
+  setVisible(visible: boolean) {
+    if (this.disposed || this.visible === visible) return;
+    this.visible = visible;
+    const queue = this.viewer.renderingQueue!;
+    if (!this.renderVisible) {
+      this.renderVisible = queue.renderHighestPriority.bind(queue);
+      queue.renderHighestPriority = (pages) => {
+        if (this.visible && !this.disposed) this.renderVisible?.(pages);
+      };
+    }
+    if (visible) {
+      backgroundPDFCache.forget(this);
+      this.viewer.update();
+      return;
+    }
+    this.viewport.cancelAnimation();
+    this.navigation.cancelMotion();
+    this.linkPreview.hide();
+    // Preserve the current page and its neighbors for immediate tab switching.
+    // The shared background budget retires the least recently used reader.
+    this.releasePageCache(this.viewer.currentPageNumber);
+    this.retainPageCache();
+  }
+  private releasePageCache(keepPage?: number) {
+    for (const page of this.viewer.getCachedPageViews()) {
+      if (keepPage !== undefined && Math.abs(page.id - keepPage) <= 1) continue;
+      page.reset();
+      page.pdfPage?.cleanup();
+    }
+  }
+  private retainPageCache() {
+    const bytes = Array.from(
+      this.container.querySelectorAll(".page canvas"),
+    ).reduce(
+      (total, canvas) =>
+        total +
+        (canvas as HTMLCanvasElement).width *
+          (canvas as HTMLCanvasElement).height *
+          4,
+      0,
+    );
+    backgroundPDFCache.retain(this, bytes, () => this.releasePageCache());
+  }
   async highlight(annotations: Annotation[]) {
     this.annotationLayer.setAnnotations(annotations);
-  }
-  private paintHighlights() {
-    this.annotationLayer.paint();
   }
   async setTheme(theme: ReaderTheme) {
     const previous = this.theme;
@@ -686,6 +753,34 @@ export class PDFReaderAdapter implements ReaderAdapter {
   ) {
     return this.navigation.matchSentences(location, translations);
   }
+  private prepareBlockImages(page: pdfjs.PDFPageProxy) {
+    if (page.recordedBBoxes) return Promise.resolve();
+    const existing = this.cropPreparations.get(page.pageNumber);
+    if (existing) return existing;
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({
+      scale: Math.min(1, Math.sqrt(500_000 / (base.width * base.height))),
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    // Complete this small shared pass before applying a crop filter. Recording
+    // on a cropped or interrupted canvas would cache incomplete page bounds.
+    const pending = page
+      .render({
+        canvas,
+        canvasContext: canvas.getContext("2d")!,
+        viewport,
+        recordOperations: true,
+        annotationMode: pdfjs.AnnotationMode.DISABLE,
+      })
+      .promise.finally(() => {
+        canvas.width = canvas.height = 0;
+      });
+    this.cropPreparations.set(page.pageNumber, pending);
+    void pending.catch(() => this.cropPreparations.delete(page.pageNumber));
+    return pending;
+  }
   async renderBlockImage(
     blockId: string,
     signal: AbortSignal,
@@ -696,11 +791,13 @@ export class PDFReaderAdapter implements ReaderAdapter {
     signal.throwIfAborted();
     const page = await this.pdf.getPage(block.page);
     signal.throwIfAborted();
+    await this.prepareBlockImages(page);
+    signal.throwIfAborted();
     const base = page.getViewport({ scale: 1 });
     const bounds = block.bounds;
     const area = base.width * bounds.width * base.height * bounds.height;
     const scale = Math.min(
-      6,
+      width ? Infinity : 6,
       Math.sqrt(8_000_000 / area),
       width ? width / (base.width * bounds.width) : Infinity,
     );
@@ -721,6 +818,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
         -viewport.height * bounds.y,
       ],
       annotationMode: pdfjs.AnnotationMode.DISABLE,
+      operationsFilter: pdfCropOperations(page, bounds),
       background: "white",
     });
     const cancel = () => task.cancel();
@@ -738,9 +836,12 @@ export class PDFReaderAdapter implements ReaderAdapter {
     } finally {
       signal.removeEventListener("abort", cancel);
       canvas.width = canvas.height = 0;
+      if (!this.visible) page.cleanup();
     }
   }
   async destroy() {
+    backgroundPDFCache.forget(this);
+    this.cropPreparations.clear();
     if (this.disposed) return;
     this.navigation.destroy();
     this.blocks.destroy();

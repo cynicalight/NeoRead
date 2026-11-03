@@ -86,6 +86,11 @@
   background: var(--pdf-dark-paper);
   color: var(--pdf-dark-ink);
 }
+.translation-document[data-aligning] {
+  /* Lazy blocks changing height must not compete with explicit positioning. */
+  overflow-anchor: none;
+  scroll-behavior: auto;
+}
 .pdf-reading .translation-document {
   padding-left: 16px;
   padding-right: 16px;
@@ -104,6 +109,15 @@
     background-color 180ms ease-out,
     outline-color 180ms ease-out,
     box-shadow 180ms ease-out;
+}
+/* Keep native text, selection and find-in-page available. Chromium lays out
+   nearby blocks and remembers their measured heights when they leave view. */
+.translation-document [data-translation-block] {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 12em;
+}
+.translation-document [data-translation-render-target] {
+  content-visibility: visible;
 }
 .translation-document [data-label="doc_title"] {
   font-size: 1.45em;
@@ -142,6 +156,38 @@
   display: block;
   margin: 12px auto;
   border-radius: 3px;
+}
+.translation-image-container {
+  position: relative;
+}
+.translation-image-open {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  white-space: normal;
+  cursor: zoom-in;
+}
+.translation-image-open:hover {
+  background: transparent;
+}
+.translation-image-preview {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  opacity: 0;
+}
+.translation-image-container:hover .translation-image-preview,
+.translation-image-container:focus-within .translation-image-preview {
+  opacity: 1;
+}
+.translation-zoom-controls {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.translation-zoom-content {
+  margin-inline: auto;
 }
 .translation-pending {
   min-height: 5em;

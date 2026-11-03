@@ -1,4 +1,10 @@
 import { reducedMotion } from "../motion";
+export const pdfFocusMotion = {
+  duration: 480,
+  easing: "cubic-bezier(0.333333, 0, 0.666667, 1)",
+};
+export const pdfFocusProgress = (progress: number) =>
+  progress * progress * (3 - 2 * progress);
 // Scroll the real PDF viewport so PDF.js rendering, selection and anchors stay aligned.
 export function animatePDFScroll(
   host: HTMLElement,
@@ -6,6 +12,7 @@ export function animatePDFScroll(
   top: number,
   cancelled: () => boolean,
   moved: () => void,
+  smooth: boolean | "focus" = true,
 ): Promise<void> {
   const fromLeft = host.scrollLeft,
     fromTop = host.scrollTop;
@@ -21,7 +28,11 @@ export function animatePDFScroll(
     moved();
   };
   if (cancelled()) return Promise.resolve();
-  if (reducedMotion() || Math.hypot(left - fromLeft, top - fromTop) < 1) {
+  if (
+    !smooth ||
+    reducedMotion() ||
+    Math.hypot(left - fromLeft, top - fromTop) < 1
+  ) {
     apply(1);
     return Promise.resolve();
   }
@@ -33,8 +44,15 @@ export function animatePDFScroll(
         return;
       }
       started ??= now;
-      const progress = Math.min(1, (now - started) / 240);
-      apply(1 - (1 - progress) ** 3);
+      const progress = Math.min(
+        1,
+        (now - started) / (smooth === "focus" ? pdfFocusMotion.duration : 240),
+      );
+      apply(
+        smooth === "focus"
+          ? pdfFocusProgress(progress)
+          : 1 - (1 - progress) ** 3,
+      );
       if (progress < 1) requestAnimationFrame(frame);
       else resolve();
     };

@@ -1,9 +1,11 @@
+import { useTranslationRendering } from "./useTranslationRendering";
 import { useSentenceMarks } from "./useSentenceMarks";
 import { useTranslations } from "./useTranslations";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -35,6 +37,7 @@ import { ReadingSync } from "../readers/pdf-reading";
 import { animatePDFScroll } from "../readers/pdf-scroll";
 import { isSelectionToolbar } from "../readers/selection-anchor";
 import { defaultTheme } from "@neoread/core";
+import { translationBlockAt } from "./translation-viewport";
 import { translationFont } from "../appearance";
 import "./translation.css";
 
@@ -60,9 +63,11 @@ export function EPUBReadingView({
   const [chapter, setChapter] = useState(
     doc.progress?.type === "epub" ? doc.progress.href.split("#")[0] : "",
   );
-  const { translations, error: streamError } = useTranslations(doc.id, [
-    ...new Set(blocks.map((b) => b.location.href)),
-  ]);
+  const { translations, error: streamError } = useTranslations(
+    doc.id,
+    [...new Set(blocks.map((b) => b.location.href))],
+    active,
+  );
   const root = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLDivElement>(null);
   const [sentenceEngine, setSentenceEngine] = useState<ReaderAdapter>();
@@ -109,13 +114,29 @@ export function EPUBReadingView({
     events,
   );
   const visible = blocks;
-  const targetNode = (id: string) =>
-    Array.from(
+  const nodes = useRef<HTMLElement[]>([]);
+  const nodesById = useRef(new Map<string, HTMLElement>());
+  const blocksById = useMemo(
+    () => new Map(blocks.map((b) => [b.id, b])),
+    [blocks],
+  );
+  const translationsById = useMemo(
+    () => new Map(translations.map((t) => [t.blockId, t])),
+    [translations],
+  );
+  useLayoutEffect(() => {
+    nodes.current = Array.from(
       pane.current?.querySelectorAll<HTMLElement>("[data-translation-block]") ??
         [],
-    ).find((n) => n.dataset.translationBlock === id);
+    );
+    nodesById.current = new Map(
+      nodes.current.map((node) => [node.dataset.translationBlock!, node]),
+    );
+  }, [blocks, mode]);
+  const renderTarget = useTranslationRendering(doc.id, mode);
+  const targetNode = (id: string) => renderTarget(nodesById.current.get(id));
   const follow = (id: string, fraction = 0.5) => {
-    const block = live.current.blocks.find((b) => b.id === id);
+    const block = blocksById.get(id);
     if (!block) return;
     pendingFollow.current = { blockId: id, fraction };
     if (block.location.href !== live.current.chapter)
@@ -139,6 +160,7 @@ export function EPUBReadingView({
           () =>
             operation !== translationMotion.current || pane.current !== host,
           () => {},
+          false,
         ).finally(() => {
           if (operation === translationMotion.current)
             sync.current.following("translation");
@@ -404,12 +426,8 @@ export function EPUBReadingView({
       const top =
         pane.current.getBoundingClientRect().top +
         pane.current.clientHeight * 0.5;
-      const node = Array.from(
-        pane.current.querySelectorAll<HTMLElement>("[data-translation-block]"),
-      ).find((n) => n.getBoundingClientRect().bottom > top);
-      const block = live.current.blocks.find(
-        (b) => b.id === node?.dataset.translationBlock,
-      );
+      const node = translationBlockAt(nodes.current, top);
+      const block = node && blocksById.get(node.dataset.translationBlock!);
       if (block) {
         if (
           live.current.mode === "translation" &&
@@ -572,7 +590,17 @@ export function EPUBReadingView({
                   if (live.current.mode === "parallel")
                     hover("source", id ?? undefined);
                 },
-                epubBlockFocus: (id) => focusBlock(id, "source"),
+                epubBlockFocus: (id) => {
+                  const block = live.current.blocks.find(
+                    (item) => item.id === id,
+                  );
+                  if (block?.image && live.current.mode === "parallel") {
+                    input("source");
+                    live.current.events.epubBlockAction?.(block, "preview");
+                    return;
+                  }
+                  focusBlock(id, "source");
+                },
                 epubReadingAnchor: (id, fraction = 0.5) => {
                   if (
                     !focusMotion.current.moving &&
@@ -750,7 +778,8 @@ export function EPUBReadingView({
                       : undefined
                   }
                   documentId={doc.id}
-                  translation={translations.find((t) => t.blockId === block.id)}
+                  onPreview={() => events.epubBlockAction?.(block, "preview")}
+                  translation={translationsById.get(block.id)}
                   paused={processing?.enabled === false}
                   retry={() => retry(block.id)}
                 />

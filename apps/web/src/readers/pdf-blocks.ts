@@ -190,8 +190,8 @@ export class PDFBlockOverlay {
     if (this.hovered) {
       this.hovered = undefined;
       this.onHover(null);
+      this.paintReadingFocus();
     }
-    this.paintReadingFocus();
   }
   private press = (event: PointerEvent) => {
     this.pressed = undefined;
@@ -213,7 +213,7 @@ export class PDFBlockOverlay {
       event.defaultPrevented ||
       !pressed ||
       Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 5 ||
-      window.getSelection()?.toString().trim()
+      window.getSelection()?.isCollapsed === false
     )
       return;
     const block = this.find(event);
@@ -248,7 +248,7 @@ export class PDFBlockOverlay {
   }
   private move = (event: PointerEvent) => {
     if ((event.target as Element | null)?.closest(blockActionTarget)) return;
-    if (event.buttons || window.getSelection()?.toString().trim()) {
+    if (event.buttons || window.getSelection()?.isCollapsed === false) {
       this.clear();
       return;
     }

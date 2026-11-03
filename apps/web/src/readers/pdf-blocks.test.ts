@@ -398,3 +398,36 @@ it("keeps a non-intercepting tour landmark and distinguishes a click from automa
   expect(host.contains(target)).toBe(false);
   layer.destroy();
 });
+
+it("keeps the passive focus DOM in place during text selection", () => {
+  const host = document.createElement("div");
+  host.innerHTML =
+    '<div class="page" data-page-number="2"><span>Text</span></div>';
+  document.body.append(host);
+  const page = host.firstElementChild as HTMLElement;
+  const text = page.firstChild!;
+  const layer = new PDFBlockOverlay(host);
+  layer.setBlocks([block]);
+  layer.setFocusBlock(block.id);
+  const outline = page.querySelector(".neoread-block-focus");
+  const observer = new MutationObserver(() => {});
+  observer.observe(page, { childList: true, subtree: true, attributes: true });
+  const selection = window.getSelection()!;
+  const range = document.createRange();
+  range.selectNodeContents(text);
+  selection.addRange(range);
+  const serialize = vi.spyOn(selection, "toString");
+  for (let i = 0; i < 30; i++)
+    text.dispatchEvent(
+      new MouseEvent("pointermove", { bubbles: true, buttons: 1 }),
+    );
+  text.dispatchEvent(new MouseEvent("pointermove", { bubbles: true }));
+  expect(observer.takeRecords()).toHaveLength(0);
+  expect(page.querySelector(".neoread-block-focus")).toBe(outline);
+  expect(serialize).not.toHaveBeenCalled();
+  observer.disconnect();
+  serialize.mockRestore();
+  selection.removeAllRanges();
+  layer.destroy();
+  host.remove();
+});

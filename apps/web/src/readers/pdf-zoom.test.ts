@@ -46,7 +46,19 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
     }
     currentPageNumber = 1;
     getPageView() {
-      return state.pageNode ? { div: state.pageNode } : undefined;
+      return state.pageNode
+        ? {
+            div: state.pageNode,
+            pdfPage: { getViewport: () => ({ width: 750, height: 900 }) },
+          }
+        : undefined;
+    }
+    _getVisiblePages() {
+      return {
+        views: state.pageNode
+          ? [{ id: this.currentPageNumber, view: { div: state.pageNode } }]
+          : [],
+      };
     }
     get currentScale() {
       return state.scale;
@@ -216,7 +228,8 @@ it.each([false, true])(
       wheel({ deltaY: 100 });
       expect(state.scale).toBeCloseTo(0.83, 2);
       const pending = adapter.focusBlock("focus-target", "source");
-      await vi.advanceTimersByTimeAsync(interrupt ? 96 : 500);
+      // Interrupt around the midpoint of the slower focus transition.
+      await vi.advanceTimersByTimeAsync(interrupt ? 256 : 550);
       const focused = state.scale;
       expect(focused).toBeGreaterThan(1);
       wheel({ deltaY: 100 });

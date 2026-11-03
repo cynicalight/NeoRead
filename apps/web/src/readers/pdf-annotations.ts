@@ -2,7 +2,8 @@ import type { Annotation, ReaderAnnotationTarget } from "@neoread/core";
 
 // Observe the text layer without intercepting text selection or PDF links.
 export class PDFAnnotationLayer {
-  private annotations: Annotation[] = [];
+  private byPage = new Map<number, Annotation[]>();
+  private hovered: string[] = [];
   private pressed?: { x: number; y: number };
   private geometryStyles = new WeakMap<
     HTMLElement,
@@ -19,23 +20,23 @@ export class PDFAnnotationLayer {
     host.addEventListener("scroll", this.clear, { passive: true });
   }
   setAnnotations(annotations: Annotation[]) {
-    this.annotations = annotations;
-    this.paint();
-  }
-  paint = () => {
     const byPage = new Map<number, Annotation[]>();
-    for (const annotation of this.annotations) {
-      if (annotation.location.type !== "pdf" || annotation.kind === "bookmark")
-        continue;
+    for (const annotation of annotations) {
+      if (annotation.location.type !== "pdf") continue;
       const annotations = byPage.get(annotation.location.page) ?? [];
       annotations.push(annotation);
       byPage.set(annotation.location.page, annotations);
     }
-
+    this.byPage = byPage;
+    this.paint();
+  }
+  paint = (pageNumber?: number) => {
     // Reconcile against the current page DOM, so page resets/replacements need
     // no cache invalidation and detached pages are never retained by the layer.
     for (const page of this.host.querySelectorAll<HTMLElement>(
-      ".page[data-page-number]",
+      pageNumber === undefined
+        ? ".page[data-page-number]"
+        : `.page[data-page-number="${pageNumber}"]`,
     )) {
       const remaining = new Map<string, HTMLElement>();
       for (const child of Array.from(page.children)) {
@@ -47,9 +48,14 @@ export class PDFAnnotationLayer {
         }
       }
       const ordered: HTMLElement[] = [];
-      for (const annotation of byPage.get(Number(page.dataset.pageNumber)) ??
-        []) {
-        if (annotation.location.type !== "pdf") continue;
+      for (const annotation of this.byPage.get(
+        Number(page.dataset.pageNumber),
+      ) ?? []) {
+        if (
+          annotation.location.type !== "pdf" ||
+          annotation.kind === "bookmark"
+        )
+          continue;
         const rects = annotation.location.rects ?? [];
         if (!rects.length) continue;
         let group = remaining.get(annotation.id);
@@ -69,6 +75,8 @@ export class PDFAnnotationLayer {
           if (!el) {
             el = document.createElement("div");
             el.className = "neoread-highlight";
+            if (this.hovered.includes(annotation.id))
+              el.setAttribute("data-hovered", "");
             group.append(el);
           }
           if (el.dataset.annotationId !== annotation.id)
@@ -125,6 +133,8 @@ export class PDFAnnotationLayer {
   };
   clear = () => {
     this.pressed = undefined;
+    if (!this.hovered.length) return;
+    this.hovered = [];
     this.host
       .querySelectorAll(".neoread-highlight[data-hovered]")
       .forEach((el) => el.removeAttribute("data-hovered"));
@@ -141,7 +151,8 @@ export class PDFAnnotationLayer {
     const y = (event.clientY - bounds.top) / bounds.height;
     const ids: string[] = [];
     let hit;
-    for (const annotation of this.annotations) {
+    for (const annotation of this.byPage.get(Number(page.dataset.pageNumber)) ??
+      []) {
       if (
         annotation.kind === "bookmark" ||
         annotation.location.type !== "pdf" ||
@@ -169,9 +180,16 @@ export class PDFAnnotationLayer {
   }
   private move = (event: PointerEvent) => {
     const hit =
-      !event.buttons && !window.getSelection()?.toString().trim()
+      !event.buttons && window.getSelection()?.isCollapsed !== false
         ? this.find(event)
         : undefined;
+    const ids = hit?.ids ?? [];
+    if (
+      ids.length === this.hovered.length &&
+      ids.every((id, i) => id === this.hovered[i])
+    )
+      return;
+    this.hovered = ids;
     this.host
       .querySelectorAll<HTMLElement>(".neoread-highlight")
       .forEach((el) =>
@@ -193,7 +211,7 @@ export class PDFAnnotationLayer {
       !pressed ||
       event.button !== 0 ||
       Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 5 ||
-      window.getSelection()?.toString().trim()
+      window.getSelection()?.isCollapsed === false
     )
       return;
     const hit = this.find(event);

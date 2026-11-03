@@ -391,6 +391,26 @@ it.each(["reset", "replace", "detach"] as const)(
   },
 );
 
+it("paints a rebuilt page without querying or modifying other pages", () => {
+  const page1 = host.firstElementChild!;
+  const page2 = page1.cloneNode(false) as HTMLElement;
+  page2.dataset.pageNumber = "2";
+  host.append(page2);
+  const second = annotation("second");
+  if (second.location.type !== "pdf") throw new Error("Expected PDF location");
+  second.location.page = 2;
+  layer.setAnnotations([annotation("first"), second]);
+  const other = page2.firstElementChild;
+  page1.replaceChildren();
+  const query = vi.spyOn(page2, "querySelector");
+  layer.paint(1);
+  expect(page1.querySelector('[data-annotation-id="first"]')).not.toBeNull();
+  expect(page2.firstElementChild).toBe(other);
+  expect(query).not.toHaveBeenCalled();
+  layer.setAnnotations([]);
+  expect(host.querySelector(".neoread-annotation")).toBeNull();
+});
+
 it("removes marks with empty geometry or bookmark kind and restores later geometry", () => {
   const mark = annotation("changing");
   if (mark.location.type !== "pdf") throw new Error("Expected PDF location");
@@ -517,4 +537,24 @@ it("skips setters when the browser serializes a percentage with fewer digits", (
   } finally {
     setter.mockRestore();
   }
+});
+
+it("does not rescan annotation DOM or serialize selected text on repeated drag moves", () => {
+  pointer("pointermove");
+  pointer("pointerdown", { buttons: 1 });
+  const range = document.createRange();
+  range.selectNodeContents(text);
+  const selection = window.getSelection()!;
+  selection.addRange(range);
+  const serialize = vi.spyOn(selection, "toString");
+  const query = vi.spyOn(host, "querySelectorAll");
+  for (let i = 0; i < 30; i++) pointer("pointermove", { buttons: 1 });
+  pointer("pointermove");
+  expect(query).not.toHaveBeenCalled();
+  expect(serialize).not.toHaveBeenCalled();
+  query.mockRestore();
+  serialize.mockRestore();
+  window.getSelection()!.removeAllRanges();
+  pointer("pointermove");
+  expect(host.querySelectorAll("[data-hovered]")).toHaveLength(6);
 });

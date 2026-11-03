@@ -16,7 +16,21 @@ export function useProcessing() {
       try {
         const next = await api.processing();
         if (!stopped) {
-          setJobs(next);
+          setJobs((current) => {
+            const previous = new Map(
+              current.map((job) => [job.documentId, job]),
+            );
+            const shared = next.map((job) => {
+              const old = previous.get(job.documentId);
+              return old && JSON.stringify(old) === JSON.stringify(job)
+                ? old
+                : job;
+            });
+            return shared.length === current.length &&
+              shared.every((job, i) => job === current[i])
+              ? current
+              : shared;
+          });
           setError("");
         }
       } catch (e) {

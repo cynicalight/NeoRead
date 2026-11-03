@@ -57,6 +57,7 @@ const events = {
 };
 let host: HTMLDivElement, root: Root;
 const registry = new Map<string, Set<Range>>();
+const resizes = new Map<Element, () => void>();
 const box = (x: number) => new DOMRect(x, 0, 100, 20);
 const engine = {
   sentenceRanges: () => {
@@ -71,7 +72,7 @@ function App({
   annotations = [],
   translations = [t],
   searchQuery = "",
-  searchResults = [],
+  searchResults,
 }: {
   linked?: boolean;
   epub?: boolean;
@@ -118,6 +119,7 @@ function App({
   );
 }
 beforeEach(() => {
+  resizes.clear();
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
@@ -133,7 +135,10 @@ beforeEach(() => {
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      observe() {}
+      constructor(private callback: () => void) {}
+      observe(node: Element) {
+        resizes.set(node, this.callback);
+      }
       disconnect() {}
     },
   );
@@ -179,6 +184,49 @@ const texts = (ranges: Set<Range> | undefined) =>
   [...(ranges ?? [])].map((r) => r.toString());
 const search = () =>
   [...registry.entries()].find(([name]) => name.endsWith("-search"))?.[1];
+it("rebuilds sentence marks once after a burst of window-resize notifications", async () => {
+  const results: SearchResult[] = [
+    {
+      id: "p1-b1:translation:0",
+      blockId: "p1-b1",
+      side: "translation",
+      excerpt: "翻译句子。",
+      location: { type: "pdf", page: 1 },
+    },
+  ];
+  await act(async () =>
+    root.render(<App searchQuery="翻译" searchResults={results} />),
+  );
+  const paint = vi.spyOn(registry, "set");
+  const notify = resizes.get(host.firstElementChild!)!;
+  for (let i = 0; i < 5; i++) {
+    await act(async () => {
+      notify();
+      await vi.advanceTimersByTimeAsync(32);
+    });
+    expect(paint).not.toHaveBeenCalled();
+  }
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(160);
+  });
+  expect(paint).toHaveBeenCalledTimes(1);
+  expect(texts(search())).toEqual(["翻译"]);
+});
+it("does not rebuild sentence highlights on unrelated renders without search results", async () => {
+  const translations = [t];
+  const annotations: Annotation[] = [];
+  await act(async () =>
+    root.render(<App translations={translations} annotations={annotations} />),
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(32);
+  });
+  const remove = vi.spyOn(registry, "delete");
+  await act(async () =>
+    root.render(<App translations={translations} annotations={annotations} />),
+  );
+  expect(remove).not.toHaveBeenCalled();
+});
 it("highlights only matching words in translation and clears when search changes", async () => {
   const result: SearchResult = {
     id: "p1-b1:translation:0",

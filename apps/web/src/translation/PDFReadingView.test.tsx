@@ -26,6 +26,7 @@ const fixture = vi.hoisted(() => ({
       ) => void)
     | undefined,
   signal: undefined as AbortSignal | undefined,
+  resizes: new Map<Element, Set<() => void>>(),
 }));
 vi.mock("@neoread/api", () => ({
   api: {
@@ -112,14 +113,28 @@ vi.mock("../ReaderView", () => ({
 }));
 import { PDFReadingView } from "./PDFReadingView";
 let root: Root, host: HTMLDivElement;
-const events = { location: vi.fn(), selection: vi.fn() };
+const events = { location: vi.fn(), selection: vi.fn(), blockAction: vi.fn() };
 beforeEach(async () => {
+  fixture.resizes.clear();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      observe() {}
-      disconnect() {}
+      private nodes = new Set<Element>();
+      constructor(private callback: () => void) {}
+      observe(node: Element) {
+        this.nodes.add(node);
+        const callbacks = fixture.resizes.get(node) ?? new Set();
+        callbacks.add(this.callback);
+        fixture.resizes.set(node, callbacks);
+      }
+      disconnect() {
+        for (const node of this.nodes) {
+          const callbacks = fixture.resizes.get(node);
+          callbacks?.delete(this.callback);
+          if (!callbacks?.size) fixture.resizes.delete(node);
+        }
+      }
     },
   );
   vi.stubGlobal("matchMedia", () => ({
@@ -227,6 +242,9 @@ async function click(label: string) {
     });
   }
 }
+function notifyResize(node: Element) {
+  fixture.resizes.get(node)?.forEach((callback) => callback());
+}
 it("switches modes without recreating the PDF or marking the opposite selection", async () => {
   await click("原文译文");
   expect(adapter.focusBlock).not.toHaveBeenCalled();
@@ -276,7 +294,10 @@ it("keeps the translated selection and navigation metadata without marking the o
   });
   window.getSelection()!.removeAllRanges();
   window.getSelection()!.addRange(range);
-  document.dispatchEvent(new Event("selectionchange"));
+  await act(async () => {
+    document.dispatchEvent(new Event("selectionchange"));
+    await new Promise(requestAnimationFrame);
+  });
   expect(
     [...highlights.get("neoread-translation-selection")!][0].toString(),
   ).toBe("第二句。");
@@ -319,7 +340,10 @@ it("keeps the translated selection and navigation metadata without marking the o
   );
   await act(async () => fixture.ready!.clearSelection());
   expect(events.selection).toHaveBeenLastCalledWith(null);
-  document.dispatchEvent(new Event("selectionchange"));
+  await act(async () => {
+    document.dispatchEvent(new Event("selectionchange"));
+    await new Promise(requestAnimationFrame);
+  });
   expect(highlights.has("neoread-translation-selection")).toBe(false);
 });
 it("fits the source width on mode changes without focusing a paragraph", async () => {
@@ -360,6 +384,10 @@ it("navigates to the matching bibliography block and restores the translated vie
   )!;
   reference.getBoundingClientRect = () =>
     new DOMRect(40, 1200 - pane.scrollTop, 520, 200);
+  host.querySelector<HTMLElement>(
+    '[data-translation-block="p9-first"]',
+  )!.getBoundingClientRect = () =>
+    new DOMRect(40, 1100 - pane.scrollTop, 520, 100);
   pane.scrollTop = 400;
   await act(async () => {
     pane.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
@@ -559,6 +587,98 @@ function translationGeometry(height = 200) {
     new DOMRect(40, 600 - pane.scrollTop, 520, height);
   return { pane, block };
 }
+it("updates translation insets once after a window-height transition settles", async () => {
+  await click("原文译文");
+  const { pane } = translationGeometry();
+  const frame = pane.parentElement!;
+  let height = 600;
+  Object.defineProperty(frame, "clientHeight", {
+    get: () => height,
+    configurable: true,
+  });
+  const write = vi.spyOn(pane.style, "setProperty");
+  vi.useFakeTimers();
+  try {
+    for (const next of [700, 800, 1000]) {
+      height = next;
+      await act(async () => {
+        notifyResize(frame);
+        await vi.advanceTimersByTimeAsync(32);
+      });
+      expect(write).not.toHaveBeenCalled();
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    expect(write).toHaveBeenCalledExactlyOnceWith(
+      "--translation-inset",
+      "500px",
+    );
+  } finally {
+    vi.useRealTimers();
+    write.mockRestore();
+  }
+});
+it("reuses follow coordinates and skips identical scroll writes until translation layout changes", async () => {
+  await click("原文译文");
+  const { pane, block } = translationGeometry();
+  const measure = vi.spyOn(block, "getBoundingClientRect");
+  const viewport = vi.spyOn(pane, "getBoundingClientRect");
+  let scrollTop = 0;
+  const write = vi.fn((value: number) => {
+    scrollTop = value;
+  });
+  Object.defineProperty(pane, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: write,
+  });
+  const follow = async (fraction = 0.25) =>
+    act(async () => {
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction });
+    });
+  await follow();
+  await follow(0.5);
+  await follow(0.5);
+  expect(pane.scrollTop).toBe(400);
+  expect(measure).toHaveBeenCalledTimes(1);
+  expect(viewport).toHaveBeenCalledTimes(1);
+  expect(write).toHaveBeenCalledTimes(2);
+
+  await act(async () =>
+    notifyResize(pane.querySelector(".translation-content")!),
+  );
+  await follow();
+  expect(measure).toHaveBeenCalledTimes(2);
+  await renderView({ ...defaultTheme, translationFontSize: 1.25 });
+  await follow();
+  expect(measure).toHaveBeenCalledTimes(3);
+  await act(async () => {
+    fixture.push!({
+      event: "translation",
+      data: {
+        ...fixture.translations[0],
+        status: "complete",
+        sentences: [{ source: "Changed", target: "更新后的译文" }],
+      },
+    });
+  });
+  await follow();
+  expect(measure).toHaveBeenCalledTimes(4);
+  await click("放大译文");
+  await follow();
+  expect(measure).toHaveBeenCalledTimes(5);
+  await act(async () => notifyResize(pane));
+  await follow();
+  expect(measure).toHaveBeenCalledTimes(6);
+  await click("仅原文");
+  await click("原文译文");
+  const restored = translationGeometry();
+  const remeasure = vi.spyOn(restored.block, "getBoundingClientRect");
+  await act(async () => notifyResize(restored.pane));
+  await follow();
+  expect(remeasure).toHaveBeenCalledTimes(1);
+});
 it.each([false, true])(
   "lets either scrollbar lead without wheel input or follower feedback (swapped: %s)",
   async (swapped) => {
@@ -605,33 +725,49 @@ it.each([false, true])(
     expect(adapter.followBlock).not.toHaveBeenCalled();
   },
 );
-it("smoothly centers clicked translation blocks and follows their original without scroll feedback", async () => {
-  await click("原文译文");
-  const { pane, block } = translationGeometry();
-  vi.useFakeTimers();
-  try {
-    await act(async () => block.click());
-    expect(pane.scrollTop).toBe(0);
-    expect(block.hasAttribute("data-focused")).toBe(true);
-    expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "parallel");
-    const calls = vi.mocked(adapter.focusBlock!).mock.calls.length;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(120);
-    });
-    expect(pane.scrollTop).toBeGreaterThan(0);
-    expect(pane.scrollTop).toBeLessThan(400);
-    await act(async () => {
-      pane.dispatchEvent(new Event("scroll", { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(400);
-    });
-    expect(pane.scrollTop).toBe(400);
-    expect(block.hasAttribute("data-focused")).toBe(false);
-    expect(adapter.focusBlock).toHaveBeenCalledTimes(calls);
-    expect(adapter.followBlock).not.toHaveBeenCalled();
-  } finally {
-    vi.useRealTimers();
-  }
-});
+it.each(["source", "translation"] as const)(
+  "smoothly centers both panes from %s without scroll feedback",
+  async (origin) => {
+    await click("原文译文");
+    const { pane, block } = translationGeometry();
+    vi.useFakeTimers();
+    try {
+      await act(async () =>
+        origin === "translation"
+          ? block.click()
+          : fixture.events!.blockFocus?.({
+              id: "p1-b1",
+              page: 1,
+              label: "text",
+              text: "First sentence. Second sentence.",
+              bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.3 },
+            }),
+      );
+      expect(pane.scrollTop).toBe(0);
+      expect(pane.hasAttribute("data-aligning")).toBe(true);
+      expect(block.hasAttribute("data-focused")).toBe(true);
+      expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "parallel");
+      const calls = vi.mocked(adapter.focusBlock!).mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120);
+      });
+      expect(pane.scrollTop).toBeGreaterThan(0);
+      expect(pane.scrollTop).toBeLessThan(200);
+      expect(pane.hasAttribute("data-aligning")).toBe(true);
+      await act(async () => {
+        pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(560);
+      });
+      expect(pane.scrollTop).toBe(400);
+      expect(pane.hasAttribute("data-aligning")).toBe(false);
+      expect(block.hasAttribute("data-focused")).toBe(false);
+      expect(adapter.focusBlock).toHaveBeenCalledTimes(calls);
+      expect(adapter.followBlock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
 it("top-aligns tall translation blocks and cancels their motion when the user scrolls", async () => {
   await click("仅译文");
   const { pane, block } = translationGeometry(800);
@@ -639,7 +775,7 @@ it("top-aligns tall translation blocks and cancels their motion when the user sc
   try {
     await act(async () => block.click());
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(560);
     });
     expect(pane.scrollTop).toBe(600);
     expect(adapter.followBlock).not.toHaveBeenCalled();
@@ -655,7 +791,7 @@ it("top-aligns tall translation blocks and cancels their motion when the user sc
     );
     pane.scrollTop = 75;
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(560);
     });
     expect(pane.scrollTop).toBe(75);
   } finally {
@@ -696,7 +832,7 @@ it("does not treat drags, native selections or interactive controls as block nav
   expect(pane.scrollTop).toBe(0);
 });
 
-it("replaces an unfinished click with an image focus and does not re-highlight on scroll", async () => {
+it("opens a clicked translation image in the preview and cancels unfinished alignment", async () => {
   await renderView(defaultTheme, [
     {
       id: "p1-image",
@@ -724,12 +860,16 @@ it("replaces an unfinished click with an image focus and does not re-highlight o
     await act(async () => image.querySelector("img")!.click());
     expect(pane.scrollTop).toBe(before);
     expect(block.hasAttribute("data-focused")).toBe(false);
-    expect(image.hasAttribute("data-focused")).toBe(true);
+    expect(image.hasAttribute("data-focused")).toBe(false);
+    expect(events.blockAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: "p1-image" }),
+      "preview",
+    );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(560);
     });
-    expect(pane.scrollTop).toBe(800);
-    expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-image", "parallel");
+    expect(pane.scrollTop).toBe(before);
+    expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "parallel");
     await act(async () => {
       host
         .querySelector(".translation-source")!
@@ -799,7 +939,7 @@ it("centers both panels from a source click and recalculates a focused translati
   try {
     await act(async () => fixture.events!.blockFocus?.(sourceBlock));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(560);
     });
     expect(pane.scrollTop).toBe(600); // tall translation top, independent of short original
     expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "parallel");
@@ -814,7 +954,7 @@ it("centers both panels from a source click and recalculates a focused translati
     blockHeight = 200;
     await act(async () => block.click());
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(560);
     });
     expect(pane.scrollTop).toBe(450);
     expect(pane.scrollLeft).toBe(100);
@@ -1145,4 +1285,41 @@ it("strips legacy cross-side links when preparing a mark without losing its posi
     "p1-b1",
     "parallel",
   );
+});
+
+it("lays out only the current navigation target before measuring and releases it on a mode change", async () => {
+  const extraBlocks: PDFBlock[] = [2, 3].map((page) => ({
+    id: `p${page}-b1`,
+    page,
+    label: "text",
+    text: `Page ${page}.`,
+    bounds: { x: 0.1, y: 0.2, width: 0.7, height: 0.3 },
+  }));
+  await renderView(defaultTheme, extraBlocks);
+  await click("原文译文");
+  const second = host.querySelector<HTMLElement>(
+    '[data-translation-block="p2-b1"]',
+  )!;
+  const third = host.querySelector<HTMLElement>(
+    '[data-translation-block="p3-b1"]',
+  )!;
+  const child = second.firstElementChild;
+  const measured = vi
+    .spyOn(second, "getBoundingClientRect")
+    .mockImplementation(() => {
+      expect(second.hasAttribute("data-translation-render-target")).toBe(true);
+      return new DOMRect(0, 200, 500, 500);
+    });
+  await act(async () => fixture.ready!.goTo({ type: "pdf", page: 2 }));
+  expect(measured).toHaveBeenCalled();
+  expect(
+    host.querySelectorAll("[data-translation-render-target]"),
+  ).toHaveLength(1);
+  expect(third.hasAttribute("data-translation-render-target")).toBe(false);
+  await act(async () => fixture.ready!.goTo({ type: "pdf", page: 3 }));
+  expect(second.hasAttribute("data-translation-render-target")).toBe(false);
+  expect(second.firstElementChild).toBe(child);
+  expect(third.hasAttribute("data-translation-render-target")).toBe(true);
+  await click("仅原文");
+  expect(third.hasAttribute("data-translation-render-target")).toBe(false);
 });

@@ -7,6 +7,7 @@ afterEach(() => {
   useReaderStore.getState().setTheme({ reducedMotion: false });
   document.body.replaceChildren();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 function setup(initial = 1.6) {
   const host = document.createElement("div");
@@ -202,4 +203,183 @@ it("applies the final scale without animation for reduced motion", () => {
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+it("preserves the reading point on native maximize and restore without a second scale animation", () => {
+  const s = setup();
+  const point = s.point();
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const element = document.createElement("div");
+  const animate = vi.fn();
+  Object.defineProperty(element, "animate", { value: animate });
+  s.viewer.viewer = element;
+  const scale = vi.spyOn(s.viewer, "updateScale");
+
+  vi.stubGlobal("innerWidth", width + 600);
+  vi.stubGlobal("innerHeight", height + 300);
+  s.size.width = 1200;
+  s.size.height = 900;
+  s.resize();
+  expect(s.viewer.currentScale).toBeCloseTo(2.4);
+  expect(s.point().x).toBeCloseTo(point.x);
+  expect(s.point().y).toBeCloseTo(point.y);
+
+  vi.stubGlobal("innerWidth", width);
+  vi.stubGlobal("innerHeight", height);
+  s.size.width = 800;
+  s.size.height = 600;
+  s.resize();
+  expect(s.viewer.currentScale).toBeCloseTo(1.6);
+  expect(s.point().x).toBeCloseTo(point.x);
+  expect(s.point().y).toBeCloseTo(point.y);
+  expect(scale).toHaveBeenCalledTimes(2);
+  expect(animate).not.toHaveBeenCalled();
+});
+
+async function renderingWindow(heights: number[], top: number, height: number) {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  vi.stubGlobal("pdfjsLib", await import("pdfjs-dist"));
+  const { PDFViewer: NativePDFViewer, RenderingStates } =
+    await import("pdfjs-dist/web/pdf_viewer.mjs");
+  const host = document.createElement("div"),
+    element = document.createElement("div");
+  host.append(element);
+  document.body.append(host);
+  const size = { height };
+  Object.defineProperties(host, {
+    clientHeight: { get: () => size.height },
+    clientWidth: { value: 800 },
+  });
+  host.scrollTop = top;
+  const viewer = new NativePDFViewer({
+    container: host,
+    viewer: element,
+    eventBus: { on() {} },
+    l10n: {},
+    preRenderViewports: 1,
+  } as unknown as ConstructorParameters<typeof NativePDFViewer>[0]);
+  let offset = 0;
+  const pages = heights.map((height, index) => {
+    const div = document.createElement("div"),
+      pageTop = offset;
+    offset += height;
+    element.append(div);
+    Object.defineProperties(div, {
+      offsetTop: { value: pageTop },
+      offsetLeft: { value: 0 },
+      clientHeight: { value: height },
+      clientWidth: { value: 800 },
+    });
+    return {
+      id: index + 1,
+      renderingId: `page-${index + 1}`,
+      div,
+      pdfPage: {},
+      renderingState: RenderingStates.INITIAL,
+    };
+  });
+  Reflect.set(viewer, "_pages", pages);
+  const ids = (window: object) => [...(window as { ids: Set<number> }).ids];
+  return { viewer, host, pages, size, ids, RenderingStates };
+}
+
+it.each([
+  {
+    heights: Array(20).fill(100),
+    top: 650,
+    visible: [7, 8, 9],
+    prepared: [5, 6, 7, 8, 9, 10, 11],
+  },
+  {
+    heights: Array(20).fill(100),
+    top: 0,
+    visible: [1, 2],
+    prepared: [1, 2, 3, 4],
+  },
+  {
+    heights: [50, 400, 80, 50, 50, 600, 80, 80],
+    top: 450,
+    visible: [3, 4, 5, 6],
+    prepared: [2, 3, 4, 5, 6],
+  },
+])(
+  "prepares one viewport above and below without changing visible-page reporting at $top",
+  async ({ heights, top, visible, prepared }) => {
+    const s = await renderingWindow(heights, top, 200);
+    expect(s.ids(s.viewer._getVisiblePages())).toEqual(visible);
+    expect(s.ids(s.viewer._getVisiblePages(1))).toEqual(prepared);
+    expect(s.ids(s.viewer._getVisiblePages())).toEqual(visible);
+  },
+);
+
+it.each([true, false])(
+  "renders the current viewport, the full preparation window and then detail tiles when scrolling down=%s",
+  async (down) => {
+    const s = await renderingWindow(Array(20).fill(100), 650, 200);
+    s.viewer.scroll.down = down;
+    s.pages[6].renderingState = s.pages[8].renderingState =
+      s.RenderingStates.FINISHED;
+    const detail = { ...s.pages[7], renderingId: "detail-8" };
+    Reflect.set(s.pages[7], "detailView", detail);
+    const render = vi
+      .spyOn(s.viewer.renderingQueue!, "renderView")
+      .mockReturnValue(true);
+    const sequence = [
+      "page-8",
+      ...(down
+        ? ["page-10", "page-11", "page-6", "page-5"]
+        : ["page-6", "page-5", "page-10", "page-11"]),
+      "detail-8",
+    ];
+    for (const renderingId of sequence) {
+      expect(s.viewer.forceRendering(s.viewer._getVisiblePages())).toBe(true);
+      await Promise.resolve();
+      const selected = render.mock.lastCall![0];
+      expect(selected.renderingId).toBe(renderingId);
+      selected.renderingState = s.RenderingStates.FINISHED;
+    }
+    expect(s.viewer.forceRendering(s.viewer._getVisiblePages())).toBe(false);
+  },
+);
+
+it("recalculates the prepared area when the viewport height changes", async () => {
+  const s = await renderingWindow(Array(20).fill(100), 650, 200);
+  s.size.height = 100;
+  expect(s.ids(s.viewer._getVisiblePages(1))).toEqual([6, 7, 8, 9]);
+});
+
+it("skips a late page load outside the new preparation window after fast scrolling", async () => {
+  const s = await renderingWindow(Array(20).fill(100), 650, 200);
+  s.pages.forEach((page) => {
+    page.renderingState = s.RenderingStates.FINISHED;
+  });
+  const late = s.pages[7];
+  late.renderingState = s.RenderingStates.INITIAL;
+  Reflect.set(late, "pdfPage", undefined);
+  Reflect.set(late, "setPdfPage", (page: object) => {
+    late.pdfPage = page;
+  });
+  let complete!: (page: object) => void;
+  Reflect.set(s.viewer, "pdfDocument", {
+    getPage: () =>
+      new Promise<object>((resolve) => {
+        complete = resolve;
+      }),
+  });
+  const render = vi
+    .spyOn(s.viewer.renderingQueue!, "renderView")
+    .mockReturnValue(true);
+  expect(s.viewer.forceRendering(s.viewer._getVisiblePages())).toBe(true);
+  s.host.scrollTop = 1450;
+  s.pages[15].renderingState = s.RenderingStates.INITIAL;
+  complete({});
+  await vi.waitFor(() => expect(render).toHaveBeenCalledWith(s.pages[15]));
+  expect(render).not.toHaveBeenCalledWith(late);
 });

@@ -2,7 +2,11 @@
 import { act, type ReactNode, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { defaultTheme, type Processing } from "@neoread/core";
+import {
+  defaultTheme,
+  type Processing,
+  type ReaderEvents,
+} from "@neoread/core";
 import { TooltipProvider } from "@neoread/ui/components/tooltip";
 import { api } from "@neoread/api";
 import { Workspace } from "./Workspace";
@@ -13,6 +17,8 @@ type GroupProps = ComponentProps<typeof ResizablePanelGroup>;
 
 const panels = vi.hoisted(() => ({
   props: undefined as GroupProps | undefined,
+  readerEvents: undefined as ReaderEvents | undefined,
+  readerRenders: 0,
 }));
 
 vi.mock("@neoread/api", () => ({
@@ -32,6 +38,7 @@ vi.mock("@neoread/api", () => ({
     }),
     navigation: vi.fn(async () => ({ revision: 0, entries: {} })),
     messages: vi.fn(async () => []),
+    chatSessions: vi.fn(async () => []),
     blocks: vi.fn(async () => []),
     documentNote: vi.fn(async () => ({ body: "note", updatedAt: "" })),
     translations: vi.fn(async () => []),
@@ -45,7 +52,16 @@ vi.mock("./progress", () => ({
   scheduleProgress: vi.fn(),
   flushProgress: vi.fn(async () => {}),
 }));
-vi.mock("./translation/PDFReadingView", () => ({ PDFReadingView: () => null }));
+vi.mock("@neoread/ui/components/scroll-area", () => ({
+  ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}));
+vi.mock("./translation/PDFReadingView", () => ({
+  PDFReadingView: ({ events }: { events: ReaderEvents }) => {
+    panels.readerRenders++;
+    panels.readerEvents = events;
+    return null;
+  },
+}));
 vi.mock("./translation/EPUBReadingView", () => ({
   EPUBReadingView: () => null,
 }));
@@ -112,6 +128,13 @@ const button = (text: string) =>
     (el) => el.textContent?.trim() === text,
   )!;
 beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   vi.clearAllMocks();
   useReaderStore.setState({ theme: defaultTheme });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -120,6 +143,92 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+});
+
+it("updates the active outline heading when reading moves within one PDF page", async () => {
+  vi.mocked(api.blocks).mockResolvedValueOnce(
+    [0.1, 0.7].map((y, i) => ({
+      id: `heading-${i}`,
+      page: 1,
+      label: "paragraph_title",
+      text: `Section ${i + 1}`,
+      bounds: { x: 0.1, y, width: 0.8, height: 0.05 },
+    })),
+  );
+  await act(async () => render(0));
+  const heading = (name: string) =>
+    host.querySelector<HTMLElement>(`[aria-label="目录：${name}"]`)!;
+  await act(async () =>
+    panels.readerEvents!.location(
+      { type: "pdf", page: 1, x: 0.1, y: 0.12 },
+      0.5,
+    ),
+  );
+  expect(heading("Section 1").classList.contains("selected")).toBe(true);
+  const renders = panels.readerRenders;
+  for (let i = 0; i < 30; i++)
+    await act(async () =>
+      panels.readerEvents!.location(
+        { type: "pdf", page: 1, x: 0.1, y: 0.15 + i * 0.019 },
+        0.5,
+      ),
+    );
+  expect(panels.readerRenders).toBe(renders);
+  await act(async () =>
+    panels.readerEvents!.location(
+      { type: "pdf", page: 1, x: 0.1, y: 0.72 },
+      0.5,
+    ),
+  );
+  expect(heading("Section 2").classList.contains("selected")).toBe(true);
+  expect(heading("Section 1").classList.contains("selected")).toBe(false);
+});
+
+it("dismisses stale selection toolbars on collapse or outside clicks while keeping toolbar actions usable", async () => {
+  await act(async () => render(0));
+  const text = document.createElement("p");
+  text.textContent = "selected reading text";
+  host.append(text);
+  const select = async () => {
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    await act(async () =>
+      panels.readerEvents!.selection({
+        text: text.textContent!,
+        location: { type: "pdf", page: 1 },
+        anchor: { x: 30, top: 20, bottom: 40 },
+      }),
+    );
+    expect(host.querySelector(".selection-bar")).not.toBeNull();
+  };
+  await select();
+  await act(async () =>
+    host
+      .querySelector(".selection-bar button")!
+      .dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      ),
+  );
+  expect(host.querySelector(".selection-bar")).not.toBeNull();
+  await act(async () => {
+    window.getSelection()!.collapseToStart();
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  expect(host.querySelector(".selection-bar")).toBeNull();
+  await select();
+  await act(async () =>
+    document.body.dispatchEvent(
+      new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+    ),
+  );
+  expect(host.querySelector(".selection-bar")).toBeNull();
+  await select();
+  await act(async () => window.dispatchEvent(new Event("blur")));
+  expect(host.querySelector(".selection-bar")).toBeNull();
+  window.getSelection()!.removeAllRanges();
+  text.remove();
 });
 
 it("restores user sidebar sizes and collapsed state without replacing expanded sizes with zero", async () => {

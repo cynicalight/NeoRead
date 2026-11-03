@@ -1,6 +1,10 @@
 import { useAnnotationUpdates } from "./useAnnotationUpdates";
+import {
+  focusSelectionScope,
+  selectAllInScope,
+} from "./readers/scoped-selection";
 import { webSearchEnabled } from "./chat/web-search";
-import { NavigationTree } from "./NavigationTree";
+import { LiveNavigationTree } from "./LiveNavigationTree";
 import { useShortcut } from "./shortcuts/shortcuts";
 import { registerTabCloseGuard } from "./document-tab-guards";
 import { useDocumentTheme } from "./useDocumentTheme";
@@ -137,6 +141,7 @@ import { ExportDocumentDialog } from "./ExportDocumentDialog";
 import { EPUBReadingView } from "./translation/EPUBReadingView";
 import { PDFReadingView } from "./translation/PDFReadingView";
 import { useReaderStore } from "./store";
+import { useShallow } from "zustand/react/shallow";
 import { scheduleProgress, flushProgress } from "./progress";
 import { Slider } from "@neoread/ui/components/slider";
 import { TranslationFontControls } from "./TranslationFontControls";
@@ -188,7 +193,13 @@ export function Workspace({
   onBack: () => void;
   onSettings: () => void;
 }) {
-  const { aiConfig, setAIConfig, aiModelSaving } = useReaderStore();
+  const { aiConfig, setAIConfig, aiModelSaving } = useReaderStore(
+    useShallow((state) => ({
+      aiConfig: state.aiConfig,
+      setAIConfig: state.setAIConfig,
+      aiModelSaving: state.aiModelSaving,
+    })),
+  );
   const { theme, setTheme, onZoom } = useDocumentTheme(
     sharedTheme,
     doc,
@@ -244,9 +255,10 @@ export function Workspace({
     }
   };
   const [toc, setTOC] = useState<TOCItem[]>([]);
-  const [location, setLocation] = useState<DocumentLocation | undefined>(
-    doc.progress,
-  );
+  const location = useRef<DocumentLocation | undefined>(doc.progress);
+  const locationChanged = useRef<
+    ((next: DocumentLocation) => void) | undefined
+  >(undefined);
   const lastReadingLocation = useRef(doc.progress);
   const resumeReading = useRef(false);
   useEffect(() => {
@@ -270,6 +282,40 @@ export function Workspace({
   const selectionClipboard = useSelectionClipboard(theme.autoCopySelection);
   const [annotationTarget, setAnnotationTarget] =
     useState<ReaderAnnotationTarget | null>(null);
+  useEffect(() => {
+    if (!active || (!selection && !annotationTarget)) return;
+    const dismiss = () => {
+      setSelection(null);
+      setAnnotationTarget(null);
+      adapter?.clearSelection();
+    };
+    const pointer = (event: PointerEvent) => {
+      if (
+        event.button === 0 &&
+        !(
+          event.target instanceof Element &&
+          event.target.closest(".selection-bar")
+        )
+      )
+        dismiss();
+    };
+    const changed = () => {
+      if (
+        selection &&
+        (!window.getSelection()?.rangeCount ||
+          window.getSelection()?.isCollapsed)
+      )
+        dismiss();
+    };
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("selectionchange", changed);
+    window.addEventListener("blur", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", pointer, true);
+      document.removeEventListener("selectionchange", changed);
+      window.removeEventListener("blur", dismiss);
+    };
+  }, [active, selection, annotationTarget, adapter]);
   const { deleting, remove: removeAnnotation } = useAnnotationDeletion(
     doc.id,
     (id) => {
@@ -339,7 +385,9 @@ export function Workspace({
   const [note, setNote] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteKind, setNoteKind] = useState<"note" | "question">("note");
-  const palette = highlightPalette(useReaderStore((s) => s.theme));
+  const palette = highlightPalette({
+    highlightColors: useReaderStore((s) => s.theme.highlightColors),
+  });
   const [savedColor, setMarkColor] = useState<string>(() => {
     try {
       return localStorage.getItem("neoread.mark-color") || "";
@@ -400,7 +448,12 @@ export function Workspace({
       currentDocument.current === doc.id &&
       serial === sessionListSerial.current
     ) {
-      setSessionCatalog({ documentId: doc.id, items });
+      setSessionCatalog((current) =>
+        current.documentId === doc.id &&
+        JSON.stringify(current.items) === JSON.stringify(items)
+          ? current
+          : { documentId: doc.id, items },
+      );
       setSessionError("");
     }
   }, [doc.id]);
@@ -411,6 +464,7 @@ export function Workspace({
     } catch {}
   };
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -427,7 +481,7 @@ export function Workspace({
       alive = false;
       clearTimeout(timer);
     };
-  }, [refreshSessions]);
+  }, [refreshSessions, active]);
   const [prompt, setPrompt] = useState("");
   const [quotes, setQuotes] = useState<ReaderSelection[]>([]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -469,7 +523,10 @@ export function Workspace({
   const session = currentSession
     ? getChatSession(doc.id, currentSession.id)
     : emptySession;
-  const chat = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const chat = useSyncExternalStore(
+    session.subscribe,
+    session.getComposerSnapshot,
+  );
   useEffect(() => {
     if (
       !currentSession ||
@@ -504,10 +561,11 @@ export function Workspace({
       setAnnotations(items);
       setAnnotationsLoaded(true);
     },
-    () => {
-      setAnnotations([]);
+    (clear) => {
+      if (clear) setAnnotations([]);
       setAnnotationsLoaded(false);
     },
+    active,
   );
   useShortcut("readerLeft", () => setLeft(!left), active);
   useShortcut("readerRight", () => setRight(!right), active);
@@ -564,7 +622,8 @@ export function Workspace({
   };
   useEffect(() => {
     // Follow a neoread:// link once the reader and annotations are ready.
-    if (linkTarget?.id !== doc.id || !adapter || !annotationsLoaded) return;
+    if (!active || linkTarget?.id !== doc.id || !adapter || !annotationsLoaded)
+      return;
     useReaderStore.getState().setLinkTarget(null);
     if (linkTarget.annotation) {
       const target = annotations.find((a) => a.id === linkTarget.annotation);
@@ -577,12 +636,21 @@ export function Workspace({
       void adapter
         .goTo({ type: "pdf", page: linkTarget.page })
         .catch((e) => toast.error(e.message));
-  }, [linkTarget, adapter, annotationsLoaded, annotations, doc.id, doc.type]);
+  }, [
+    active,
+    linkTarget,
+    adapter,
+    annotationsLoaded,
+    annotations,
+    doc.id,
+    doc.type,
+  ]);
   const saveLocation = (next: DocumentLocation, percent: number) => {
     if (!active) return;
     lastReadingLocation.current = next;
     setTranslationSelection(null);
-    setLocation(next);
+    location.current = next;
+    locationChanged.current?.(next);
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
     if (next.type === "pdf") setPageInput(String(next.page));
     scheduleProgress(doc.id, { progress: next, percentage: percent }, (e) =>
@@ -598,7 +666,9 @@ export function Workspace({
     const source = written ? noteSelection : selection;
     const target =
       kind === "bookmark"
-        ? (adapter?.getLocation() ?? location)
+        ? (adapter?.getLocation() ??
+          lastReadingLocation.current ??
+          location.current)
         : source?.location;
     if (!target || annotationSaving.current) return;
     annotationSaving.current = true;
@@ -1001,8 +1071,12 @@ export function Workspace({
           <Button
             className="attachment-preview"
             variant="ghost"
-            aria-label={`查看附件：${imageLabel(image)}`}
-            onClick={() => setPreviewImage(image)}
+            aria-label={`双击查看附件：${imageLabel(image)}`}
+            title="双击放大查看图片"
+            onClick={(event) => {
+              if (event.detail === 0) setPreviewImage(image);
+            }}
+            onDoubleClick={() => setPreviewImage(image)}
           >
             <img
               src={blockImageURL(doc.id, image.id)}
@@ -1102,7 +1176,11 @@ export function Workspace({
     void flushProgress().catch((e) => toast.error(e.message));
   }, [active, adapter]);
   return (
-    <div className="workspace">
+    <div
+      className="workspace"
+      onPointerDownCapture={(event) => focusSelectionScope(event.nativeEvent)}
+      onKeyDownCapture={(event) => selectAllInScope(event.nativeEvent)}
+    >
       <header className="neoread-toolbar">
         <div className="neoread-title-group">
           <IconButton
@@ -1398,7 +1476,7 @@ export function Workspace({
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="toc" className="min-h-0 flex-1">
-                <NavigationTree
+                <LiveNavigationTree
                   key={doc.id}
                   documentId={doc.id}
                   type={doc.type}
@@ -1406,6 +1484,7 @@ export function Workspace({
                   blocks={blocks}
                   annotations={annotations}
                   location={location}
+                  changed={locationChanged}
                   go={move}
                 />
               </TabsContent>

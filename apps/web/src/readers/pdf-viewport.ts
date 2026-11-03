@@ -9,6 +9,8 @@ export class PDFViewport {
   private basis?: { width: number; scale: number };
   private anchor?: Anchor;
   private scroll = { left: 0, top: 0 };
+  private windowWidth?: number;
+  private windowHeight?: number;
   constructor(
     private host: HTMLElement,
     private viewer: PDFViewer,
@@ -24,6 +26,8 @@ export class PDFViewport {
       width: this.host.clientWidth,
       scale: this.viewer.currentScale,
     };
+    this.windowWidth = this.host.ownerDocument.defaultView?.innerWidth;
+    this.windowHeight = this.host.ownerDocument.defaultView?.innerHeight;
     this.capture();
   }
   remember() {
@@ -48,11 +52,11 @@ export class PDFViewport {
   private visible() {
     return (
       this.host.isConnected &&
+      !this.host.closest("[inert]") &&
       this.host.clientWidth > 0 &&
       this.host.clientHeight > 0 &&
       Number.isFinite(this.viewer.currentScale) &&
-      this.viewer.currentScale > 0 &&
-      !this.host.closest("[inert]")
+      this.viewer.currentScale > 0
     );
   }
   private capture() {
@@ -149,8 +153,16 @@ export class PDFViewport {
     const before = this.size,
       anchor = this.anchor,
       scroll = this.scroll;
+    const window = this.host.ownerDocument.defaultView;
+    const windowChanged =
+      this.windowWidth !== window?.innerWidth ||
+      this.windowHeight !== window?.innerHeight;
+    this.windowWidth = window?.innerWidth;
+    this.windowHeight = window?.innerHeight;
     const oldScale = this.viewer.currentScale;
-    const oldPage = anchor?.page.getBoundingClientRect();
+    const oldPage = !windowChanged
+      ? anchor?.page.getBoundingClientRect()
+      : undefined;
     const oldPoint =
       anchor && oldPage
         ? {
@@ -204,16 +216,19 @@ export class PDFViewport {
       height: this.host.clientHeight,
     };
     this.capture();
-    this.animateScale(
-      oldScale,
-      scale,
-      oldPoint
-        ? {
-            x: oldPoint.x - view.left - this.host.clientLeft - width / 2,
-            y: oldPoint.y - view.top - this.host.clientTop - height / 2,
-          }
-        : { x: 0, y: 0 },
-    );
+    // macOS already animates maximize/restore. Do not start a second zoom of
+    // the newly rendered, large page canvases after that native transition.
+    if (!windowChanged)
+      this.animateScale(
+        oldScale,
+        scale,
+        oldPoint
+          ? {
+              x: oldPoint.x - view.left - this.host.clientLeft - width / 2,
+              y: oldPoint.y - view.top - this.host.clientTop - height / 2,
+            }
+          : { x: 0, y: 0 },
+      );
     return {
       scale,
       widthRatio: width / before.width,

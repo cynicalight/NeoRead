@@ -17,8 +17,10 @@ import { sourcePassage, translatedSentenceRanges } from "./sentence-links";
 import { blockRange, resolveEPUBLocation } from "../readers/epub-web-location";
 import { epubSentenceSlice } from "./epub-links";
 import { searchRanges } from "./search-ranges";
+import { PDFResizeObserver } from "../readers/pdf-resize";
 
 type Mark = { annotation: Annotation; range: Range };
+const emptySearchResults: SearchResult[] = [];
 const hit = (range: Range, x: number, y: number) =>
   Array.from(range.getClientRects()).some(
     (r) =>
@@ -41,7 +43,7 @@ export function useSentenceMarks(
   mode: string,
   events: ReaderEvents,
   searchQuery = "",
-  searchResults: SearchResult[] = [],
+  searchResults: SearchResult[] = emptySearchResults,
 ) {
   const prefix = `neoread-sentences-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const latest = useRef({
@@ -334,7 +336,7 @@ export function useSentenceMarks(
       if (
         !host.contains(target) ||
         target.closest("a,button,input,textarea,[data-block-action]") ||
-        window.getSelection()?.toString().trim()
+        window.getSelection()?.isCollapsed === false
       ) {
         deferClear();
         return;
@@ -454,8 +456,15 @@ export function useSentenceMarks(
       else hover.show(`${t.blockId}:${index}:${fromTranslation}`, ranges);
     };
     const move = (event: PointerEvent) => {
-      if (event.buttons || window.getSelection()?.toString().trim()) {
-        interruptHover();
+      if (event.buttons || window.getSelection()?.isCollapsed === false) {
+        if (
+          pointer.current ||
+          activeRanges.length ||
+          activeAnnotationTarget ||
+          enterTimer !== undefined ||
+          leaveTimer !== undefined
+        )
+          interruptHover();
         return;
       }
       if (!(event.target instanceof Element)) {
@@ -507,7 +516,7 @@ export function useSentenceMarks(
       if (
         !start ||
         Math.hypot(start.x - event.clientX, start.y - event.clientY) > 5 ||
-        window.getSelection()?.toString().trim()
+        window.getSelection()?.isCollapsed === false
       )
         return;
       const target = event.target instanceof Element ? event.target : undefined;
@@ -552,8 +561,7 @@ export function useSentenceMarks(
       subtree: true,
       characterData: true,
     });
-    const resize = new ResizeObserver(schedule);
-    resize.observe(host);
+    const resize = new PDFResizeObserver(host, paint, interruptHover);
     repaint.current = paint;
     paint();
     host.addEventListener("pointermove", move);

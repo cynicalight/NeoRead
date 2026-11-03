@@ -1,5 +1,9 @@
 import { reducedMotion } from "../motion";
-import { animatePDFScroll } from "./pdf-scroll";
+import {
+  animatePDFScroll,
+  pdfFocusMotion,
+  pdfFocusProgress,
+} from "./pdf-scroll";
 import { sentenceTextRanges } from "./pdf-sentence-matching";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
@@ -22,6 +26,15 @@ export class PDFReadingNavigation {
   private operation = 0;
   private focus: PDFPassage[] = [];
   private linkedRanges: Range[] = [];
+  private indexedBlocks?: PDFBlock[];
+  private readable: PDFBlock[] = [];
+  private blocksByPage = new Map<number, PDFBlock[]>();
+  private blocksById = new Map<string, PDFBlock>();
+  private focusAnimation?: {
+    animation: Animation;
+    node: HTMLElement;
+    scale: number;
+  };
   get isNavigating() {
     return this.moving;
   }
@@ -32,17 +45,49 @@ export class PDFReadingNavigation {
     private blocks: () => PDFBlock[],
     private events: ReaderEvents,
     private onFocus: (blockId: string | null) => void = () => {},
+    private onLayout: () => void = () => {},
   ) {
     host.addEventListener("pointerdown", this.interrupt);
     host.addEventListener("scroll", this.scrolled, { passive: true });
     host.addEventListener("wheel", this.interrupt, { passive: true });
   }
   private interrupt = () => {
+    this.cancelFocusAnimation();
     this.operation++;
     this.moving = false;
     this.onFocus(null);
   };
-  private async moveTo(left: number, top: number, operation: number) {
+  private cancelFocusAnimation() {
+    const current = this.focusAnimation;
+    if (!current) return;
+    this.focusAnimation = undefined;
+    const presented = current.node.getBoundingClientRect();
+    current.animation.cancel();
+    if (this.disposed) return;
+    const actual = current.node.getBoundingClientRect();
+    const scale = actual.width
+      ? (current.scale * presented.width) / actual.width
+      : current.scale;
+    if (Math.abs(this.viewer.currentScale - scale) > 0.0001) {
+      if (this.viewer.updateScale)
+        this.viewer.updateScale({
+          scaleFactor: scale / this.viewer.currentScale,
+          drawingDelay: 300,
+        });
+      else this.viewer.currentScaleValue = String(scale);
+    }
+    const restored = current.node.getBoundingClientRect();
+    this.host.scrollLeft += restored.left - presented.left;
+    this.host.scrollTop += restored.top - presented.top;
+    this.viewer.refresh?.();
+    this.onLayout();
+  }
+  private async moveTo(
+    left: number,
+    top: number,
+    operation: number,
+    smooth = true,
+  ) {
     this.moving = true;
     try {
       await animatePDFScroll(
@@ -51,6 +96,7 @@ export class PDFReadingNavigation {
         top,
         () => this.disposed || operation !== this.operation,
         () => {},
+        smooth,
       );
     } finally {
       if (operation === this.operation) {
@@ -61,6 +107,7 @@ export class PDFReadingNavigation {
   }
   async goTo(page: number, point?: { x: number; y: number }) {
     const operation = ++this.operation;
+    if (!(await this.preparePage(page, operation))) return false;
     const node = this.pageNode(page);
     if (!node || this.disposed || operation !== this.operation) return false;
     this.onFocus(null);
@@ -76,7 +123,22 @@ export class PDFReadingNavigation {
   private pageNode(n: number) {
     return this.viewer.getPageView(n - 1)?.div as HTMLElement | undefined;
   }
+  private async preparePage(
+    n: number,
+    operation: number,
+  ): Promise<pdfjs.PDFPageProxy | undefined> {
+    const view = this.viewer.getPageView(n - 1);
+    if (!view || this.disposed) return;
+    if (view.pdfPage) return view.pdfPage;
+    const page = await this.page(n);
+    if (this.disposed || operation !== this.operation) return;
+    // Lazy PDF.js views initially clone the first page's dimensions. Initialize
+    // only the destination before reading its geometry, including mixed sizes.
+    if (!view.pdfPage) view.setPdfPage(page);
+    return page;
+  }
   private scrolled = () => {
+    if (!this.events.readingAnchor) return;
     cancelAnimationFrame(this.frame);
     this.frame = requestAnimationFrame(() => {
       if (this.disposed || this.moving) return;
@@ -85,27 +147,36 @@ export class PDFReadingNavigation {
     });
   };
   anchor(): PDFReadingAnchor | undefined {
+    this.readableBlocks();
     const viewport = this.host.getBoundingClientRect(),
       y = viewport.top + viewport.height * 0.5,
       x = viewport.left + viewport.width / 2;
     let best: PDFBlock | undefined,
       distance = Infinity,
       fraction = 0;
-    for (const b of this.readableBlocks()) {
-      const node = this.pageNode(b.page);
-      if (!node) continue;
-      const r = node.getBoundingClientRect();
+    // PDF.js already indexes visible pages. Read each page's geometry once,
+    // rather than measuring it again for every paragraph in the document.
+    const visible = this.viewer._getVisiblePages() as {
+      views: { id: number; view: { div: HTMLElement } }[];
+    };
+    for (const { id, view } of visible.views) {
+      const blocks = this.blocksByPage.get(id);
+      if (!blocks) continue;
+      const r = view.div.getBoundingClientRect();
       if (r.bottom < viewport.top || r.top > viewport.bottom) continue;
-      const bx = r.left + b.bounds.x * r.width,
-        by = r.top + b.bounds.y * r.height,
-        bw = b.bounds.width * r.width,
-        bh = b.bounds.height * r.height;
-      const d =
-        Math.max(bx - x, x - bx - bw, 0) * 2 + Math.max(by - y, y - by - bh, 0);
-      if (d < distance) {
-        distance = d;
-        best = b;
-        fraction = Math.max(0, Math.min(1, (y - by) / (bh || 1)));
+      for (const b of blocks) {
+        const bx = r.left + b.bounds.x * r.width,
+          by = r.top + b.bounds.y * r.height,
+          bw = b.bounds.width * r.width,
+          bh = b.bounds.height * r.height;
+        const d =
+          Math.max(bx - x, x - bx - bw, 0) * 2 +
+          Math.max(by - y, y - by - bh, 0);
+        if (d < distance) {
+          distance = d;
+          best = b;
+          fraction = Math.max(0, Math.min(1, (y - by) / (bh || 1)));
+        }
       }
     }
     return best ? { blockId: best.id, fraction } : undefined;
@@ -123,10 +194,22 @@ export class PDFReadingNavigation {
     }
   }
   private readableBlocks() {
+    const blocks = this.blocks();
+    if (blocks === this.indexedBlocks) return this.readable;
+    this.indexedBlocks = blocks;
     // The parser supplies reading order within each page, including figures.
-    return this.blocks()
+    this.readable = blocks
       .filter((b) => !isPDFPageDecoration(b) && (b.image || b.text.trim()))
       .sort((a, b) => a.page - b.page);
+    this.blocksByPage.clear();
+    this.blocksById.clear();
+    for (const block of this.readable) {
+      const page = this.blocksByPage.get(block.page) ?? [];
+      page.push(block);
+      this.blocksByPage.set(block.page, page);
+      this.blocksById.set(block.id, block);
+    }
+    return this.readable;
   }
   cancelMotion() {
     this.interrupt();
@@ -147,13 +230,15 @@ export class PDFReadingNavigation {
     this.host.classList.add("pdf-block-reading");
   }
   async focusBlock(id: string, layout: "source" | "parallel" = "source") {
-    const block = this.readableBlocks().find((b) => b.id === id);
+    this.readableBlocks();
+    const block = this.blocksById.get(id);
     if (!block || this.disposed) return false;
+    this.cancelFocusAnimation();
     const operation = ++this.operation;
     this.moving = true;
     try {
-      const page = await this.page(block.page);
-      if (this.disposed || operation !== this.operation) return false;
+      const page = await this.preparePage(block.page, operation);
+      if (!page || this.disposed || operation !== this.operation) return false;
       const node = this.pageNode(block.page);
       if (!node || !this.host.clientWidth || !this.host.clientHeight)
         return false;
@@ -181,6 +266,65 @@ export class PDFReadingNavigation {
       const fromY = initial.top - view.top + block.bounds.y * initial.height;
       this.onFocus(block.id);
       const reduced = reducedMotion();
+      const element = this.viewer.viewer;
+      if (element?.animate && !reduced) {
+        // Commit PDF.js layout once, keeping its completed bitmap. Interpolate
+        // only presentation so focus does not resize every PDF page per frame.
+        this.updateInsets();
+        const zoomed = Math.abs(initialScale - scale) > 0.0001;
+        if (zoomed) {
+          if (this.viewer.updateScale)
+            this.viewer.updateScale({
+              scaleFactor: scale / initialScale,
+              drawingDelay: pdfFocusMotion.duration + 60,
+            });
+          else this.viewer.currentScaleValue = String(scale);
+        }
+        const r = node.getBoundingClientRect(),
+          v = this.host.getBoundingClientRect();
+        this.host.scrollLeft +=
+          r.left -
+          v.left +
+          (block.bounds.x + block.bounds.width / 2) * r.width -
+          this.host.clientWidth / 2;
+        this.host.scrollTop +=
+          r.top -
+          v.top +
+          block.bounds.y * r.height -
+          Math.max(
+            0,
+            (this.host.clientHeight - block.bounds.height * r.height) / 2,
+          );
+        this.onLayout();
+        const final = node.getBoundingClientRect(),
+          body = element.getBoundingClientRect();
+        const origin = `${final.left - body.left}px ${final.top - body.top}px`;
+        const animation = element.animate(
+          [
+            {
+              transform: `translate(${initial.left - final.left}px, ${initial.top - final.top}px) scale(${initialScale / scale})`,
+              transformOrigin: origin,
+            },
+            {
+              transform: "translate(0px, 0px) scale(1)",
+              transformOrigin: origin,
+            },
+          ],
+          pdfFocusMotion,
+        );
+        this.focusAnimation = { animation, node, scale };
+        await new Promise<void>((resolve) => {
+          animation.onfinish = () => resolve();
+          animation.oncancel = () => resolve();
+        });
+        if (this.focusAnimation?.animation === animation)
+          this.focusAnimation = undefined;
+        if (this.disposed || operation !== this.operation) return false;
+        if (zoomed) this.viewer.refresh?.();
+        const anchor = this.anchor();
+        if (anchor) this.events.readingAnchor?.(anchor);
+        return true;
+      }
       let started: number | undefined;
       let zoomed = false;
       await new Promise<void>((resolve) => {
@@ -190,8 +334,10 @@ export class PDFReadingNavigation {
             return;
           }
           started ??= now;
-          const progress = reduced ? 1 : Math.min(1, (now - started) / 240);
-          const ease = 1 - (1 - progress) ** 3;
+          const progress = reduced
+            ? 1
+            : Math.min(1, (now - started) / pdfFocusMotion.duration);
+          const ease = pdfFocusProgress(progress);
           // Scale and position share one animation. Adding centering space or zooming
           // must never produce a visible jump before the scroll starts.
           this.updateInsets();
@@ -203,8 +349,8 @@ export class PDFReadingNavigation {
             if (this.viewer.updateScale)
               this.viewer.updateScale({
                 scaleFactor: zoom / this.viewer.currentScale,
-                // Keep the completed frame throughout the 240ms animation.
-                drawingDelay: 300,
+                // Keep the completed bitmap throughout the focus animation.
+                drawingDelay: pdfFocusMotion.duration + 60,
               });
             else this.viewer.currentScaleValue = String(zoom);
           }
@@ -242,10 +388,16 @@ export class PDFReadingNavigation {
       }
     }
   }
-  async follow(anchor: PDFReadingAnchor) {
-    const block = this.blocks().find((b) => b.id === anchor.blockId);
+  async follow(anchor: PDFReadingAnchor, smooth = false) {
+    this.readableBlocks();
+    const block = this.blocksById.get(anchor.blockId);
     if (!block || isPDFPageDecoration(block)) return;
     const operation = ++this.operation;
+    if (
+      !this.viewer.getPageView(block.page - 1)?.pdfPage &&
+      !(await this.preparePage(block.page, operation))
+    )
+      return;
     const node = this.pageNode(block.page);
     if (!node) return;
     const r = node.getBoundingClientRect(),
@@ -262,6 +414,7 @@ export class PDFReadingNavigation {
         (block.bounds.y + anchor.fraction * block.bounds.height) * r.height -
         this.host.clientHeight * 0.5,
       operation,
+      smooth,
     );
   }
   focusSentences(blockId: string, sources: string[], scroll = false) {
@@ -285,17 +438,20 @@ export class PDFReadingNavigation {
       : undefined;
     // An unrendered sentence can still scroll to its paragraph. It must never
     // use that paragraph's bounds as the visible sentence highlight.
-    await this.follow({
-      blockId: block.id,
-      fraction: Math.max(
-        0,
-        Math.min(
-          1,
-          ((top ?? block.bounds.y) - block.bounds.y) /
-            (block.bounds.height || 1),
+    await this.follow(
+      {
+        blockId: block.id,
+        fraction: Math.max(
+          0,
+          Math.min(
+            1,
+            ((top ?? block.bounds.y) - block.bounds.y) /
+              (block.bounds.height || 1),
+          ),
         ),
-      ),
-    });
+      },
+      true,
+    );
     if (!this.disposed && this.focus === passages) this.paintFocus();
   }
   sentenceRanges(passages: PDFPassage[]): Range[] {

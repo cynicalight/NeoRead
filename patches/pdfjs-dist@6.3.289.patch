@@ -1,5 +1,5 @@
 diff --git a/build/pdf.mjs b/build/pdf.mjs
-index c55a629aa4482ce73d02e19d4e5eddeba8976e97..06fe7cbb30749e66b6409ac7cccbdc0a2a128dfb 100644
+index c55a629aa4482ce73d02e19d4e5eddeba8976e97..7639ec1d03d9d97f404aa68a9e5de1dafef17321 100644
 --- a/build/pdf.mjs
 +++ b/build/pdf.mjs
 @@ -10905,6 +10905,30 @@ const LINE_JOIN_STYLES = ["miter", "round", "bevel"];
@@ -118,7 +118,7 @@ index c55a629aa4482ce73d02e19d4e5eddeba8976e97..06fe7cbb30749e66b6409ac7cccbdc0a
        return;
      }
 diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
-index 993f35056cbb76d09d83c25dccd96fe1916ee372..d900eb33608cb069467da5a3b549cef8693f5351 100644
+index 993f35056cbb76d09d83c25dccd96fe1916ee372..88b89d0a1b33458a1d22326d976e9aafe63820d4 100644
 --- a/legacy/build/pdf.mjs
 +++ b/legacy/build/pdf.mjs
 @@ -17364,6 +17364,30 @@ const LINE_JOIN_STYLES = ["miter", "round", "bevel"];
@@ -236,8 +236,43 @@ index 993f35056cbb76d09d83c25dccd96fe1916ee372..d900eb33608cb069467da5a3b549cef8
      if (!this.contentVisible) {
        return;
      }
+diff --git a/types/web/pdf_rendering_queue.d.ts b/types/web/pdf_rendering_queue.d.ts
+index 1403f551a1cc407eae0a777f028fd979886c5781..544a2299a028ffe8011a24b91cbb1375be4ea827 100644
+--- a/types/web/pdf_rendering_queue.d.ts
++++ b/types/web/pdf_rendering_queue.d.ts
+@@ -32,7 +32,7 @@ export class PDFRenderingQueue {
+      * @param {boolean} [preRenderExtra]
+      * @param {boolean} [ignoreDetailViews]
+      */
+-    getHighestPriority(visible: Object, views: any[], scrolledDown: boolean, preRenderExtra?: boolean, ignoreDetailViews?: boolean): any;
++    getHighestPriority(visible: Object, views: any[], scrolledDown: boolean, preRenderExtra?: boolean, ignoreDetailViews?: boolean, renderAheadPages?: Object | null): any;
+     /**
+      * @param {RenderableView} view
+      * @returns {boolean}
+diff --git a/types/web/pdf_viewer.d.ts b/types/web/pdf_viewer.d.ts
+index 3ed4812a365d3a2996de7ad7ef6f1ba56e828c5e..d3a5b96521878c11fa998dd4a310fa479a333225 100644
+--- a/types/web/pdf_viewer.d.ts
++++ b/types/web/pdf_viewer.d.ts
+@@ -110,6 +110,8 @@ export type PDFViewerOptions = {
+      * The default value is `true`.
+      */
+     enableDetailCanvas?: boolean | undefined;
++    /** Extra viewport heights to render above and below the visible area. */
++    preRenderViewports?: number | undefined;
+     /**
+      * - Enables rendering of text
+      * selections in the draw layer.
+@@ -460,7 +462,7 @@ export class PDFViewer {
+     get isChangingPresentationMode(): boolean;
+     get isHorizontalScrollbarEnabled(): boolean;
+     get isVerticalScrollbarEnabled(): boolean;
+-    _getVisiblePages(): Object;
++    _getVisiblePages(preRenderViewports?: number): Object;
+     cleanup(): void;
+     /**
+      * @private
 diff --git a/web/pdf_viewer.mjs b/web/pdf_viewer.mjs
-index 29b3492cd9cb0869a906785739c34fc364ec1c17..4915556821bf4fc13507e7488bb18ea1c2c1857d 100644
+index 29b3492cd9cb0869a906785739c34fc364ec1c17..474e4950418a026cc0caf3198856c1cbeeac4913 100644
 --- a/web/pdf_viewer.mjs
 +++ b/web/pdf_viewer.mjs
 @@ -5044,8 +5044,11 @@ class BasePDFPageView extends RenderableView {
@@ -279,7 +314,31 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..4915556821bf4fc13507e7488bb18ea1
          this.renderTask = null;
          if (this.enableOptimizedPartialRendering) {
            this.recordedBBoxes ??= renderTask.recordedBBoxes;
-@@ -6933,8 +6943,14 @@ class PDFPageView extends BasePDFPageView {
+@@ -6297,10 +6307,19 @@ class TextLayerBuilder {
+     this.#selectionChangeAC = new AbortController();
+     const signal = globalAbortSignal ? AbortSignal.any([this.#selectionChangeAC.signal, globalAbortSignal]) : this.#selectionChangeAC.signal;
+     const reset = (end, textLayer) => {
+-      textLayer.append(end);
+-      end.style.width = "";
+-      end.style.height = "";
+-      textLayer.classList.remove("selecting");
++      // Global editor/selection events must leave already-reset PDF layers alone.
++      if (end.parentNode !== textLayer || textLayer.lastChild !== end) {
++        textLayer.append(end);
++      }
++      if (end.style.width) {
++        end.style.width = "";
++      }
++      if (end.style.height) {
++        end.style.height = "";
++      }
++      if (textLayer.classList.contains("selecting")) {
++        textLayer.classList.remove("selecting");
++      }
+     };
+     let isPointerDown = false;
+     document.addEventListener("pointerdown", () => {
+@@ -6933,8 +6952,14 @@ class PDFPageView extends BasePDFPageView {
      scale = 0,
      rotation = null,
      optionalContentConfigPromise = null,
@@ -295,7 +354,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..4915556821bf4fc13507e7488bb18ea1
      this.scale = scale || this.scale;
      if (typeof rotation === "number") {
        this.rotation = rotation;
-@@ -6960,7 +6976,7 @@ class PDFPageView extends BasePDFPageView {
+@@ -6960,7 +6985,7 @@ class PDFPageView extends BasePDFPageView {
      }
      this.#computeScale();
      if (this.canvas) {
@@ -304,7 +363,7 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..4915556821bf4fc13507e7488bb18ea1
        const postponeDrawing = drawingDelay >= 0 && drawingDelay < 1000;
        if (postponeDrawing || onlyCssZoom) {
          if (postponeDrawing && !onlyCssZoom && this.renderingState !== RenderingStates.FINISHED) {
-@@ -7251,8 +7267,15 @@ class PDFPageView extends BasePDFPageView {
+@@ -7251,8 +7276,15 @@ class PDFPageView extends BasePDFPageView {
      const recordImages = this.imagesRightClickMinSize !== -1 && !this.imageCoordinates;
      const transform = outputScale.scaled ? [outputScale.sx, 0, 0, outputScale.sy, 0, 0] : null;
      const resultPromise = this._drawCanvas(this._getRenderingContext(canvas, transform, recordBBoxes, recordImages), () => {
@@ -322,7 +381,73 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..4915556821bf4fc13507e7488bb18ea1
      }, renderTask => {
        this.#useThumbnailCanvas.regularAnnotations = !renderTask.separateAnnots;
        this.dispatchPageRendered(false, false);
-@@ -9173,7 +9196,9 @@ class PDFViewer {
+@@ -7821,7 +7853,7 @@ class PDFRenderingQueue {
+       this.#idleTimeout = setTimeout(this.onIdle.bind(this), CLEANUP_TIMEOUT);
+     }
+   }
+-  getHighestPriority(visible, views, scrolledDown, preRenderExtra = false, ignoreDetailViews = false) {
++  getHighestPriority(visible, views, scrolledDown, preRenderExtra = false, ignoreDetailViews = false, renderAheadPages = null) {
+     const visibleViews = visible.views,
+       numVisible = visibleViews.length;
+     if (numVisible === 0) {
+@@ -7833,6 +7865,21 @@ class PDFRenderingQueue {
+         return view;
+       }
+     }
++    if (renderAheadPages) {
++      // Prepare the viewport-sized window before spending time on detail tiles.
++      const ordered = scrolledDown ? renderAheadPages.views : renderAheadPages.views.toReversed();
++      const boundary = scrolledDown ? visible.last.id : visible.first.id;
++      for (const { id, view } of ordered) {
++        if ((scrolledDown ? id > boundary : id < boundary) && !this.isViewFinished(view)) {
++          return view;
++        }
++      }
++      for (let i = ordered.length - 1; i >= 0; i--) {
++        if (!this.isViewFinished(ordered[i].view)) {
++          return ordered[i].view;
++        }
++      }
++    }
+     if (!ignoreDetailViews) {
+       for (let i = 0; i < numVisible; i++) {
+         const {
+@@ -7843,6 +7890,9 @@ class PDFRenderingQueue {
+         }
+       }
+     }
++    if (renderAheadPages) {
++      return null;
++    }
+     const firstId = visible.first.id,
+       lastId = visible.last.id;
+     if (lastId - firstId + 1 > numVisible) {
+@@ -7969,6 +8019,7 @@ class PDFPageViewBuffer {
+   }
+ }
+ class PDFViewer {
++  #preRenderViewports = 0;
+   #buffer = null;
+   #altTextManager = null;
+   #annotationEditorHighlightColors = null;
+@@ -8047,6 +8098,7 @@ class PDFViewer {
+     this.maxCanvasDim = options.maxCanvasDim;
+     this.capCanvasAreaFactor = options.capCanvasAreaFactor;
+     this.enableDetailCanvas = options.enableDetailCanvas ?? true;
++    this.#preRenderViewports = Math.max(0, options.preRenderViewports ?? 0);
+     this.enableOptimizedPartialRendering = options.enableOptimizedPartialRendering ?? false;
+     this.enableSelectionRendering = options.enableSelectionRendering !== false;
+     this.imagesRightClickMinSize = options.imagesRightClickMinSize ?? -1;
+@@ -9167,13 +9219,16 @@ class PDFViewer {
+     if (numVisiblePages === 0) {
+       return;
+     }
+-    const newCacheSize = Math.max(DEFAULT_CACHE_SIZE, 2 * numVisiblePages + 1);
+-    this.#buffer.resize(newCacheSize, visible.ids);
++    if (!this.#preRenderViewports) {
++      this.#buffer.resize(Math.max(DEFAULT_CACHE_SIZE, 2 * numVisiblePages + 1), visible.ids);
++    }
+     for (const {
        view,
        visibleArea
      } of visiblePages) {
@@ -333,3 +458,50 @@ index 29b3492cd9cb0869a906785739c34fc364ec1c17..4915556821bf4fc13507e7488bb18ea1
      }
      for (const view of this.#buffer) {
        if (!visible.ids.has(view.id)) {
+@@ -9249,14 +9304,22 @@ class PDFViewer {
+   get isVerticalScrollbarEnabled() {
+     return this.isInPresentationMode ? false : this.container.scrollHeight > this.container.clientHeight;
+   }
+-  _getVisiblePages() {
++  _getVisiblePages(preRenderViewports = 0) {
+     const views = this._scrollMode === ScrollMode.PAGE ? this.#scrollModePageState.pages : this._pages,
+       horizontal = this._scrollMode === ScrollMode.HORIZONTAL,
+       rtl = horizontal && this._isContainerRtl;
++    const height = this.container.clientHeight;
++    const top = Math.max(0, this.container.scrollTop - height * preRenderViewports);
++    const scrollEl = preRenderViewports ? {
++      scrollTop: top,
++      scrollLeft: this.container.scrollLeft,
++      clientWidth: this.container.clientWidth,
++      clientHeight: this.container.scrollTop + height * (1 + preRenderViewports) - top
++    } : this.container;
+     return getVisibleElements({
+-      scrollEl: this.container,
++      scrollEl,
+       views,
+-      sortByVisibility: true,
++      sortByVisibility: preRenderViewports === 0,
+       horizontal,
+       rtl
+     });
+@@ -9307,9 +9370,19 @@ class PDFViewer {
+     const scrollAhead = this.#getScrollAhead(visiblePages);
+     const preRenderExtra = this._spreadMode !== SpreadMode.NONE && this._scrollMode !== ScrollMode.HORIZONTAL;
+     const ignoreDetailViews = this.#scaleTimeoutId !== null || this.#scrollTimeoutId !== null && visiblePages.views.some(page => page.detailView?.renderingCancelled);
+-    const pageView = this.renderingQueue.getHighestPriority(visiblePages, this._pages, scrollAhead, preRenderExtra, ignoreDetailViews);
++    const renderAhead = this.#preRenderViewports ? this._getVisiblePages(this.#preRenderViewports) : null;
++    if (renderAhead) {
++      // Preserve PDF.js's normal cache as well as every page being prepared,
++      // so reversing a scroll can reuse recently rendered full-page canvases.
++      this.#buffer.resize(Math.max(DEFAULT_CACHE_SIZE, renderAhead.views.length + 2), renderAhead.ids);
++    }
++    const pageView = this.renderingQueue.getHighestPriority(visiblePages, this._pages, scrollAhead, preRenderExtra, ignoreDetailViews, renderAhead);
+     if (pageView) {
+       this.#ensurePdfPageLoaded(pageView).then(() => {
++        if (this.#preRenderViewports && !this._getVisiblePages(this.#preRenderViewports).ids.has(pageView.id)) {
++          this.renderingQueue.renderHighestPriority();
++          return;
++        }
+         this.renderingQueue.renderView(pageView);
+       });
+       return true;

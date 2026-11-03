@@ -79,6 +79,13 @@ function setup() {
     async () =>
       ({ getViewport: () => ({ width: 750, height: 900 }) }) as PDFPageProxy,
   );
+  const views = nodes.map((div) => ({
+    div,
+    pdfPage: undefined as PDFPageProxy | undefined,
+    setPdfPage(value: PDFPageProxy) {
+      this.pdfPage = value;
+    },
+  }));
   const viewer = {
     currentPageNumber: 1,
     refresh: vi.fn(),
@@ -91,7 +98,10 @@ function setup() {
     updateScale: vi.fn(({ scaleFactor }: { scaleFactor: number }) => {
       scale = Math.round(scale * scaleFactor * 100) / 100;
     }),
-    getPageView: (i: number) => ({ div: nodes[i] }),
+    getPageView: (i: number) => views[i],
+    _getVisiblePages: () => ({
+      views: nodes.map((div, index) => ({ id: index + 1, view: { div } })),
+    }),
   } as unknown as PDFViewer;
   const nav = new PDFReadingNavigation(
     host,
@@ -367,13 +377,58 @@ it("coalesces focus zoom into one final redraw and does not redraw on an identic
     await vi.advanceTimersByTimeAsync(128);
     expect(s.viewer.refresh).not.toHaveBeenCalled();
     for (const [options] of vi.mocked(s.viewer.updateScale).mock.calls)
-      expect(options?.drawingDelay).toBe(300);
+      expect(options?.drawingDelay).toBe(540);
     await finish(pending);
     expect(s.viewer.refresh).toHaveBeenCalledTimes(1);
     vi.mocked(s.viewer.updateScale).mockClear();
     await finish(s.nav.focusBlock("a"));
     expect(s.viewer.updateScale).not.toHaveBeenCalled();
     expect(s.viewer.refresh).toHaveBeenCalledTimes(1);
+  } finally {
+    s.nav.destroy();
+  }
+});
+
+it("uses a native transition with one PDF layout commit and keeps it interruptible", async () => {
+  const s = setup(),
+    element = document.createElement("div");
+  let animation: Animation;
+  const animate = vi.fn(() => {
+    animation = {
+      onfinish: null,
+      oncancel: null,
+      cancel: vi.fn(() =>
+        animation.oncancel?.call(animation, {} as AnimationPlaybackEvent),
+      ),
+    } as unknown as Animation;
+    return animation;
+  });
+  element.animate = animate;
+  Object.defineProperty(s.viewer, "viewer", { value: element });
+  try {
+    const pending = s.nav.focusBlock("a", "parallel");
+    await vi.advanceTimersByTimeAsync(32);
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(s.viewer.updateScale).toHaveBeenCalledTimes(1);
+    expect(s.viewer.refresh).not.toHaveBeenCalled();
+    expect(animate.mock.calls[0]).toEqual([
+      [
+        expect.objectContaining({
+          transform: expect.stringContaining("scale("),
+        }),
+        expect.objectContaining({ transform: "translate(0px, 0px) scale(1)" }),
+      ],
+      expect.objectContaining({ duration: 480 }),
+    ]);
+    animation!.onfinish?.call(animation!, {} as AnimationPlaybackEvent);
+    expect(await pending).toBe(true);
+    centered(s, "a");
+    expect(s.viewer.refresh).toHaveBeenCalledTimes(1);
+    const next = s.nav.focusBlock("b", "parallel");
+    await vi.advanceTimersByTimeAsync(32);
+    s.nav.cancelMotion();
+    expect(await next).toBe(false);
+    expect(animation!.cancel).toHaveBeenCalledTimes(1);
   } finally {
     s.nav.destroy();
   }
