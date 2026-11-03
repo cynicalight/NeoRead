@@ -477,7 +477,9 @@ it("keeps long Chinese composition and paste native across workspace updates", a
   const long = "长中文草稿需要保留输入法候选和光标。".repeat(200);
   await enterPrompt(long);
   composer().setSelectionRange(20, 20);
-  await act(async () => render(1));
+  const input = composer();
+  for (let tick = 1; tick <= 20; tick++) await act(async () => render(tick));
+  expect(composer()).toBe(input);
   expect(composer().defaultValue).toBe("");
   expect(composer().value).toBe(long);
   expect(composer().selectionStart).toBe(20);
@@ -500,7 +502,7 @@ it("keeps long Chinese composition and paste native across workspace updates", a
   expect(panels.readerRenders).toBe(renders);
   expect(composer().value).toBe(long + "中文输入");
   await enterPrompt(long + "一次粘贴大量中文。".repeat(300));
-  await act(async () => render(2));
+  await act(async () => render(21));
   expect(composer().defaultValue).toBe("");
   expect(composer().value).toBe(long + "一次粘贴大量中文。".repeat(300));
 });
