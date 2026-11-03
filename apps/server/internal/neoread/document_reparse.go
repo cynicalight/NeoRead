@@ -2,6 +2,7 @@ package neoread
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -159,6 +160,9 @@ func (s *Server) reparsePDF(ctx context.Context, d Document) error {
 		}
 		return err
 	}
+	if _, err = s.reparsedPDFLayout(d); err != nil {
+		return err
+	}
 	if d.Library == "books" {
 		if _, err = s.Store.DB.Exec(`INSERT INTO book_layout_jobs(document_id,status,pages_done,pages_total) VALUES(?,'complete',?,?) ON CONFLICT(document_id) DO UPDATE SET status='complete',pages_done=excluded.pages_done,pages_total=excluded.pages_total`, d.ID, m.Pages, m.Pages); err != nil {
 			s.diagnosticEvent(slog.LevelWarn, "document.reparse.index_failed", "documentId", d.ID, "errorCode", errorKind(err))
@@ -169,4 +173,51 @@ func (s *Server) reparsePDF(ctx context.Context, d Document) error {
 		s.diagnosticEvent(slog.LevelWarn, "document.reparse.index_failed", "documentId", d.ID, "errorCode", errorKind(err))
 	}
 	return nil
+}
+
+// A published reparse changes source hashes without deleting historical results.
+// Reconcile its progress and requeue only an already enabled paper's missing work.
+// The stream also uses this path to recover reparses published by older versions.
+func (s *Server) reparsedPDFLayout(d Document) (layoutManifest, error) {
+	s.processingMu.Lock()
+	defer s.processingMu.Unlock()
+	m, err := s.readLayout(d.ID)
+	if err != nil || !validLayoutRun(m.RetranslationRun) {
+		return m, err
+	}
+	p, err := s.Store.processing(d.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return m, nil
+	}
+	if err != nil {
+		return m, err
+	}
+	if p.LayoutRevision == m.RetranslationRun || p.Retranslating {
+		return m, nil
+	}
+	items, err := s.translations(d.ID, m)
+	if err != nil {
+		return m, err
+	}
+	p.LayoutRevision = m.RetranslationRun
+	p.PagesDone, p.PagesTotal = m.Pages, m.Pages
+	p.TranslationsDone, p.TranslationsTotal = translationCounts(items)
+	pending := 0
+	for _, item := range items {
+		if item.Status == "pending" || item.Status == "running" {
+			pending++
+		}
+	}
+	automatic := p.Enabled && !p.ManualTranslation && (p.AutoTranslateMaxPages == nil || (*p.AutoTranslateMaxPages > 0 && m.Pages <= *p.AutoTranslateMaxPages))
+	if d.Library == "papers" && automatic && pending > 0 {
+		p.Translating = &ProcessingStage{Status: "queued", Detail: "等待翻译重新解析的正文与公式"}
+		aggregateProcessing(&p)
+	}
+	if err = s.Store.saveProcessing(p); err != nil {
+		return m, err
+	}
+	if d.Library == "papers" && automatic && pending > 0 {
+		s.diagnosticEvent(slog.LevelInfo, "translation.reparse_queued", "documentId", d.ID, "count", pending)
+	}
+	return m, nil
 }
