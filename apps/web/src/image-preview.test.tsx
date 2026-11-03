@@ -47,3 +47,13 @@ it("places centered zoom controls below the image without pixel dimensions", asy
   await act(async () => image.dispatchEvent(new Event("load")));
   expect(dialog.textContent).not.toContain("640 × 480");
 });
+
+it("releases the native drag override when the preview closes", async () => {
+  expect(
+    document.querySelectorAll("style[data-neoread-image-preview-drag]"),
+  ).toHaveLength(1);
+  await act(async () => root.render(null));
+  expect(
+    document.querySelector("style[data-neoread-image-preview-drag]"),
+  ).toBeNull();
+});

@@ -2310,7 +2310,6 @@ kbd {
   app-region: no-drag;
 }
 /* Electron drag regions can intercept modal controls even above the title bar. */
-body:has(.image-preview-dialog) :is(.window-top-drag, .window-drag-handle, .document-tabbar, .document-tabs-scroll, .library-topbar, .neoread-toolbar),
 .image-preview-dialog * {
   -webkit-app-region: no-drag;
   app-region: no-drag;

@@ -11,6 +11,12 @@ import {
   DialogClose,
 } from "@neoread/ui/components/dialog";
 const controlsHeight = 48;
+// Install this rule only while a preview exists. A body :has() selector makes
+// unrelated PDF text-layer changes invalidate styles across the entire reader.
+const nativeDragGuard = `:root body :is(.window-top-drag, .window-drag-handle, .document-tabbar, .document-tabs-scroll, .library-topbar, .neoread-toolbar) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}`;
 
 export function imageLabel(image: ImageAttachment) {
   if (!image.page) return "书中插图";
@@ -174,6 +180,7 @@ export function ImagePreview({
           visibility: aspect || error ? "visible" : "hidden",
         }}
       >
+        <style data-neoread-image-preview-drag>{nativeDragGuard}</style>
         <DialogTitle className="sr-only">{imageLabel(image)}</DialogTitle>
         <DialogDescription className="sr-only">
           完整显示原图，可围绕鼠标位置放大查看细节
