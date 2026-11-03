@@ -2,14 +2,20 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { DocumentNavigation, TOCItem } from "@neoread/core";
+import type { Annotation, DocumentNavigation, TOCItem } from "@neoread/core";
 const mocks = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));
 vi.mock("@neoread/api", () => ({
-  api: { navigation: mocks.load, saveNavigation: mocks.save },
+  api: {
+    navigation: mocks.load,
+    saveNavigation: mocks.save,
+    epubChapters: async () => ({ chapters: [{ href: "chapter.xhtml" }] }),
+  },
 }));
 import { NavigationTree } from "./NavigationTree";
 let root: Root, host: HTMLDivElement;
 const go = vi.fn();
+const removeBookmark = vi.fn();
+const deleting = new Set<string>();
 const outline: TOCItem[] = [
   {
     id: "a",
@@ -63,6 +69,8 @@ const render = () =>
         type="pdf"
         outline={outline}
         blocks={[]}
+        deleting={deleting}
+        onDeleteBookmark={removeBookmark}
         annotations={[]}
         go={go}
       />,
@@ -309,6 +317,8 @@ it("toggles all nested branches with one button, one save per click, without nav
         type="pdf"
         outline={nested}
         blocks={[]}
+        deleting={deleting}
+        onDeleteBookmark={removeBookmark}
         annotations={[]}
         go={go}
       />,
@@ -334,3 +344,71 @@ it("toggles all nested branches with one button, one save per click, without nav
   expect(host.querySelector('[aria-label="全部展开"]')).toBeNull();
   expect(go).not.toHaveBeenCalled();
 });
+
+it.each(["epub", "pdf"] as const)(
+  "deletes only a personal %s bookmark from its context menu",
+  async (type) => {
+    const location: Annotation["location"] =
+      type === "pdf" ? { type, page: 2 } : { type, href: "chapter.xhtml" };
+    const bookmark: Annotation = {
+      id: "mark",
+      documentId: "d",
+      kind: "bookmark",
+      location,
+      note: "My place",
+      quote: "",
+      color: "",
+      createdAt: "",
+    };
+    // A built-in heading can look like a bookmark without owning an annotation.
+    mocks.load.mockResolvedValue({
+      revision: 0,
+      entries: { original: { kind: "bookmark" } },
+    });
+    await act(async () =>
+      root.render(
+        <NavigationTree
+          documentId="d"
+          type={type}
+          outline={[
+            { id: "original", label: "Chapter", location, children: [] },
+          ]}
+          blocks={[]}
+          annotations={[bookmark]}
+          go={go}
+          deleting={deleting}
+          onDeleteBookmark={removeBookmark}
+        />,
+      ),
+    );
+    const openMenu = async (label: string) => {
+      const row = host.querySelector('[aria-label="书签：' + label + '"]')!;
+      await act(async () =>
+        row.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            button: 2,
+            clientX: 20,
+            clientY: 20,
+          }),
+        ),
+      );
+    };
+    const command = () =>
+      [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+        (n) => n.textContent === "删除书签",
+      );
+    await openMenu("My place");
+    expect(command()).toBeDefined();
+    await act(async () => command()!.click());
+    expect(removeBookmark).toHaveBeenCalledExactlyOnceWith("mark");
+    expect(mocks.save).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(command()).toBeUndefined());
+    await openMenu("Chapter");
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain(
+      "转为目录项",
+    );
+    expect(command()).toBeUndefined();
+    expect(go).not.toHaveBeenCalled();
+  },
+);

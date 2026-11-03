@@ -1405,6 +1405,8 @@ export function Workspace({
                   outline={toc}
                   blocks={blocks}
                   annotations={annotations}
+                  deleting={deleting}
+                  onDeleteBookmark={removeAnnotation}
                   location={location}
                   go={move}
                 />
