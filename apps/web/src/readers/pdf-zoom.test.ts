@@ -228,7 +228,8 @@ it.each([false, true])(
       wheel({ deltaY: 100 });
       expect(state.scale).toBeCloseTo(0.83, 2);
       const pending = adapter.focusBlock("focus-target", "source");
-      await vi.advanceTimersByTimeAsync(interrupt ? 96 : 500);
+      // Interrupt around the midpoint of the slower focus transition.
+      await vi.advanceTimersByTimeAsync(interrupt ? 200 : 500);
       const focused = state.scale;
       expect(focused).toBeGreaterThan(1);
       wheel({ deltaY: 100 });
