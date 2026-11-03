@@ -1,4 +1,7 @@
-import { pdfFontAscent } from "../../../packages/neoread-core/src/pdf-text";
+import {
+  pdfFontAscent,
+  pdfFontHeight,
+} from "../../../packages/neoread-core/src/pdf-text";
 import type { PDFPageProxy } from "pdfjs-dist";
 import type { TextSpan } from "./layout";
 
@@ -32,7 +35,7 @@ export async function extractTextSpans(
           x: transform[4] / width,
           y: (transform[5] - h * ascent) / height,
           width: Math.abs(item.width * scale) / width,
-          height: h / height,
+          height: (h * pdfFontHeight(content.styles[item.fontName])) / height,
         },
       },
     ];

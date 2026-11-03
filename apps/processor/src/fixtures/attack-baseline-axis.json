@@ -1,0 +1,79 @@
+{
+  "source": "arXiv:2503.10635, PDF page 4 (Figure 4 axis label)",
+  "viewport": {
+    "width": 612,
+    "height": 792,
+    "transform": [1, 0, 0, -1, 0, 792]
+  },
+  "regions": [
+    {
+      "label": "chart",
+      "bounds": {
+        "x": 0.1766357421875,
+        "y": 0.08990478515625,
+        "width": 0.311279296875,
+        "height": 0.1475830078125
+      },
+      "text": "1.0 0.8 0.6 0.4 0.2 Mean ECDF Cumulative Probability Uniform 0.0 15 10 5 0 5 10 15 x",
+      "id": "p4-b1"
+    },
+    {
+      "label": "figure_title",
+      "bounds": {
+        "x": 0.1719970703125,
+        "y": 0.2403564453125,
+        "width": 0.317138671875,
+        "height": 0.055419921875
+      },
+      "text": "Figure 3: Empirical cumulative distribution vs. uniform distribution on 20 randomly-sampled failed adversarial images. Shading shows stan- dard deviation.",
+      "id": "p4-b2"
+    },
+    {
+      "label": "chart",
+      "bounds": {
+        "x": 0.5023193359375,
+        "y": 0.09271240234375,
+        "width": 0.313720703125,
+        "height": 0.1544189453125
+      },
+      "text": "1.0 0.9 0.8 0.7 Matching Method GPT-4o Gemini-2.0 Claude-3.5 Similarity 0.6 Global-to-Global 0.05 0.05 0.01 Local-to-Global 0.93 0.83 0.22 Local-to-Local 0.95 0.78 0.26 0.5 Global to Global Local to Global Local to Local 0.4 0 50 100 150 200 250 300 Step",
+      "id": "p4-b3"
+    },
+    {
+      "label": "figure_title",
+      "bounds": {
+        "x": 0.4986572265625,
+        "y": 0.24969482421875,
+        "width": 0.323974609375,
+        "height": 0.0421142578125
+      },
+      "text": "Figure 4: Comparison of global similarity and ASR across different matching schemes: Global to Global , Local to Global and Local to Local .",
+      "id": "p4-b5"
+    }
+  ],
+  "items": [
+    {
+      "text": "Step",
+      "transform": [
+        7.5632, 0, 0, 7.5632, 405.76851024999996, 594.3824794999999
+      ],
+      "width": 17.221406400000003,
+      "style": {
+        "fontFamily": "sans-serif",
+        "ascent": 0.929,
+        "descent": -0.236
+      }
+    },
+    {
+      "text": "Figure 4:",
+      "transform": [9.9626, 0, 0, 9.9626, 307.467, 586.1689999999999],
+      "width": 37.71840359999999,
+      "style": {
+        "fontFamily": "sans-serif",
+        "ascent": 0.678,
+        "descent": -0.216,
+        "vertical": false
+      }
+    }
+  ]
+}

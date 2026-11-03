@@ -33,7 +33,12 @@ import type {
   TOCItem,
 } from "@neoread/core";
 import { publicationURL } from "@neoread/api";
-import { zoomCommand } from "@neoread/core";
+import {
+  zoomCommand,
+  pdfFontAscent,
+  pdfFontHeight,
+  pdfAssetBounds,
+} from "@neoread/core";
 import { selectSentence } from "./sentence-selection";
 import { installPDFExternalLinks } from "./pdf-external-links";
 import { resolvePDFCitation } from "./pdf-citations";
@@ -697,7 +702,29 @@ export class PDFReaderAdapter implements ReaderAdapter {
     const page = await this.pdf.getPage(block.page);
     signal.throwIfAborted();
     const base = page.getViewport({ scale: 1 });
-    const bounds = block.bounds;
+    const content = await page.getTextContent();
+    signal.throwIfAborted();
+    const pageBlocks = this.blockData.filter(
+      (item) => item.page === block.page,
+    );
+    const spans = content.items.flatMap((item) => {
+      if (!("str" in item) || !item.str.trim()) return [];
+      const transform = pdfjs.Util.transform(base.transform, item.transform);
+      const h = Math.hypot(transform[2], transform[3]);
+      const style = content.styles[item.fontName];
+      return [
+        {
+          text: item.str,
+          bounds: {
+            x: transform[4] / base.width,
+            y: (transform[5] - h * pdfFontAscent(style)) / base.height,
+            width: Math.abs(item.width) / base.width,
+            height: (h * pdfFontHeight(style)) / base.height,
+          },
+        },
+      ];
+    });
+    const bounds = pdfAssetBounds(pageBlocks, spans)[pageBlocks.indexOf(block)];
     const area = base.width * bounds.width * base.height * bounds.height;
     const scale = Math.min(
       6,
@@ -706,20 +733,21 @@ export class PDFReaderAdapter implements ReaderAdapter {
     );
     const viewport = page.getViewport({ scale });
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.ceil(viewport.width * bounds.width));
-    canvas.height = Math.max(1, Math.ceil(viewport.height * bounds.height));
+    const x = Math.floor(viewport.width * bounds.x),
+      y = Math.floor(viewport.height * bounds.y);
+    canvas.width = Math.max(
+      1,
+      Math.ceil(viewport.width * (bounds.x + bounds.width)) - x,
+    );
+    canvas.height = Math.max(
+      1,
+      Math.floor(viewport.height * (bounds.y + bounds.height)) - y,
+    );
     const task = page.render({
       canvas,
       canvasContext: canvas.getContext("2d")!,
       viewport,
-      transform: [
-        1,
-        0,
-        0,
-        1,
-        -viewport.width * bounds.x,
-        -viewport.height * bounds.y,
-      ],
+      transform: [1, 0, 0, 1, -x, -y],
       annotationMode: pdfjs.AnnotationMode.DISABLE,
       background: "white",
     });

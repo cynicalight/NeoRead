@@ -1,3 +1,4 @@
+import { pdfAssetBounds } from "../../../packages/neoread-core/src/pdf-asset-bounds";
 import { orderPageBlocks } from "./reading-order";
 export const labels = [
   "abstract",
@@ -205,9 +206,11 @@ export function readingRegions(
 ): ReadingRegion[] {
   const regions = raw.filter((r) => r.label !== "inline_formula");
   const assigned = assignText(regions, spans);
+  const fitted = pdfAssetBounds(regions, spans);
   const entries: ReadingRegion[] = regions.map((r, i) => ({
     ...r,
     text: assigned.texts[i],
+    bounds: fitted[i],
   }));
   const captions = entries.filter(
     (r) => r.label === "figure_title" && mainCaption.test(r.text),

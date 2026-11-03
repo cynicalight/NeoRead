@@ -124,15 +124,21 @@ try {
     for (const block of pageBlocks) {
       if (!isAsset(block.label)) continue;
       const b = block.bounds;
-      const x = Math.max(0, Math.floor(b.x * canvas.width) - 3),
-        y = Math.max(0, Math.floor(b.y * canvas.height) - 3);
-      const width = Math.min(
-        canvas.width - x,
-        Math.ceil(b.width * canvas.width) + 6,
+      const x = Math.max(0, Math.floor(b.x * canvas.width)),
+        y = Math.max(0, Math.floor(b.y * canvas.height));
+      const width = Math.max(
+        1,
+        Math.min(
+          canvas.width - x,
+          Math.ceil((b.x + b.width) * canvas.width) - x,
+        ),
       );
-      const height = Math.min(
-        canvas.height - y,
-        Math.ceil(b.height * canvas.height) + 6,
+      const height = Math.max(
+        1,
+        Math.min(
+          canvas.height - y,
+          Math.floor((b.y + b.height) * canvas.height) - y,
+        ),
       );
       const crop = createCanvas(width, height);
       crop
