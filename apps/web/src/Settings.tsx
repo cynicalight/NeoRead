@@ -986,6 +986,21 @@ export function Settings({
             </section>
             <section className="space-y-4">
               <h3 className="text-sm font-medium">阅读交互</h3>
+              <div className="flex items-center justify-between gap-4 text-sm">
+                <span>原文译文对齐</span>
+                <Tabs
+                  value={theme.translationAlignment ?? "single"}
+                  onValueChange={(value) => {
+                    if (value === "single" || value === "double")
+                      setTheme({ translationAlignment: value });
+                  }}
+                >
+                  <TabsList aria-label="原文译文对齐">
+                    <TabsTrigger value="single">单击对齐</TabsTrigger>
+                    <TabsTrigger value="double">双击对齐</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
               <label className="flex items-center justify-between gap-4 text-sm">
                 <span>多文档标签页</span>
                 <Switch

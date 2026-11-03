@@ -90,6 +90,7 @@ export class PDFBlockOverlay {
     ) => void = () => {},
     private onHover: (block: PDFBlock | null) => void = () => {},
     private onFocus: (block: PDFBlock) => boolean = () => false,
+    private alignment: () => "single" | "double" | undefined = () => "single",
   ) {
     // A geometry-only landmark: real pointer events still reach PDF text.
     this.tourTarget.dataset.tour = "source-block";
@@ -182,10 +183,15 @@ export class PDFBlockOverlay {
     element.inert = false;
     if (element.parentElement !== page) page.append(element);
   }
-  private leave = () => this.dismiss(false);
-  clear = () => this.dismiss(true);
-  private dismiss(immediate: boolean) {
+  private leave = () => {
     this.pressed = undefined;
+    this.dismiss(false);
+  };
+  clear = () => {
+    this.pressed = undefined;
+    this.dismiss(true);
+  };
+  private dismiss(immediate: boolean) {
     this.hide(this.overlay, immediate);
     if (this.hovered) {
       this.hovered = undefined;
@@ -208,12 +214,14 @@ export class PDFBlockOverlay {
     if ((event.target as Element)?.closest(blockActionTarget)) return;
     const pressed = this.pressed;
     this.pressed = undefined;
+    const double = this.alignment() === "double";
+    if (double ? event.detail !== 2 : event.detail > 1) return;
     // The annotation listener runs first on this host and claims marked text.
     if (
       event.defaultPrevented ||
       !pressed ||
       Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 5 ||
-      window.getSelection()?.toString().trim()
+      (!double && window.getSelection()?.toString().trim())
     )
       return;
     const block = this.find(event);
@@ -221,6 +229,7 @@ export class PDFBlockOverlay {
     if ((event.target as Element)?.closest("a, button, input, [role=button]"))
       return;
     if (this.onFocus(block)) {
+      if (double) window.getSelection()?.removeAllRanges();
       if (block.id === this.tourTarget.dataset.blockId)
         this.tourTarget.dataset.demonstrated = "true";
       event.preventDefault();
@@ -249,7 +258,10 @@ export class PDFBlockOverlay {
   private move = (event: PointerEvent) => {
     if ((event.target as Element | null)?.closest(blockActionTarget)) return;
     if (event.buttons || window.getSelection()?.toString().trim()) {
-      this.clear();
+      // Native word selection is already present at pointerup, before click
+      // detail=2. Hide hover without losing the second click's press record.
+      if (event.type === "pointerup") this.dismiss(true);
+      else this.clear();
       return;
     }
     const page = (event.target as Element | null)?.closest<HTMLElement>(
