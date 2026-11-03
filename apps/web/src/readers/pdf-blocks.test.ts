@@ -323,6 +323,63 @@ it("focuses text and image clicks without attaching images, and leaves drags and
   layer.destroy();
 });
 
+it.each(["single", "double"] as const)(
+  "handles native word selection before the %s alignment click",
+  (alignment) => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    host.innerHTML =
+      '<div class="page" data-page-number="2"><span>Paragraph text</span></div>';
+    const page = host.firstElementChild as HTMLElement;
+    page.getBoundingClientRect = () => new DOMRect(10, 20, 1000, 1400);
+    const target = page.firstElementChild!;
+    const text = {
+      ...block,
+      image: undefined,
+      label: "text",
+      text: "Paragraph text",
+    };
+    const focus = vi.fn(() => true);
+    const layer = new PDFBlockOverlay(
+      host,
+      vi.fn(),
+      vi.fn(),
+      focus,
+      () => alignment,
+    );
+    layer.setBlocks([text]);
+    const pointer = (type: string, detail: number) =>
+      target.dispatchEvent(
+        new MouseEvent(type, {
+          bubbles: true,
+          clientX: 210,
+          clientY: 440,
+          detail,
+        }),
+      );
+    try {
+      pointer("pointerdown", 1);
+      pointer("pointerup", 1);
+      pointer("click", 1);
+      expect(focus).toHaveBeenCalledTimes(alignment === "single" ? 1 : 0);
+      focus.mockClear();
+      pointer("pointerdown", 2);
+      const range = document.createRange();
+      range.selectNodeContents(target);
+      window.getSelection()!.addRange(range);
+      pointer("pointerup", 2);
+      pointer("click", 2);
+      expect(focus).toHaveBeenCalledTimes(alignment === "double" ? 1 : 0);
+      if (alignment === "double")
+        expect(window.getSelection()!.isCollapsed).toBe(true);
+    } finally {
+      window.getSelection()!.removeAllRanges();
+      layer.destroy();
+      host.remove();
+    }
+  },
+);
+
 it("keeps the block during fade-out and cancels stale removal when the pointer returns", async () => {
   const host = document.createElement("div");
   host.innerHTML =

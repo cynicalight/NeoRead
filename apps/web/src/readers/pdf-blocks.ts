@@ -183,10 +183,15 @@ export class PDFBlockOverlay {
     element.inert = false;
     if (element.parentElement !== page) page.append(element);
   }
-  private leave = () => this.dismiss(false);
-  clear = () => this.dismiss(true);
-  private dismiss(immediate: boolean) {
+  private leave = () => {
     this.pressed = undefined;
+    this.dismiss(false);
+  };
+  clear = () => {
+    this.pressed = undefined;
+    this.dismiss(true);
+  };
+  private dismiss(immediate: boolean) {
     this.hide(this.overlay, immediate);
     if (this.hovered) {
       this.hovered = undefined;
@@ -253,7 +258,10 @@ export class PDFBlockOverlay {
   private move = (event: PointerEvent) => {
     if ((event.target as Element | null)?.closest(blockActionTarget)) return;
     if (event.buttons || window.getSelection()?.toString().trim()) {
-      this.clear();
+      // Native word selection is already present at pointerup, before click
+      // detail=2. Hide hover without losing the second click's press record.
+      if (event.type === "pointerup") this.dismiss(true);
+      else this.clear();
       return;
     }
     const page = (event.target as Element | null)?.closest<HTMLElement>(
