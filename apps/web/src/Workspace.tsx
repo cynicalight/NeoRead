@@ -1,3 +1,4 @@
+import { ComposerSendButton } from "./chat/ComposerSendButton";
 import { useAnnotationUpdates } from "./useAnnotationUpdates";
 import { webSearchEnabled } from "./chat/web-search";
 import { NavigationTree } from "./NavigationTree";
@@ -431,7 +432,9 @@ export function Workspace({
     };
   }, [refreshSessions]);
   const prompt = useRef("");
-  const [hasPrompt, setHasPrompt] = useState(false);
+  const promptContentChanged = useRef<((hasText: boolean) => void) | undefined>(
+    undefined,
+  );
   const [quotes, setQuotes] = useState<ReaderSelection[]>([]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [previewImage, setPreviewImage] = useState<ImageAttachment>();
@@ -446,13 +449,11 @@ export function Workspace({
   composerValue.current = { prompt: prompt.current, quotes, images };
   // Native editing keeps each keystroke out of the reader and chat render tree.
   const setPrompt = (value: string) => {
-    const hadPrompt = !!prompt.current.trim();
     prompt.current = value;
     composerValue.current = { ...composerValue.current, prompt: value };
     if (composeInput.current && composeInput.current.value !== value)
       composeInput.current.value = value;
-    const nextHasPrompt = !!value.trim();
-    if (hadPrompt !== nextHasPrompt) setHasPrompt(nextHasPrompt);
+    promptContentChanged.current?.(!!value.trim());
   };
   const composerKey = `${doc.id}:${currentSession?.id ?? ""}`;
   const currentComposerKey = useRef(composerKey);
@@ -1109,10 +1110,7 @@ export function Workspace({
   closeState.current = {
     busy: chat.busy || sending,
     draft:
-      hasPrompt ||
-      quotes.length > 0 ||
-      images.length > 0 ||
-      (noteOpen && !!note.trim()),
+      quotes.length > 0 || images.length > 0 || (noteOpen && !!note.trim()),
     saving: noteSaving || annotationSaving.current,
   };
   useEffect(
@@ -1123,7 +1121,11 @@ export function Workspace({
             blocked: true,
             message: "批注正在保存，请保存完成后再关闭。",
           };
-        if (closeState.current.busy || closeState.current.draft)
+        if (
+          closeState.current.busy ||
+          closeState.current.draft ||
+          !!prompt.current.trim()
+        )
           return {
             message:
               "关闭后会清除未发送的问题、附件和未保存的批注。已保存的阅读记录与对话会保留，后台回答会继续，可重新打开查看。",
@@ -1881,19 +1883,13 @@ export function Workspace({
                         <Square className="size-3" />
                       </Button>
                     ) : (
-                      <Button
-                        size="icon-sm"
-                        aria-label="发送问题"
-                        disabled={
-                          !adapter ||
-                          aiModelSaving ||
-                          !provider ||
-                          (!hasPrompt && !images.length)
-                        }
-                        onClick={() => void send()}
-                      >
-                        <Send className="size-3.5" />
-                      </Button>
+                      <ComposerSendButton
+                        prompt={prompt}
+                        changed={promptContentChanged}
+                        available={!!adapter && !aiModelSaving && !!provider}
+                        hasImages={images.length > 0}
+                        onSend={() => void send()}
+                      />
                     )}
                   </div>
                 </div>
