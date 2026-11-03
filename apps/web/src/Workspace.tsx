@@ -10,6 +10,10 @@ import {
   updateReaderLayout,
 } from "./neoread-layout";
 import { SelectionTranslation } from "./SelectionTranslation";
+import {
+  captureSelectionTranslationAnchor,
+  type SelectionTranslationAnchor,
+} from "./selection-translation-anchor";
 import { LinkPreviewPanel } from "./LinkPreviewPanel";
 import { AnnotationHoverCard } from "./AnnotationHoverCard";
 import { AnnotationQuote } from "./AnnotationQuote";
@@ -270,6 +274,10 @@ export function Workspace({
   }, [active, adapter]);
   const [translationSelection, setTranslationSelection] =
     useState<ReaderSelection | null>(null);
+  const translationAnchor = useRef<SelectionTranslationAnchor>(undefined);
+  useEffect(() => {
+    if (!translationSelection) translationAnchor.current = undefined;
+  }, [translationSelection]);
   const [selection, setSelection] = useState<ReaderSelection | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const annotationSaving = useRef(false);
@@ -609,7 +617,6 @@ export function Workspace({
   const saveLocation = (next: DocumentLocation, percent: number) => {
     if (!active) return;
     lastReadingLocation.current = next;
-    setTranslationSelection(null);
     setLocation(next);
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
     if (next.type === "pdf") setPageInput(String(next.page));
@@ -1621,6 +1628,13 @@ export function Workspace({
                 <IconButton
                   label="划词翻译"
                   onClick={() => {
+                    translationAnchor.current =
+                      selection.anchor && readingPane.current
+                        ? captureSelectionTranslationAnchor(
+                            selection.anchor,
+                            readingPane.current,
+                          )
+                        : undefined;
                     setTranslationSelection(selection);
                     setSelection(null);
                     adapter?.clearSelection();
@@ -1925,6 +1939,7 @@ export function Workspace({
       <SelectionTranslation
         key={doc.id}
         selection={active ? translationSelection : null}
+        trackedAnchor={translationAnchor.current}
         onClose={() => setTranslationSelection(null)}
       />
       <AnnotationHoverCard
