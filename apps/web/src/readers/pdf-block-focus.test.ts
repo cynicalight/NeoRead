@@ -79,6 +79,13 @@ function setup() {
     async () =>
       ({ getViewport: () => ({ width: 750, height: 900 }) }) as PDFPageProxy,
   );
+  const views = nodes.map((div) => ({
+    div,
+    pdfPage: undefined as PDFPageProxy | undefined,
+    setPdfPage(value: PDFPageProxy) {
+      this.pdfPage = value;
+    },
+  }));
   const viewer = {
     currentPageNumber: 1,
     refresh: vi.fn(),
@@ -91,7 +98,10 @@ function setup() {
     updateScale: vi.fn(({ scaleFactor }: { scaleFactor: number }) => {
       scale = Math.round(scale * scaleFactor * 100) / 100;
     }),
-    getPageView: (i: number) => ({ div: nodes[i] }),
+    getPageView: (i: number) => views[i],
+    _getVisiblePages: () => ({
+      views: nodes.map((div, index) => ({ id: index + 1, view: { div } })),
+    }),
   } as unknown as PDFViewer;
   const nav = new PDFReadingNavigation(
     host,

@@ -31,3 +31,33 @@ it("retries a block whose render failed", async () => {
   await expect(cache.url("p1-b1", 600)).rejects.toThrow("busy");
   expect(await cache.url("p1-b1", 600)).toBe("blob:ok");
 });
+
+it("limits concurrent full PDF renders and never starts queued work after disposal", async () => {
+  const finish: (() => void)[] = [];
+  vi.stubGlobal("URL", {
+    createObjectURL: () => "blob:ok",
+    revokeObjectURL: vi.fn(),
+  });
+  const render = vi.fn(
+    (_id: string, signal: AbortSignal) =>
+      new Promise<Blob>((resolve, reject) => {
+        finish.push(() => resolve(new Blob()));
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      }),
+  );
+  const cache = blockImageCache(render);
+  const requests = Array.from({ length: 12 }, (_, i) =>
+    cache.url(`p1-b${i}`, 2048),
+  );
+  const settled = Promise.allSettled(requests);
+  expect(render).toHaveBeenCalledTimes(2);
+  finish[0]();
+  await requests[0];
+  await Promise.resolve();
+  expect(render).toHaveBeenCalledTimes(3);
+  cache.dispose();
+  await settled;
+  expect(render).toHaveBeenCalledTimes(3);
+});

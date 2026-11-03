@@ -2,14 +2,33 @@ import { useEffect, useState } from "react";
 import type { ReaderSelection } from "@neoread/core";
 import { api } from "@neoread/api";
 import { Popover, PopoverContent } from "@neoread/ui/components/popover";
+import type { SelectionTranslationAnchor } from "./selection-translation-anchor";
 
 export function SelectionTranslation({
   selection,
   onClose,
+  trackedAnchor,
 }: {
   selection: ReaderSelection | null;
   onClose: () => void;
+  trackedAnchor?: SelectionTranslationAnchor;
 }) {
+  const [, refreshAnchor] = useState(0);
+  useEffect(() => {
+    if (!selection) return;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => refreshAnchor((value) => value + 1));
+    };
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+      cancelAnimationFrame(frame);
+    };
+  }, [selection]);
   const [result, setResult] = useState<{
     selection: ReaderSelection;
     text?: string;
@@ -43,11 +62,9 @@ export function SelectionTranslation({
         return;
       onClose();
     };
-    window.addEventListener("scroll", interrupt, true);
-    window.addEventListener("resize", interrupt);
+    window.addEventListener("pointerdown", interrupt, true);
     return () => {
-      window.removeEventListener("scroll", interrupt, true);
-      window.removeEventListener("resize", interrupt);
+      window.removeEventListener("pointerdown", interrupt, true);
     };
   }, [selection, onClose]);
   const current = result?.selection === selection ? result : undefined;
@@ -62,7 +79,9 @@ export function SelectionTranslation({
       {anchor && (
         <PopoverContent
           anchor={{
+            contextElement: trackedAnchor?.contextElement,
             getBoundingClientRect: () =>
+              trackedAnchor?.getBoundingClientRect() ??
               new DOMRect(
                 anchor.x,
                 anchor.top,
@@ -70,6 +89,28 @@ export function SelectionTranslation({
                 Math.max(1, anchor.bottom - anchor.top),
               ),
           }}
+          collisionBoundary={trackedAnchor?.boundary}
+          style={
+            trackedAnchor
+              ? {
+                  maxWidth: Math.max(
+                    1,
+                    Math.min(
+                      320,
+                      trackedAnchor.boundary.getBoundingClientRect().width - 16,
+                    ),
+                  ),
+                  maxHeight: Math.max(
+                    1,
+                    Math.min(
+                      384,
+                      trackedAnchor.boundary.getBoundingClientRect().height -
+                        16,
+                    ),
+                  ),
+                }
+              : undefined
+          }
           side="right"
           align="start"
           sideOffset={12}

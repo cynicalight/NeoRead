@@ -3,6 +3,18 @@ import { figureReferences, figureTarget } from "./figure-references";
 
 /** Keep PDF.js spans and their transforms intact; only wrap text inside them. */
 export class PDFFigureLinks {
+  private targetBlocks?: PDFBlock[];
+  private targets = new Map<string, PDFBlock | undefined>();
+  private target(label: string) {
+    const blocks = this.blocks();
+    if (blocks !== this.targetBlocks) {
+      this.targetBlocks = blocks;
+      this.targets.clear();
+    }
+    if (!this.targets.has(label))
+      this.targets.set(label, figureTarget(blocks, label));
+    return this.targets.get(label);
+  }
   constructor(
     private host: HTMLElement,
     private blocks: () => PDFBlock[],
@@ -53,14 +65,18 @@ export class PDFFigureLinks {
         anchor = candidates[0];
     }
     if (!anchor) return;
-    const block = figureTarget(this.blocks(), anchor.dataset.figureReference!);
+    const block = this.target(anchor.dataset.figureReference!);
     if (!block) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     this.focus(block);
   };
-  repaint() {
-    for (const layer of this.host.querySelectorAll<HTMLElement>(".textLayer")) {
+  repaint(pageNumber?: number) {
+    for (const layer of this.host.querySelectorAll<HTMLElement>(
+      pageNumber === undefined
+        ? ".textLayer"
+        : `.page[data-page-number="${pageNumber}"] .textLayer`,
+    )) {
       for (const link of layer.querySelectorAll("a[data-figure-reference]")) {
         const parent = link.parentNode!;
         link.replaceWith(...link.childNodes);
@@ -81,7 +97,7 @@ export class PDFFigureLinks {
       }
       // Reverse order keeps the offsets of earlier references stable.
       for (const reference of figureReferences(text).reverse()) {
-        if (!figureTarget(this.blocks(), reference.label)) continue;
+        if (!this.target(reference.label)) continue;
         const end = reference.index + reference.text.length;
         for (const entry of nodes) {
           const startOffset = Math.max(0, reference.index - entry.start);

@@ -59,7 +59,7 @@ it("cancels replaced and closed requests and ignores late results", async () => 
   await render(null);
   expect(vi.mocked(api.translateSelection).mock.calls[1][1].aborted).toBe(true);
 });
-it("shows failures and closes on scroll without action buttons", async () => {
+it("keeps the popup through wheel and scroll, and closes on an outside click", async () => {
   vi.mocked(api.translateSelection).mockRejectedValueOnce(
     new Error("模型不可用"),
   );
@@ -70,5 +70,15 @@ it("shows failures and closes on scroll without action buttons", async () => {
   ).toBeNull();
   expect(api.translateSelection).toHaveBeenCalledTimes(1);
   await act(async () => window.dispatchEvent(new Event("scroll")));
-  expect(close).toHaveBeenCalledOnce();
+  expect(close).not.toHaveBeenCalled();
+  await act(async () =>
+    window.dispatchEvent(new WheelEvent("wheel", { deltaY: 100 })),
+  );
+  expect(close).not.toHaveBeenCalled();
+  await act(async () =>
+    document.body.dispatchEvent(
+      new MouseEvent("pointerdown", { bubbles: true }),
+    ),
+  );
+  expect(close).toHaveBeenCalled();
 });

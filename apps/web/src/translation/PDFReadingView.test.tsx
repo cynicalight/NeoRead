@@ -26,6 +26,7 @@ const fixture = vi.hoisted(() => ({
       ) => void)
     | undefined,
   signal: undefined as AbortSignal | undefined,
+  resizes: new Map<Element, () => void>(),
 }));
 vi.mock("@neoread/api", () => ({
   api: {
@@ -112,14 +113,22 @@ vi.mock("../ReaderView", () => ({
 }));
 import { PDFReadingView } from "./PDFReadingView";
 let root: Root, host: HTMLDivElement;
-const events = { location: vi.fn(), selection: vi.fn() };
+const events = { location: vi.fn(), selection: vi.fn(), blockAction: vi.fn() };
 beforeEach(async () => {
+  fixture.resizes.clear();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      observe() {}
-      disconnect() {}
+      private nodes = new Set<Element>();
+      constructor(private callback: () => void) {}
+      observe(node: Element) {
+        this.nodes.add(node);
+        fixture.resizes.set(node, this.callback);
+      }
+      disconnect() {
+        for (const node of this.nodes) fixture.resizes.delete(node);
+      }
     },
   );
   vi.stubGlobal("matchMedia", () => ({
@@ -360,6 +369,10 @@ it("navigates to the matching bibliography block and restores the translated vie
   )!;
   reference.getBoundingClientRect = () =>
     new DOMRect(40, 1200 - pane.scrollTop, 520, 200);
+  host.querySelector<HTMLElement>(
+    '[data-translation-block="p9-first"]',
+  )!.getBoundingClientRect = () =>
+    new DOMRect(40, 1100 - pane.scrollTop, 520, 100);
   pane.scrollTop = 400;
   await act(async () => {
     pane.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
@@ -559,6 +572,70 @@ function translationGeometry(height = 200) {
     new DOMRect(40, 600 - pane.scrollTop, 520, height);
   return { pane, block };
 }
+it("reuses follow coordinates and skips identical scroll writes until translation layout changes", async () => {
+  await click("原文译文");
+  const { pane, block } = translationGeometry();
+  const measure = vi.spyOn(block, "getBoundingClientRect");
+  const viewport = vi.spyOn(pane, "getBoundingClientRect");
+  let scrollTop = 0;
+  const write = vi.fn((value: number) => {
+    scrollTop = value;
+  });
+  Object.defineProperty(pane, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: write,
+  });
+  const follow = async (fraction = 0.25) =>
+    act(async () => {
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction });
+    });
+  await follow();
+  await follow(0.5);
+  await follow(0.5);
+  expect(pane.scrollTop).toBe(400);
+  expect(measure).toHaveBeenCalledTimes(1);
+  expect(viewport).toHaveBeenCalledTimes(1);
+  expect(write).toHaveBeenCalledTimes(2);
+
+  await act(async () =>
+    fixture.resizes.get(pane.querySelector(".translation-content")!)?.(),
+  );
+  await follow();
+  expect(measure).toHaveBeenCalledTimes(2);
+  await renderView({ ...defaultTheme, translationFontSize: 1.25 });
+  await follow();
+  expect(measure).toHaveBeenCalledTimes(3);
+  await act(async () => {
+    fixture.push!({
+      event: "translation",
+      data: {
+        ...fixture.translations[0],
+        status: "complete",
+        sentences: [{ source: "Changed", target: "更新后的译文" }],
+      },
+    });
+  });
+  await follow();
+  expect(measure).toHaveBeenCalledTimes(4);
+  await act(async () => {
+    pane
+      .querySelector<HTMLElement>(".translation-content")!
+      .setAttribute("style", "zoom: 2");
+  });
+  await follow();
+  expect(measure).toHaveBeenCalledTimes(5);
+  await act(async () => fixture.resizes.get(pane)?.());
+  await follow();
+  expect(measure).toHaveBeenCalledTimes(6);
+  await click("仅原文");
+  await click("原文译文");
+  const restored = translationGeometry();
+  const remeasure = vi.spyOn(restored.block, "getBoundingClientRect");
+  await act(async () => fixture.resizes.get(restored.pane)?.());
+  await follow();
+  expect(remeasure).toHaveBeenCalledTimes(1);
+});
 it.each([false, true])(
   "lets either scrollbar lead without wheel input or follower feedback (swapped: %s)",
   async (swapped) => {
@@ -696,7 +773,7 @@ it("does not treat drags, native selections or interactive controls as block nav
   expect(pane.scrollTop).toBe(0);
 });
 
-it("replaces an unfinished click with an image focus and does not re-highlight on scroll", async () => {
+it("opens a clicked translation image in the preview and cancels unfinished alignment", async () => {
   await renderView(defaultTheme, [
     {
       id: "p1-image",
@@ -724,12 +801,16 @@ it("replaces an unfinished click with an image focus and does not re-highlight o
     await act(async () => image.querySelector("img")!.click());
     expect(pane.scrollTop).toBe(before);
     expect(block.hasAttribute("data-focused")).toBe(false);
-    expect(image.hasAttribute("data-focused")).toBe(true);
+    expect(image.hasAttribute("data-focused")).toBe(false);
+    expect(events.blockAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: "p1-image" }),
+      "preview",
+    );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
-    expect(pane.scrollTop).toBe(800);
-    expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-image", "parallel");
+    expect(pane.scrollTop).toBe(before);
+    expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "parallel");
     await act(async () => {
       host
         .querySelector(".translation-source")!

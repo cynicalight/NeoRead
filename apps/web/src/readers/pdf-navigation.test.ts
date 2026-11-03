@@ -119,7 +119,7 @@ it("cancels an in-flight page move on pointer input without reporting the destin
     new DOMRect(0, 1200 - host.scrollTop, 800, 1000);
   const nav = new PDFReadingNavigation(
     host,
-    { getPageView: () => ({ div: node }) } as unknown as PDFViewer,
+    { getPageView: () => ({ div: node, pdfPage: {} }) } as unknown as PDFViewer,
     vi.fn(),
     () => [],
     { location: vi.fn(), selection: vi.fn() },
@@ -138,3 +138,79 @@ it("cancels an in-flight page move on pointer input without reporting the destin
     nav.destroy();
   }
 });
+
+it.each(["restore", "follow"])(
+  "initializes only a lazy destination's real dimensions before %s",
+  async (action) => {
+    vi.useFakeTimers();
+    const host = document.createElement("div"),
+      node = document.createElement("div");
+    Object.defineProperties(host, {
+      clientHeight: { value: 600 },
+      scrollHeight: { value: 6000 },
+    });
+    host.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+    const proxy = {
+      getViewport: () => ({ width: 800, height: 1400 }),
+    } as PDFPageProxy;
+    const view = {
+      div: node,
+      pdfPage: undefined as PDFPageProxy | undefined,
+      setPdfPage(value: PDFPageProxy) {
+        this.pdfPage = value;
+      },
+    };
+    node.getBoundingClientRect = () =>
+      new DOMRect(0, 1200 - host.scrollTop, 800, view.pdfPage ? 1400 : 1000);
+    const load = vi.fn(async () => proxy);
+    const nav = new PDFReadingNavigation(
+      host,
+      {
+        getPageView: (index: number) => (index === 1 ? view : undefined),
+      } as unknown as PDFViewer,
+      load,
+      () => [
+        {
+          id: "later",
+          page: 2,
+          label: "paragraph",
+          text: "later",
+          bounds: { x: 0, y: 0.2, width: 1, height: 0.2 },
+        },
+      ],
+      { location: vi.fn(), selection: vi.fn() },
+    );
+    try {
+      const moving =
+        action === "restore"
+          ? nav.goTo(2, { x: 0, y: 0.3 })
+          : nav.follow({ blockId: "later", fraction: 0.5 });
+      await vi.advanceTimersByTimeAsync(500);
+      await moving;
+      expect(load).toHaveBeenCalledExactlyOnceWith(2);
+      expect(view.pdfPage).toBe(proxy);
+      expect(host.scrollTop).toBeCloseTo(action === "restore" ? 1596 : 1320);
+      const position = host.scrollTop;
+      view.pdfPage = undefined;
+      let complete!: (page: PDFPageProxy) => void;
+      load.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            complete = resolve;
+          }),
+      );
+      const cancelled =
+        action === "restore"
+          ? nav.goTo(2)
+          : nav.follow({ blockId: "later", fraction: 0 });
+      host.dispatchEvent(new MouseEvent("pointerdown"));
+      complete(proxy);
+      await cancelled;
+      expect(view.pdfPage).toBeUndefined();
+      expect(host.scrollTop).toBe(position);
+    } finally {
+      nav.destroy();
+      vi.useRealTimers();
+    }
+  },
+);
