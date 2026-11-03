@@ -66,6 +66,7 @@ type PDFBlock struct {
 	Caption string `json:"caption,omitempty"`
 }
 type layoutManifest struct {
+	RetranslationRun string `json:"retranslationRun,omitempty"`
 	// PDF document information (Title, Author, …) as read by PDF.js.
 	Metadata        map[string]any `json:"metadata"`
 	IncompletePages []int          `json:"incompletePages"`

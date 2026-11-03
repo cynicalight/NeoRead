@@ -13,3 +13,14 @@ export function pdfFontAscent(style?: { ascent?: number; descent?: number }) {
     return 1 + descent;
   return 0.8;
 }
+
+// Font ascent/descent may span more than one em (e.g. DejaVu Sans axis labels).
+export function pdfFontHeight(style?: { ascent?: number; descent?: number }) {
+  const descent = style?.descent;
+  return typeof descent === "number" &&
+    Number.isFinite(descent) &&
+    descent < 0 &&
+    descent > -1
+    ? Math.max(1, pdfFontAscent(style) - descent)
+    : 1;
+}

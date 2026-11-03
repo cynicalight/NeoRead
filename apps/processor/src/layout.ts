@@ -1,4 +1,6 @@
+import { pdfAssetBounds } from "../../../packages/neoread-core/src/pdf-asset-bounds";
 import { orderPageBlocks } from "./reading-order";
+import { joinInlineText } from "./inline-math";
 export const labels = [
   "abstract",
   "algorithm",
@@ -41,6 +43,9 @@ export interface Region {
 export interface TextSpan {
   text: string;
   bounds: Box;
+  baseline?: number;
+  fontSize?: number;
+  math?: boolean;
 }
 export const isAsset = (label: string) =>
   [
@@ -51,13 +56,15 @@ export const isAsset = (label: string) =>
     "display_formula",
     "inline_formula",
   ].includes(label);
+const isFigure = (label: string) => label === "chart" || label === "image";
 export function intersection(a: Box, b: Box) {
   return (
     Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
     Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
   );
 }
-// Match PaddleX postprocessing: confidence filtering and per-class/cross-class NMS.
+// Keep moderate-confidence graphics as caption-group candidates. Unconfirmed
+// candidates are removed by readingRegions; other classes retain the 0.5 cutoff.
 export function decodeRegions(
   data: ArrayLike<number>,
   width: number,
@@ -71,7 +78,7 @@ export function decodeRegions(
     );
     if (
       ![cls, confidence, x1, y1, x2, y2, order].every(Number.isFinite) ||
-      confidence < 0.5 ||
+      confidence < (isFigure(labels[cls]) ? 0.3 : 0.5) ||
       !labels[cls]
     )
       continue;
@@ -141,6 +148,11 @@ const readingSort = (spans: TextSpan[]) =>
     sameLine(a, b) ? a.bounds.x - b.bounds.x : a.bounds.y - b.bounds.y,
   );
 function joinSpans(spans: TextSpan[]) {
+  if (
+    spans.length &&
+    spans.every((s) => s.baseline !== undefined && s.fontSize !== undefined)
+  )
+    return joinInlineText(spans);
   return readingSort(spans)
     .map((s) => s.text)
     .join(" ")
@@ -205,58 +217,79 @@ export function readingRegions(
 ): ReadingRegion[] {
   const regions = raw.filter((r) => r.label !== "inline_formula");
   const assigned = assignText(regions, spans);
+  const fitted = pdfAssetBounds(regions, spans);
   const entries: ReadingRegion[] = regions.map((r, i) => ({
     ...r,
     text: assigned.texts[i],
+    bounds: fitted[i],
   }));
   const captions = entries.filter(
     (r) => r.label === "figure_title" && mainCaption.test(r.text),
   );
   const groups = new Map<ReadingRegion, ReadingRegion[]>();
-  for (const asset of entries.filter((r) =>
-    ["chart", "image", "table"].includes(r.label),
-  )) {
-    const b = asset.bounds;
-    const eligible = captions
-      .filter((c) => {
-        if ((asset.label === "table") !== /^table/i.test(c.text)) return false;
-        const cb = c.bounds;
-        const gap =
-          asset.label === "table"
-            ? Math.min(
-                Math.abs(cb.y - b.y - b.height),
-                Math.abs(b.y - cb.y - cb.height),
-              )
-            : cb.y - b.y - b.height;
-        const center = b.x + b.width / 2;
-        if (
-          gap < -0.01 ||
-          gap > 0.12 ||
-          center < cb.x - Math.min(0.12, cb.width / 4) ||
-          center > cb.x + cb.width + Math.min(0.12, cb.width / 4)
-        )
-          return false;
-        // Do not combine across intervening prose or another numbered caption.
-        return !entries.some(
-          (r) =>
-            r !== asset &&
-            r !== c &&
-            (r.label === "text" ||
-              r.label === "paragraph_title" ||
-              mainCaption.test(r.text)) &&
-            r.bounds.y > b.y + b.height &&
-            r.bounds.y + r.bounds.height < cb.y &&
-            center >= r.bounds.x &&
-            center <= r.bounds.x + r.bounds.width,
+  const remaining = new Set(
+    entries.filter((r) => isFigure(r.label) || r.label === "table"),
+  );
+  // Start at the caption, then extend through adjacent rows of panels. A fixed
+  // distance to the caption alone drops the upper rows of tall figures.
+  while (remaining.size) {
+    const before = remaining.size;
+    for (const asset of remaining) {
+      const b = asset.bounds;
+      const eligible = captions
+        .filter((c) => {
+          if ((asset.label === "table") !== /^table/i.test(c.text))
+            return false;
+          const cb = c.bounds;
+          const gap =
+            asset.label === "table"
+              ? Math.min(
+                  Math.abs(cb.y - b.y - b.height),
+                  Math.abs(b.y - cb.y - cb.height),
+                )
+              : cb.y - b.y - b.height;
+          const center = b.x + b.width / 2;
+          const connected =
+            isFigure(asset.label) &&
+            groups.get(c)?.some((panel) => {
+              const p = panel.bounds;
+              return (
+                Math.max(0, p.y - b.y - b.height, b.y - p.y - p.height) <= 0.03
+              );
+            });
+          if (
+            gap < -0.01 ||
+            (gap > 0.12 && !connected) ||
+            center < cb.x - Math.min(0.12, cb.width / 4) ||
+            center > cb.x + cb.width + Math.min(0.12, cb.width / 4)
+          )
+            return false;
+          // Do not combine across intervening prose or another numbered caption.
+          return !entries.some(
+            (r) =>
+              r !== asset &&
+              r !== c &&
+              (r.label === "text" ||
+                r.label === "paragraph_title" ||
+                mainCaption.test(r.text)) &&
+              r.bounds.y > b.y + b.height &&
+              r.bounds.y + r.bounds.height < cb.y &&
+              center >= r.bounds.x &&
+              center <= r.bounds.x + r.bounds.width,
+          );
+        })
+        .sort(
+          (a, z) =>
+            Math.abs(a.bounds.y - b.y - b.height) -
+            Math.abs(z.bounds.y - b.y - b.height),
         );
-      })
-      .sort(
-        (a, z) =>
-          Math.abs(a.bounds.y - b.y - b.height) -
-          Math.abs(z.bounds.y - b.y - b.height),
-      );
-    const caption = eligible[0];
-    if (caption) groups.set(caption, [...(groups.get(caption) ?? []), asset]);
+      const caption = eligible[0];
+      if (caption) {
+        groups.set(caption, [...(groups.get(caption) ?? []), asset]);
+        remaining.delete(asset);
+      }
+    }
+    if (remaining.size === before) break;
   }
   const consumed = new Set<ReadingRegion>();
   const merged: ReadingRegion[] = [];
@@ -283,8 +316,9 @@ export function readingRegions(
     });
   }
   return orderPageBlocks(
-    [...entries.filter((r) => !consumed.has(r)), ...merged].sort(
-      (a, b) => a.order - b.order,
-    ),
+    [
+      ...entries.filter((r) => r.confidence >= 0.5 && !consumed.has(r)),
+      ...merged,
+    ].sort((a, b) => a.order - b.order),
   );
 }

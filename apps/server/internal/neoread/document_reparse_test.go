@@ -296,3 +296,103 @@ func TestReparseEPUBRefreshesCoverFromChangedOriginal(t *testing.T) {
 		})
 	}
 }
+
+func TestReparsePDFQueuesNewSymbolTextAndFormulaWithoutDeletingOldTranslations(t *testing.T) {
+	s, _, old := completedTranslationFixture(t)
+	prepareReparseDocument(t, s)
+	formula := old.Blocks[0]
+	formula.ID, formula.Label, formula.Text, formula.Image = "p1-b3", "display_formula", "T(X)", "assets/p1-b3.png"
+	old.Blocks = append(old.Blocks, formula)
+	if err := atomicFile(filepath.Join(s.analysisDir("doc"), "manifest.json"), []byte(jsonText(old))); err != nil {
+		t.Fatal(err)
+	}
+	saved := newTranslation(formula)
+	saved.Status, saved.FormulaMarkdown = "complete", "$$T(X)$$"
+	if err := s.saveTranslation("doc", saved); err != nil {
+		t.Fatal(err)
+	}
+	fresh := old
+	fresh.Blocks = append([]PDFBlock(nil), old.Blocks...)
+	fresh.Blocks[0].Text = "We define 𝒯 as a set of transformations."
+	fresh.Blocks[2].Text = "𝒯(X)"
+	calls := reparseFixture(t, fresh)
+	response := request(t, s, "POST", "/api/documents/doc/reparse", nil)
+	if response.Code != 200 {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	p, err := s.Store.processing("doc")
+	if err != nil || p.Phase != "translating" || p.Status != "queued" || p.Translating == nil || p.Translating.Status != "queued" || p.TranslationsDone != 1 || p.TranslationsTotal != 3 || !validLayoutRun(p.LayoutRevision) {
+		t.Fatalf("changed sources were not queued: %+v, %v", p, err)
+	}
+	parsed, err := s.readLayout("doc")
+	if err != nil || parsed.RetranslationRun != p.LayoutRevision {
+		t.Fatal("layout revision not published", parsed.RetranslationRun, err)
+	}
+	items, err := s.translations("doc", parsed)
+	if err != nil || items[0].Status != "pending" || items[1].Status != "complete" || items[2].Status != "pending" {
+		t.Fatal("unchanged prose was not reused", items, err)
+	}
+	var count int
+	if err := s.Store.DB.QueryRow("SELECT count(*) FROM translations WHERE document_id='doc' AND status='complete'").Scan(&count); err != nil || count != 3 {
+		t.Fatal("historical translations were lost", count, err)
+	}
+	// An old app could publish the layout without updating processing. Opening the
+	// translation stream in the fixed app must repair that existing state too.
+	p.LayoutRevision = ""
+	p.Translating = &ProcessingStage{Status: "complete"}
+	p.TranslationsDone, p.TranslationsTotal = 3, 3
+	aggregateProcessing(&p)
+	if err := s.Store.saveProcessing(p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.reparsedPDFLayout(Document{ID: "doc", Type: "pdf", Library: "papers"}); err != nil {
+		t.Fatal(err)
+	}
+	recovered, _ := s.Store.processing("doc")
+	if recovered.Status != "queued" || recovered.TranslationsDone != 1 || recovered.LayoutRevision != parsed.RetranslationRun {
+		t.Fatal("legacy reparse did not recover", recovered)
+	}
+	if _, err := s.reparsedPDFLayout(Document{ID: "doc", Type: "pdf", Library: "papers"}); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(calls); err != nil || string(data) != "parse\n" {
+		t.Fatal("recovery reparsed the PDF", string(data), err)
+	}
+}
+
+func TestReparseDoesNotEnablePausedManualOrBookTranslation(t *testing.T) {
+	for _, variant := range []string{"paused", "manual", "limited", "book"} {
+		t.Run(variant, func(t *testing.T) {
+			s, p, old := completedTranslationFixture(t)
+			prepareReparseDocument(t, s)
+			switch variant {
+			case "paused":
+				p.Enabled = false
+			case "manual":
+				p.ManualTranslation = true
+			case "limited":
+				limit := 0
+				p.AutoTranslateMaxPages = &limit
+			case "book":
+				if _, err := s.Store.DB.Exec("UPDATE documents SET library='books' WHERE id='doc'"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.Store.saveProcessing(p); err != nil {
+				t.Fatal(err)
+			}
+			fresh := old
+			fresh.Blocks = append([]PDFBlock(nil), old.Blocks...)
+			fresh.Blocks[0].Text = "We define 𝒯 as a set of transformations."
+			reparseFixture(t, fresh)
+			response := request(t, s, "POST", "/api/documents/doc/reparse", nil)
+			if response.Code != 200 {
+				t.Fatal(response.Code, response.Body.String())
+			}
+			current, err := s.Store.processing("doc")
+			if err != nil || current.Enabled != p.Enabled || current.ManualTranslation != p.ManualTranslation || current.Status == "queued" || current.Translating == nil || current.Translating.Status != "complete" {
+				t.Fatalf("reparse changed translation consent: %+v %v", current, err)
+			}
+		})
+	}
+}

@@ -2,6 +2,7 @@ package neoread
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -159,6 +160,9 @@ func (s *Server) reparsePDF(ctx context.Context, d Document) error {
 		}
 		return err
 	}
+	if _, err = s.reparsedPDFLayout(d); err != nil {
+		return err
+	}
 	if d.Library == "books" {
 		if _, err = s.Store.DB.Exec(`INSERT INTO book_layout_jobs(document_id,status,pages_done,pages_total) VALUES(?,'complete',?,?) ON CONFLICT(document_id) DO UPDATE SET status='complete',pages_done=excluded.pages_done,pages_total=excluded.pages_total`, d.ID, m.Pages, m.Pages); err != nil {
 			s.diagnosticEvent(slog.LevelWarn, "document.reparse.index_failed", "documentId", d.ID, "errorCode", errorKind(err))
@@ -168,5 +172,103 @@ func (s *Server) reparsePDF(ctx context.Context, d Document) error {
 	if err = s.Store.queueDocumentCorpus(d.ID); err != nil {
 		s.diagnosticEvent(slog.LevelWarn, "document.reparse.index_failed", "documentId", d.ID, "errorCode", errorKind(err))
 	}
+	return nil
+}
+
+// A published reparse changes source hashes without deleting historical results.
+// Reconcile its progress and requeue only an already enabled paper's missing work.
+// The stream also uses this path to recover reparses published by older versions.
+func (s *Server) reparsedPDFLayout(d Document) (layoutManifest, error) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	s.processingMu.Lock()
+	defer s.processingMu.Unlock()
+	m, err := s.readLayout(d.ID)
+	if err != nil || !validLayoutRun(m.RetranslationRun) {
+		return m, err
+	}
+	p, err := s.Store.processing(d.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return m, nil
+	}
+	if err != nil {
+		return m, err
+	}
+	if p.LayoutRevision == m.RetranslationRun {
+		return m, s.resumeFormulaCapability(d, m, p)
+	}
+	if p.Retranslating {
+		return m, nil
+	}
+	items, err := s.translations(d.ID, m)
+	if err != nil {
+		return m, err
+	}
+	p.LayoutRevision = m.RetranslationRun
+	p.PagesDone, p.PagesTotal = m.Pages, m.Pages
+	p.TranslationsDone, p.TranslationsTotal = translationCounts(items)
+	pending := 0
+	for _, item := range items {
+		if item.Status == "pending" || item.Status == "running" {
+			pending++
+		}
+	}
+	automatic := p.Enabled && !p.ManualTranslation && (p.AutoTranslateMaxPages == nil || (*p.AutoTranslateMaxPages > 0 && m.Pages <= *p.AutoTranslateMaxPages))
+	if d.Library == "papers" && automatic && pending > 0 {
+		p.Translating = &ProcessingStage{Status: "queued", Detail: "等待翻译重新解析的正文与公式"}
+		aggregateProcessing(&p)
+	}
+	if err = s.Store.saveProcessing(p); err != nil {
+		return m, err
+	}
+	if d.Library == "papers" && automatic && pending > 0 {
+		s.diagnosticEvent(slog.LevelInfo, "translation.reparse_queued", "documentId", d.ID, "count", pending)
+	}
+	return m, nil
+}
+
+// Recover legacy capability failures without retrying provider errors or paused
+// documents. Both locks are held by reparsedPDFLayout, before a worker can start.
+func (s *Server) resumeFormulaCapability(d Document, m layoutManifest, p Processing) error {
+	if d.Library != "papers" || !p.Enabled || p.ManualTranslation || p.Retranslating || p.Translating == nil || p.Translating.Status != "failed" ||
+		(p.AutoTranslateMaxPages != nil && (*p.AutoTranslateMaxPages == 0 || m.Pages > *p.AutoTranslateMaxPages)) {
+		return nil
+	}
+	items, err := s.translations(d.ID, m)
+	if err != nil {
+		return err
+	}
+	formulas := map[string]bool{}
+	for _, b := range m.Blocks {
+		formulas[b.ID] = isFormula(b)
+	}
+	blocked := []TranslationBlock{}
+	for _, item := range items {
+		if item.Status != "failed" {
+			continue
+		}
+		if !formulas[item.BlockID] || !formulaCapabilityFailure(item.Error) {
+			return nil
+		}
+		blocked = append(blocked, item)
+	}
+	if len(blocked) == 0 {
+		return nil
+	}
+	for _, item := range blocked {
+		item.Status, item.Error = "pending", ""
+		if err := s.saveTranslation(d.ID, item); err != nil {
+			return err
+		}
+	}
+	p.Translating = &ProcessingStage{Status: "waiting", Detail: "请在设置中完成图像能力测试后继续公式转换"}
+	if s.generationService(s.readAIConfig()).ValidateInput(AIInput{Image: []byte{1}}, false) == nil {
+		p.Translating.Status, p.Translating.Detail = "queued", "等待继续公式转换"
+	}
+	aggregateProcessing(&p)
+	if err := s.Store.saveProcessing(p); err != nil {
+		return err
+	}
+	s.diagnosticEvent(slog.LevelInfo, "formula.capability_recovered", "documentId", d.ID, "count", len(blocked))
 	return nil
 }

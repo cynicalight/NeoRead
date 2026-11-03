@@ -60,6 +60,8 @@ func (s *Server) streamTranslations(w http.ResponseWriter, r *http.Request) {
 		for _, item := range m.translationItems() {
 			allowed[item.BlockID] = true
 		}
+	} else if d.Type == "pdf" {
+		m, sourceErr = s.reparsedPDFLayout(d)
 	} else {
 		m, sourceErr = s.readTranslationSource(d.ID)
 	}

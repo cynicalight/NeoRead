@@ -792,7 +792,8 @@ export type ModelTask = "chat" | "translation" | "vision";
 
 export { isPDFPageDecoration } from "./pdf-content";
 
-export { pdfFontAscent } from "./pdf-text";
+export { pdfFontAscent, pdfFontHeight } from "./pdf-text";
+export { pdfAssetBounds } from "./pdf-asset-bounds";
 
 export interface TokenCounts {
   inputTokens: number;
