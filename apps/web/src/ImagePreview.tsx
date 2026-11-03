@@ -13,7 +13,7 @@ import {
 const controlsHeight = 48;
 // Install this rule only while a preview exists. A body :has() selector makes
 // unrelated PDF text-layer changes invalidate styles across the entire reader.
-const nativeDragGuard = `:root body :is(.window-top-drag, .window-drag-handle, .document-tabbar, .document-tabs-scroll, .library-topbar, .neoread-toolbar) {
+const nativeDragGuard = `:root .app[data-platform] :is(.window-top-drag, .window-drag-handle, .document-tabbar, .document-tabs-scroll, .library-topbar, .neoread-toolbar) {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }`;
