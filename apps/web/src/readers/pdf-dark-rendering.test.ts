@@ -71,14 +71,22 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
       if (doc) fixture.dispatch!("pagesinit");
     }
     getPageView() {
-      return { id: fixture.currentPage, reset: fixture.reset, renderingState: 3,
-        pdfPage: { cleanup: fixture.cleanup } };
+      return {
+        id: fixture.currentPage,
+        reset: fixture.reset,
+        renderingState: 3,
+        pdfPage: { cleanup: fixture.cleanup },
+      };
     }
     getCachedPageViews() {
-      return new Set((fixture.cachedPages ?? [fixture.currentPage]).map((id) => ({
-        ...this.getPageView(), id, reset: () => fixture.reset(id),
-        pdfPage: { cleanup: () => fixture.cleanup(id) },
-      })));
+      return new Set(
+        (fixture.cachedPages ?? [fixture.currentPage]).map((id) => ({
+          ...this.getPageView(),
+          id,
+          reset: () => fixture.reset(id),
+          pdfPage: { cleanup: () => fixture.cleanup(id) },
+        })),
+      );
     }
     refresh = fixture.refresh;
     update = fixture.update;
@@ -122,19 +130,19 @@ afterEach(async () => {
 });
 const doc = { id: "test", type: "pdf" } as Document;
 
-it("loads PDF ranges on demand and uses hardware canvas acceleration within the existing limits", async () => {
+it("loads PDF ranges on demand with upstream canvas limits and rendering defaults", async () => {
   await adapter.open(doc);
   expect(fixture.documentOptions).toMatchObject({
     disableAutoFetch: true,
     disableStream: true,
     rangeChunkSize: 256 * 1024,
-    enableHWA: true,
   });
   expect(fixture.viewerOptions).toMatchObject({
-    maxCanvasPixels: 16 * 1024 * 1024,
-    maxCanvasDim: 8192,
-    preRenderViewports: 2,
+    maxCanvasPixels: 4 * 1024 * 1024,
+    maxCanvasDim: 4096,
   });
+  expect(fixture.documentOptions).not.toHaveProperty("enableHWA");
+  expect(fixture.viewerOptions).not.toHaveProperty("preRenderViewports");
 });
 
 it("does not revisit page overlays for detail canvas updates", async () => {
