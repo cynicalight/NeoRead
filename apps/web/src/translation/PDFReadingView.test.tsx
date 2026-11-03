@@ -294,7 +294,10 @@ it("keeps the translated selection and navigation metadata without marking the o
   });
   window.getSelection()!.removeAllRanges();
   window.getSelection()!.addRange(range);
-  document.dispatchEvent(new Event("selectionchange"));
+  await act(async () => {
+    document.dispatchEvent(new Event("selectionchange"));
+    await new Promise(requestAnimationFrame);
+  });
   expect(
     [...highlights.get("neoread-translation-selection")!][0].toString(),
   ).toBe("第二句。");
@@ -337,7 +340,10 @@ it("keeps the translated selection and navigation metadata without marking the o
   );
   await act(async () => fixture.ready!.clearSelection());
   expect(events.selection).toHaveBeenLastCalledWith(null);
-  document.dispatchEvent(new Event("selectionchange"));
+  await act(async () => {
+    document.dispatchEvent(new Event("selectionchange"));
+    await new Promise(requestAnimationFrame);
+  });
   expect(highlights.has("neoread-translation-selection")).toBe(false);
 });
 it("fits the source width on mode changes without focusing a paragraph", async () => {

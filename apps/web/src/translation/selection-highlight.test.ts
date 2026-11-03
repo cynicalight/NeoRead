@@ -4,12 +4,28 @@ import { installTranslationSelectionHighlight } from "./selection-highlight";
 
 let host: HTMLDivElement, registry: Map<string, Set<Range>>;
 let dispose: (() => void) | undefined;
-const update = () => document.dispatchEvent(new Event("selectionchange"));
+const frames = new Map<number, FrameRequestCallback>();
+let nextFrame = 0;
+const flush = () => {
+  const pending = [...frames.values()];
+  frames.clear();
+  for (const callback of pending) callback(0);
+};
+const update = () => {
+  document.dispatchEvent(new Event("selectionchange"));
+  flush();
+};
 const highlighted = () =>
   [...(registry.get("neoread-translation-selection") ?? [])].map((r) =>
     r.toString(),
   );
 beforeEach(() => {
+  frames.clear();
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++nextFrame, callback);
+    return nextFrame;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
   registry = new Map();
   vi.stubGlobal("CSS", { highlights: registry });
   vi.stubGlobal(
@@ -31,6 +47,7 @@ afterEach(() => {
   window.getSelection()?.removeAllRanges();
   host.remove();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 it("mirrors the exact partial selection across formatted paragraphs without changing native ranges or text", () => {
@@ -88,4 +105,29 @@ it("leaves selection outside the translation and unsupported browsers native", (
   vi.stubGlobal("Highlight", undefined);
   expect(installTranslationSelectionHighlight(host)).toBeUndefined();
   expect(host.hasAttribute("data-compact-selection")).toBe(false);
+});
+
+it("coalesces drag events, reuses the live highlight and cancels pending work on disposal", () => {
+  const text = host.querySelector("strong")!.firstChild!;
+  const selection = window.getSelection()!;
+  const serialize = vi.spyOn(selection, "toString");
+  const set = vi.spyOn(registry, "set");
+  selection.setBaseAndExtent(text, 0, text, 1);
+  for (let i = 0; i < 30; i++)
+    document.dispatchEvent(new Event("selectionchange"));
+  expect(frames.size).toBe(1);
+  expect(set).not.toHaveBeenCalled();
+  flush();
+  const highlight = registry.get("neoread-translation-selection");
+  expect(set).toHaveBeenCalledTimes(1);
+  selection.extend(text, 4);
+  update();
+  expect(registry.get("neoread-translation-selection")).toBe(highlight);
+  expect(highlighted()).toEqual(["重要内容"]);
+  expect(serialize).not.toHaveBeenCalled();
+  document.dispatchEvent(new Event("selectionchange"));
+  dispose?.();
+  expect(frames.size).toBe(0);
+  flush();
+  expect(registry.size).toBe(0);
 });

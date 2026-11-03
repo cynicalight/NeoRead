@@ -538,3 +538,23 @@ it("skips setters when the browser serializes a percentage with fewer digits", (
     setter.mockRestore();
   }
 });
+
+it("does not rescan annotation DOM or serialize selected text on repeated drag moves", () => {
+  pointer("pointermove");
+  pointer("pointerdown", { buttons: 1 });
+  const range = document.createRange();
+  range.selectNodeContents(text);
+  const selection = window.getSelection()!;
+  selection.addRange(range);
+  const serialize = vi.spyOn(selection, "toString");
+  const query = vi.spyOn(host, "querySelectorAll");
+  for (let i = 0; i < 30; i++) pointer("pointermove", { buttons: 1 });
+  pointer("pointermove");
+  expect(query).not.toHaveBeenCalled();
+  expect(serialize).not.toHaveBeenCalled();
+  query.mockRestore();
+  serialize.mockRestore();
+  window.getSelection()!.removeAllRanges();
+  pointer("pointermove");
+  expect(host.querySelectorAll("[data-hovered]")).toHaveLength(6);
+});

@@ -3,6 +3,7 @@ import type { Annotation, ReaderAnnotationTarget } from "@neoread/core";
 // Observe the text layer without intercepting text selection or PDF links.
 export class PDFAnnotationLayer {
   private byPage = new Map<number, Annotation[]>();
+  private hovered: string[] = [];
   private pressed?: { x: number; y: number };
   private geometryStyles = new WeakMap<
     HTMLElement,
@@ -74,6 +75,8 @@ export class PDFAnnotationLayer {
           if (!el) {
             el = document.createElement("div");
             el.className = "neoread-highlight";
+            if (this.hovered.includes(annotation.id))
+              el.setAttribute("data-hovered", "");
             group.append(el);
           }
           if (el.dataset.annotationId !== annotation.id)
@@ -130,6 +133,8 @@ export class PDFAnnotationLayer {
   };
   clear = () => {
     this.pressed = undefined;
+    if (!this.hovered.length) return;
+    this.hovered = [];
     this.host
       .querySelectorAll(".neoread-highlight[data-hovered]")
       .forEach((el) => el.removeAttribute("data-hovered"));
@@ -175,9 +180,16 @@ export class PDFAnnotationLayer {
   }
   private move = (event: PointerEvent) => {
     const hit =
-      !event.buttons && !window.getSelection()?.toString().trim()
+      !event.buttons && window.getSelection()?.isCollapsed !== false
         ? this.find(event)
         : undefined;
+    const ids = hit?.ids ?? [];
+    if (
+      ids.length === this.hovered.length &&
+      ids.every((id, i) => id === this.hovered[i])
+    )
+      return;
+    this.hovered = ids;
     this.host
       .querySelectorAll<HTMLElement>(".neoread-highlight")
       .forEach((el) =>
@@ -199,7 +211,7 @@ export class PDFAnnotationLayer {
       !pressed ||
       event.button !== 0 ||
       Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 5 ||
-      window.getSelection()?.toString().trim()
+      window.getSelection()?.isCollapsed === false
     )
       return;
     const hit = this.find(event);
