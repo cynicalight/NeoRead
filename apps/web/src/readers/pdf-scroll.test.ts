@@ -38,6 +38,29 @@ it("moves both axes through intermediate positions before settling", async () =>
   expect(host.scrollLeft).toBe(500);
   expect(frames).toHaveLength(0);
 });
+it("gives explicit focus a gradual start and end rather than an early jump", async () => {
+  const host = document.createElement("div");
+  const pending = animatePDFScroll(
+    host,
+    0,
+    1000,
+    () => false,
+    () => {},
+    "focus",
+  );
+  tick(0);
+  tick(95);
+  expect(host.scrollTop).toBeGreaterThan(0);
+  expect(host.scrollTop).toBeLessThan(250);
+  tick(190);
+  expect(host.scrollTop).toBeCloseTo(500);
+  tick(285);
+  expect(host.scrollTop).toBeGreaterThan(750);
+  expect(host.scrollTop).toBeLessThan(1000);
+  tick(380);
+  await pending;
+  expect(host.scrollTop).toBe(1000);
+});
 it("does not overwrite manual positioning after cancellation", async () => {
   const host = document.createElement("div");
   let cancelled = false;

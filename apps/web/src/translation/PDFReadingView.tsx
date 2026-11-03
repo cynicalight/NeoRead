@@ -169,6 +169,7 @@ export function PDFReadingView({
   const cancelTranslationMotion = () => {
     translationMotion.current.operation++;
     translationMotion.current.moving = false;
+    pane.current?.removeAttribute("data-aligning");
   };
   useLayoutEffect(() => {
     if (!active) return;
@@ -349,9 +350,8 @@ export function PDFReadingView({
     sentenceIndex?: number,
     options: { smooth?: boolean; center?: boolean } = {},
   ) => {
-    const node = targetNode(anchor.blockId),
-      host = pane.current;
-    if (!node || !host) return;
+    const host = pane.current;
+    if (!host) return;
     control.current.following("translation");
     if (
       translationMotion.current.moving &&
@@ -359,6 +359,13 @@ export function PDFReadingView({
       !options.center
     )
       return;
+    cancelTranslationMotion();
+    if (options.smooth) host.setAttribute("data-aligning", "");
+    const node = targetNode(anchor.blockId);
+    if (!node) {
+      host.removeAttribute("data-aligning");
+      return;
+    }
     const target =
       sentenceIndex === undefined
         ? node
@@ -401,7 +408,6 @@ export function PDFReadingView({
                 : 0)),
       ),
     );
-    cancelTranslationMotion();
     if (!options.smooth) {
       if (Math.abs(host.scrollTop - top) > 0.5) host.scrollTop = top;
       return;
@@ -418,9 +424,11 @@ export function PDFReadingView({
       top,
       () => operation !== motion.operation || pane.current !== host,
       () => {},
+      options.center ? "focus" : true,
     ).finally(() => {
       if (operation === motion.operation) {
         motion.moving = false;
+        host.removeAttribute("data-aligning");
         // Ignore the last programmatic scroll event; fresh input releases this.
         control.current.following("translation");
       }

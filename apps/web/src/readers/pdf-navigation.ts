@@ -1,5 +1,9 @@
 import { reducedMotion } from "../motion";
-import { animatePDFScroll } from "./pdf-scroll";
+import {
+  animatePDFScroll,
+  pdfFocusMotion,
+  pdfFocusProgress,
+} from "./pdf-scroll";
 import { sentenceTextRanges } from "./pdf-sentence-matching";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
@@ -272,7 +276,7 @@ export class PDFReadingNavigation {
           if (this.viewer.updateScale)
             this.viewer.updateScale({
               scaleFactor: scale / initialScale,
-              drawingDelay: 300,
+              drawingDelay: pdfFocusMotion.duration + 60,
             });
           else this.viewer.currentScaleValue = String(scale);
         }
@@ -306,7 +310,7 @@ export class PDFReadingNavigation {
               transformOrigin: origin,
             },
           ],
-          { duration: 240, easing: "cubic-bezier(0.333333, 1, 0.666667, 1)" },
+          pdfFocusMotion,
         );
         this.focusAnimation = { animation, node, scale };
         await new Promise<void>((resolve) => {
@@ -330,8 +334,10 @@ export class PDFReadingNavigation {
             return;
           }
           started ??= now;
-          const progress = reduced ? 1 : Math.min(1, (now - started) / 240);
-          const ease = 1 - (1 - progress) ** 3;
+          const progress = reduced
+            ? 1
+            : Math.min(1, (now - started) / pdfFocusMotion.duration);
+          const ease = pdfFocusProgress(progress);
           // Scale and position share one animation. Adding centering space or zooming
           // must never produce a visible jump before the scroll starts.
           this.updateInsets();
@@ -343,8 +349,8 @@ export class PDFReadingNavigation {
             if (this.viewer.updateScale)
               this.viewer.updateScale({
                 scaleFactor: zoom / this.viewer.currentScale,
-                // Keep the completed frame throughout the 240ms animation.
-                drawingDelay: 300,
+                // Keep the completed bitmap throughout the focus animation.
+                drawingDelay: pdfFocusMotion.duration + 60,
               });
             else this.viewer.currentScaleValue = String(zoom);
           }

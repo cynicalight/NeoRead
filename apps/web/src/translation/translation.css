@@ -86,6 +86,11 @@
   background: var(--pdf-dark-paper);
   color: var(--pdf-dark-ink);
 }
+.translation-document[data-aligning] {
+  /* Lazy blocks changing height must not compete with explicit positioning. */
+  overflow-anchor: none;
+  scroll-behavior: auto;
+}
 .pdf-reading .translation-document {
   padding-left: 16px;
   padding-right: 16px;

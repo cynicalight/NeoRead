@@ -725,33 +725,49 @@ it.each([false, true])(
     expect(adapter.followBlock).not.toHaveBeenCalled();
   },
 );
-it("smoothly centers clicked translation blocks and follows their original without scroll feedback", async () => {
-  await click("原文译文");
-  const { pane, block } = translationGeometry();
-  vi.useFakeTimers();
-  try {
-    await act(async () => block.click());
-    expect(pane.scrollTop).toBe(0);
-    expect(block.hasAttribute("data-focused")).toBe(true);
-    expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "parallel");
-    const calls = vi.mocked(adapter.focusBlock!).mock.calls.length;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(120);
-    });
-    expect(pane.scrollTop).toBeGreaterThan(0);
-    expect(pane.scrollTop).toBeLessThan(400);
-    await act(async () => {
-      pane.dispatchEvent(new Event("scroll", { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(400);
-    });
-    expect(pane.scrollTop).toBe(400);
-    expect(block.hasAttribute("data-focused")).toBe(false);
-    expect(adapter.focusBlock).toHaveBeenCalledTimes(calls);
-    expect(adapter.followBlock).not.toHaveBeenCalled();
-  } finally {
-    vi.useRealTimers();
-  }
-});
+it.each(["source", "translation"] as const)(
+  "smoothly centers both panes from %s without scroll feedback",
+  async (origin) => {
+    await click("原文译文");
+    const { pane, block } = translationGeometry();
+    vi.useFakeTimers();
+    try {
+      await act(async () =>
+        origin === "translation"
+          ? block.click()
+          : fixture.events!.blockFocus?.({
+              id: "p1-b1",
+              page: 1,
+              label: "text",
+              text: "First sentence. Second sentence.",
+              bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.3 },
+            }),
+      );
+      expect(pane.scrollTop).toBe(0);
+      expect(pane.hasAttribute("data-aligning")).toBe(true);
+      expect(block.hasAttribute("data-focused")).toBe(true);
+      expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "parallel");
+      const calls = vi.mocked(adapter.focusBlock!).mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120);
+      });
+      expect(pane.scrollTop).toBeGreaterThan(0);
+      expect(pane.scrollTop).toBeLessThan(200);
+      expect(pane.hasAttribute("data-aligning")).toBe(true);
+      await act(async () => {
+        pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(pane.scrollTop).toBe(400);
+      expect(pane.hasAttribute("data-aligning")).toBe(false);
+      expect(block.hasAttribute("data-focused")).toBe(false);
+      expect(adapter.focusBlock).toHaveBeenCalledTimes(calls);
+      expect(adapter.followBlock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
 it("top-aligns tall translation blocks and cancels their motion when the user scrolls", async () => {
   await click("仅译文");
   const { pane, block } = translationGeometry(800);

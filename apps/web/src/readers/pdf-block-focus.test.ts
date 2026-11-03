@@ -377,7 +377,7 @@ it("coalesces focus zoom into one final redraw and does not redraw on an identic
     await vi.advanceTimersByTimeAsync(128);
     expect(s.viewer.refresh).not.toHaveBeenCalled();
     for (const [options] of vi.mocked(s.viewer.updateScale).mock.calls)
-      expect(options?.drawingDelay).toBe(300);
+      expect(options?.drawingDelay).toBe(440);
     await finish(pending);
     expect(s.viewer.refresh).toHaveBeenCalledTimes(1);
     vi.mocked(s.viewer.updateScale).mockClear();
@@ -418,7 +418,7 @@ it("uses a native transition with one PDF layout commit and keeps it interruptib
         }),
         expect.objectContaining({ transform: "translate(0px, 0px) scale(1)" }),
       ],
-      expect.objectContaining({ duration: 240 }),
+      expect.objectContaining({ duration: 380 }),
     ]);
     animation!.onfinish?.call(animation!, {} as AnimationPlaybackEvent);
     expect(await pending).toBe(true);
