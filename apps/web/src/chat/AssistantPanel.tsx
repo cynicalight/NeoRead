@@ -1,9 +1,11 @@
+import { ChatSelectionToolbar } from "./ChatSelectionToolbar";
 import { ToolActivities } from "./ToolActivities";
 import {
   lazy,
   memo,
   Suspense,
   useMemo,
+  useRef,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -79,6 +81,7 @@ type AssistantPanelProps = {
   references: (message: Message) => ReactNode;
   onRegenerate: () => void;
   onWithdraw?: (message: Message) => void;
+  onQuote?: (text: string) => void;
   regenerateDisabled?: boolean;
   renderAnswer?: (message: Message, content: ReactNode) => ReactNode;
 };
@@ -91,9 +94,11 @@ export function AssistantPanel({
   references,
   onRegenerate,
   onWithdraw,
+  onQuote,
   regenerateDisabled = false,
   renderAnswer = plainAnswer,
 }: AssistantPanelProps) {
+  const thread = useRef<HTMLDivElement>(null);
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const scroll = useChatScroll(state.pending?.key);
   const savedIndexes = useMemo(
@@ -103,7 +108,7 @@ export function AssistantPanel({
   const pending = state.pending;
   const retryAction = chatRetryAction(state);
   return (
-    <div className="chat-thread">
+    <div className="chat-thread" ref={thread}>
       <ScrollArea className="chat-scroll" viewportRef={scroll.viewportRef}>
         <div className="chat-messages" ref={scroll.contentRef}>
           {!state.loaded && (
@@ -158,6 +163,14 @@ export function AssistantPanel({
           )}
         </div>
       </ScrollArea>
+      {onQuote && (
+        <ChatSelectionToolbar
+          content={scroll.contentRef}
+          pane={thread}
+          identity={session}
+          onQuote={onQuote}
+        />
+      )}
       {!scroll.following && (
         <Button
           className="chat-follow"
@@ -258,15 +271,15 @@ const ChatMessage = memo(function ChatMessage({
         />
       )}
       {assistant ? (
-        message ? (
-          renderAnswer(message, markdown)
-        ) : (
-          markdown
-        )
+        <div data-chat-text>
+          {message ? renderAnswer(message, markdown) : markdown}
+        </div>
       ) : (
         <>
           {message && references(message)}
-          <div className="chat-question">{content}</div>
+          <div className="chat-question" data-chat-text>
+            {content}
+          </div>
         </>
       )}
       {answer?.fallback && <p className="chat-status">{answer.fallback}</p>}

@@ -825,6 +825,22 @@ export function Workspace({
       : adapter?.goTo(result.location);
     void go?.catch((error) => toast.error(error.message));
   };
+  const quoteChatText = (text: string) => {
+    const quoted = text
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+    setPrompt(`${prompt.current ? `${prompt.current}\n\n` : ""}${quoted}\n\n`);
+    setRight(true);
+    setRightTab("ai");
+    requestAnimationFrame(() => {
+      const input = composeInput.current;
+      input?.focus();
+      if (input)
+        input.setSelectionRange(input.value.length, input.value.length);
+    });
+  };
   const addQuote = () => {
     if (selection) {
       setQuotes((items) => [...items, selection].slice(-6));
@@ -1745,6 +1761,7 @@ export function Workspace({
                   session={session}
                   onRegenerate={() => void regenerate()}
                   onWithdraw={restoreQuestion}
+                  onQuote={quoteChatText}
                   regenerateDisabled={aiModelSaving || sending}
                   renderAnswer={(message, content) => (
                     <SourceReferences

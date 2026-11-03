@@ -588,3 +588,16 @@ it("keeps streamed answer deltas out of the reader while accepting new draft inp
     session.dispose();
   }
 });
+
+it("appends selected chat text to the current draft without creating a document citation", async () => {
+  await act(async () => render(0));
+  await enterPrompt("existing draft");
+  await act(async () => panels.assistant!.onQuote!("first line\nsecond line"));
+  expect(composer().value).toBe(
+    "existing draft\n\n> first line\n> second line\n\n",
+  );
+  expect(host.querySelector(".quote-chips")).toBeNull();
+  expect(tabCloseWarning(doc.id)).not.toBeNull();
+  await act(async () => render(1));
+  expect(composer().value).toContain("> second line");
+});

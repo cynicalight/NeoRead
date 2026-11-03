@@ -88,7 +88,7 @@ describe("Markdown display lifecycle", () => {
     expect(host.querySelector("[data-footnotes]")).not.toBeNull();
   });
 });
-it("scroll pauses on upward intent, ignores resizes until resumed and cleans observers", () => {
+it("scroll pauses on upward intent or text selection until resumed and cleans observers", () => {
   let resize!: () => void;
   let disconnected = 0;
   vi.stubGlobal(
@@ -145,6 +145,18 @@ it("scroll pauses on upward intent, ignores resizes until resumed and cleans obs
   expect(host.textContent).toContain("paused");
   act(() => (host.querySelector("button") as HTMLButtonElement).click());
   expect(viewport.scrollTop).toBe(900);
+  const selection = window.getSelection()!;
+  const range = document.createRange();
+  range.selectNodeContents(viewport.firstElementChild!);
+  selection.addRange(range);
+  Object.defineProperty(viewport, "scrollHeight", { value: 1200 });
+  act(() => resize());
+  flush();
+  expect(viewport.scrollTop).toBe(900);
+  expect(host.textContent).toContain("paused");
+  selection.removeAllRanges();
+  act(() => (host.querySelector("button") as HTMLButtonElement).click());
+  expect(viewport.scrollTop).toBe(1100);
   act(() => root.unmount());
   root = createRoot(host);
   expect(disconnected).toBe(1);

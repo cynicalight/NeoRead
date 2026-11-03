@@ -41,6 +41,16 @@ export function useChatScroll(identity: unknown) {
       frame = requestAnimationFrame(() => {
         frame = 0;
         if (followRef.current) {
+          const selection = window.getSelection();
+          if (
+            selection &&
+            !selection.isCollapsed &&
+            viewport.contains(selection.anchorNode) &&
+            viewport.contains(selection.focusNode)
+          ) {
+            setFollow(false);
+            return;
+          }
           programmatic = Math.max(
             0,
             viewport.scrollHeight - viewport.clientHeight,
