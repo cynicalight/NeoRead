@@ -1174,6 +1174,8 @@ kbd {
 }
 .chat-message.assistant:hover .chat-message-actions,
 .chat-message.assistant:focus-within .chat-message-actions,
+.chat-message.user:hover .chat-question-actions,
+.chat-message.user:focus-within .chat-question-actions,
 .chat-message-actions[data-copied] {
   opacity: 1;
   pointer-events: auto;

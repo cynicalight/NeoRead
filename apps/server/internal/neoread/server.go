@@ -224,6 +224,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions", s.createChatSession)
 	mux.HandleFunc("PATCH /api/documents/{id}/chat-sessions/{session}", s.updateChatSession)
 	mux.HandleFunc("GET /api/documents/{id}/chat-sessions/{session}/messages", s.sessionMessages)
+	mux.HandleFunc("PATCH /api/documents/{id}/chat-sessions/{session}/messages/{message}", s.changeSessionMessage)
+	mux.HandleFunc("DELETE /api/documents/{id}/chat-sessions/{session}/messages/{message}", s.changeSessionMessage)
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/chat", s.chat)
 	mux.HandleFunc("GET /api/documents/{id}/chat-sessions/{session}/runs/{run}/events", s.sessionRunEvents)
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/runs/{run}/cancel", s.cancelSessionRun)
