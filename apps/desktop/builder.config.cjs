@@ -1,3 +1,9 @@
+// Prefer Apple Developer ID signing when a Developer ID certificate is
+// available (NEOREAD_APPLE_P12): enable Hardened Runtime + entitlements so the
+// release can be notarized. Without it, keep the previous behavior (fixed
+// self-signed certificate, or ad-hoc for local / preview builds).
+const appleSigning = Boolean(process.env.NEOREAD_APPLE_P12);
+
 module.exports = {
   appId: "io.github.cynicalight.neoread",
   productName: "NeoRead",
@@ -33,7 +39,15 @@ module.exports = {
     identity: "-",
     // Replaces the ad-hoc identity with the fixed release certificate when available.
     sign: (options) => require("./mac-sign.cjs")(options),
-    hardenedRuntime: false,
+    // Hardened Runtime is mandatory for Apple notarization. It is only enabled
+    // with a Developer ID certificate; the self-signed fallback does not need it
+    // and would add untested constraints for local builds.
+    hardenedRuntime: appleSigning,
+    entitlements: appleSigning ? "entitlements.mac.plist" : undefined,
+    entitlementsInherit: appleSigning ? "entitlements.mac.plist" : undefined,
+    // Built-in notarization stays off on purpose: scripts/package.mjs
+    // recompresses the DMG (ULMO) after electron-builder, so notarization must
+    // run afterwards in scripts/notarize-mac.mjs on the final artifacts.
     notarize: false,
     artifactName:
       process.arch === "x64"

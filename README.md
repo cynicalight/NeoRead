@@ -14,7 +14,7 @@
 
 NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库分开管理，提供目录、搜索、双语对照、批注与 AI 助读。文档、阅读进度和笔记保存在本机。AI 功能可以通过已登录的 Claude Code、Codex CLI 或 Kimi Code CLI 调用，无需在 NeoRead 中另填 API Key；也可以填写 API 地址和 Key，接入 OpenAI 或 Anthropic 兼容接口。
 
-可从[官网](https://cynicalight.github.io/NeoRead/)了解项目，或在 [GitHub Releases](https://github.com/cynicalight/NeoRead/releases) 下载安装包：macOS（Apple Silicon）DMG 与 Windows x64 EXE。Intel Mac 安装包暂停构建，Linux 不提供安装包，也可以从源码运行。安装包没有受系统信任的开发者证书，首次运行可能需要允许系统安全提示。流程与验证范围见[安装包与发版说明](docs/releasing.md)。
+可从[官网](https://cynicalight.github.io/NeoRead/)了解项目，或在 [GitHub Releases](https://github.com/cynicalight/NeoRead/releases) 下载安装包：macOS（Apple Silicon）DMG 与 Windows x64 EXE。Intel Mac 安装包暂停构建，Linux 不提供安装包，也可以从源码运行。macOS 安装包在配置 Apple Developer 凭据后会完成签名与公证（未配置时仍使用自签名证书，首次运行可能需要允许系统安全提示）；Windows 安装包没有 Authenticode 签名。流程与验证范围见[安装包与发版说明](docs/releasing.md)。
 
 ## 功能
 
@@ -196,7 +196,7 @@ assets/            # Logo 源文件与应用图标
 
 当前主要面向无 DRM、横排从左到右的可重排 EPUB 与含文本的 PDF。尚未支持 OCR、密码 PDF 输入、PDF 缩略图、后台 PDF 全文索引、跨文档 AI 检索、独立多会话管理、Ollama 和阅读统计。复杂跨页 PDF 选区暂不创建高亮。
 
-固定版式 EPUB、竖排、RTL、复杂脚注和大文件仍需更多真实样本验证。桌面端已接入 macOS 文件打开事件，但尚未注册系统文件关联；安装包由 CI 构建，尚未提供受系统信任的开发者签名或 macOS 公证。应用内更新的条件见[发版与更新说明](docs/releasing.md)。
+固定版式 EPUB、竖排、RTL、复杂脚注和大文件仍需更多真实样本验证。桌面端已接入 macOS 文件打开事件，但尚未注册系统文件关联；安装包由 CI 构建，配置 Apple Developer 凭据后提供受系统信任的签名与 macOS 公证（默认使用自签名证书、未公证）。应用内更新的条件见[发版与更新说明](docs/releasing.md)。
 
 2026 年 10 月计划更新：
 
