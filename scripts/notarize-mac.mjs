@@ -5,12 +5,13 @@
 // submission invalidates the ticket.
 //
 // Credentials (only configured for macOS release builds):
-//   NEOREAD_APPLE_ID           Apple ID (email) used for notarization
-//   NEOREAD_APPLE_PASSWORD     App-specific password, never the account password
-//   NEOREAD_APPLE_TEAM_ID      Team ID of the Developer Program membership
-// When none are configured the step is skipped; partially configured
-// credentials fail the build so a "signed but not notarized" release cannot
-// slip through.
+//   NEOREAD_APPLE_P12           Developer ID .p12 (base64) used for signing
+//   NEOREAD_APPLE_P12_PASSWORD  its password
+//   NEOREAD_APPLE_ID            Apple ID (email) used for notarization
+//   NEOREAD_APPLE_PASSWORD      App-specific password, never the account password
+//   NEOREAD_APPLE_TEAM_ID       Team ID of the Developer Program membership
+// All five must be configured together or none at all; partial configuration
+// fails the build so a "signed but not notarized" release cannot slip through.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
@@ -22,10 +23,14 @@ const { version } = JSON.parse(
   await readFile(join(root, "apps/desktop/package.json"), "utf8"),
 );
 
+const p12 = process.env.NEOREAD_APPLE_P12;
+const p12Password = process.env.NEOREAD_APPLE_P12_PASSWORD;
 const appleId = process.env.NEOREAD_APPLE_ID;
 const password = process.env.NEOREAD_APPLE_PASSWORD;
 const teamId = process.env.NEOREAD_APPLE_TEAM_ID;
-const present = [appleId, password, teamId].filter((value) => value).length;
+const present = [p12, p12Password, appleId, password, teamId].filter(
+  (value) => value,
+).length;
 if (present === 0) {
   console.log(
     "Apple notarization credentials are not configured; skipping notarization.",
@@ -34,8 +39,8 @@ if (present === 0) {
 }
 assert.equal(
   present,
-  3,
-  "Set all of NEOREAD_APPLE_ID, NEOREAD_APPLE_PASSWORD and NEOREAD_APPLE_TEAM_ID, or none of them.",
+  5,
+  "Set all of NEOREAD_APPLE_P12, NEOREAD_APPLE_P12_PASSWORD, NEOREAD_APPLE_ID, NEOREAD_APPLE_PASSWORD and NEOREAD_APPLE_TEAM_ID, or none of them.",
 );
 
 async function exists(path) {
@@ -47,35 +52,42 @@ async function exists(path) {
   }
 }
 
-function run(command, args) {
+function run(command, args, redact = []) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
     env: process.env,
   });
   if (result.error) throw result.error;
-  if (result.status !== 0)
+  if (result.status !== 0) {
+    // Never echo secrets into the failure message: they end up in build logs.
+    const display = args.map((arg) => (redact.includes(arg) ? "***" : arg));
     throw new Error(
-      `${command} ${args.join(" ")} failed (${result.status}):\n${result.stderr}`,
+      `${command} ${display.join(" ")} failed (${result.status}):\n${result.stderr}`,
     );
+  }
   return result.stdout;
 }
 
 async function notarize(file) {
   console.log(`Submitting ${file} to Apple notarization...`);
-  const out = run("xcrun", [
-    "notarytool",
-    "submit",
-    file,
-    "--apple-id",
-    appleId,
-    "--password",
-    password,
-    "--team-id",
-    teamId,
-    "--wait",
-    "--output-format",
-    "json",
-  ]);
+  const out = run(
+    "xcrun",
+    [
+      "notarytool",
+      "submit",
+      file,
+      "--apple-id",
+      appleId,
+      "--password",
+      password,
+      "--team-id",
+      teamId,
+      "--wait",
+      "--output-format",
+      "json",
+    ],
+    [password],
+  );
   let report;
   try {
     report = JSON.parse(out);
