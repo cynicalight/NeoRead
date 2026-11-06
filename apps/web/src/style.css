@@ -1542,6 +1542,10 @@ kbd {
   gap: 1px;
   max-height: 16rem;
   overflow-y: auto;
+  scrollbar-width: none;
+}
+.skill-list::-webkit-scrollbar {
+  display: none;
 }
 .skill-row {
   display: flex;
