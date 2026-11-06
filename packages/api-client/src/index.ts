@@ -187,10 +187,7 @@ export type PaperRefreshProgress =
   components["schemas"]["PaperRefreshProgress"];
 
 /** One selectable chat playbook. The body stays on the server. */
-export interface ChatSkill {
-  name: string;
-  description: string;
-}
+export type ChatSkill = components["schemas"]["ChatSkill"];
 
 export const api = {
   paperRefreshStatus: () =>

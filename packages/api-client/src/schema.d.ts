@@ -2409,6 +2409,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List selectable chat skills; bodies stay on the server */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Success */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            skills: components["schemas"]["ChatSkill"][];
+                        };
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/providers": {
         parameters: {
             query?: never;
@@ -5219,6 +5266,13 @@ export interface components {
             installed: boolean;
             authenticated: boolean;
             status: string;
+        };
+        /** @description One selectable chat playbook. The playbook body never leaves the server. */
+        ChatSkill: {
+            /** @description Wire identifier sent in the skills array. */
+            name: string;
+            /** @description One-line summary shown in the picker. */
+            description: string;
         };
         Settings: {
             [key: string]: unknown;

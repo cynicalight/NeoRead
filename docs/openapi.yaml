@@ -2725,6 +2725,54 @@
                 },
             },
         },
+      "/api/skills":
+        {
+          "get":
+            {
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Success",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "properties":
+                                    {
+                                      "skills":
+                                        {
+                                          "type": "array",
+                                          "items":
+                                            {
+                                              "$ref": "#/components/schemas/ChatSkill",
+                                            },
+                                        },
+                                    },
+                                  "required": ["skills"],
+                                },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Error",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+              "summary": "List selectable chat skills; bodies stay on the server",
+            },
+        },
       "/api/providers":
         {
           "get":
@@ -6471,6 +6519,19 @@
                   "status": { "type": "string" },
                 },
               "required": ["id", "installed", "authenticated", "status"],
+            },
+          "ChatSkill":
+            {
+              "type": "object",
+              "description": "One selectable chat playbook. The playbook body never leaves the server.",
+              "properties":
+                {
+                  "name":
+                    { "type": "string", "description": "Wire identifier sent in the skills array." },
+                  "description":
+                    { "type": "string", "description": "One-line summary shown in the picker." },
+                },
+              "required": ["name", "description"],
             },
           "Settings": { "type": "object", "additionalProperties": true },
           "ChatStreamEvent":
