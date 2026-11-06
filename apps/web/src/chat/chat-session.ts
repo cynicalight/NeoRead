@@ -10,6 +10,8 @@ import type {
 import { refreshAIConfig } from "../store";
 export type ChatInput = {
   webSearch?: boolean;
+  /** Names of the chat skills the reader attached to this question. */
+  skills?: string[];
   /** Stable identity of the question across explicit regeneration attempts. */
   userMessageId?: string;
   readingLocation?: DocumentLocation;
@@ -84,6 +86,7 @@ const transport: ChatTransport = {
         input.readingLocation,
         input.userMessageId,
         input.webSearch,
+        input.skills,
       );
     } finally {
       // The server records failed primary attempts even when a fallback succeeds.
@@ -167,6 +170,7 @@ export class ChatSession {
               attachments: last.attachments ?? [],
               readingLocation: last.readingLocation,
               webSearch: last.webSearch,
+              skills: last.skills,
             },
             controller: new AbortController(),
           };
@@ -196,6 +200,7 @@ export class ChatSession {
                 attachments: question.attachments ?? [],
                 readingLocation: question.readingLocation,
                 webSearch: question.webSearch,
+                skills: question.skills,
               },
               this.active,
               run,

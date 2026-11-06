@@ -2377,6 +2377,8 @@ export interface paths {
                         }[];
                         /** @description Omission uses saved search settings. Explicit true requires those settings to permit search; false opts out. Saved questions retain their permission on regeneration. */
                         webSearch?: boolean;
+                        /** @description Names of selectable chat playbooks from GET /api/skills. Unknown names are rejected with 400. Saved questions retain their skills on regeneration. */
+                        skills?: string[];
                     };
                 };
             };
@@ -4760,6 +4762,8 @@ export interface paths {
                         }[];
                         /** @description Omission uses saved search settings. Explicit true requires those settings to permit search; false opts out. Saved questions retain their permission on regeneration. */
                         webSearch?: boolean;
+                        /** @description Names of selectable chat playbooks from GET /api/skills. Unknown names are rejected with 400. Saved questions retain their skills on regeneration. */
+                        skills?: string[];
                     };
                 };
             };
@@ -5204,6 +5208,8 @@ export interface components {
             sessionId?: string;
             /** @default false */
             webSearch: boolean;
+            /** @description Chat skill names attached to this question. */
+            skills?: string[];
             tools?: components["schemas"]["ToolActivity"][];
             webSources?: components["schemas"]["WebSource"][];
         };

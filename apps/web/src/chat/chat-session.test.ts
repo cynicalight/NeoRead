@@ -96,6 +96,7 @@ describe("chat request lifecycle", () => {
       ...input,
       context: "original selection",
       readingLocation: { type: "pdf", page: 4 },
+      skills: ["deep-read"],
       attachments: [
         { id: "p4-b1", page: 4, label: "Figure", caption: "original" },
       ],
@@ -105,6 +106,7 @@ describe("chat request lifecycle", () => {
     expect(stream).toHaveBeenCalledTimes(2);
     expect(requests[0].userMessageId).toMatch(/^[a-f0-9]{32}$/);
     expect(requests[1]).toEqual({ ...requests[0], provider: "api" });
+    expect(requests[1].skills).toEqual(["deep-read"]);
     expect(session.getSnapshot()).toMatchObject({
       busy: false,
       archived: [],

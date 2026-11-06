@@ -2710,6 +2710,13 @@
                                       "type": "boolean",
                                       "description": "Omission uses saved search settings. Explicit true requires those settings to permit search; false opts out. Saved questions retain their permission on regeneration.",
                                     },
+                                  "skills":
+                                    {
+                                      "type": "array",
+                                      "maxItems": 3,
+                                      "items": { "type": "string" },
+                                      "description": "Names of selectable chat playbooks from GET /api/skills. Unknown names are rejected with 400. Saved questions retain their skills on regeneration.",
+                                    },
                                 },
                               "required": ["provider", "prompt", "context"],
                             },
@@ -5465,6 +5472,13 @@
                                       "type": "boolean",
                                       "description": "Omission uses saved search settings. Explicit true requires those settings to permit search; false opts out. Saved questions retain their permission on regeneration.",
                                     },
+                                  "skills":
+                                    {
+                                      "type": "array",
+                                      "maxItems": 3,
+                                      "items": { "type": "string" },
+                                      "description": "Names of selectable chat playbooks from GET /api/skills. Unknown names are rejected with 400. Saved questions retain their skills on regeneration.",
+                                    },
                                 },
                               "required": ["provider", "prompt", "context"],
                             },
@@ -6421,6 +6435,12 @@
                       "description": "Stable side chat session identity; omitted only by legacy clients.",
                     },
                   "webSearch": { "type": "boolean", "default": false },
+                  "skills":
+                    {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "Chat skill names attached to this question.",
+                    },
                   "tools":
                     {
                       "type": "array",

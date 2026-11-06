@@ -1494,6 +1494,118 @@ kbd {
   text-overflow: ellipsis;
   flex: 1;
 }
+.skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 3px 5px;
+}
+.skill-chips > div {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 4px 2px 6px;
+  border-radius: 5px;
+  background: color-mix(in oklab, var(--accent) 55%, var(--muted));
+  font-size: 10px;
+  color: var(--foreground);
+}
+.skill-chips span {
+  max-width: 16rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.compose-tools {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.skill-trigger {
+  margin-bottom: 1px;
+}
+.skill-panel {
+  width: 20rem;
+}
+.skill-panel-title {
+  font-size: 12px;
+}
+.skill-search {
+  height: 28px;
+  font-size: 12px;
+}
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+.skill-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.skill-row:hover:not(:disabled) {
+  background: var(--accent);
+}
+.skill-row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.skill-row[data-checked] {
+  background: color-mix(in oklab, var(--accent) 60%, transparent);
+}
+.skill-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.skill-row-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.skill-name {
+  font-size: 12px;
+  line-height: 1.35;
+}
+.skill-description {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+.skill-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.skill-hint {
+  padding: 0 6px 2px;
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
 .pulse-dot {
   display: inline-block;
   width: 5px;

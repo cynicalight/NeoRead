@@ -630,6 +630,8 @@ export interface WebSource {
 }
 export interface Message {
   webSearch?: boolean;
+  /** Names of the chat skills the reader attached to this question. */
+  skills?: string[];
   tools?: ToolActivity[];
   webSources?: WebSource[];
   sessionId?: string;

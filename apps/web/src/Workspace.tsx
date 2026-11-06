@@ -114,6 +114,7 @@ import { ChatSession } from "./chat/chat-session";
 import { getChatSession } from "./chat/session-registry";
 import { SessionPicker } from "./chat/SessionPicker";
 import { AssistantPanel } from "./chat/AssistantPanel";
+import { SkillPicker } from "./chat/SkillPicker";
 import { CodexHandoffButton } from "./chat/CodexHandoffButton";
 import { ImagePreview, imageLabel } from "./ImagePreview";
 import { readingContext } from "./chat/reading-context";
@@ -430,6 +431,7 @@ export function Workspace({
   }, [refreshSessions]);
   const [prompt, setPrompt] = useState("");
   const [quotes, setQuotes] = useState<ReaderSelection[]>([]);
+  const [skills, setSkills] = useState<string[]>([]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [previewImage, setPreviewImage] = useState<ImageAttachment>();
   const composeInput = useRef<HTMLTextAreaElement>(null);
@@ -838,6 +840,7 @@ export function Workspace({
       await session.send({
         provider,
         webSearch,
+        skills: skills.length ? skills : undefined,
         prompt: question,
         context,
         references: captured.references,
@@ -1802,6 +1805,28 @@ export function Workspace({
                     </div>
                   )}
                   {!!images.length && imageAttachments(images, true)}
+                  {skills.length > 0 && (
+                    <div className="skill-chips">
+                      {skills.map((name) => (
+                        <div key={name}>
+                          <Sparkles size={12} aria-hidden="true" />
+                          <span>{name}</span>
+                          <Button
+                            size="icon-xs"
+                            variant="ghost"
+                            aria-label={`移除技能 ${name}`}
+                            onClick={() =>
+                              setSkills((items) =>
+                                items.filter((item) => item !== name),
+                              )
+                            }
+                          >
+                            <X />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <Textarea
                     ref={composeInput}
                     aria-label="向 AI 提问"
@@ -1822,11 +1847,18 @@ export function Workspace({
                     }}
                   />
                   <div className="compose-footer">
-                    <ModelSelector
-                      key={provider}
-                      disabled={sending || !currentSession}
-                      onSettings={onSettings}
-                    />
+                    <div className="compose-tools">
+                      <SkillPicker
+                        selected={skills}
+                        onChange={setSkills}
+                        disabled={sending || !currentSession}
+                      />
+                      <ModelSelector
+                        key={provider}
+                        disabled={sending || !currentSession}
+                        onSettings={onSettings}
+                      />
+                    </div>
                     {sending ? (
                       <Button
                         size="icon-sm"

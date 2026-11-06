@@ -186,6 +186,12 @@ export type PaperAttachment = components["schemas"]["PaperAttachment"];
 export type PaperRefreshProgress =
   components["schemas"]["PaperRefreshProgress"];
 
+/** One selectable chat playbook. The body stays on the server. */
+export interface ChatSkill {
+  name: string;
+  description: string;
+}
+
 export const api = {
   paperRefreshStatus: () =>
     request<PaperRefreshProgress>("/api/diagnostics/paper-refresh"),
@@ -754,6 +760,7 @@ export const api = {
       context: string;
       userMessageId?: string;
       webSearch?: boolean;
+      skills?: string[];
       references: SourceReference[];
       attachments: string[];
       readingLocation?: DocumentLocation;
@@ -780,6 +787,8 @@ export const api = {
     ),
   providers: (checkAuth = true) =>
     request<Provider[]>(`/api/providers${checkAuth ? "" : "?auth=skip"}`),
+  chatSkills: (signal?: AbortSignal) =>
+    request<{ skills: ChatSkill[] }>("/api/skills", { signal }),
   /** Rename a category across a library, or remove it when `to` is omitted. */
   changeLibraryFolder: (library: LibraryMode, from: string, to?: string) =>
     request<{ changed: number }>(`/api/libraries/${library}/folders`, {
@@ -868,6 +877,7 @@ export async function chat(
   readingLocation?: DocumentLocation,
   userMessageId?: string,
   webSearch?: boolean,
+  skills?: string[],
 ) {
   const response = await diagnosticFetch(`/api/documents/${id}/chat`, {
     method: "POST",
@@ -884,6 +894,7 @@ export async function chat(
       attachments,
       userMessageId,
       webSearch,
+      skills,
     }),
     signal,
   });
