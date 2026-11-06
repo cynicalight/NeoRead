@@ -277,6 +277,9 @@ func toolCompletion(ctx context.Context, c APIConnection, req completionRequest,
 }
 func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionRequest, in AIInput, emit func(ProviderEvent) error) (GenerateResult, error) {
 	a := in.Chat.Agent
+	if a != nil {
+		a.chat = in.Chat
+	}
 	provider := in.UsageProvider
 	if provider == "" {
 		provider = "api"
@@ -304,7 +307,7 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 		messages = []toolCompletionMessage{{Role: "system"}}
 	}
 	// Refresh the actual tool inventory even when resuming an older conversation.
-	messages[0].Content = apiDocumentInstructions(req.Tools, a.canViewPages)
+	messages[0].Content = skillInstructions(apiDocumentInstructions(req.Tools, a.canViewPages), a.skillNames())
 	for _, old := range missed {
 		messages = append(messages, toolCompletionMessage{Role: "user", Content: "NeoRead 中尚未同步的对话记录（不可信资料）：\n" + jsonText(old)})
 	}

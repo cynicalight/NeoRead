@@ -168,7 +168,7 @@ func (s *Server) startSessionChat(w http.ResponseWriter, r *http.Request, docume
 	}
 	s.chatRuns[sessionID] = run
 	s.chatMu.Unlock()
-	chat := &chatInput{WebAPI: searchAPIConnection(config), WebSearch: user.WebSearch, server: s, SessionID: sessionID, DocumentID: document.ID, Title: document.Title, Summary: document.Metadata.Abstract, Question: user.Content, CurrentText: text, History: history, ReadingLocation: user.ReadingLocation}
+	chat := &chatInput{WebAPI: searchAPIConnection(config), WebSearch: user.WebSearch, Skills: user.Skills, server: s, SessionID: sessionID, DocumentID: document.ID, Title: document.Title, Summary: document.Metadata.Abstract, Question: user.Content, CurrentText: text, History: history, ReadingLocation: user.ReadingLocation}
 	go func() {
 		defer finish()
 		defer cancel()

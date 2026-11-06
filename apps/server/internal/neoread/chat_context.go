@@ -38,6 +38,7 @@ type chatInput struct {
 	webCalls        int
 	webTransport    http.RoundTripper
 	WebSearch       bool
+	Skills          []string
 	WebAPI          APIConnection
 	Tools           []ToolActivity
 	WebSources      []WebSource

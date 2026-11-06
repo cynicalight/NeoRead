@@ -276,7 +276,7 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 			request.Tools = append(request.Tools, map[string]any{"name": d.Name, "description": d.Description, "schema": d.Schema})
 		}
 	}
-	request.System = webInstructions(request.System, in.Chat.WebSearch)
+	request.System = skillInstructions(webInstructions(request.System, in.Chat.WebSearch), in.Chat.Skills)
 	root := in.Chat.server.Store.Root
 	complete, err := runPiWorker(ctx, root, request, func(e piEvent) error {
 		switch e.Type {

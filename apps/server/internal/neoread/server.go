@@ -128,6 +128,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/diagnostics/paper-refresh", s.paperRefreshStatus)
 	mux.HandleFunc("POST /api/diagnostics/paper-refresh", s.startPaperRefresh)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("GET /api/skills", s.chatSkills)
 	mux.HandleFunc("GET /api/documents", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Store.Documents()
 		if e != nil {

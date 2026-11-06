@@ -24,6 +24,7 @@ type documentConversation struct {
 	ReadBlocks      []string                `json:"readBlocks,omitempty"`
 	ReadPages       []documentPageImage     `json:"readPages,omitempty"`
 	OverviewVersion string                  `json:"overviewVersion,omitempty"`
+	Skills          []string                `json:"skills,omitempty"`
 	Messages        []toolCompletionMessage `json:"messages,omitempty"`
 	Compactions     int                     `json:"compactions"`
 	NativeThread    string                  `json:"nativeThread,omitempty"`

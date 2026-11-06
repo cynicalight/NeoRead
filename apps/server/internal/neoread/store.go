@@ -56,6 +56,7 @@ type Annotation struct {
 }
 type Message struct {
 	WebSearch       bool              `json:"webSearch,omitempty"`
+	Skills          []string          `json:"skills,omitempty"`
 	Tools           []ToolActivity    `json:"tools,omitempty"`
 	WebSources      []WebSource       `json:"webSources,omitempty"`
 	SessionID       string            `json:"sessionId,omitempty"`

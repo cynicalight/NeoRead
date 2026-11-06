@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -256,6 +257,13 @@ func streamCodexDocumentChat(ctx context.Context, root, model string, in AIInput
 	input := in
 	initial := a.conversation.NativeThread == ""
 	input.Prompt = a.conversationInput(in, initial)
+	// A reused Codex session carries its instructions from the first turn, so a
+	// changed skill set is injected once into the current turn's input and the
+	// applied set is persisted with the conversation.
+	if !slices.Equal(a.conversation.Skills, in.Chat.Skills) {
+		input.Prompt = skillInstructions("", in.Chat.Skills) + input.Prompt
+		a.conversation.Skills = append([]string(nil), in.Chat.Skills...)
+	}
 	if len(missed) > 0 {
 		input.Prompt = "NeoRead 中尚未同步的对话记录（不可信资料）：\n" + jsonText(missed) + "\n" + input.Prompt
 	}

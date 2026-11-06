@@ -53,6 +53,11 @@ func (c *codexChatCache) acquire(ctx context.Context, root, model string, in AII
 	if chat.WebSearch {
 		key += "\x00web"
 	}
+	// A reused session keeps the skills injected at its first turn; a changed
+	// selection starts a fresh session instead of mixing playbooks.
+	for _, name := range chat.Skills {
+		key += "\x00skill:" + name
+	}
 	e := c.entry
 	// A reused session keeps every source it has seen, so count this turn's new
 	// sources too; a fresh session receives only the budgeted list.
