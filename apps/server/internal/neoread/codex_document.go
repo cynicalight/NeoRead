@@ -259,9 +259,10 @@ func streamCodexDocumentChat(ctx context.Context, root, model string, in AIInput
 	input.Prompt = a.conversationInput(in, initial)
 	// A reused Codex session carries its instructions from the first turn, so a
 	// changed skill set is injected once into the current turn's input and the
-	// applied set is persisted with the conversation.
+	// applied set is persisted with the conversation. Clearing the set injects
+	// an explicit retraction: the native thread still holds the old block.
 	if !slices.Equal(a.conversation.Skills, in.Chat.Skills) {
-		input.Prompt = skillInstructions("", in.Chat.Skills) + input.Prompt
+		input.Prompt = skillTurnPrefix(a.conversation.Skills, in.Chat.Skills) + input.Prompt
 		a.conversation.Skills = append([]string(nil), in.Chat.Skills...)
 	}
 	if len(missed) > 0 {

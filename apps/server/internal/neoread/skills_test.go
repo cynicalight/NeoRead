@@ -122,6 +122,28 @@ func TestAPIDocumentChatSkillsInjection(t *testing.T) {
 	}
 }
 
+func TestSkillTurnPrefix(t *testing.T) {
+	withTestSkills(t, testSkill)
+	if got := skillTurnPrefix(nil, nil); got != "" {
+		t.Fatalf("unchanged empty set must stay silent: %q", got)
+	}
+	if got := skillTurnPrefix([]string{"deep-read"}, []string{"deep-read"}); got != "" {
+		t.Fatalf("unchanged set must stay silent: %q", got)
+	}
+	selected := skillTurnPrefix(nil, []string{"deep-read"})
+	if !strings.Contains(selected, "先读摘要和结论") {
+		t.Fatalf("selection not injected: %q", selected)
+	}
+	cleared := skillTurnPrefix([]string{"deep-read"}, nil)
+	if cleared != skillRetraction || !strings.Contains(cleared, "不再适用") {
+		t.Fatalf("clearing skills must revoke them explicitly: %q", cleared)
+	}
+	swapped := skillTurnPrefix([]string{"ghost"}, []string{"deep-read"})
+	if !strings.Contains(swapped, "先读摘要和结论") {
+		t.Fatalf("swap must inject the new set: %q", swapped)
+	}
+}
+
 func TestSameChatQuestionCoversSkills(t *testing.T) {
 	base := Message{Role: "user", Content: "q", Skills: []string{"a"}}
 	if sameChatQuestion(base, Message{Role: "user", Content: "q", Skills: []string{"a"}}) != true {

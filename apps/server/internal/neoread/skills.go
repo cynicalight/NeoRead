@@ -63,6 +63,27 @@ func (a *documentAgent) skillNames() []string {
 	return a.chat.Skills
 }
 
+// skillRetraction revokes previously injected skills. A reused native Codex
+// thread keeps the old block in context, so clearing the selection needs an
+// explicit statement rather than an empty injection.
+const skillRetraction = "<selected_skills>\n本轮未选择任何技能。此前注入的技能规范不再适用于本轮回答；按通用阅读助手的要求回答。\n</selected_skills>"
+
+// skillTurnPrefix renders what a reused provider session must see when the
+// applied skill set changes: the new playbooks, or an explicit retraction when
+// the selection empties. Equal sets need nothing.
+func skillTurnPrefix(applied, selected []string) string {
+	if slices.Equal(applied, selected) {
+		return ""
+	}
+	if len(selected) > 0 {
+		return skillInstructions("", selected)
+	}
+	if len(applied) > 0 {
+		return skillRetraction
+	}
+	return ""
+}
+
 // skillInstructions renders the selected skills as a trusted system-prompt
 // suffix. Skill text is an application constant: it adds working norms for
 // the assistant, never instructions for document content, and it does not
