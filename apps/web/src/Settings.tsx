@@ -287,12 +287,17 @@ export function Settings({
     // Reopening refreshes metadata silently; preserve the last confirmed UI.
     if (force || !probed) setLoading(true);
     try {
-      const [providers, config] = await Promise.all([
+      const before = useReaderStore.getState().aiConfig;
+      const [providers, loadedConfig] = await Promise.all([
         api.providers(false),
         api.aiConfig(),
       ]);
       setProviders(providers);
-      setAIConfig(config);
+      // Keep config changes published while this settings snapshot was loading.
+      const latest = useReaderStore.getState().aiConfig;
+      const config =
+        latest === before ? loadedConfig : (latest ?? loadedConfig);
+      if (latest === before) setAIConfig(config);
       // CLI agents are checked as a whole, the API agent one model at a time.
       const pending = providers
         .filter((provider) => {

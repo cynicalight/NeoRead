@@ -491,3 +491,26 @@ it("checks installed providers' shared catalog caches whenever settings opens", 
   expect(api.agentModels).toHaveBeenCalledWith("codex");
   expect(api.agentModels).toHaveBeenCalledWith("claude");
 });
+
+it("does not overwrite freshly updated capabilities with a slower settings snapshot", async () => {
+  let release!: (providers: Awaited<ReturnType<typeof api.providers>>) => void;
+  vi.mocked(api.providers).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  const updated = {
+    ...config,
+    capabilities: {
+      ...config.capabilities,
+      codex: { text: true, vision: true, checkedAt: "new-check" },
+    },
+  };
+  await act(async () => useReaderStore.getState().setAIConfig(updated));
+  await act(async () => release([]));
+  expect(useReaderStore.getState().aiConfig?.capabilities.codex).toEqual(
+    updated.capabilities.codex,
+  );
+});
