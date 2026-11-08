@@ -93,6 +93,7 @@ export function ModelSelector({
     if (!provider) return;
     const controller = new AbortController();
     setLoading(true);
+    setCatalog({ provider: "", models: [] });
     setError("");
     void api
       .agentModels(provider, controller.signal)
