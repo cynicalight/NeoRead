@@ -267,7 +267,7 @@ export function ModelSelector({
           {current?.name ?? (loading ? "加载模型…" : "选择模型")}
         </span>
         <span className="model-trigger-effort">
-          {fixedEffort ? "固定／自动" : effortLabel(currentEffort)}
+          {fixedEffort ? "自动" : effortLabel(currentEffort)}
         </span>
       </PopoverTrigger>
       <PopoverContent
@@ -279,7 +279,7 @@ export function ModelSelector({
         <div className="effort-heading">
           <Zap size={16} className="effort-symbol" aria-hidden="true" />
           <PopoverTitle className="effort-title" aria-live="polite">
-            {fixedEffort ? "固定／自动" : effortLabel(effort)}
+            {fixedEffort ? "自动" : effortLabel(effort)}
           </PopoverTitle>
           <Button
             variant="ghost"
