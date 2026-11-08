@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -412,5 +413,52 @@ func TestAPIAgentEffortSurvivesMissingCatalog(t *testing.T) {
 		if err != nil || req.Model != "custom-model" || req.Effort != "low" {
 			t.Fatalf("%+v %v", req, err)
 		}
+	}
+}
+
+func TestAPICatalogCacheIsolationAndLiveChecks(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = io.WriteString(w, deepSeekModels)
+	}))
+	defer upstream.Close()
+	s := testServer(t)
+	config := AIConfig{API: APIConnection{URL: upstream.URL + "/v1", Key: "first"}}
+	for range 2 {
+		if _, err := s.apiAgentModels(t.Context(), config); err != nil {
+			t.Fatal(err)
+		}
+	}
+	passModels(&config, map[string]bool{"deepseek-flash": true})
+	models, err := s.apiAgentModels(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatal("valid API catalog was fetched again")
+	}
+	found := false
+	for _, model := range models {
+		if model.ID == "deepseek-flash" && model.Capability != nil && model.Capability.Text {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("cached catalog froze model check results")
+	}
+	config.API.Key = "second"
+	if _, err := s.apiAgentModels(t.Context(), config); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 {
+		t.Fatal("API key change reused previous catalog")
+	}
+	config.API.URL = upstream.URL + "/other/v1"
+	if _, err := s.apiAgentModels(t.Context(), config); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 3 {
+		t.Fatal("API URL change reused previous catalog")
 	}
 }

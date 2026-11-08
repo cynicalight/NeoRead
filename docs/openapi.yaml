@@ -3304,6 +3304,18 @@
                         "enum": ["codex", "claude", "kimi", "api"],
                       },
                   },
+                  {
+                    "in": "query",
+                    "name": "refresh",
+                    "description": "Reload an expired catalog from the Settings picker. Fresh snapshots are reused.",
+                    "schema": { "type": "boolean", "default": false },
+                  },
+                  {
+                    "in": "query",
+                    "name": "cached",
+                    "description": "Read the existing snapshot, including expired data, without starting discovery.",
+                    "schema": { "type": "boolean", "default": false },
+                  },
                 ],
               "responses":
                 {

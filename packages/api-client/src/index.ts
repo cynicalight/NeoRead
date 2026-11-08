@@ -518,9 +518,14 @@ export const api = {
     request<PDFBlock[]>(`/api/documents/${id}/blocks`, { signal }),
   aiConfig: (signal?: AbortSignal) =>
     request<AIConfig>("/api/ai/config", { signal }),
-  agentModels: (provider: string, signal?: AbortSignal) =>
+  agentModels: (
+    provider: string,
+    signal?: AbortSignal,
+    refresh = false,
+    cacheOnly = false,
+  ) =>
     request<AgentModel[]>(
-      `/api/ai/models?provider=${encodeURIComponent(provider)}`,
+      `/api/ai/models?provider=${encodeURIComponent(provider)}${refresh ? "&refresh=true" : ""}${cacheOnly ? "&cached=true" : ""}`,
       { signal },
     ),
   saveAIConfig: (config: AIConfig) =>

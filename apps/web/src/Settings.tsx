@@ -1,3 +1,4 @@
+import { loadModelCatalog } from "./model-catalog";
 import { Switch } from "@neoread/ui/components/switch";
 import { PaperServiceSettings } from "./papers/PaperServiceSettings";
 import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
@@ -310,14 +311,19 @@ export function Settings({
           return true;
         })
         .map(({ id }) => id);
+      // Initialize missing catalogs; only the Settings model picker checks expiry.
+      const catalogProviders = providers.filter(({ installed }) => installed);
+      const results = await Promise.allSettled(
+        catalogProviders.map(({ id }) => loadModelCatalog(id)),
+      );
       let models: AgentModel[] = [];
-      if (providers.some(({ id, installed }) => id === "api" && installed)) {
-        try {
-          models = await api.agentModels("api");
-          setAPIModelsError("");
-        } catch (error) {
-          setAPIModelsError((error as Error).message);
-        }
+      const apiIndex = catalogProviders.findIndex(({ id }) => id === "api");
+      const apiResult = results[apiIndex];
+      if (apiResult?.status === "fulfilled") {
+        models = apiResult.value;
+        setAPIModelsError("");
+      } else if (apiResult?.status === "rejected") {
+        setAPIModelsError((apiResult.reason as Error).message);
       }
       setAPIModels(models);
       // Large catalogs are checked on demand, row by row.
@@ -1331,7 +1337,10 @@ export function Settings({
               {config && (
                 <div className="mt-4 flex flex-col gap-2">
                   <div data-tour="task-models">
-                    <TaskModels disabled={saving || testing.size > 0} />
+                    <TaskModels
+                      disabled={saving || testing.size > 0}
+                      onAPIModelsLoaded={setAPIModels}
+                    />
                   </div>
                 </div>
               )}

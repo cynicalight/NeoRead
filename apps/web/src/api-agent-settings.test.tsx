@@ -466,3 +466,28 @@ it("shows only library location in the books tab for the current library", async
     );
   }
 });
+
+it("checks installed providers' shared catalog caches whenever settings opens", async () => {
+  config.capabilities = {
+    codex: { text: true, vision: true, checkedAt: "checked" },
+    claude: { text: true, vision: true, checkedAt: "checked" },
+  };
+  vi.mocked(api.providers).mockResolvedValue([
+    { id: "codex", installed: true, authenticated: true, status: "ready" },
+    { id: "claude", installed: true, authenticated: true, status: "ready" },
+    { id: "kimi", installed: false, authenticated: false, status: "missing" },
+  ]);
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  expect(api.agentModels).toHaveBeenCalledWith("codex");
+  expect(api.agentModels).toHaveBeenCalledWith("claude");
+  expect(
+    vi.mocked(api.agentModels).mock.calls.some(([id]) => id === "kimi"),
+  ).toBe(false);
+  vi.mocked(api.agentModels).mockClear();
+  await act(async () =>
+    root.render(<Settings open={false} onOpenChange={() => {}} />),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  expect(api.agentModels).toHaveBeenCalledWith("codex");
+  expect(api.agentModels).toHaveBeenCalledWith("claude");
+});

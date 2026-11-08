@@ -74,6 +74,7 @@ type Server struct {
 	blockedProcessing      map[string]bool
 	modelMu                sync.Mutex
 	modelCache             map[string]modelCatalogEntry
+	modelLoads             map[string]*modelCatalogLoad
 	paperRefresh           paperRefreshState
 	scholarMu              sync.Mutex
 	scholar                *scholar.Client

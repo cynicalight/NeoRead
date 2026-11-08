@@ -1,3 +1,4 @@
+import { subscribeModelCatalog } from "./model-catalog";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { api } from "@neoread/api";
 import type {
@@ -80,6 +81,7 @@ export function ModelSelector({
     provider: string;
     models: AgentModel[];
   }>({ provider: "", models: [] });
+  const catalogUpdate = useRef(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -90,15 +92,19 @@ export function ModelSelector({
   const effortSaveRunning = useRef(false);
   const [draftEffort, setDraftEffort] = useState<ReasoningEffort | null>(null);
   useEffect(() => {
-    if (!provider) return;
+    if (!provider) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
+    const update = ++catalogUpdate.current;
     setLoading(true);
     setCatalog({ provider: "", models: [] });
     setError("");
     void api
-      .agentModels(provider, controller.signal)
+      .agentModels(provider, controller.signal, false, true)
       .then((models) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted && update === catalogUpdate.current)
           setCatalog({
             provider,
             models: models.map((model) => ({
@@ -108,13 +114,31 @@ export function ModelSelector({
           });
       })
       .catch((error: Error) => {
-        if (!controller.signal.aborted) setError(error.message);
+        if (!controller.signal.aborted && update === catalogUpdate.current)
+          setError(error.message);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
   }, [provider, revision, retry]);
+  useEffect(
+    () =>
+      subscribeModelCatalog((updatedProvider, models) => {
+        if (updatedProvider !== provider) return;
+        ++catalogUpdate.current;
+        setLoading(false);
+        setCatalog({
+          provider,
+          models: models.map((model) => ({
+            ...model,
+            name: modelDisplayName(model.id, model.name),
+          })),
+        });
+        setError("");
+      }),
+    [provider],
+  );
   const models = catalog.provider === provider ? catalog.models : [];
   const configuredModel = config?.models[provider] ?? "";
   const usable = usableModels(provider, models, "chat");

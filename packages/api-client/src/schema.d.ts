@@ -2960,6 +2960,10 @@ export interface paths {
             parameters: {
                 query: {
                     provider: "codex" | "claude" | "kimi" | "api";
+                    /** @description Reload an expired catalog from the Settings picker. Fresh snapshots are reused. */
+                    refresh?: boolean;
+                    /** @description Read the existing snapshot, including expired data, without starting discovery. */
+                    cached?: boolean;
                 };
                 header?: never;
                 path?: never;

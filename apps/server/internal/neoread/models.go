@@ -40,6 +40,12 @@ func (s *Server) agentModels(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
+	if r.URL.Query().Get("refresh") == "true" {
+		ctx = context.WithValue(ctx, refreshModelCatalogKey{}, true)
+	}
+	if r.URL.Query().Get("cached") == "true" {
+		ctx = context.WithValue(ctx, cachedModelsOnlyKey{}, true)
+	}
 	if provider == "api" {
 		models, err := s.apiAgentModels(ctx, s.aiConfig())
 		if err != nil {

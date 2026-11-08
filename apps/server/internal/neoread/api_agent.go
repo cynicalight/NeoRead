@@ -262,6 +262,9 @@ func (s *Server) apiAgentModels(ctx context.Context, c AIConfig) ([]AgentModel, 
 		}
 	}
 	if len(models) == 0 {
+		if cacheOnly, _ := ctx.Value(cachedModelsOnlyKey{}).(bool); cacheOnly && err == nil {
+			return models, nil
+		}
 		if err == nil {
 			err = errors.New("API 未返回可用模型")
 		}

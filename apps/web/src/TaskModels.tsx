@@ -1,3 +1,4 @@
+import { loadModelCatalog } from "./model-catalog";
 import { useEffect, useState } from "react";
 import { api } from "@neoread/api";
 import type {
@@ -44,7 +45,13 @@ export function taskChoice(config: AIConfig, task: ModelTask) {
   return { model, effort };
 }
 
-export function TaskModels({ disabled }: { disabled: boolean }) {
+export function TaskModels({
+  disabled,
+  onAPIModelsLoaded,
+}: {
+  disabled: boolean;
+  onAPIModelsLoaded?: (models: AgentModel[]) => void;
+}) {
   const {
     aiConfig: config,
     setAIConfig,
@@ -59,16 +66,24 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
   }>({ provider: "", models: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [openPicker, setOpenPicker] = useState("");
   useEffect(() => {
-    if (!provider) return;
+    if (!provider) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
-    setCatalog({ provider: "", models: [] });
     setError("");
-    void api
-      .agentModels(provider, controller.signal)
+    void loadModelCatalog(
+      provider,
+      controller.signal,
+      !!openPicker,
+      !openPicker,
+    )
       .then((models) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          if (provider === "api") onAPIModelsLoaded?.(models);
           setCatalog({
             provider,
             models: models.map((model) => ({
@@ -76,6 +91,7 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
               name: modelDisplayName(model.id, model.name),
             })),
           });
+        }
       })
       .catch((error: Error) => {
         if (!controller.signal.aborted) setError(error.message);
@@ -84,7 +100,7 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [provider, revision]);
+  }, [provider, revision, openPicker, onAPIModelsLoaded]);
   if (!config || !provider) return null;
   const models = catalog.provider === provider ? catalog.models : [];
 
@@ -174,8 +190,11 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
                 {label}
               </span>
               <Select
+                onOpenChange={(open) => {
+                  setOpenPicker(open ? task : "");
+                }}
                 value={current?.id ?? recommended?.id ?? AUTO}
-                disabled={disabled || saving || (empty && !current)}
+                disabled={disabled || saving}
                 onValueChange={(value) =>
                   value &&
                   void chooseModel(
