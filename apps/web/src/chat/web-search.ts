@@ -4,10 +4,8 @@ import type { WebSearchConfig } from "@neoread/core";
 export function webSearchEnabled(provider: string, config?: WebSearchConfig) {
   if (!config) return false;
   if (provider === "codex") return config.cliEnabled;
-  return (
-    provider === "api" &&
-    config.provider === "deepseek" &&
-    !!config.url &&
-    config.hasKey
-  );
+  if (provider !== "api" || !config.url) return false;
+  // Keenable answers without a key; the optional key only lifts rate limits.
+  if (config.provider === "keenable") return true;
+  return config.provider === "deepseek" && config.hasKey;
 }

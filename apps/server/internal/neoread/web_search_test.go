@@ -76,6 +76,50 @@ func TestDeepSeekWebFetchBoundsAndCancel(t *testing.T) {
 		t.Fatal(err, c.Tools)
 	}
 }
+func TestKeenableWebSearchKeylessAndKeyed(t *testing.T) {
+	conn := APIConnection{Protocol: "keenable", URL: keenableSearchURL}
+	requests := []string{}
+	c := &chatInput{WebSearch: true, webTransport: webRoundTrip(func(r *http.Request) (*http.Response, error) {
+		requests = append(requests, r.Method+" "+r.URL.String())
+		if r.Header.Get("X-Keenable-Title") != "NeoRead" || r.Header.Get("Authorization") != "" || r.Header.Get("X-API-Key") != conn.Key {
+			t.Fatal("wrong Keenable headers", r.Header)
+		}
+		if r.Method == "GET" {
+			return webJSON(200, `{"url":"https://1.1.1.1/page","title":"Page","content":"Public page text"}`), nil
+		}
+		data, _ := io.ReadAll(r.Body)
+		if string(data) != `{"max_results":5,"query":"official documentation"}` {
+			t.Fatal("unexpected search payload", string(data))
+		}
+		return webJSON(200, `{"results":[{"title":"Official","url":"https://example.com/article","description":"","snippet":"Search snippet","published_at":"2026-10-23T00:00:00Z"},{"title":"No date","url":"https://example.com/other","snippet":"Other","published_at":null}]}`), nil
+	})}
+	raw, err := c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"official documentation"}`))
+	if err != nil || !strings.Contains(string(raw), "search_summaries") || len(c.WebSources) != 2 || c.WebSources[0].Text != "Search snippet" || c.WebSources[0].PublishedAt != "2026-10-23T00:00:00Z" {
+		t.Fatal(string(raw), err, c.WebSources)
+	}
+	if raw, err = c.callWebTool(t.Context(), conn, "web_fetch", json.RawMessage(`{"url":"https://1.1.1.1/page"}`)); err != nil || c.WebSources[2].Kind != "page" || c.WebSources[2].Text != "Public page text" {
+		t.Fatal(string(raw), err, c.WebSources)
+	}
+	conn.Key = "keenable-secret"
+	if _, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"official documentation"}`)); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"POST https://api.keenable.ai/v1/search/public",
+		"GET https://api.keenable.ai/v1/fetch/public?url=https%3A%2F%2F1.1.1.1%2Fpage",
+		"POST https://api.keenable.ai/v1/search",
+	}
+	if strings.Join(requests, "\n") != strings.Join(want, "\n") {
+		t.Fatal(requests)
+	}
+	c.webTransport = webRoundTrip(func(*http.Request) (*http.Response, error) { return webJSON(429, `{"error":"PRIVATE_SECRET"}`), nil })
+	if raw, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"x"}`)); err != nil || !strings.Contains(string(raw), "Keenable 搜索限流") || strings.Contains(string(raw), "PRIVATE_SECRET") {
+		t.Fatal(string(raw), err)
+	}
+	if validSearchConnection(APIConnection{Protocol: "keenable", URL: "https://other.example"}) {
+		t.Fatal("Keenable connection accepted another address")
+	}
+}
 func TestWebConnectionAndRedirectBoundaries(t *testing.T) {
 	for _, raw := range []string{"https://api.deepseek.com.evil.test", "http://api.deepseek.com", "https://api.deepseek.com:8443", "https://u:p@api.deepseek.com", "https://api.deepseek.com/v1?token=x"} {
 		if deepSeekSearchConnection(APIConnection{URL: raw, Key: "key"}) {

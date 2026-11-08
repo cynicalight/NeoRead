@@ -5399,8 +5399,8 @@ export interface components {
              * @description Empty disables the search API.
              * @enum {string}
              */
-            provider: "" | "deepseek";
-            /** @description DeepSeek Search/Fetch compatible base URL. Independent of the chat model endpoint. */
+            provider: "" | "deepseek" | "keenable";
+            /** @description DeepSeek Search/Fetch compatible base URL. Independent of the chat model endpoint. Fixed to https://api.keenable.ai for keenable, which works without a key. */
             url: string;
             key?: string;
             /** @description An empty key with hasKey=true preserves the saved key only at the same address. */

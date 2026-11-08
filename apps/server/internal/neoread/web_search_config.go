@@ -17,10 +17,17 @@ type WebSearchConfig struct {
 
 const defaultSearchURL = "https://api.deepseek.com"
 
+// Keenable has a fixed address and works without a key; a key only lifts rate limits.
+const keenableSearchURL = "https://api.keenable.ai"
+
 func mergeWebSearchConfig(c, old *WebSearchConfig) error {
 	c.URL = strings.TrimRight(strings.TrimSpace(c.URL), "/")
 	c.Key = strings.TrimSpace(c.Key)
-	if c.Provider != "" && c.Provider != "deepseek" {
+	switch c.Provider {
+	case "", "deepseek":
+	case "keenable":
+		c.URL = keenableSearchURL
+	default:
 		return errors.New("暂不支持此搜索 API")
 	}
 	if c.URL == "" {
@@ -43,13 +50,22 @@ func mergeWebSearchConfig(c, old *WebSearchConfig) error {
 }
 
 func searchAPIConnection(c AIConfig) APIConnection {
-	if c.WebSearch == nil || c.WebSearch.Provider != "deepseek" {
+	if c.WebSearch == nil {
 		return APIConnection{}
 	}
-	return APIConnection{URL: c.WebSearch.URL, Key: c.WebSearch.Key}
+	switch c.WebSearch.Provider {
+	case "deepseek":
+		return APIConnection{URL: c.WebSearch.URL, Key: c.WebSearch.Key}
+	case "keenable":
+		return APIConnection{Protocol: "keenable", URL: keenableSearchURL, Key: c.WebSearch.Key}
+	}
+	return APIConnection{}
 }
 
 func validSearchConnection(c APIConnection) bool {
+	if c.Protocol == "keenable" {
+		return c.URL == keenableSearchURL
+	}
 	return c.Key != "" && validateAPIURL(c.URL) == nil
 }
 
