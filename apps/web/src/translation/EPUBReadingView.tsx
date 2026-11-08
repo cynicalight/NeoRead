@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -114,7 +115,8 @@ export function EPUBReadingView({
       pane.current?.querySelectorAll<HTMLElement>("[data-translation-block]") ??
         [],
     ).find((n) => n.dataset.translationBlock === id);
-  const follow = (id: string, fraction = 0.5) => {
+  /** Scroll following sets the pane directly, as PDF does; jumps animate. */
+  const follow = (id: string, fraction = 0.5, instant = false) => {
     const block = live.current.blocks.find((b) => b.id === id);
     if (!block) return;
     pendingFollow.current = { blockId: id, fraction };
@@ -127,15 +129,21 @@ export function EPUBReadingView({
         pendingFollow.current = undefined;
         const operation = ++translationMotion.current;
         const rect = node.getBoundingClientRect();
+        const top =
+          host.scrollTop +
+          rect.top -
+          host.getBoundingClientRect().top +
+          rect.height * fraction -
+          host.clientHeight / 2;
         sync.current.following("translation");
+        if (instant) {
+          host.scrollTop = top;
+          return;
+        }
         void animatePDFScroll(
           host,
           host.scrollLeft,
-          host.scrollTop +
-            rect.top -
-            host.getBoundingClientRect().top +
-            rect.height * fraction -
-            host.clientHeight / 2,
+          top,
           () =>
             operation !== translationMotion.current || pane.current !== host,
           () => {},
@@ -475,7 +483,12 @@ export function EPUBReadingView({
     </div>
   );
   return (
-    <div ref={root} className="epub-reading" data-theme={theme.mode}>
+    <div
+      ref={root}
+      className="epub-reading"
+      data-theme={theme.mode}
+      style={{ "--epub-margin": `${theme.margin}px` } as CSSProperties}
+    >
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       <TranslationPanes
         mode={mode}
@@ -580,7 +593,7 @@ export function EPUBReadingView({
                     !selection.current &&
                     live.current.mode === "parallel"
                   )
-                    follow(id, fraction);
+                    follow(id, fraction, true);
                 },
                 selection: (value) => {
                   if (

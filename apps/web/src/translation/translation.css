@@ -105,6 +105,22 @@
     outline-color 180ms ease-out,
     box-shadow 180ms ease-out;
 }
+/* Match the source chapter's border-box width and reading margins. */
+.epub-reading .translation-panes[data-stacked] {
+  --epub-page-width: 54rem;
+}
+.epub-reading .translation-panes[data-stacked] .epub-web-reader {
+  scrollbar-gutter: stable;
+}
+.epub-reading .translation-panes[data-stacked] .translation-document {
+  padding-inline: var(--epub-margin, 32px);
+}
+.epub-reading .translation-panes[data-stacked] .translation-document section {
+  max-width: max(
+    0px,
+    calc(var(--epub-page-width) - 2 * var(--epub-margin, 32px))
+  );
+}
 .translation-document [data-label="doc_title"] {
   font-size: 1.45em;
   font-weight: 600;

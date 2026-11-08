@@ -30,7 +30,6 @@ import {
   blockRange,
   resolveEPUBLocation,
 } from "./epub-web-location";
-import { animatePDFScroll } from "./pdf-scroll";
 import { EPUBBlockOverlay, epubBlockRect } from "./epub-block-focus";
 import "./epub-web.css";
 
@@ -1074,18 +1073,17 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     const rect = epubBlockRect(this.container, anchor.blockId);
     if (!rect) return;
     const view = this.container.getBoundingClientRect();
-    await animatePDFScroll(
-      this.container,
-      this.container.scrollLeft,
+    // Scroll following runs every frame; an animation restarted each frame
+    // would not move until scrolling stopped.
+    this.container.scrollTop = Math.max(
+      0,
       this.container.scrollTop +
         rect.top -
         view.top +
         rect.height * anchor.fraction -
         this.container.clientHeight / 2,
-      cancelled,
-      () => {},
     );
-    if (!cancelled()) this.rememberAnchor();
+    this.rememberAnchor();
   }
   async focusBlock(blockId: string) {
     this.cancelBlockFocus();
