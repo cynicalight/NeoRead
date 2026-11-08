@@ -25,7 +25,6 @@ import {
 } from "react";
 import {
   Languages,
-  ChartColumn,
   ArrowLeft,
   BookOpen,
   PanelLeft,
@@ -107,7 +106,6 @@ import {
 } from "@neoread/ui/components/tooltip";
 import { toast } from "sonner";
 import { DocumentOverviewDialog } from "./DocumentOverview";
-import { ProcessingUsageDialog } from "./ProcessingUsage";
 import { ModelSelector } from "./ModelSelector";
 import { SourceReferences } from "./SourceReferences";
 import { ChatSession } from "./chat/chat-session";
@@ -328,7 +326,6 @@ export function Workspace({
     rightPanel,
   ]);
   const [overviewOpen, setOverviewOpen] = useState(false);
-  const [usageOpen, setUsageOpen] = useState(false);
   const [rightTab, setRightTab] = useState("ai");
   const [leftTab, setLeftTab] = useState("toc");
   const [query, setQuery] = useState("");
@@ -1647,15 +1644,6 @@ export function Workspace({
                   <BookOpen className="size-3.5" />
                   笔记
                 </TabsTrigger>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  title="聊天用量统计"
-                  aria-label="聊天用量统计"
-                  onClick={() => setUsageOpen(true)}
-                >
-                  <ChartColumn />
-                </Button>
               </TabsList>
               <TabsContent
                 value="ai"
@@ -2029,10 +2017,6 @@ export function Workspace({
         onNavigate={async (location) => {
           await adapter?.goTo(location);
         }}
-      />
-      <ProcessingUsageDialog
-        document={active && usageOpen ? doc : null}
-        onClose={() => setUsageOpen(false)}
       />
     </div>
   );

@@ -3,6 +3,7 @@ import {
   BookOpen,
   ChartColumn,
   FileDown,
+  FolderOpen,
   RefreshCw,
   Trash2,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import {
 } from "@neoread/ui/components/dropdown-menu";
 import { exportAnnotatedPDFWithToast } from "./annotated-pdf-export";
 import { reparseDocument } from "./reparse-document";
+import { revealFile } from "./papers/actions";
 
 const kits = {
   context: { Item: ContextMenuItem, Separator: ContextMenuSeparator },
@@ -47,14 +49,24 @@ export function BookMenuItems({
         <BookOpen />
         文档概要
       </K.Item>
-      <K.Item onClick={() => actions.usage(doc)}>
-        <ChartColumn />
-        用量统计
-      </K.Item>
+      {kind === "context" && (
+        <K.Item onClick={() => actions.usage(doc)}>
+          <ChartColumn />
+          用量统计
+        </K.Item>
+      )}
       <K.Item onClick={() => void reparseDocument(doc)}>
         <RefreshCw />
         重新解析
       </K.Item>
+      {window.neoreadDesktop?.showDocumentFile && (
+        <K.Item onClick={() => revealFile(doc)}>
+          <FolderOpen />
+          {window.neoreadDesktop.platform === "darwin"
+            ? "在 Finder 中显示"
+            : "在文件夹中显示"}
+        </K.Item>
+      )}
       {doc.type === "pdf" && (
         <K.Item onClick={() => void exportAnnotatedPDFWithToast(doc)}>
           <FileDown />

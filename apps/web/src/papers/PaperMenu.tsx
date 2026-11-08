@@ -265,7 +265,7 @@ export function PaperMenuItems({
             <K.Item onClick={() => revealFile(one)}>
               <FolderOpen />
               {window.neoreadDesktop.platform === "darwin"
-                ? "在访达中显示"
+                ? "在 Finder 中显示"
                 : "在文件夹中显示"}
             </K.Item>
           )}
