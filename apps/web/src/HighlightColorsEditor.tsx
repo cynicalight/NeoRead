@@ -165,7 +165,7 @@ export function HighlightColorsEditor() {
             />
             <Button
               size="icon-sm"
-              variant="ghost"
+              variant="destructive-ghost"
               className="ml-auto"
               aria-label={`删除${color.label}`}
               disabled={palette.length <= 1}

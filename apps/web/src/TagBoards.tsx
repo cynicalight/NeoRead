@@ -287,7 +287,7 @@ export function TagBoards({
                               <Pencil />
                             </Button>
                             <Button
-                              variant="ghost"
+                              variant="destructive-ghost"
                               size="icon-xs"
                               aria-label={`删除看板 ${board.name}`}
                               onClick={() => setRemoving(board)}
@@ -380,7 +380,7 @@ export function TagBoards({
                 {changed ? "保存更改" : "编辑看板"}
               </Button>
               <Button
-                variant="ghost"
+                variant="destructive-ghost"
                 size="icon-sm"
                 aria-label="删除当前看板"
                 onClick={() => setRemoving(active)}
@@ -404,7 +404,7 @@ export function TagBoards({
           </Button>
           {(tags.length > 0 || active) && (
             <Button
-              variant="ghost"
+              variant="destructive-ghost"
               size="icon-sm"
               aria-label="清除筛选"
               title="清除筛选"

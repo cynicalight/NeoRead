@@ -551,7 +551,7 @@ export function NavigationTree({
               {allSelected ? "取消全选" : "全选"}
             </Button>
             <Button
-              variant="ghost"
+              variant="destructive-ghost"
               size="icon-sm"
               aria-label="删除所选目录"
               title="删除所选目录"

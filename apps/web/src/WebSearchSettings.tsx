@@ -207,7 +207,7 @@ export function WebSearchSettings({
           <div className="flex justify-end">
             <Button
               type="button"
-              variant="ghost"
+              variant="destructive-ghost"
               size="sm"
               disabled={disabled}
               onClick={() => {

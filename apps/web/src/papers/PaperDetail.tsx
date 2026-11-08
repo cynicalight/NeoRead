@@ -257,7 +257,7 @@ export function PaperDetail({
               <span>AI 建议：{m.suggestedTitle}</span>
             </Button>
             <Button
-              variant="ghost"
+              variant="destructive-ghost"
               size="icon"
               className="paper-title-suggestion-dismiss"
               aria-label="删除 AI 建议标题"

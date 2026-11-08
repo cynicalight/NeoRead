@@ -788,7 +788,7 @@ export function PaperLibrary({
               ))}
               <span className="tabular-nums">{visible.length} 篇</span>
               <Button
-                variant="ghost"
+                variant="destructive-ghost"
                 size="icon-xs"
                 aria-label="清除当前标签条件"
                 title="清除当前标签条件"
@@ -1055,8 +1055,7 @@ export function PaperLibrary({
                     size="icon-sm"
                     aria-label="移到回收站"
                     title="移到回收站"
-                    variant="ghost"
-                    className="text-destructive"
+                    variant="destructive-ghost"
                     disabled={!pickedDocs.length}
                     onClick={() => void trashPapers(pickedDocs, true)}
                   >

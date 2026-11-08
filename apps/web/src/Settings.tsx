@@ -1259,7 +1259,7 @@ export function Settings({
                                           )}
                                           {model.custom && (
                                             <Button
-                                              variant="ghost"
+                                              variant="destructive-ghost"
                                               size="icon-sm"
                                               aria-label={`移除 ${model.name}`}
                                               title="移除"

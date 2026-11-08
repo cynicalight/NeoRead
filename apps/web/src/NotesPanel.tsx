@@ -162,7 +162,7 @@ function NoteCard({
           </Button>
           <Button
             size="icon-xs"
-            variant="ghost"
+            variant="destructive-ghost"
             aria-label="删除记录"
             disabled={deleting}
             onClick={onDelete}

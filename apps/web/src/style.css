@@ -223,6 +223,18 @@ svg:is(.lucide-trash, .lucide-trash-2) {
 :is(button, [role="menuitem"]):has(> svg:is(.lucide-trash, .lucide-trash-2)) {
   color: var(--destructive) !important;
 }
+/* Destructive buttons turn solid red on hover; their trash icon turns white. */
+[data-slot="button"]:is(
+    [data-variant="destructive"],
+    [data-variant="destructive-ghost"]
+  ):is(:hover, [aria-expanded="true"]):not(:disabled),
+[data-slot="button"]:is(
+    [data-variant="destructive"],
+    [data-variant="destructive-ghost"]
+  ):is(:hover, [aria-expanded="true"]):not(:disabled)
+  svg:is(.lucide-trash, .lucide-trash-2) {
+  color: #fff !important;
+}
 /* The citation window is transparent and sized to its dialog. */
 html[data-citation-window] {
   --text-xs: 0.625rem;
@@ -3415,6 +3427,9 @@ body[data-resizing] * {
   width: 26px;
   height: 26px;
   color: var(--muted-foreground);
+}
+.paper-title-suggestion-dismiss.paper-title-suggestion-dismiss:hover {
+  color: #fff;
 }
 .paper-detail-open.paper-detail-open {
   height: 48px;

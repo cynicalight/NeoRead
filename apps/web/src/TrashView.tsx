@@ -65,7 +65,7 @@ export function TrashView({ documents }: { documents: Document[] }) {
         </span>
         <Button
           size="sm"
-          variant="outline"
+          variant="destructive-ghost"
           disabled={!documents.length}
           onClick={() => setPurging(documents)}
         >
@@ -106,8 +106,7 @@ export function TrashView({ documents }: { documents: Document[] }) {
             </Button>
             <Button
               size="sm"
-              variant="ghost"
-              className="text-destructive"
+              variant="destructive-ghost"
               onClick={() => setPurging([d])}
             >
               彻底删除
