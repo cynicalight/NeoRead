@@ -829,7 +829,7 @@ export function Settings({
             </section>
             <section>
               <h3 className="mb-3 text-sm font-medium">期刊指标</h3>
-              <label className="flex items-center justify-between gap-4 text-sm">
+              <div className="flex items-center justify-between gap-4 text-sm">
                 <span>
                   在论文库显示 easyScholar 期刊指标
                   <span className="block text-xs text-muted-foreground">
@@ -844,7 +844,7 @@ export function Settings({
                     void saveJournalRank({ enabled: !!checked })
                   }
                 />
-              </label>
+              </div>
               {journalRank?.enabled && (
                 <>
                   <div className="mt-4 flex items-center gap-2">
