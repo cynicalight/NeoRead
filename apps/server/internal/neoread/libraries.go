@@ -124,7 +124,9 @@ func paperLimit(kind string, size int64, path string) string {
 }
 
 // "guide" records the finished onboarding and the last release notes shown.
-var preferenceKeys = map[string]bool{"library": true, "guide": true, "shortcuts": true}
+// "fonts" caches installed font family names read by the renderer, so the
+// font pickers need not query the system again after a restart.
+var preferenceKeys = map[string]bool{"library": true, "guide": true, "shortcuts": true, "fonts": true}
 
 func (s *Server) preferences(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
@@ -172,8 +174,16 @@ func (s *Server) savePreferences(w http.ResponseWriter, r *http.Request) {
 			v["crossrefEmail"] = email
 		}
 	}
+	limit := 64 << 10
+	if key == "fonts" {
+		if msg := validFontPreferences(v); msg != "" {
+			fail(w, 400, msg)
+			return
+		}
+		limit = 512 << 10
+	}
 	b, _ := json.Marshal(v)
-	if len(b) > 64<<10 {
+	if len(b) > limit {
 		fail(w, 400, "偏好内容过大")
 		return
 	}
@@ -182,6 +192,24 @@ func (s *Server) savePreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 200, json.RawMessage(b))
+}
+
+func validFontPreferences(v map[string]any) string {
+	raw, exists := v["families"]
+	if !exists {
+		return ""
+	}
+	families, ok := raw.([]any)
+	if !ok || len(families) > 10000 {
+		return "字体列表格式无效"
+	}
+	for _, family := range families {
+		name, ok := family.(string)
+		if !ok || name == "" || len(name) > 256 {
+			return "字体列表格式无效"
+		}
+	}
+	return ""
 }
 
 // changeLabels renames (to != "") or removes a tag or folder on every document

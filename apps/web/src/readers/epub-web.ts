@@ -22,6 +22,7 @@ import type {
 } from "@neoread/core";
 import { toast } from "sonner";
 import { openExternalLink } from "../reading-links";
+import { sourceFont } from "../appearance";
 import { defaultTheme } from "@neoread/core";
 import { isSelectionToolbar, selectionAnchor } from "./selection-anchor";
 import { sentenceBounds } from "./sentence-selection";
@@ -1114,7 +1115,8 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     }[this.theme.mode];
     Object.assign(this.container.style, {
       fontSize: `${this.theme.fontSize}rem`,
-      fontFamily: this.theme.fontFamily,
+      fontFamily: sourceFont(this.theme.fontFamily),
+      fontWeight: this.theme.fontWeight === "bold" ? "600" : "",
       lineHeight: String(this.theme.lineHeight),
       backgroundColor: palette[0],
       color: palette[1],

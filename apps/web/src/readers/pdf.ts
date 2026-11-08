@@ -257,6 +257,12 @@ export class PDFReaderAdapter implements ReaderAdapter {
   getPageCount() {
     return this.pdf?.numPages ?? 0;
   }
+  async getPageWidth() {
+    if (!this.pdf?.numPages) return undefined;
+    const page = await this.pdf.getPage(1);
+    // PDF points display at 96 / 72 CSS pixels.
+    return page.getViewport({ scale: 1 }).width * (96 / 72);
+  }
   getLocation(): PDFLocation {
     const page = this.viewer.getPageView(this.location.page - 1)?.div as
       HTMLElement | undefined;

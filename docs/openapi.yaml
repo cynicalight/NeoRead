@@ -4197,7 +4197,7 @@
                     "in": "path",
                     "name": "key",
                     "required": true,
-                    "schema": { "enum": ["library", "guide", "shortcuts"] },
+                    "schema": { "enum": ["library", "guide", "shortcuts", "fonts"] },
                   },
                 ],
               "responses":
@@ -4239,7 +4239,7 @@
                     "in": "path",
                     "name": "key",
                     "required": true,
-                    "schema": { "enum": ["library", "guide", "shortcuts"] },
+                    "schema": { "enum": ["library", "guide", "shortcuts", "fonts"] },
                   },
                 ],
               "requestBody":

@@ -107,6 +107,21 @@ export function translationFont(
   return `"${family.replace(/["\\]/g, "")}", system-ui, sans-serif`;
 }
 
+/** Margin in px per side shared by EPUB text and PDF translation. */
+export const READING_MARGIN = { min: 0, max: 96, step: 16, default: 48 };
+
+/** EPUB source size as a percentage of the default size. */
+export const epubSizePercent = (fontSize: number) =>
+  Math.round((fontSize / defaultTheme.fontSize) * 100);
+export const epubFontSize = (percent: number) =>
+  Math.round((percent / 100) * defaultTheme.fontSize * 1000) / 1000;
+
+/** CSS font-family for reflowable source text. */
+export const sourceFont = (family = defaultTheme.fontFamily) =>
+  family === "serif" || family === "sans-serif"
+    ? family
+    : `"${family.replace(/["\\]/g, "")}", serif`;
+
 export const translationFontLabel = (
   family = defaultTheme.translationFontFamily ?? "serif",
 ) =>

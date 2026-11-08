@@ -1150,6 +1150,8 @@ kbd {
   width: 13px;
 }
 .chat-message {
+  font-family: var(--assistant-font-family);
+  font-weight: var(--assistant-font-weight);
   font-size: calc(12px * var(--assistant-font-scale, 1));
   line-height: 1.9;
   padding: 13px 0;
@@ -1265,6 +1267,7 @@ kbd {
   box-shadow: none !important;
   resize: none;
   min-height: 77px;
+  font-family: var(--assistant-font-family);
   font-size: calc(11px * var(--assistant-font-scale, 1));
   padding: 7px;
   outline: none;

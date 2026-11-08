@@ -93,6 +93,10 @@
 .pdf-reading .translation-document section {
   max-width: none;
 }
+/* A focused body block's width at the Focus Block zoom limit. */
+.pdf-reading .translation-document[data-column] section {
+  max-width: var(--pdf-column-width);
+}
 .translation-document section {
   position: relative;
   margin: 0 auto 1.25em;

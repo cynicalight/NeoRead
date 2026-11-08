@@ -395,7 +395,10 @@ export interface ReaderTheme {
   systemDarkContrast?: "high" | "soft";
   mode: "light" | "sepia" | "dark";
   fontSize: number;
+  /** "sans-serif", "serif" or an installed font family name. */
   fontFamily: string;
+  /** Reflowable source text weight. */
+  fontWeight?: "normal" | "bold";
   lineHeight: number;
   margin: number;
   scroll: boolean;
@@ -406,12 +409,20 @@ export interface ReaderTheme {
   translationFontSize?: number;
   /** AI conversation text scale; 1 keeps the existing size. */
   assistantFontScale?: number;
+  /** AI conversation font: "sans-serif" keeps the interface font. */
+  assistantFontFamily?: string;
+  assistantFontWeight?: "normal" | "bold";
   /** "sans-serif", "serif" or an installed font family name. */
   translationFontFamily?: string;
   linkTranslationAnnotations?: boolean;
   translationFontWeight?: "normal" | "bold";
   /** The highlight palette, in order; the defaults apply when unset. */
   highlightColors?: HighlightColor[];
+  /**
+   * PDF translation margin in px per side, on the same 0–96 scale as the EPUB
+   * margin; the default 48 keeps a focused text block's width.
+   */
+  pdfTranslationMargin?: number;
   /** Reflowable EPUB text scrolls vertically unless pages are chosen. */
   epubFlow?: "scroll" | "paginated";
 }
@@ -433,14 +444,18 @@ export const defaultTheme: ReaderTheme = {
   mode: "light",
   fontSize: 1.15,
   fontFamily: "serif",
+  fontWeight: "normal",
   lineHeight: 1.8,
-  margin: 40,
+  margin: 48,
   scroll: false,
   zoom: "width",
   translationFontSize: 1,
   assistantFontScale: 1,
+  assistantFontFamily: "sans-serif",
+  assistantFontWeight: "normal",
   translationFontFamily: "serif",
   translationFontWeight: "bold",
+  pdfTranslationMargin: 48,
   linkTranslationAnnotations: true,
   epubFlow: "scroll",
 };
@@ -510,6 +525,8 @@ export interface ReaderAdapter {
   open(document: Document): Promise<void>;
   getTOC(): Promise<TOCItem[]>;
   getPageCount?(): number;
+  /** First page width in CSS pixels at 100%. */
+  getPageWidth?(): Promise<number | undefined>;
   getLocation(): DocumentLocation;
   goTo(location: DocumentLocation): Promise<void>;
   next(): Promise<void>;

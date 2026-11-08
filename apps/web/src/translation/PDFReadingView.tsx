@@ -1,5 +1,6 @@
 import { figureTarget } from "../readers/figure-references";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
+import { pdfFocusWidth, pdfTranslationColumn } from "./pdf-column";
 import {
   useEffect,
   useLayoutEffect,
@@ -200,6 +201,22 @@ export function PDFReadingView({
   }, [engine, blocks]);
   const visibleBlocks = blocks.filter(
     (b) => !isPDFPageDecoration(b) && !equationNumbers.pairedIds.has(b.id),
+  );
+  const [pageWidth, setPageWidth] = useState<number>();
+  useEffect(() => {
+    let current = true;
+    setPageWidth(undefined);
+    void engine
+      ?.getPageWidth?.()
+      .then((width) => current && setPageWidth(width))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [engine]);
+  const focusWidth = useMemo(
+    () => pdfFocusWidth(blocks, pageWidth),
+    [blocks, pageWidth],
   );
   const searchBlockIds = useMemo(
     () => [
@@ -910,7 +927,14 @@ export function PDFReadingView({
               }}
               onKeyDownCapture={() => input("translation")}
               onKeyUp={translatedSelection}
+              data-column={focusWidth ? "" : undefined}
               style={{
+                ...(focusWidth && {
+                  "--pdf-column-width": `${pdfTranslationColumn(
+                    focusWidth,
+                    theme.pdfTranslationMargin,
+                  )}px`,
+                }),
                 fontSize: `${theme.translationFontSize ?? 1}rem`,
                 fontFamily: translationFont(theme.translationFontFamily),
                 fontWeight:

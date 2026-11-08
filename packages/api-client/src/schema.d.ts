@@ -3760,7 +3760,7 @@ export interface paths {
                 query?: never;
                 header?: never;
                 path: {
-                    key: "library" | "guide" | "shortcuts";
+                    key: "library" | "guide" | "shortcuts" | "fonts";
                 };
                 cookie?: never;
             };
@@ -3793,7 +3793,7 @@ export interface paths {
                 query?: never;
                 header?: never;
                 path: {
-                    key: "library" | "guide" | "shortcuts";
+                    key: "library" | "guide" | "shortcuts" | "fonts";
                 };
                 cookie?: never;
             };

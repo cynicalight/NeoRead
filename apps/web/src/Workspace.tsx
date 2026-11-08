@@ -136,8 +136,8 @@ import { EPUBReadingView } from "./translation/EPUBReadingView";
 import { PDFReadingView } from "./translation/PDFReadingView";
 import { useReaderStore } from "./store";
 import { scheduleProgress, flushProgress } from "./progress";
-import { Slider } from "@neoread/ui/components/slider";
-import { TranslationFontControls } from "./TranslationFontControls";
+import { ReadingTextControls } from "./ReadingTextControls";
+import { translationFont } from "./appearance";
 import { AppearancePicker } from "./AppearancePicker";
 function IconButton({
   label,
@@ -192,8 +192,8 @@ export function Workspace({
     doc,
     active,
   );
-  const translationSize = theme.translationFontSize ?? 1;
   const assistantSize = theme.assistantFontScale ?? 1;
+  const assistantFamily = theme.assistantFontFamily ?? "sans-serif";
   const linkTarget = useReaderStore((s) => s.linkTarget);
   const [annotationsLoaded, setAnnotationsLoaded] = useState(false);
   const [blocks, setBlocks] = useState<PDFBlock[]>([]);
@@ -1171,168 +1171,11 @@ export function Workspace({
               <h3 className="text-sm font-medium">阅读外观</h3>
               <div className="space-y-4">
                 <AppearancePicker theme={theme} setTheme={setTheme} />
-                <div className="flex items-center gap-3">
-                  <span className="shrink-0 text-sm">Agent 字号</span>
-                  <Slider
-                    className="reading-appearance-slider min-w-0 flex-1"
-                    thumbLabel="Agent 字号"
-                    min={80}
-                    max={160}
-                    step={5}
-                    value={[Math.round(assistantSize * 100)]}
-                    onValueChange={(value) =>
-                      setTheme({
-                        assistantFontScale:
-                          (Array.isArray(value) ? value[0] : value) / 100,
-                      })
-                    }
-                  />
-                  <span className="w-10 text-right text-xs tabular-nums">
-                    {Math.round(assistantSize * 100)}%
-                  </span>
-                </div>
-                {doc.type === "epub" ? (
-                  <>
-                    <div className="setting-row">
-                      <span>字号</span>
-                      <Button
-                        size="icon-xs"
-                        variant="outline"
-                        onClick={() =>
-                          setTheme({
-                            fontSize: Math.max(0.8, theme.fontSize - 0.1),
-                          })
-                        }
-                      >
-                        −
-                      </Button>
-                      <span>{Math.round(theme.fontSize * 100)}%</span>
-                      <Button
-                        size="icon-xs"
-                        variant="outline"
-                        onClick={() =>
-                          setTheme({
-                            fontSize: Math.min(2.4, theme.fontSize + 0.1),
-                          })
-                        }
-                      >
-                        +
-                      </Button>
-                    </div>
-                    <div className="setting-row">
-                      <span>行距</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setTheme({
-                            lineHeight:
-                              theme.lineHeight >= 2.2
-                                ? 1.4
-                                : Math.round((theme.lineHeight + 0.2) * 10) /
-                                  10,
-                          })
-                        }
-                      >
-                        {theme.lineHeight.toFixed(1)}
-                      </Button>
-                      <span>页边距</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setTheme({
-                            margin: theme.margin >= 64 ? 16 : theme.margin + 16,
-                          })
-                        }
-                      >
-                        {theme.margin}
-                      </Button>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setTheme({
-                            fontFamily:
-                              theme.fontFamily === "serif"
-                                ? "sans-serif"
-                                : "serif",
-                          })
-                        }
-                      >
-                        {theme.fontFamily === "serif"
-                          ? "宋体 / 衬线"
-                          : "黑体 / 无衬线"}
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3">
-                      <span className="shrink-0 text-sm">原文缩放</span>
-                      <Slider
-                        className="reading-appearance-slider min-w-0 flex-1"
-                        thumbLabel="原文缩放"
-                        min={50}
-                        max={300}
-                        step={5}
-                        value={[
-                          typeof theme.zoom === "number"
-                            ? Math.round(theme.zoom * 100)
-                            : 100,
-                        ]}
-                        onValueChange={(value) =>
-                          setTheme({
-                            zoom:
-                              (Array.isArray(value) ? value[0] : value) / 100,
-                          })
-                        }
-                      />
-                      <span className="w-10 text-right text-xs tabular-nums">
-                        {typeof theme.zoom === "number"
-                          ? `${Math.round(theme.zoom * 100)}%`
-                          : "自动"}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setTheme({ zoom: "width" })}
-                      >
-                        适宽
-                      </Button>
-                    </div>
-                  </>
-                )}
-                <div className="flex items-center gap-3">
-                  <span className="shrink-0 text-sm">译文字号</span>
-                  <Slider
-                    className="reading-appearance-slider min-w-0 flex-1"
-                    thumbLabel="译文字号"
-                    min={80}
-                    max={160}
-                    step={5}
-                    value={[Math.round(translationSize * 100)]}
-                    onValueChange={(value) =>
-                      setTheme({
-                        translationFontSize:
-                          (Array.isArray(value) ? value[0] : value) / 100,
-                      })
-                    }
-                  />
-                  <span className="w-10 text-right text-xs tabular-nums">
-                    {Math.round(translationSize * 100)}%
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setTheme({ translationFontSize: 1 })}
-                  >
-                    恢复
-                  </Button>
-                </div>
-                <TranslationFontControls theme={theme} setTheme={setTheme} />
+                <ReadingTextControls
+                  theme={theme}
+                  setTheme={setTheme}
+                  docType={doc.type}
+                />
               </div>
             </PopoverContent>
           </Popover>
@@ -1649,7 +1492,17 @@ export function Workspace({
                 value="ai"
                 className="ai-panel"
                 style={
-                  { "--assistant-font-scale": assistantSize } as CSSProperties
+                  {
+                    "--assistant-font-scale": assistantSize,
+                    // Unset variables leave the interface font and weight.
+                    ...(assistantFamily !== "sans-serif" && {
+                      "--assistant-font-family":
+                        translationFont(assistantFamily),
+                    }),
+                    ...(theme.assistantFontWeight === "bold" && {
+                      "--assistant-font-weight": 600,
+                    }),
+                  } as CSSProperties
                 }
               >
                 <SessionPicker

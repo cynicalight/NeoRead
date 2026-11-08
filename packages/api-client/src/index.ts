@@ -809,6 +809,13 @@ export const api = {
       "/api/preferences/shortcuts",
       { method: "PUT", body: JSON.stringify(preferences) },
     ),
+  fontPreferences: () =>
+    request<{ families?: string[] }>("/api/preferences/fonts"),
+  saveFontPreferences: (preferences: { families: string[] }) =>
+    request<{ families: string[] }>("/api/preferences/fonts", {
+      method: "PUT",
+      body: JSON.stringify(preferences),
+    }),
   guidePreferences: () => request<GuidePreferences>("/api/preferences/guide"),
   saveGuidePreferences: (preferences: GuidePreferences) =>
     request<GuidePreferences>("/api/preferences/guide", {

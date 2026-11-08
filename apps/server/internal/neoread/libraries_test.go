@@ -306,3 +306,26 @@ func TestShortcutPreferences(t *testing.T) {
 		t.Fatal("shortcut preferences overwrite guide")
 	}
 }
+
+func TestFontPreferences(t *testing.T) {
+	s := testServer(t)
+	if w := request(t, s, "PUT", "/api/preferences/fonts", strings.NewReader(`{"families":["PingFang SC","Songti SC"]}`)); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if w := request(t, s, "GET", "/api/preferences/fonts", nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"Songti SC"`) {
+		t.Fatal(w.Body.String())
+	}
+	for _, body := range []string{`{"families":"PingFang SC"}`, `{"families":[1]}`, `{"families":[""]}`} {
+		if w := request(t, s, "PUT", "/api/preferences/fonts", strings.NewReader(body)); w.Code != 400 {
+			t.Fatalf("%s: %d", body, w.Code)
+		}
+	}
+	// A large installed-font list fits, unlike other preferences.
+	names := make([]string, 3000)
+	for i := range names {
+		names[i] = fmt.Sprintf("%q", fmt.Sprintf("Font Family Name %04d", i))
+	}
+	if w := request(t, s, "PUT", "/api/preferences/fonts", strings.NewReader(`{"families":[`+strings.Join(names, ",")+`]}`)); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+}
