@@ -3,7 +3,7 @@ import { act, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AIConfig, AgentModel, ProxySettingsState } from "@neoread/core";
-import { api } from "@neoread/api";
+import { api, type PaperRefreshProgress } from "@neoread/api";
 import { toast } from "sonner";
 import { Settings } from "./Settings";
 import { useReaderStore } from "./store";
@@ -115,6 +115,21 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("PointerEvent", MouseEvent);
   vi.clearAllMocks();
+  // The status endpoint observes the same task state as the start endpoint.
+  let paperProgress: PaperRefreshProgress = {
+    status: "idle",
+    total: 0,
+    processed: 0,
+    failed: 0,
+    skipped: 0,
+  };
+  vi.mocked(api.paperRefreshStatus).mockImplementation(
+    async () => paperProgress,
+  );
+  vi.mocked(api.startPaperRefresh).mockImplementation(async () => {
+    paperProgress = { ...paperProgress, status: "done" };
+    return paperProgress;
+  });
   config = {
     primary: "api",
     models: {},
