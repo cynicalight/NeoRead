@@ -67,6 +67,7 @@ it("centres a focused guide target without selecting the provider", async () => 
     expect(pick).not.toHaveBeenCalled();
     await act(async () => target.click());
     expect(pick).toHaveBeenCalledWith("api");
+    expect(openChange).toHaveBeenCalledWith(false);
     const dismiss = host.querySelector<HTMLElement>(
       '[data-tour="agent-deck-dismiss"]',
     )!;
@@ -80,7 +81,13 @@ it("centres a focused guide target without selecting the provider", async () => 
 });
 
 // Drive animation time explicitly so input speed and settling can be compared.
-async function scrollDeck(delta: number, reduced = false, reverse = false) {
+async function scrollDeck(
+  delta: number,
+  reduced = false,
+  reverse = false,
+  dismissEarly = false,
+  ready = true,
+) {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   useReaderStore.getState().setTheme({ reducedMotion: reduced });
@@ -143,16 +150,30 @@ async function scrollDeck(delta: number, reduced = false, reverse = false) {
           refreshing={false}
           loadCalls={async () => []}
           onPanelClose={() => {}}
-          usable={() => true}
+          usable={() => ready}
         />,
       ),
     );
     await tick(2);
+    let firstInput = 0;
     for (let i = 0; i < 3; i++) {
       await wheel(delta);
+      if (i === 0) firstInput = distance();
       await tick(1);
     }
+    if (dismissEarly) {
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('[aria-label="收起"]')!.click(),
+      );
+      if (ready) expect(pick).toHaveBeenCalledTimes(1);
+      else expect(pick).not.toHaveBeenCalled();
+    }
     const during = distance();
+    // CSS must not interpolate either wheel updates or loop-edge jumps.
+    for (const card of host.querySelectorAll<HTMLElement>(
+      '[data-tour="agent-deck"] .agent-deck-card',
+    ))
+      expect(card.style.transition).toBe("box-shadow 200ms");
     if (reverse) await wheel(-delta);
     await tick(1);
     const next = distance();
@@ -164,12 +185,17 @@ async function scrollDeck(delta: number, reduced = false, reverse = false) {
     const lateTravel = distance() - lateStart;
     await tick(125);
     const settled = distance();
-    expect(pick).not.toHaveBeenCalled();
     expect(frames.size).toBe(0);
-    expect(
-      host.querySelector('[data-tour="agent-deck"] [data-center="true"]'),
-    ).not.toBeNull();
-    return { during, next, coasting, settled, lateTravel };
+    const centered = host.querySelector(
+      '[data-tour="agent-deck"] [data-center="true"]',
+    );
+    expect(centered).not.toBeNull();
+    if (ready)
+      expect(pick).toHaveBeenLastCalledWith(
+        centered?.getAttribute("data-agent"),
+      );
+    else expect(pick).not.toHaveBeenCalled();
+    return { firstInput, during, next, coasting, settled, lateTravel };
   } finally {
     await act(async () => root.unmount());
     expect(vi.getTimerCount()).toBe(0);
@@ -180,14 +206,15 @@ async function scrollDeck(delta: number, reduced = false, reverse = false) {
   }
 }
 
-it("accelerates with wheel input and coasts to a card after input stops", async () => {
+it("follows wheel input one to one without a CSS transition, then snaps to a card", async () => {
   const slow = await scrollDeck(60);
   const fast = await scrollDeck(240);
-  expect(fast.during).toBeGreaterThan(slow.during * 3);
-  expect(fast.coasting).toBeGreaterThan(fast.during);
-  expect(fast.settled).toBeGreaterThan(fast.coasting);
-  expect(fast.lateTravel).toBeGreaterThan(0);
-  expect(fast.lateTravel).toBeLessThan(fast.coasting - fast.next);
+  expect(slow.firstInput).toBeCloseTo(60);
+  expect(fast.firstInput).toBeCloseTo(240);
+  expect(slow.during).toBeCloseTo(180);
+  expect(fast.during).toBeCloseTo(720);
+  expect(fast.coasting).toBe(fast.during);
+  expect(Math.abs(fast.settled - fast.during)).toBeLessThan(54);
 });
 
 it("responds to reversal without finishing the previous queued travel", async () => {
@@ -195,11 +222,25 @@ it("responds to reversal without finishing the previous queued travel", async ()
   expect(reversed.next).toBeLessThan(reversed.during);
 });
 
+it("wraps a card from the top to the bottom without interpolating across the deck", async () => {
+  const wrapped = await scrollDeck(600);
+  expect(wrapped.firstInput).toBeCloseTo(600);
+  expect(wrapped.during).toBeLessThan(0);
+});
+
 it("keeps wheel navigation immediate with reduced motion", async () => {
   const reduced = await scrollDeck(240, true);
   expect(reduced.next).toBe(reduced.during);
   expect(reduced.coasting).toBe(reduced.during);
   expect(reduced.settled).toBe(reduced.during);
+});
+
+it("selects the ready wheel target when closed before the wheel timer fires", async () => {
+  await scrollDeck(240, true, false, true);
+});
+
+it("keeps the existing selection when scrolling to an unready agent", async () => {
+  await scrollDeck(240, true, false, true, false);
 });
 
 afterEach(() => useReaderStore.getState().setTheme({ reducedMotion: false }));

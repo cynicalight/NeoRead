@@ -529,3 +529,52 @@ it("does not overwrite freshly updated capabilities with a slower settings snaps
     updated.capabilities.codex,
   );
 });
+
+it("saves the last navigated ready agent when the previous save is still running", async () => {
+  config.capabilities = {
+    codex: { text: true, vision: true, checkedAt: "saved" },
+    claude: { text: true, vision: true, checkedAt: "saved" },
+  };
+  vi.mocked(api.providers).mockResolvedValue(
+    (["codex", "claude"] as const).map((id) => ({
+      id,
+      installed: true,
+      authenticated: true,
+      status: "已登录",
+    })),
+  );
+  let finishFirst!: () => void;
+  vi.mocked(api.saveAIConfig).mockImplementationOnce(
+    (next) =>
+      new Promise((resolve) => {
+        finishFirst = () => {
+          config = next;
+          resolve(next);
+        };
+      }),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await expand();
+  // Focus centres the starting card; arrow navigation performs the selection.
+  await act(async () =>
+    host.querySelector<HTMLElement>('[aria-label="使用 Codex"]')!.focus(),
+  );
+  const navigate = async (key: string) => {
+    await act(async () => {
+      host
+        .querySelector('[role="radiogroup"]')!
+        .dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+  };
+  await navigate("ArrowDown");
+  expect(api.saveAIConfig).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ primary: "claude" }),
+  );
+  await navigate("ArrowUp");
+  await click('[aria-label="收起"]');
+  await act(async () => finishFirst());
+  expect(api.saveAIConfig).toHaveBeenLastCalledWith(
+    expect.objectContaining({ primary: "codex" }),
+  );
+  expect(useReaderStore.getState().aiConfig?.primary).toBe("codex");
+});

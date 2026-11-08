@@ -258,9 +258,6 @@ export function AgentDeck({
   const [detail, setDetail] = useState<string | null>(null);
   const [panelVisible, setPanelVisible] = useState(false);
   const anchor = useRef(frontIndex);
-  const pickTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
   const latest = useRef({ onPick, usable });
   latest.current = { onPick, usable };
   const hadPanel = useRef(false);
@@ -290,10 +287,16 @@ export function AgentDeck({
       anchor.current = pos.center;
     }
   }, [!!panel]);
-  useEffect(() => () => clearTimeout(pickTimer.current), []);
   const close = () => {
     if (panel) onPanelClose();
-    else onOpenChange(false);
+    else {
+      if (wheelTimer.current !== undefined) {
+        clearTimeout(wheelTimer.current);
+        wheelTimer.current = undefined;
+        selectCentered();
+      }
+      onOpenChange(false);
+    }
   };
   const step = useStep();
   const wheel = useRef({ direction: 0, lastInput: 0 });
@@ -313,7 +316,6 @@ export function AgentDeck({
     if (!open) {
       scrollSound.current = false;
       sound.pause();
-      clearTimeout(pickTimer.current);
       setSpread(false);
       setDetail(null);
       const timer = window.setTimeout(
@@ -351,12 +353,14 @@ export function AgentDeck({
   };
   const transform = (d: number) =>
     `translateY(calc(-50% + ${d * step}px)) scale(${1 - Math.min(Math.abs(d), 3) * 0.06})`;
-  // One continuous spring drives every card; wrapping is spatial, never timed.
+  // Wheel input moves directly; one spring snaps all cards together afterward.
   const [position, setPosition] = useState(frontIndex);
+  const [navigating, setNavigating] = useState(false);
   const motion = useRef({ value: frontIndex, target: frontIndex, velocity: 0 });
   const frame = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (open) {
+      setNavigating(false);
       motion.current = { value: frontIndex, target: frontIndex, velocity: 0 };
       setPosition(frontIndex);
     }
@@ -367,18 +371,21 @@ export function AgentDeck({
       wheel.current = { direction: 0, lastInput: 0 };
     };
   }, [open]);
-  const animateTo = (target: number) => {
+  const animateTo = (target: number, immediate = false) => {
+    setNavigating(true);
     const state = motion.current;
     state.target = target;
     const center = ((Math.round(target) % n) + n) % n;
     setPos((current) => ({ center, prev: current.center }));
-    if (reducedMotion()) {
+    if (reducedMotion() || immediate) {
+      if (frame.current !== undefined) cancelAnimationFrame(frame.current);
+      frame.current = undefined;
       if (
         scrollSound.current &&
         Math.round(state.value) !== Math.round(state.target)
       )
         sound.tick();
-      state.value = Math.round(state.target);
+      state.value = reducedMotion() ? Math.round(state.target) : state.target;
       state.velocity = 0;
       setPosition(state.value);
       return;
@@ -408,25 +415,30 @@ export function AgentDeck({
   };
   const move = (to: number) => {
     clearTimeout(wheelTimer.current);
+    wheelTimer.current = undefined;
     wheel.current = { direction: 0, lastInput: 0 };
     const state = motion.current;
     animateTo(Math.round(state.target + offset(to, state.target)));
   };
+  const selectCentered = () => {
+    const center = ((Math.round(motion.current.target) % n) + n) % n;
+    const item = items[center];
+    if (latest.current.usable(item.id) && latest.current.onPick(item.id))
+      anchor.current = center;
+  };
   const pick = (i: number) => {
     scrollSound.current = false;
-    clearTimeout(pickTimer.current);
     move(i);
-    const arrive = () => {
-      if (latest.current.onPick(items[i].id)) anchor.current = i;
-      else if (items[i].id !== "api") move(anchor.current);
-    };
-    if (reducedMotion() || i === pos.center) arrive();
-    else pickTimer.current = setTimeout(arrive, 540);
+    if (latest.current.onPick(items[i].id)) {
+      anchor.current = i;
+      onOpenChange(false);
+    } else if (items[i].id !== "api") move(anchor.current);
   };
   const keys = (event: KeyboardEvent) => {
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
     event.preventDefault();
     move(pos.center + (event.key === "ArrowDown" ? 1 : -1));
+    selectCentered();
   };
   const shown = items.find((item) => item.id === detail);
 
@@ -488,7 +500,6 @@ export function AgentDeck({
               return;
             sound.unlock();
             scrollSound.current = true;
-            clearTimeout(pickTimer.current);
             clearTimeout(wheelTimer.current);
             const now = performance.now();
             const direction = Math.sign(event.deltaY);
@@ -506,13 +517,13 @@ export function AgentDeck({
             const pixels =
               event.deltaY *
               (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? step : 1);
-            // Preserve all input, including multiple turns around the deck.
-            // The spring follows faster input faster and eases out naturally;
-            // native trackpad momentum is not given a second inertia impulse.
-            animateTo(state.target + pixels / step);
+            // Follow input immediately, including the
+            // trackpad's native momentum. Animate only the final card snap.
+            animateTo(state.target + pixels / step, true);
             wheelTimer.current = setTimeout(() => {
               wheelTimer.current = undefined;
               animateTo(Math.round(motion.current.target));
+              selectCentered();
             }, 140);
           }}
           showCloseButton={false}
@@ -609,7 +620,7 @@ export function AgentDeck({
                     )}
                     style={{
                       transition:
-                        spread && !panel && frame.current !== undefined
+                        spread && !panel && navigating
                           ? "box-shadow 200ms"
                           : undefined,
                       transform: spread

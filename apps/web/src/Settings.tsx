@@ -104,6 +104,8 @@ export function Settings({
   const checked = useRef(new Set<string>());
   const refreshing = useRef(false);
   const [saving, setSaving] = useState(false);
+  const pendingAgent = useRef<string | null>(null);
+  const agentSaveRunning = useRef(false);
   const [deckOpen, setDeckOpen] = useState(false);
   // This is a presentation preference, independent of asynchronous detection.
   const [deckFront, setDeckFront] = useState(() => {
@@ -550,22 +552,26 @@ export function Settings({
       toast.warning(`${providerLabel(name)} 未配置好：${blocker}`);
       return;
     }
-    if (config?.primary === name) {
-      rememberCard(name);
-      return;
-    }
-    if (testing.size) {
-      toast.info("正在检测 Agent，请稍候");
-      return;
-    }
+    // Serialize writes and retain the last choice while a previous save runs.
+    pendingAgent.current = name;
+    if (agentSaveRunning.current) return;
+    agentSaveRunning.current = true;
     setSaving(true);
     try {
-      const latest = await api.aiConfig();
-      setAIConfig(await api.saveAIConfig({ ...latest, primary: name }));
-      rememberCard(name);
-    } catch (e) {
-      toast.error((e as Error).message);
+      while (pendingAgent.current) {
+        const next = pendingAgent.current;
+        pendingAgent.current = null;
+        try {
+          const latest = await api.aiConfig();
+          if (latest.primary !== next)
+            setAIConfig(await api.saveAIConfig({ ...latest, primary: next }));
+          rememberCard(next);
+        } catch (e) {
+          toast.error((e as Error).message);
+        }
+      }
     } finally {
+      agentSaveRunning.current = false;
       setSaving(false);
     }
   };
@@ -620,7 +626,7 @@ export function Settings({
   };
   // Handles a card click in the open deck; true moves the card to the middle.
   const pickCard = (id: string) => {
-    if (!config || saving || aiModelSaving) return false;
+    if (!config || aiModelSaving) return false;
     const status = agentStatus(id);
     if (id === "api" && status === "missing") {
       openAPIConfig();
