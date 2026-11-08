@@ -39,7 +39,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@neoread/ui/components/dialog";
-import { Toaster, toast } from "sonner";
+import { toast } from "sonner";
+import { Toaster } from "@neoread/ui/components/sonner";
 import { CiteHost } from "./cite/CiteHost";
 import {
   useReaderStore,
