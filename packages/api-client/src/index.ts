@@ -121,6 +121,7 @@ export class RequestError extends Error {
     message: string,
     readonly code?: string,
     readonly pages?: number,
+    readonly status?: number,
   ) {
     super(message);
   }
@@ -142,6 +143,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       data.error || `请求失败 (${response.status})`,
       data.code,
       data.pages,
+      response.status,
     );
   }
   return response.status === 204 ? (undefined as T) : response.json();
@@ -514,7 +516,8 @@ export const api = {
     request<Processing>(`/api/documents/${id}/processing`, { method: "POST" }),
   blocks: (id: string, signal?: AbortSignal) =>
     request<PDFBlock[]>(`/api/documents/${id}/blocks`, { signal }),
-  aiConfig: () => request<AIConfig>("/api/ai/config"),
+  aiConfig: (signal?: AbortSignal) =>
+    request<AIConfig>("/api/ai/config", { signal }),
   agentModels: (provider: string, signal?: AbortSignal) =>
     request<AgentModel[]>(
       `/api/ai/models?provider=${encodeURIComponent(provider)}`,
