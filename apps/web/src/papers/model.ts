@@ -51,10 +51,10 @@ export const viewLabels: Record<BuiltinView, string> = {
 };
 /** Views the user can hide or pin; "all" is always shown. */
 export const managedViews: BuiltinView[] = [
+  "starred",
   "reading",
   "unread",
   "done",
-  "starred",
 ];
 export const statusLabels: Record<ReadingStatus, string> = {
   unread: "未读",

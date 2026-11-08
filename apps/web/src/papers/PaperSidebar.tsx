@@ -3,6 +3,8 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Circle,
   CircleHelp,
   Copy,
@@ -213,6 +215,34 @@ function SidebarRow({
   );
 }
 
+function SectionToggle({
+  label,
+  open,
+  onClick,
+}: {
+  label: string;
+  open: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      size="icon-xs"
+      variant="ghost"
+      className="bg-transparent hover:bg-transparent aria-expanded:bg-transparent dark:hover:bg-transparent"
+      aria-label={`${open ? "收起" : "展开"}${label}`}
+      aria-expanded={open}
+      title={`${open ? "收起" : "展开"}${label}`}
+      onClick={onClick}
+    >
+      {open ? (
+        <ChevronDown aria-hidden="true" />
+      ) : (
+        <ChevronUp aria-hidden="true" />
+      )}
+    </Button>
+  );
+}
+
 export function PaperSidebar({
   documents,
   jobs,
@@ -227,17 +257,25 @@ export function PaperSidebar({
   onNewCategory: () => void;
 }) {
   const prefs = useReaderStore((s) => s.libraryPreferences.papers) || {};
-  const {
-    view,
-    setView,
-    select,
-    selectedId,
-    setNaming,
-    setSmartEditing,
-  } = usePaperUI();
+  const { view, setView, select, selectedId, setNaming, setSmartEditing } =
+    usePaperUI();
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [recentOpen, setRecentOpen] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<string[]>([]);
+  const isOpen = (name: string) => !collapsedSections.includes(name);
+  const toggleSection = (name: string) =>
+    setCollapsedSections((current) =>
+      current.includes(name)
+        ? current.filter((item) => item !== name)
+        : [...current, name],
+    );
+  const sectionToggle = (name: string) => (
+    <SectionToggle
+      label={name}
+      open={isOpen(name)}
+      onClick={() => toggleSection(name)}
+    />
+  );
   const alt = useAltKey();
   const pinned = prefs.pinned || [];
   const hidden = prefs.hidden || [];
@@ -638,8 +676,7 @@ export function PaperSidebar({
       return managedViews.includes(v) ? viewRow(v, true) : null;
     })
     .filter(Boolean);
-  const recent = recentPapers(documents, pinned, recentOpen ? 10 : 5);
-  const recentTotal = recentPapers(documents, pinned, 10).length;
+  const recent = recentPapers(documents, pinned, 10);
   const hiddenLabel = (key: string) =>
     key.startsWith("folder:")
       ? categories.includes(key.slice(7))
@@ -658,102 +695,114 @@ export function PaperSidebar({
       </nav>
       {pinnedRows.length > 0 && (
         <section>
-          <h3 className="paper-nav-heading">置顶</h3>
-          <nav className="space-y-0.5">{pinnedRows}</nav>
+          <h3 className="paper-nav-heading">置顶{sectionToggle("置顶")}</h3>
+          {isOpen("置顶") && <nav className="space-y-0.5">{pinnedRows}</nav>}
         </section>
       )}
       <section>
-        <h3 className="paper-nav-heading">阅读</h3>
-        <nav className="space-y-0.5">
-          {managedViews
-            .filter(
-              (v) =>
-                !hidden.includes(`view:${v}`) && !pinned.includes(`view:${v}`),
-            )
-            .map((v) => viewRow(v))}
-          {count("processing") > 0 && viewRow("processing")}
-          {count("questions") > 0 && viewRow("questions")}
-          {(duplicates > 0 || view === "duplicates") && viewRow("duplicates")}
-        </nav>
+        <h3 className="paper-nav-heading">阅读{sectionToggle("阅读")}</h3>
+        {isOpen("阅读") && (
+          <nav className="space-y-0.5">
+            {managedViews
+              .filter(
+                (v) =>
+                  !hidden.includes(`view:${v}`) &&
+                  !pinned.includes(`view:${v}`),
+              )
+              .map((v) => viewRow(v))}
+            {count("processing") > 0 && viewRow("processing")}
+            {count("questions") > 0 && viewRow("questions")}
+            {(duplicates > 0 || view === "duplicates") && viewRow("duplicates")}
+          </nav>
+        )}
       </section>
       <section>
         <h3 className="paper-nav-heading">
-          分类
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button size="icon-xs" variant="ghost" aria-label="新建分类" />
-              }
-            >
-              <Plus />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={onNewCategory}>
-                <Folder />
-                新建分类
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={newSmart}>
-                <Tags />
-                新建智能标签分类
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <span className="flex items-center">
+            分类
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="新建分类"
+                  />
+                }
+              >
+                <Plus />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={onNewCategory}>
+                  <Folder />
+                  新建分类
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={newSmart}>
+                  <Tags />
+                  新建智能标签分类
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </span>
+          {sectionToggle("分类")}
         </h3>
-        <nav className="space-y-0.5">
-          {flattenCategories(
-            tree,
-            (node) => !open(node.name) && node.children.length > 0,
-          ).map((node) => categoryRow(node))}
-          {smart
-            .filter((item) => !hidden.includes(`smart:${item.id}`))
-            .map((item) => smartRow(item))}
-          {categories.length > 0 && count("unfiled") > 0 && viewRow("unfiled")}
-        </nav>
-        {hiddenItems.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="mt-1 text-muted-foreground"
-                />
-              }
-            >
-              已隐藏 {hiddenItems.length} 项
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
-              {hiddenItems.map((key) => (
-                <DropdownMenuItem
-                  key={key}
-                  onClick={() =>
-                    void savePaperPreferences((p) => setHidden(p, key, false))
+        {isOpen("分类") && (
+          <>
+            <nav className="space-y-0.5">
+              {flattenCategories(
+                tree,
+                (node) => !open(node.name) && node.children.length > 0,
+              ).map((node) => categoryRow(node))}
+              {smart
+                .filter((item) => !hidden.includes(`smart:${item.id}`))
+                .map((item) => smartRow(item))}
+              {categories.length > 0 &&
+                count("unfiled") > 0 &&
+                viewRow("unfiled")}
+            </nav>
+            {hiddenItems.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="mt-1 text-muted-foreground"
+                    />
                   }
                 >
-                  <Eye />
-                  显示“{hiddenLabel(key)}”
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  已隐藏 {hiddenItems.length} 项
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  {hiddenItems.map((key) => (
+                    <DropdownMenuItem
+                      key={key}
+                      onClick={() =>
+                        void savePaperPreferences((p) =>
+                          setHidden(p, key, false),
+                        )
+                      }
+                    >
+                      <Eye />
+                      显示“{hiddenLabel(key)}”
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </>
         )}
       </section>
       {recent.length > 0 && (
         <section>
-          <h3 className="paper-nav-heading">最近阅读</h3>
-          <nav className="space-y-0.5">
-            {recent.map((doc) => paperRow(doc))}
-            {recentTotal > 5 && (
-              <Button
-                variant="ghost"
-                size="xs"
-                className="text-muted-foreground"
-                onClick={() => setRecentOpen(!recentOpen)}
-              >
-                {recentOpen ? "收起" : `展开更多（${recentTotal - 5}）`}
-              </Button>
-            )}
-          </nav>
+          <h3 className="paper-nav-heading">
+            最近阅读{sectionToggle("最近阅读")}
+          </h3>
+          {isOpen("最近阅读") && (
+            <nav className="space-y-0.5">
+              {recent.map((doc) => paperRow(doc))}
+            </nav>
+          )}
         </section>
       )}
       {(trashCount > 0 || view === "trash") && (
