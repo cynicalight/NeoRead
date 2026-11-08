@@ -45,7 +45,7 @@ export function getChatSession(
         await watchChatRun(documentId, sessionId, run.id, signal, emit);
       } finally {
         starting = undefined;
-        void refreshAIConfig().catch(() => {});
+        if (!signal.aborted) void refreshAIConfig().catch(() => {});
       }
     },
     cancel: async () => {

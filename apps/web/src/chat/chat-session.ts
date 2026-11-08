@@ -87,7 +87,7 @@ const transport: ChatTransport = {
       );
     } finally {
       // The server records failed primary attempts even when a fallback succeeds.
-      void refreshAIConfig().catch(() => {});
+      if (!signal.aborted) void refreshAIConfig().catch(() => {});
     }
   },
 };
