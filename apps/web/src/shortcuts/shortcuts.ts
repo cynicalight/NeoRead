@@ -5,6 +5,12 @@ import { documentTabCommand } from "@neoread/core";
 export const shortcutActions = [
   { id: "readerLeft", name: "阅读模式－左侧栏", scope: "reader", key: "l" },
   { id: "readerRight", name: "阅读模式－右侧栏", scope: "reader", key: "j" },
+  {
+    id: "returnLocation",
+    name: "阅读模式－返回阅读位置",
+    scope: "reader",
+    key: "[",
+  },
   { id: "libraryLeft", name: "主界面－左侧栏", scope: "library", key: "l" },
   { id: "primaryLibrary", name: "首选书库", scope: "all", key: "f1" },
   { id: "secondaryLibrary", name: "第二书库", scope: "all", key: "f2" },
@@ -38,7 +44,7 @@ export function normalizeBindings(saved: unknown): Bindings {
       if (
         value &&
         typeof value.key === "string" &&
-        /^(?:[a-z0-9]|f[12])$/.test(value.key) &&
+        /^(?:[a-z0-9[\]]|f[12])$/.test(value.key) &&
         typeof value.shift === "boolean"
       )
         result[id] = value;
@@ -74,7 +80,7 @@ export function bindingFromEvent(
   event: Pick<
     KeyboardEvent,
     "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey"
-  >,
+  > & { code?: string },
   mac = isMac(),
 ): Binding | null {
   if (
@@ -88,10 +94,18 @@ export function bindingFromEvent(
     !(mac
       ? event.metaKey && !event.ctrlKey
       : event.ctrlKey && !event.metaKey) ||
-    event.altKey ||
-    !/^[a-z0-9]$/i.test(event.key)
+    event.altKey
   )
     return null;
+  // Brackets by physical key, so Shift ({ }) and non-US layouts still match.
+  const bracket =
+    event.code === "BracketLeft"
+      ? "["
+      : event.code === "BracketRight"
+        ? "]"
+        : undefined;
+  if (bracket) return { key: bracket, shift: event.shiftKey };
+  if (!/^[a-z0-9]$/i.test(event.key)) return null;
   return { key: event.key.toLowerCase(), shift: event.shiftKey };
 }
 export function bindingError(
@@ -162,6 +176,7 @@ export function forwardReaderShortcut(event: KeyboardEvent) {
     ![
       "readerLeft",
       "readerRight",
+      "returnLocation",
       "search",
       "primaryLibrary",
       "secondaryLibrary",
@@ -170,6 +185,7 @@ export function forwardReaderShortcut(event: KeyboardEvent) {
     return;
   const forwarded = new KeyboardEvent("keydown", {
     key: event.key,
+    code: event.code,
     metaKey: event.metaKey,
     ctrlKey: event.ctrlKey,
     altKey: event.altKey,

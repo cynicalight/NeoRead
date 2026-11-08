@@ -1,7 +1,7 @@
 import { useAnnotationUpdates } from "./useAnnotationUpdates";
 import { webSearchEnabled } from "./chat/web-search";
 import { NavigationTree } from "./NavigationTree";
-import { useShortcut } from "./shortcuts/shortcuts";
+import { label, useBindings, useShortcut } from "./shortcuts/shortcuts";
 import { registerTabCloseGuard } from "./document-tab-guards";
 import { useDocumentTheme } from "./useDocumentTheme";
 import {
@@ -511,6 +511,14 @@ export function Workspace({
   );
   useShortcut("readerLeft", () => setLeft(!left), active);
   useShortcut("readerRight", () => setRight(!right), active);
+  const bindings = useBindings();
+  useShortcut(
+    "returnLocation",
+    () => {
+      if (returnLocation && !referenceBusy) void returnFromReference();
+    },
+    active && !!returnLocation,
+  );
   useShortcut(
     "search",
     () => {
@@ -1138,6 +1146,7 @@ export function Workspace({
               variant="outline"
               size="sm"
               disabled={referenceBusy}
+              title={`返回阅读位置（${label(bindings.returnLocation)}）`}
               onClick={() => void returnFromReference()}
             >
               <ArrowLeft className="size-3" />
