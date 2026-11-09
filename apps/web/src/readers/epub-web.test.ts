@@ -917,3 +917,48 @@ it("follows EPUB fractions immediately on every scroll frame", async () => {
   await reader.followBlock({ blockId: "c", fraction: 0.75 });
   expect(host.scrollTop).toBeCloseTo(862);
 });
+
+it("measures reading progress on the visible translation when reflow hides the source", async () => {
+  await open();
+  await reader.goTo({ type: "epub", href: "b.xhtml" });
+  // Translation-only reflow hides the source runs: their ranges have no boxes.
+  Range.prototype.getBoundingClientRect = () => rect(0, 0);
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  host.scrollTop = 840;
+  events.location.mockClear();
+  host.dispatchEvent(new Event("wheel"));
+  host.dispatchEvent(new Event("scroll"));
+  await vi.waitFor(() => expect(events.location).toHaveBeenCalled());
+  // The midpoint is halfway down paragraph c, not at its end.
+  expect(reader.getLocation()).toMatchObject({
+    blockId: "c",
+    start: Math.round(c.text.length / 2),
+  });
+});
+
+it("goes to the visible translation of a paragraph whose source reflow hides", async () => {
+  await open();
+  await reader.goTo({ type: "epub", href: "b.xhtml" });
+  const source = host.querySelector<HTMLElement>('[data-epub-block="c"]')!;
+  const translation = document.createElement("div");
+  translation.dataset.reflowBlock = "c";
+  source.after(translation);
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function (
+    this: Element,
+  ) {
+    return (this === translation ? [rect(0)] : []) as unknown as DOMRectList;
+  });
+  translation.getBoundingClientRect = () => rect(700);
+  source.getBoundingClientRect = () => rect(0, 0);
+  const before = host.scrollTop;
+  await reader.goTo({
+    type: "epub",
+    href: "b.xhtml",
+    blockId: "c",
+    start: 0,
+    end: 1,
+  });
+  // Centred on the translation at 700, not on the hidden source at 0.
+  expect(host.scrollTop - before).toBe(400);
+});

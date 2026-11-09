@@ -459,15 +459,17 @@ export class EPUBReaderAdapter implements ReaderAdapter {
           (c) => c.node.getBoundingClientRect().bottom > top,
         ) ?? this.chapters.at(-1));
     if (!chapter?.loaded) return;
+    // Reflowed translations stand in for source the reader hides.
     const elements = Array.from(
-      chapter.node.querySelectorAll<HTMLElement>("[data-epub-block]"),
+      chapter.node.querySelectorAll<HTMLElement>(
+        "[data-epub-block], [data-reflow-block]",
+      ),
     );
     const element = atEnd
       ? elements.at(-1)
       : elements.find((n) => n.getBoundingClientRect().bottom > top);
-    const block = chapter.info.blocks.find(
-      (b) => b.id === element?.dataset.epubBlock,
-    );
+    const id = element?.dataset.epubBlock ?? element?.dataset.reflowBlock;
+    const block = chapter.info.blocks.find((b) => b.id === id);
     const before = chapter.info.blocks
       .slice(0, block ? chapter.info.blocks.indexOf(block) : 0)
       .reduce((n, b) => n + b.text.length, 0);
@@ -503,6 +505,18 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     );
   }
   private visibleOffset(block: EPUBReadingBlock, top: number) {
+    // Hidden source text has no geometry; measure its visible translation.
+    const whole = blockRange(this.container, {
+      block,
+      start: 0,
+      end: block.text.length,
+    });
+    if (whole?.getClientRects && !whole.getClientRects().length) {
+      const r = this.blockElement(block.id)?.getBoundingClientRect();
+      if (!r?.height) return 0;
+      const fraction = Math.max(0, Math.min(1, (top - r.top) / r.height));
+      return Math.round(fraction * block.text.length);
+    }
     let start = 0,
       end = block.text.length;
     while (start < end) {
@@ -738,9 +752,13 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     }
   }
   private blockElement(id: string) {
-    return Array.from(
-      this.container.querySelectorAll<HTMLElement>("[data-epub-block]"),
-    ).find((n) => n.dataset.epubBlock === id);
+    const nodes = Array.from(
+      this.container.querySelectorAll<HTMLElement>(
+        "[data-epub-block], [data-reflow-block]",
+      ),
+    ).filter((n) => (n.dataset.epubBlock ?? n.dataset.reflowBlock) === id);
+    // Reflowed translation-only text hides the source; use what is visible.
+    return nodes.find((n) => n.getClientRects().length) ?? nodes[0];
   }
   async next() {
     this.container.scrollTop += this.container.clientHeight * 0.85;
