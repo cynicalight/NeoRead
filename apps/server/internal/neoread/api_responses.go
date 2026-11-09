@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"mime"
+	"net/http"
 	"strings"
 	"unicode/utf8"
 )
@@ -30,42 +31,38 @@ func responsesPayload(model string, payload map[string]any, instructions string,
 	return out
 }
 
-// responsesHistory 把不支持工具的文档问答记录转成 Responses 输入。
-func responsesHistory(history []completionMessage) []any {
-	input := []any{}
-	for _, m := range history {
-		kind := "input_text"
-		if m.Role == "assistant" {
-			kind = "output_text"
-		}
-		text, _ := m.Content.(string)
-		input = append(input, map[string]any{"role": m.Role, "content": []any{map[string]any{"type": kind, "text": text}}})
-	}
-	return input
-}
-
 func requestResponses(ctx context.Context, c APIConnection, payload map[string]any, emit func(ProviderEvent) error) (GenerateResult, error) {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return GenerateResult{}, generationError(ErrorConfiguration, "无法构造 API 请求")
-	}
-	response, err := apiRequest(ctx, c, "POST", "/responses", body)
+	response, err := openResponses(ctx, c, payload)
 	if err != nil {
 		return GenerateResult{}, err
 	}
 	defer response.Body.Close()
+	return readResponsesStream(ctx, response.Body, c, emit)
+}
+
+// openResponses 发出 Responses 请求并确认返回 SSE；调用方负责关闭响应体。
+func openResponses(ctx context.Context, c APIConnection, payload map[string]any) (*http.Response, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, generationError(ErrorConfiguration, "无法构造 API 请求")
+	}
+	response, err := apiRequest(ctx, c, "POST", "/responses", body)
+	if err != nil {
+		return nil, err
+	}
 	media, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if media != "text/event-stream" {
+		defer response.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 		if hasAPIError(b) {
-			return GenerateResult{}, providerFailure(ctx, c, response.StatusCode, response.Header, b, "http")
+			return nil, providerFailure(ctx, c, response.StatusCode, response.Header, b, "http")
 		}
-		return GenerateResult{}, generationError(ErrorProtocol, "Responses API 未返回 SSE 流")
+		return nil, generationError(ErrorProtocol, "Responses API 未返回 SSE 流")
 	}
 	if t, ok := ctx.Value(apiTraceKey{}).(*apiTrace); ok {
 		t.Stage = "stream"
 	}
-	return readResponsesStream(ctx, response.Body, c, emit)
+	return response, nil
 }
 
 type responsesUsage struct {
@@ -161,49 +158,4 @@ func (u *responsesUsage) tokens() *TokenCounts {
 		return nil
 	}
 	return t
-}
-
-// 不支持工具的文档问答把同一组文本消息改用 Responses 发送，与 Messages 分支共用消息转换。
-func responsesDocumentCompletion(ctx context.Context, c APIConnection, payload map[string]any, messages []toolCompletionMessage, callbacks ...toolStreamCallbacks) (toolCompletionResult, error) {
-	system, history, err := textDocumentMessages(messages, "Responses API")
-	if err != nil {
-		return toolCompletionResult{}, err
-	}
-	model, _ := payload["model"].(string)
-	return textDocumentCompletion(func(emit func(ProviderEvent) error) (GenerateResult, error) {
-		return requestResponses(ctx, c, responsesPayload(model, payload, system, responsesHistory(history)), emit)
-	}, callbacks...)
-}
-
-// textDocumentMessages 拆出系统提示和纯文本历史；含工具调用或页面图片的记录不能改用文本协议。
-func textDocumentMessages(messages []toolCompletionMessage, protocol string) (string, []completionMessage, error) {
-	var system []string
-	var history []completionMessage
-	for _, m := range messages {
-		text, ok := m.Content.(string)
-		if !ok || len(m.Calls) > 0 || m.CallID != "" || len(m.PageImages) > 0 {
-			return "", nil, generationError(ErrorCapability, protocol+" 暂未适配文档工具消息")
-		}
-		if m.Role == "system" {
-			system = append(system, text)
-		} else {
-			history = append(history, completionMessage{Role: m.Role, Content: text})
-		}
-	}
-	return strings.Join(system, "\n\n"), history, nil
-}
-
-func textDocumentCompletion(request func(func(ProviderEvent) error) (GenerateResult, error), callbacks ...toolStreamCallbacks) (toolCompletionResult, error) {
-	var response toolCompletionResult
-	result, err := request(func(event ProviderEvent) error {
-		for _, metric := range event.Metrics {
-			response.Model, response.Tokens = metric.Model, metric.Tokens
-		}
-		if len(callbacks) > 0 && callbacks[0].Draft != nil && event.Text != "" {
-			return callbacks[0].Draft(event.Text, false)
-		}
-		return nil
-	})
-	response.Text = result.Text
-	return response, err
 }

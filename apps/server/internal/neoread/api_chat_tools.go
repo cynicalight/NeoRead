@@ -245,10 +245,7 @@ func toolCompletion(ctx context.Context, c APIConnection, req completionRequest,
 		}
 		return anthropicDocumentCompletion(ctx, c, payload, messages, callbacks...)
 	case "responses":
-		if len(tools) > 0 {
-			return toolCompletionResult{}, generationError(ErrorCapability, "Responses API 暂未适配文档工具调用")
-		}
-		return responsesDocumentCompletion(ctx, c, payload, messages, callbacks...)
+		return responsesToolCompletion(ctx, c, payload, wire, tools, callbacks...)
 	}
 	body, _ := json.Marshal(payload)
 	response, err := apiRequest(ctx, c, "POST", "/chat/completions", body)

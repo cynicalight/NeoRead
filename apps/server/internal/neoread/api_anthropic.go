@@ -248,3 +248,36 @@ func anthropicDocumentCompletion(ctx context.Context, c APIConnection, payload m
 		return requestAnthropic(ctx, c, payload, emit)
 	}, callbacks...)
 }
+
+// textDocumentMessages 拆出系统提示和纯文本历史；含工具调用或页面图片的记录不能改用 Messages。
+func textDocumentMessages(messages []toolCompletionMessage, protocol string) (string, []completionMessage, error) {
+	var system []string
+	var history []completionMessage
+	for _, m := range messages {
+		text, ok := m.Content.(string)
+		if !ok || len(m.Calls) > 0 || m.CallID != "" || len(m.PageImages) > 0 {
+			return "", nil, generationError(ErrorCapability, protocol+" 暂未适配文档工具消息")
+		}
+		if m.Role == "system" {
+			system = append(system, text)
+		} else {
+			history = append(history, completionMessage{Role: m.Role, Content: text})
+		}
+	}
+	return strings.Join(system, "\n\n"), history, nil
+}
+
+func textDocumentCompletion(request func(func(ProviderEvent) error) (GenerateResult, error), callbacks ...toolStreamCallbacks) (toolCompletionResult, error) {
+	var response toolCompletionResult
+	result, err := request(func(event ProviderEvent) error {
+		for _, metric := range event.Metrics {
+			response.Model, response.Tokens = metric.Model, metric.Tokens
+		}
+		if len(callbacks) > 0 && callbacks[0].Draft != nil && event.Text != "" {
+			return callbacks[0].Draft(event.Text, false)
+		}
+		return nil
+	})
+	response.Text = result.Text
+	return response, err
+}

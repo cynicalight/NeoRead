@@ -9,7 +9,7 @@ import (
 )
 
 func probeAPIDocumentTools(ctx context.Context, c APIConnection, model string) (string, error) {
-	if resolveAPIEndpoint(c).Protocol != "openai" {
+	if resolveAPIEndpoint(c).Protocol == "anthropic" {
 		return "unsupported", generationError(ErrorCapability, "Messages API 暂未适配文档工具调用")
 	}
 	req := completionRequest{Model: model}
