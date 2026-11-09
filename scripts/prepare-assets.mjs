@@ -1,5 +1,4 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
-import { woffToSfnt } from "./woff-to-sfnt.mjs";
+import { cp, mkdir, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 const require = createRequire(
@@ -18,19 +17,8 @@ for (const dir of ["cmaps", "standard_fonts", "wasm"]) {
   );
 }
 
-// Offline PDF export embeds this font; ship its redistribution notice.
-const cjk = dirname(require.resolve("@fontsource/noto-sans-sc/package.json"));
-const exportFonts = new URL(
-  "../apps/web/public/pdf-assets/export-fonts/",
-  import.meta.url,
+// Remove generated assets from the retired original-layout exporter on upgrades.
+await rm(
+  new URL("../apps/web/public/pdf-assets/export-fonts/", import.meta.url),
+  { recursive: true, force: true },
 );
-await mkdir(exportFonts, { recursive: true });
-await writeFile(
-  new URL("NotoSansSC-Regular.ttf", exportFonts),
-  woffToSfnt(
-    await readFile(
-      join(cjk, "files/noto-sans-sc-chinese-simplified-400-normal.woff"),
-    ),
-  ),
-);
-await cp(join(cjk, "LICENSE"), new URL("OFL-NotoSansSC.txt", exportFonts));

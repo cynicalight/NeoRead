@@ -101,12 +101,10 @@ beforeEach(() => {
   root = createRoot(host);
 });
 
-it("exports translated PDF independently of Markdown selections and reports preserved areas", async () => {
+it("exports Markdown-rendered translated PDF independently of note selections", async () => {
   localStorage.setItem("neoread.notes-export", JSON.stringify(["notes"]));
   vi.mocked(exportTranslatedPDF).mockResolvedValue({
-    pages: 3,
-    translated: 8,
-    issues: [{ page: 2, blockId: "b", reason: "overflow" }],
+    delivery: "download",
   });
   await mount();
   await act(async () => button("导出译文 PDF").click());
@@ -115,10 +113,8 @@ it("exports translated PDF independently of Markdown selections and reports pres
     expect.any(AbortSignal),
     expect.any(Function),
   );
-  expect(document.body.textContent).toContain("写入 8 个译文段落");
-  expect(document.body.textContent).toContain(
-    "第 2 页：译文无法在原区域内排下",
-  );
+  expect(document.body.textContent).toContain("已开始下载译文 PDF");
+  expect(document.body.textContent).not.toContain("保留原文");
   expect(api.exportTranslation).not.toHaveBeenCalled();
   expect(exportAnnotatedPDFWithToast).not.toHaveBeenCalled();
   expect(close).not.toHaveBeenCalled();
@@ -130,7 +126,7 @@ it("aborts translated PDF export when the dialog is closed", async () => {
   ) => void;
   vi.mocked(exportTranslatedPDF).mockImplementation(
     (_doc, _signal, progress) => {
-      progress({ phase: "pages", done: 1, total: 4 });
+      progress({ phase: "saving" });
       return new Promise((resolve) => {
         finish = resolve;
       });
@@ -139,13 +135,13 @@ it("aborts translated PDF export when the dialog is closed", async () => {
   await mount();
   await act(async () => button("导出译文 PDF").click());
   const signal = vi.mocked(exportTranslatedPDF).mock.calls[0][1];
-  expect(document.querySelector("progress")?.value).toBe(1);
+  expect(document.querySelector("progress")?.hasAttribute("value")).toBe(false);
   expect(button("导出译文 PDF").disabled).toBe(true);
   await act(async () => button("取消").click());
   expect(signal.aborted).toBe(true);
   expect(close).toHaveBeenCalledOnce();
-  await act(async () => finish({ pages: 4, translated: 10, issues: [] }));
-  expect(document.body.textContent).not.toContain("写入 10 个译文段落");
+  await act(async () => finish({ delivery: "download" }));
+  expect(document.body.textContent).not.toContain("已开始下载译文 PDF");
 });
 
 it("keeps PDF export errors visible and allows a retry", async () => {

@@ -49,7 +49,10 @@ import {
 import { paperLink } from "./format";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
 import { reparseDocument } from "../reparse-document";
-import { exportTranslatedPDFWithToast } from "../translated-pdf-export";
+import {
+  exportTranslatedPDFWithToast,
+  exportTranslatedMarkdownWithToast,
+} from "../translated-pdf-export";
 import { CitationMenuItems } from "./CitationMenu";
 import {
   categoryTree,
@@ -278,6 +281,12 @@ export function PaperMenuItems({
               {window.neoreadDesktop.platform === "darwin"
                 ? "在 Finder 中显示"
                 : "在文件夹中显示"}
+            </K.Item>
+          )}
+          {kind === "context" && one.type === "pdf" && (
+            <K.Item onClick={() => void exportTranslatedMarkdownWithToast(one)}>
+              <FileDown />
+              导出译文 Markdown
             </K.Item>
           )}
           {kind === "context" && one.type === "pdf" && (

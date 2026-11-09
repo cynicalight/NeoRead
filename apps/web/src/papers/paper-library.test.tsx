@@ -13,9 +13,13 @@ import { useAttachments } from "./attachments";
 import * as attachments from "./attachments";
 import { paper } from "./fixtures";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
-import { exportTranslatedPDFWithToast } from "../translated-pdf-export";
+import {
+  exportTranslatedPDFWithToast,
+  exportTranslatedMarkdownWithToast,
+} from "../translated-pdf-export";
 vi.mock("../translated-pdf-export", () => ({
   exportTranslatedPDFWithToast: vi.fn(async () => {}),
+  exportTranslatedMarkdownWithToast: vi.fn(async () => {}),
 }));
 vi.mock("../annotated-pdf-export", () => ({
   exportAnnotatedPDFWithToast: vi.fn(async () => 1),
@@ -2577,4 +2581,21 @@ it("exports the context-clicked paper translation without opening citation actio
   await act(async () => menuItem("导出译文 PDF").click());
   expect(exportTranslatedPDFWithToast).toHaveBeenCalledExactlyOnceWith(docs[1]);
   expect(open).not.toHaveBeenCalled();
+});
+
+it("exports the context-clicked paper translation as Markdown", async () => {
+  await act(async () =>
+    row(docs[1].title).dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 10,
+      }),
+    ),
+  );
+  await act(async () => menuItem("导出译文 Markdown").click());
+  expect(exportTranslatedMarkdownWithToast).toHaveBeenCalledExactlyOnceWith(
+    docs[1],
+  );
 });

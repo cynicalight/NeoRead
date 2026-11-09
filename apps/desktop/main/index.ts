@@ -1,3 +1,4 @@
+import { renderMarkdownPDF, cancelMarkdownPDF } from "./markdown-pdf";
 import { confirmReaderMigration } from "./migration-confirmation";
 import { startupAppearanceArgument } from "../startup-appearance";
 import { saveStartupAppearance } from "./startup-appearance-cache";
@@ -993,6 +994,17 @@ app
       )
         throw new Error("Invalid sender");
     };
+    ipcMain.handle(
+      "neoread:markdown-pdf",
+      (event, id: unknown, html: unknown) => {
+        settingsSender(event);
+        return renderMarkdownPDF(id, html);
+      },
+    );
+    ipcMain.handle("neoread:cancel-markdown-pdf", (event, id: unknown) => {
+      settingsSender(event);
+      if (typeof id === "string") cancelMarkdownPDF(id);
+    });
     ipcMain.handle("neoread:library-location", (event) => {
       settingsSender(event);
       return activeLibrary || "";

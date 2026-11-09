@@ -22,12 +22,11 @@ import {
 } from "./notes-export";
 import { downloadBlob, downloadText, fileTitle } from "./download";
 import { exportAnnotatedPDFWithToast } from "./annotated-pdf-export";
-import { exportTranslatedPDF } from "./translated-pdf-export";
 import {
-  exportReasons,
+  exportTranslatedPDF,
   type PDFExportProgress,
-  type TranslatedPDF,
-} from "./translation/pdf-export-model";
+  type TranslatedPDFResult,
+} from "./translated-pdf-export";
 
 type DocumentExportPart = "translation" | ExportPart;
 const labels = { translation: "译文", ...exportParts };
@@ -74,10 +73,7 @@ export function ExportDocumentDialog({
   const [pdfProgress, setPDFProgress] = useState<PDFExportProgress | null>(
     null,
   );
-  const [pdfResult, setPDFResult] = useState<Omit<
-    TranslatedPDF,
-    "bytes"
-  > | null>(null);
+  const [pdfResult, setPDFResult] = useState<TranslatedPDFResult | null>(null);
   const [error, setError] = useState("");
   const [noteSaveFailed, setNoteSaveFailed] = useState(false);
   const [savedNoteOnly, setSavedNoteOnly] = useState(false);
@@ -371,7 +367,7 @@ export function ExportDocumentDialog({
           <div className="space-y-3 border-t pt-4">
             <div className="flex items-center gap-3">
               <p className="flex-1 text-xs leading-5 text-muted-foreground">
-                按原版面导出已保存的译文。图表、公式和无法排入的段落保留原文。
+                按 Markdown 默认字号导出译文 PDF。
               </p>
               <Button
                 variant="outline"
@@ -390,39 +386,23 @@ export function ExportDocumentDialog({
               <div className="space-y-1">
                 <p role="status" className="text-xs text-muted-foreground">
                   {pdfProgress.phase === "preparing"
-                    ? "正在准备译文与字体…"
-                    : pdfProgress.phase === "saving"
-                      ? "正在生成 PDF…"
-                      : `正在排版 ${pdfProgress.done + 1} / ${pdfProgress.total} 页`}
+                    ? "正在读取译文…"
+                    : "正在生成 PDF…"}
                 </p>
                 <progress
                   aria-label="译文 PDF 导出进度"
                   className="w-full"
-                  max={pdfProgress.total || 1}
-                  value={pdfProgress.total ? pdfProgress.done : undefined}
+                  max={1}
                 />
               </div>
             )}
             {pdfResult && (
               <div className="space-y-1 text-xs leading-5 text-muted-foreground">
                 <p role="status">
-                  已生成 {pdfResult.pages} 页 PDF，写入 {pdfResult.translated}{" "}
-                  个译文段落。
+                  {pdfResult.delivery === "download"
+                    ? "已开始下载译文 PDF。"
+                    : "打印窗口已关闭。"}
                 </p>
-                {pdfResult.issues.length > 0 && (
-                  <details>
-                    <summary className="cursor-pointer">
-                      查看保留原文的区域（{pdfResult.issues.length}）
-                    </summary>
-                    <ul className="mt-1 max-h-32 list-inside list-disc overflow-y-auto">
-                      {pdfResult.issues.map((issue, i) => (
-                        <li key={i}>
-                          第 {issue.page} 页：{exportReasons[issue.reason]}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
               </div>
             )}
           </div>

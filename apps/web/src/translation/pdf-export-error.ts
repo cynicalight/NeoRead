@@ -1,17 +1,9 @@
 /** Stable diagnostic categories. Never derive log values from exception text. */
 const reasons = {
-  unsupported_document: "input",
   snapshot: "load",
-  font_load: "load",
   module_load: "load",
-  pdf_decode: "parse",
-  encrypted_pdf: "parse",
-  font_embed: "font",
   layout: "layout",
-  page_dimensions: "layout",
-  no_translated_blocks: "layout",
   save: "save",
-  cleanup: "resource",
   download: "download",
   unrecognized: "unknown",
 } as const;
@@ -35,11 +27,7 @@ export function exportFailure(
   fallback: PDFExportFailure,
 ): PDFExportError {
   if (error instanceof PDFExportError) return error;
-  const encrypted =
-    fallback === "pdf_decode" &&
-    error instanceof Error &&
-    ["PasswordException", "EncryptedPDFError"].includes(error.name);
-  return new PDFExportError(encrypted ? "encrypted_pdf" : fallback, error);
+  return new PDFExportError(fallback, error);
 }
 
 export async function exportOperation<T>(
