@@ -601,6 +601,47 @@ it.each(["card", "table"] as const)(
   },
 );
 
+it.each(["card", "table"] as const)(
+  "shows an icon-only parsing retry beside the failure in %s view",
+  async (layout) => {
+    jobs = new Map([
+      [
+        "a",
+        {
+          documentId: "a",
+          phase: "learning",
+          status: "failed",
+          pagesDone: 2,
+          pagesTotal: 20,
+          translationsDone: 0,
+          translationsTotal: 0,
+          detail: "解析失败",
+          updatedAt: "2026-10-08T00:00:00Z",
+        },
+      ],
+    ]);
+    await act(async () => {
+      useReaderStore.setState({
+        libraryPreferences: { mode: "papers", papers: { layout } },
+      });
+      root.render(<Harness />);
+    });
+    const paper = row("Attention Is All You Need");
+    const retry = paper.querySelector<HTMLButtonElement>(
+      '[aria-label="重试解析"]',
+    )!;
+    expect(retry.textContent).toBe("");
+    expect(retry.parentElement?.textContent).toContain("解析失败");
+    await act(async () => {
+      retry.click();
+      retry.click();
+    });
+    expect(api.process).toHaveBeenCalledExactlyOnceWith("a");
+    expect(retry.disabled).toBe(true);
+    expect(open).not.toHaveBeenCalled();
+  },
+);
+
 const prefs = () => useReaderStore.getState().libraryPreferences.papers ?? {};
 it("shows the reading status and file size under a paper cover", async () => {
   await act(async () => {

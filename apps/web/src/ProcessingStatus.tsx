@@ -232,6 +232,18 @@ export function CoverProcessing({
                   {unavailable ? "离线" : count}
                 </span>
               </span>
+              {phase === "learning" && !leaving && state === "failed" && (
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className="cover-processing-action cover-processing-retry"
+                  aria-label={`重试${learningName}`}
+                  disabled={retrying || unavailable}
+                  onClick={retry}
+                >
+                  <RefreshCw className="size-3" />
+                </Button>
+              )}
             </div>
             {phase === "learning" && (
               <Progress
@@ -248,19 +260,6 @@ export function CoverProcessing({
                 onClick={onSettings}
               >
                 等待 AI 配置
-              </Button>
-            )}
-            {phase === "learning" && !leaving && state === "failed" && (
-              <Button
-                size="xs"
-                variant="ghost"
-                className="cover-processing-action"
-                disabled={retrying || unavailable}
-                onClick={retry}
-              >
-                <RefreshCw className="size-3" />
-                重试
-                {stage.key === "translating" ? "翻译" : learningName}
               </Button>
             )}
           </div>

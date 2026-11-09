@@ -1440,7 +1440,7 @@ function PaperProcessing({ job }: { job?: Processing }) {
       />
       {status === "failed" && (
         <Button
-          size="xs"
+          size="icon-xs"
           variant="ghost"
           aria-label={`重试${name}`}
           data-row-action
@@ -1451,7 +1451,6 @@ function PaperProcessing({ job }: { job?: Processing }) {
           }}
         >
           <RefreshCw className="size-3" />
-          {retrying ? "重试中" : "重试"}
         </Button>
       )}
     </span>

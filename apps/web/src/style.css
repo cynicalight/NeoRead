@@ -1980,12 +1980,24 @@ kbd {
   font-size: 10px;
   color: var(--muted-foreground);
 }
+.cover-processing .cover-processing-retry {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+}
 .cover-analyze,
 .cover-incomplete {
   position: absolute;
   bottom: 12px;
   left: 12px;
   z-index: 2;
+}
+.paper-cover-frame .cover-analyze {
+  left: 50%;
+  transform: translateX(-50%);
+}
+.paper-cover-frame .cover-analyze button {
+  background: var(--accent);
 }
 .cover-incomplete {
   background: var(--background);
