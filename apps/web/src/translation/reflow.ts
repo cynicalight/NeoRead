@@ -15,18 +15,54 @@ import { lcsMatches } from "../text-align";
 export interface ReflowPart {
   /** Extracted text, which quotes and PDF locations use. */
   text: string;
-  /** The model's sentence with inline math restored as KaTeX, shown instead. */
+  /** The model's repaired sentence, shown instead; it maps back to `text`. */
   display?: string;
 }
 // Unescaped inline KaTeX, as the translation prompt asks for.
 const katex = /(?<!\\)\$[^$]*[^\s$\\][^$]*(?<!\\)\$/;
+// Share of extracted characters a repair must keep to be shown as source.
+const repairSimilarity = 0.9;
+// Longer sentences are not compared; they keep their extracted text.
+const repairCells = 1 << 20;
+const repairs = new WeakMap<TranslationSentence, boolean>();
+/**
+ * Whether a sentence shows the model's repaired text. Restored inline math is
+ * always shown; other repairs only when they keep nearly every extracted
+ * character, so a rewrite never reads as the original.
+ */
+function showsRepair(sentence: TranslationSentence) {
+  const { source, anchor } = sentence;
+  if (!anchor || anchor === source) return false;
+  if (katex.test(source) && !katex.test(anchor)) return true;
+  let shown = repairs.get(sentence);
+  if (shown === undefined) {
+    const a = repairChars(source),
+      b = repairChars(anchor);
+    const longest = Math.max(a.length, b.length);
+    shown =
+      longest > 0 &&
+      a.length * b.length <= repairCells &&
+      lcsMatches(a, b).filter((j) => j !== undefined).length >=
+        longest * repairSimilarity;
+    repairs.set(sentence, shown);
+  }
+  return shown;
+}
+// Compatibility forms fold math italic letters into plain ones.
+const repairChars = (text: string) =>
+  Array.from(
+    text
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[\s\u00ad]/g, ""),
+  );
 /**
  * Sentence parts shown for a reflowed source paragraph. A completed
  * translation supplies the extracted text of each sentence, so part `i`
  * hovers with translated sentence `i` and quotes still match the PDF text.
- * A sentence whose model text restores inline math shows that text instead.
- * Otherwise the extracted text is split exactly as sentence hover splits
- * untranslated source text.
+ * A sentence the model repaired shows that text instead, when the repair is
+ * close to the extracted text. Otherwise the extracted text is split exactly
+ * as sentence hover splits untranslated source text.
  */
 export function reflowSourceParts(
   text: string,
@@ -42,16 +78,15 @@ export function reflowSourceParts(
   return parts.map((part, i) => {
     const next = parts[i + 1] ?? "";
     const space = next && needsSpace(part, next) ? " " : "";
-    const source = sentences[i].source;
-    return katex.test(source) && !katex.test(part)
-      ? { text: part + space, display: source + space }
+    return showsRepair(sentences[i])
+      ? { text: part + space, display: sentences[i].source + space }
       : { text: part + space };
   });
 }
 
 /**
- * A source paragraph with the inline formulas its translation restored, as
- * TeX; the same text reflow shows, whether or not reflow is on.
+ * A source paragraph with the repairs its translation made, inline formulas
+ * as TeX; the same text reflow shows, whether or not reflow is on.
  */
 export function restoredSource(text: string, translation?: TranslationBlock) {
   return reflowSourceParts(text, translation)
@@ -61,7 +96,7 @@ export function restoredSource(text: string, translation?: TranslationBlock) {
 }
 
 /**
- * A reflowed paragraph as copied: its restored source, a blank line, then its
+ * A reflowed paragraph as copied: its repaired source, a blank line, then its
  * translation.
  */
 export function reflowBlockText(text: string, translation?: TranslationBlock) {
@@ -201,14 +236,36 @@ const compact = (text: string) => text.replace(/\s/g, "").toLowerCase();
 /**
  * One rendered piece of a restored sentence, a character or a whole formula,
  * with the span [from, to) of extracted-text characters (spaces removed) it
- * stands for. An unmatched piece has an empty span at its position.
+ * stands for. An unmatched piece has an empty span at its position. Spans
+ * count UTF-16 code units, as `compact` text does, and never split a
+ * character.
  */
 interface Unit {
   node: Node;
   offset: number;
+  /** Code units the rendered character takes. */
+  length: number;
   formula?: Element;
   from: number;
   to: number;
+}
+/**
+ * Non-space characters of `text` as comparison keys, each with the span
+ * [start, end) of code units it comes from among non-space code units.
+ * Compatibility forms fold, so a math italic letter or a ligature from the
+ * extraction matches the plain letters a repair writes.
+ */
+function foldedKeys(text: string) {
+  const keys: { key: string; start: number; end: number }[] = [];
+  let n = 0;
+  for (const ch of text) {
+    if (/\s/.test(ch)) continue;
+    const start = n;
+    n += ch.length;
+    for (const key of ch.normalize("NFKC").toLowerCase())
+      if (!/\s/.test(key)) keys.push({ key, start, end: n });
+  }
+  return keys;
 }
 /**
  * Aligns a restored sentence's rendered text with its extracted text: plain
@@ -216,50 +273,76 @@ interface Unit {
  * characters left between its matched neighbours.
  */
 function sentenceUnits(sentence: HTMLElement): Unit[] {
-  const anchor = compact(sentence.dataset.anchor ?? "");
+  const anchor = foldedKeys(sentence.dataset.anchor ?? "");
+  const size = anchor.at(-1)?.end ?? 0;
   const units: Unit[] = [];
+  // Rendered keys, and the unit each comes from.
+  const keys: string[] = [];
+  const owners: number[] = [];
   const walker = document.createTreeWalker(sentence, NodeFilter.SHOW_TEXT);
   let node: Node | null;
   while ((node = walker.nextNode())) {
     const formula = node.parentElement?.closest("[data-tex]");
     if (formula) {
       if (units.at(-1)?.formula !== formula)
-        units.push({ node: formula, offset: 0, formula, from: 0, to: 0 });
+        units.push({
+          node: formula,
+          offset: 0,
+          length: 0,
+          formula,
+          from: 0,
+          to: 0,
+        });
       continue;
     }
     const text = node.textContent ?? "";
-    for (let k = 0; k < text.length; k++)
-      if (!/\s/.test(text[k])) units.push({ node, offset: k, from: 0, to: 0 });
+    let offset = 0;
+    for (const ch of text) {
+      if (!/\s/.test(ch)) {
+        for (const { key } of foldedKeys(ch)) {
+          keys.push(key);
+          owners.push(units.length);
+        }
+        units.push({ node, offset, length: ch.length, from: 0, to: 0 });
+      }
+      offset += ch.length;
+    }
   }
-  const chars = units.flatMap((u) =>
-    u.formula ? [] : [u.node.textContent![u.offset].toLowerCase()],
-  );
-  const matched = lcsMatches(chars, anchor);
-  let c = 0;
-  const at = units.map((u) => (u.formula ? undefined : matched[c++]));
+  // The extracted span each unit's matched keys cover.
+  const spans: ([number, number] | undefined)[] = units.map(() => undefined);
+  lcsMatches(
+    keys,
+    anchor.map((a) => a.key),
+  ).forEach((j, i) => {
+    if (j === undefined) return;
+    const { start, end } = anchor[j];
+    const span = spans[owners[i]];
+    spans[owners[i]] = span
+      ? [Math.min(span[0], start), Math.max(span[1], end)]
+      : [start, end];
+  });
   units.forEach((u, k) => {
-    const own = at[k];
-    if (own !== undefined) {
-      u.from = own;
-      u.to = own + 1;
+    const own = spans[k];
+    if (own) {
+      [u.from, u.to] = own;
       return;
     }
     // Between the matched neighbours: a formula covers that gap, an unmatched
     // character sits at its start.
-    let before = -1,
-      after = anchor.length;
+    let before = 0,
+      after = size;
     for (let j = k - 1; j >= 0; j--)
-      if (at[j] !== undefined) {
-        before = at[j]!;
+      if (spans[j]) {
+        before = spans[j]![1];
         break;
       }
     for (let j = k + 1; j < units.length; j++)
-      if (at[j] !== undefined) {
-        after = at[j]!;
+      if (spans[j]) {
+        after = spans[j]![0];
         break;
       }
-    u.from = before + 1;
-    u.to = u.formula ? Math.max(u.from, after) : u.from;
+    u.from = before;
+    u.to = u.formula ? Math.max(before, after) : before;
   });
   return units;
 }
@@ -283,12 +366,15 @@ function restoredRanges(sentence: HTMLElement, s: number, e: number) {
       range.selectNode(u.formula);
       ranges.push(range);
       run = undefined;
-    } else if (run?.endContainer === u.node && run.endOffset <= u.offset + 1) {
-      run.setEnd(u.node, u.offset + 1);
+    } else if (
+      run?.endContainer === u.node &&
+      run.endOffset <= u.offset + u.length
+    ) {
+      run.setEnd(u.node, u.offset + u.length);
     } else {
       run = document.createRange();
       run.setStart(u.node, u.offset);
-      run.setEnd(u.node, u.offset + 1);
+      run.setEnd(u.node, u.offset + u.length);
       ranges.push(run);
     }
   }
@@ -304,7 +390,7 @@ function restoredSelection(sentence: HTMLElement, range: Range) {
     u.formula
       ? range.intersectsNode(u.formula)
       : range.comparePoint(u.node, u.offset) === 0 &&
-        range.comparePoint(u.node, u.offset + 1) === 0,
+        range.comparePoint(u.node, u.offset + u.length) === 0,
   );
   if (!touched.length) return "";
   const s = Math.min(...touched.map((u) => u.from)),
@@ -333,21 +419,22 @@ function selectedSource(node: HTMLElement, range: Range) {
 
 /**
  * Ranges of a saved quote in reflowed text, for marks made here, whose quote
- * is extracted text. Its span is mapped back sentence by sentence.
+ * is extracted text. It is found in the extracted text each sentence stands
+ * for, then mapped back sentence by sentence; shown text is searched only
+ * when that fails, since a repair may read the same words elsewhere.
  */
 export function reflowQuoteRanges(
   host: HTMLElement,
   blockId: string,
   quote: string,
 ): Range[] {
-  const found = searchRanges(reflowSourceRanges(host, blockId), quote);
   const element = sourceElement(host, blockId);
-  if (found.length || !element?.querySelector("[data-anchor]")) return found;
-  const sentences = sentenceNodes(element);
+  const sentences = element ? sentenceNodes(element) : [];
   const texts = sentences.map((s) => compact(sentenceText(s)));
   const needle = compact(quote);
   const at = needle ? texts.join("").indexOf(needle) : -1;
-  return at < 0 ? [] : spanRanges(sentences, texts, at, at + needle.length);
+  if (at >= 0) return spanRanges(sentences, texts, at, at + needle.length);
+  return searchRanges(reflowSourceRanges(host, blockId), quote);
 }
 
 /**
@@ -491,7 +578,8 @@ function plainRanges(sentence: HTMLElement, a: number, b: number) {
   return ranges;
 }
 
-// The text between non-space characters `a` and `b`, spaces inside kept.
+// The text between non-space code units `a` and `b`, spaces inside kept; the
+// same count `compact` and unit spans use.
 function compactSlice(text: string, a: number, b: number) {
   let n = 0,
     out = "";
@@ -501,7 +589,7 @@ function compactSlice(text: string, a: number, b: number) {
       continue;
     }
     if (n >= a && n < b) out += ch;
-    n++;
+    n += ch.length;
   }
   return out;
 }

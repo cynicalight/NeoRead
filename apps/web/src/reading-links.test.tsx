@@ -248,3 +248,35 @@ it("opens citations from reflowed source sentences", async () => {
   link.click();
   expect(visit).toHaveBeenCalledWith("b1", "7");
 });
+it("shows a repaired reflow sentence as plain text that keeps its links", async () => {
+  const visit = vi.fn();
+  await act(async () =>
+    createRoot(host).render(
+      <ReflowSource
+        block={{ id: "b1", label: "text", text: "Inter- national *work* [7]." }}
+        translation={{
+          blockId: "b1",
+          sourceHash: "h",
+          status: "complete",
+          sentences: [
+            {
+              source: "International *work* [7].",
+              anchor: "Inter- national *work* [7].",
+              target: "国际工作 [7]。",
+            },
+          ],
+        }}
+        onCitation={visit}
+      />,
+    ),
+  );
+  const sentence = host.querySelector<HTMLElement>("[data-source-sentence]")!;
+  expect(sentence.dataset.anchor).toBe("Inter- national *work* [7].");
+  // Asterisks stay text rather than emphasis.
+  expect(sentence.textContent).toBe("International *work* [7].");
+  expect(sentence.querySelector("em")).toBeNull();
+  host
+    .querySelector<HTMLAnchorElement>('a[href^="#neoread-citation?"]')!
+    .click();
+  expect(visit).toHaveBeenCalledWith("b1", "7");
+});

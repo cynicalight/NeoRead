@@ -25,7 +25,7 @@ it("splits untranslated text without changing it", () => {
   expect(parts).toHaveLength(3);
 });
 
-it("follows translated sentences using their extracted text", () => {
+it("follows translated sentences, showing close repairs", () => {
   expect(
     reflowSourceParts(
       "ignored",
@@ -34,7 +34,32 @@ it("follows translated sentences using their extracted text", () => {
         { source: "Two.", target: "二" },
       ]),
     ),
-  ).toEqual([{ text: "Re- paired one. " }, { text: "Two." }]);
+  ).toEqual([
+    { text: "Re- paired one. ", display: "Repaired one. " },
+    { text: "Two." },
+  ]);
+  // Math italic letters fold into the plain letters the model writes.
+  expect(
+    reflowSourceParts(
+      "",
+      translated([
+        { source: "Let x be fixed.", anchor: "Let 𝑥 be fi xed.", target: "a" },
+      ]),
+    ),
+  ).toEqual([{ text: "Let 𝑥 be fi xed.", display: "Let x be fixed." }]);
+  // A rewrite that drops much of the extracted text keeps the extracted text.
+  expect(
+    reflowSourceParts(
+      "",
+      translated([
+        {
+          source: "The model is trained.",
+          anchor: "We train the model on data.",
+          target: "a",
+        },
+      ]),
+    ),
+  ).toEqual([{ text: "We train the model on data." }]);
   // CJK sentences join without spaces.
   expect(
     reflowSourceParts(
@@ -175,6 +200,85 @@ it("copies a reflowed paragraph as restored source, a blank line and its transla
     "Plain start. Dim $d_k$ here.\n\n开头。维度 $d_k$。",
   );
   expect(reflowBlockText("Only source.")).toBe("Only source.");
+});
+
+it("maps a selection in a repaired sentence back to its extracted text", () => {
+  const host = document.createElement("div");
+  host.innerHTML = `
+    <div data-reflow-source="a">
+      <span data-source-sentence="0" data-anchor="An inter- national ef fort.">An international effort.</span>
+    </div>`;
+  document.body.append(host);
+  const blocks = [
+    {
+      id: "a",
+      page: 1,
+      label: "text",
+      text: "",
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+    },
+  ] as PDFBlock[];
+  const text = host.querySelector("span")!.firstChild!;
+  const range = document.createRange();
+  range.setStart(text, 3);
+  range.setEnd(text, "An international effort".length);
+  Object.assign(range, { getBoundingClientRect: () => new DOMRect() });
+  const selection = reflowSourceSelection(host, range, blocks)!;
+  expect(selection.text).toBe("international effort");
+  expect(selection.location).toMatchObject({
+    sourceAnchors: [{ blockId: "a", source: "inter- national ef fort" }],
+  });
+  // A quote saved from the PDF marks the repaired words.
+  expect(
+    reflowQuoteRanges(host, "a", "national ef fort").map((r) => r.toString()),
+  ).toEqual(["national effort"]);
+  host.remove();
+});
+
+it("maps past math italic letters the repair wrote plainly", () => {
+  const host = document.createElement("div");
+  host.innerHTML = `
+    <div data-reflow-source="a">
+      <span data-source-sentence="0" data-anchor="Let 𝑥 be fi xed.">Let x be fixed.</span>
+    </div>`;
+  document.body.append(host);
+  const blocks = [
+    {
+      id: "a",
+      page: 1,
+      label: "text",
+      text: "",
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+    },
+  ] as PDFBlock[];
+  const text = host.querySelector("span")!.firstChild!;
+  const range = document.createRange();
+  range.setStart(text, "Let ".length);
+  range.setEnd(text, "Let x be fixed".length);
+  Object.assign(range, { getBoundingClientRect: () => new DOMRect() });
+  // The surrogate pair counts as two code units on both sides.
+  expect(reflowSourceSelection(host, range, blocks)!.location).toMatchObject({
+    sourceAnchors: [{ blockId: "a", source: "𝑥 be fi xed" }],
+  });
+  expect(
+    reflowQuoteRanges(host, "a", "𝑥 be fi xed").map((r) => r.toString()),
+  ).toEqual(["x be fixed"]);
+  host.remove();
+});
+
+it("finds a saved quote in extracted text before shown text", () => {
+  const host = document.createElement("div");
+  host.innerHTML = `
+    <div data-reflow-source="a">
+      <span data-source-sentence="0" data-anchor="Let 𝑥 grow. ">Let x grow. </span><span data-source-sentence="1">Then x grows.</span>
+    </div>`;
+  document.body.append(host);
+  const [, second] = host.querySelectorAll("span");
+  const ranges = reflowQuoteRanges(host, "a", "x grow");
+  // The quote was taken from the second sentence's extracted text.
+  expect(ranges.map((r) => r.toString())).toEqual(["x grow"]);
+  expect(ranges[0].startContainer).toBe(second.firstChild);
+  host.remove();
 });
 
 it("maps both ways around subscripts the extraction moved", () => {

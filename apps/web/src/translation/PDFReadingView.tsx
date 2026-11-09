@@ -1011,7 +1011,7 @@ export function PDFReadingView({
                 },
                 blockAction: (block, action) => {
                   // The page shows extracted text; copying gives the source
-                  // with the formulas its translation restored.
+                  // with the repairs its translation made.
                   if (action === "copy" && !block.image) {
                     const translation = state.current.translations.find(
                       (t) => t.blockId === block.id,

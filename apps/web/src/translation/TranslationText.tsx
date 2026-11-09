@@ -131,6 +131,38 @@ export function showsOriginal(block: DisplayBlock) {
 
 // Extracted PDF text carries inline math as Markdown; other text stays plain.
 const markdownSource = /\$|\\\(|\\\[/;
+// One shown sentence: Markdown when it carries math, else text with links.
+function sourceText(
+  text: string,
+  blockId: string,
+  onCitation?: (blockId: string, label: string) => void,
+): ReactNode {
+  if (markdownSource.test(text))
+    return (
+      <MessageMarkdown
+        content={text}
+        blockId={blockId}
+        onCitation={onCitation}
+      />
+    );
+  if (!onCitation) return text;
+  return readingLinkTokens(text).map((token, k) =>
+    token.label ? (
+      <a
+        key={k}
+        href={citationHref(blockId, token.label)}
+        onClick={(event) => {
+          event.preventDefault();
+          onCitation(blockId, token.label!);
+        }}
+      >
+        {token.text}
+      </a>
+    ) : (
+      token.text
+    ),
+  );
+}
 /** A reflowed source paragraph whose sentences hover with their translation. */
 export function ReflowSource({
   block,
@@ -154,38 +186,7 @@ export function ReflowSource({
             data-source-sentence={i}
             data-anchor={display ? part : undefined}
           >
-            {display ? (
-              <MessageMarkdown
-                content={display}
-                blockId={block.id}
-                onCitation={onCitation}
-              />
-            ) : markdownSource.test(part) ? (
-              <MessageMarkdown
-                content={part}
-                blockId={block.id}
-                onCitation={onCitation}
-              />
-            ) : onCitation ? (
-              readingLinkTokens(part).map((token, k) =>
-                token.label ? (
-                  <a
-                    key={k}
-                    href={citationHref(block.id, token.label)}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      onCitation(block.id, token.label!);
-                    }}
-                  >
-                    {token.text}
-                  </a>
-                ) : (
-                  token.text
-                ),
-              )
-            ) : (
-              part
-            )}
+            {sourceText(display ?? part, block.id, onCitation)}
           </span>
         ),
       )}
