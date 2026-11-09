@@ -3823,6 +3823,130 @@
                 },
             },
         },
+      "/api/documents/{id}/translations/chapter-status":
+        {
+          "post":
+            {
+              "description": "Count the translation units of the book chapter at the reader's position. EPUB sends `location` and uses the same chapter boundaries as `/translations/chapter`; a book PDF sends the inclusive page range of its chapter. Failed units are counted separately and keep their own retry controls.",
+              "parameters":
+                [
+                  {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                ],
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "properties":
+                                {
+                                  "location":
+                                    {
+                                      "type": "object",
+                                      "required": ["type", "href"],
+                                      "properties":
+                                        {
+                                          "type":
+                                            {
+                                              "type": "string",
+                                              "enum": ["epub"],
+                                            },
+                                          "href": { "type": "string" },
+                                          "blockId": { "type": "string" },
+                                          "locator": { "type": "string" },
+                                        },
+                                    },
+                                  "fromPage":
+                                    { "type": "integer", "minimum": 1 },
+                                  "toPage":
+                                    { "type": "integer", "minimum": 1 },
+                                },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Chapter translation status",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "required":
+                                    [
+                                      "key",
+                                      "title",
+                                      "total",
+                                      "idle",
+                                      "pending",
+                                      "running",
+                                      "complete",
+                                      "failed",
+                                      "unparsed",
+                                      "parsing",
+                                    ],
+                                  "properties":
+                                    {
+                                      "key":
+                                        {
+                                          "type": "string",
+                                          "description": "Stable while the position stays in the same chapter.",
+                                        },
+                                      "title":
+                                        {
+                                          "type": "string",
+                                          "description": "EPUB TOC title, or the chapter's opening words without a TOC. Empty for PDF; the reader names it from its outline or page range.",
+                                        },
+                                      "total": { "type": "integer" },
+                                      "idle": { "type": "integer" },
+                                      "pending": { "type": "integer" },
+                                      "running": { "type": "integer" },
+                                      "complete": { "type": "integer" },
+                                      "failed": { "type": "integer" },
+                                      "unparsed":
+                                        {
+                                          "type": "integer",
+                                          "description": "Book PDF pages in the range not yet parsed.",
+                                        },
+                                      "parsing":
+                                        {
+                                          "type": "boolean",
+                                          "description": "The range's pages are being parsed on request.",
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Error",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
       "/api/documents/{id}/translations/range":
         {
           "post":

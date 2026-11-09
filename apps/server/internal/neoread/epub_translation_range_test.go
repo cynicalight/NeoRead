@@ -60,7 +60,7 @@ func TestEPUBChapterBoundaries(t *testing.T) {
 			if test.block >= 0 {
 				loc.BlockID = b[test.block].ID
 			}
-			from, to, err := s.epubTranslationChapter("doc", b, loc)
+			from, to, _, err := s.epubTranslationChapter("doc", b, loc)
 			if err != nil || from != test.from || to != test.to {
 				t.Fatalf("%d:%d %v", from, to, err)
 			}

@@ -3390,6 +3390,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{id}/translations/chapter-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Count the translation units of the book chapter at the reader's position. EPUB sends `location` and uses the same chapter boundaries as `/translations/chapter`; a book PDF sends the inclusive page range of its chapter. Failed units are counted separately and keep their own retry controls. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        location?: {
+                            /** @enum {string} */
+                            type: "epub";
+                            href: string;
+                            blockId?: string;
+                            locator?: string;
+                        };
+                        fromPage?: number;
+                        toPage?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Chapter translation status */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @description Stable while the position stays in the same chapter. */
+                            key: string;
+                            /** @description EPUB TOC title, or the chapter's opening words without a TOC. Empty for PDF; the reader names it from its outline or page range. */
+                            title: string;
+                            total: number;
+                            idle: number;
+                            pending: number;
+                            running: number;
+                            complete: number;
+                            failed: number;
+                            /** @description Book PDF pages in the range not yet parsed. */
+                            unparsed: number;
+                            /** @description The range's pages are being parsed on request. */
+                            parsing: boolean;
+                        };
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{id}/translations/range": {
         parameters: {
             query?: never;

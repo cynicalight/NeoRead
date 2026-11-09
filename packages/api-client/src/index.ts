@@ -191,6 +191,8 @@ export type ZoteroImportResult = components["schemas"]["ZoteroImportResult"];
 export type PaperAttachment = components["schemas"]["PaperAttachment"];
 export type PaperRefreshProgress =
   components["schemas"]["PaperRefreshProgress"];
+export type ChapterTranslationStatus =
+  paths["/api/documents/{id}/translations/chapter-status"]["post"]["responses"]["200"]["content"]["application/json"];
 
 export const api = {
   paperRefreshStatus: () =>
@@ -482,6 +484,33 @@ export const api = {
             end: location.end,
           },
         }),
+      },
+    ),
+  /** Translation counts of the book chapter at an EPUB location or PDF range. */
+  chapterTranslationStatus: (
+    id: string,
+    chapter:
+      | { location: import("@neoread/core").EPUBLocation }
+      | { fromPage: number; toPage: number },
+    signal?: AbortSignal,
+  ) =>
+    request<ChapterTranslationStatus>(
+      `/api/documents/${id}/translations/chapter-status`,
+      {
+        method: "POST",
+        body: JSON.stringify(
+          "location" in chapter
+            ? {
+                location: {
+                  type: "epub",
+                  href: chapter.location.href,
+                  blockId: chapter.location.blockId,
+                  locator: chapter.location.locator,
+                },
+              }
+            : chapter,
+        ),
+        signal,
       },
     ),
   assistance: (id: string) =>

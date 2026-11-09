@@ -180,6 +180,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{id}/assistance", s.setAssistance)
 	mux.HandleFunc("POST /api/documents/{id}/translations/range", s.requestTranslationRange)
 	mux.HandleFunc("POST /api/documents/{id}/translations/chapter", s.requestEPUBTranslationChapter)
+	mux.HandleFunc("POST /api/documents/{id}/translations/chapter-status", s.translationChapterState)
 	mux.HandleFunc("GET /api/documents/{id}/blocks", s.documentBlocks)
 	mux.HandleFunc("GET /api/documents/{id}/epub-blocks", s.epubBlocks)
 	mux.HandleFunc("GET /api/documents/{id}/epub-chapters", s.epubChapters)

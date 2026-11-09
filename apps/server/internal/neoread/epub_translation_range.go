@@ -116,12 +116,13 @@ func epubFragmentBlocks(href, source string) (map[string]string, error) {
 	return out, nil
 }
 
-// The chapter is a half-open block interval. Top-level TOC entries define
-// chapters; a single book-title parent delegates to its children, as for PDF.
-func (s *Server) epubTranslationChapter(id string, blocks epubTranslationDocument, location EPUBReadingLocation) (int, int, error) {
+// The chapter is a half-open block interval with its TOC title. Top-level TOC
+// entries define chapters; a single book-title parent delegates to its
+// children, as for PDF. Without a TOC the title is empty.
+func (s *Server) epubTranslationChapter(id string, blocks epubTranslationDocument, location EPUBReadingLocation) (int, int, string, error) {
 	manifest, err := s.readerManifest(id)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, "", err
 	}
 	byID := map[string]int{}
 	files := map[string]int{}
@@ -181,18 +182,18 @@ func (s *Server) epubTranslationChapter(id string, blocks epubTranslationDocumen
 	}
 	current, err := resolve(location.Href)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, "", err
 	}
 	if location.BlockID != "" {
 		i, ok := byID[location.BlockID]
 		if !ok || blocks[i].Location.Href != strings.Split(location.Href, "#")[0] {
-			return 0, 0, fmt.Errorf("段落不属于当前章节")
+			return 0, 0, "", fmt.Errorf("段落不属于当前章节")
 		}
 		current = i
 	} else if location.Locator != "" {
 		var loc annotationLocator
 		if json.Unmarshal([]byte(location.Locator), &loc) != nil {
-			return 0, 0, fmt.Errorf("章节位置无效")
+			return 0, 0, "", fmt.Errorf("章节位置无效")
 		}
 		if loc.Locations.TextRange != nil {
 			for i, b := range blocks {
@@ -213,6 +214,7 @@ func (s *Server) epubTranslationChapter(id string, blocks epubTranslationDocumen
 		entries = entries[0].Children
 	}
 	starts := []int{0}
+	titles := map[int]string{}
 	if len(entries) == 0 {
 		for _, i := range files {
 			starts = append(starts, i)
@@ -221,9 +223,12 @@ func (s *Server) epubTranslationChapter(id string, blocks epubTranslationDocumen
 		for _, entry := range entries {
 			index, e := resolve(entry.Href)
 			if e != nil {
-				return 0, 0, fmt.Errorf("无法确定目录章节范围：%w", e)
+				return 0, 0, "", fmt.Errorf("无法确定目录章节范围：%w", e)
 			}
 			starts = append(starts, index)
+			if _, ok := titles[index]; !ok {
+				titles[index] = strings.TrimSpace(entry.Title)
+			}
 		}
 	}
 	sort.Ints(starts)
@@ -236,7 +241,7 @@ func (s *Server) epubTranslationChapter(id string, blocks epubTranslationDocumen
 			break
 		}
 	}
-	return from, to, nil
+	return from, to, titles[from], nil
 }
 
 type epubTranslationRange struct {
@@ -266,7 +271,7 @@ func (s *Server) requestEPUBTranslationChapter(w http.ResponseWriter, r *http.Re
 		fail(w, 500, "无法读取 EPUB 正文")
 		return
 	}
-	from, to, err := s.epubTranslationChapter(d.ID, blocks, req.Location)
+	from, to, _, err := s.epubTranslationChapter(d.ID, blocks, req.Location)
 	if err != nil {
 		fail(w, 400, err.Error())
 		return
