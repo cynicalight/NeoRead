@@ -464,6 +464,8 @@ export interface Scene {
   draw(f: Frame): void;
   /** Mark shown when motion is reduced; the end of the script by default. */
   still?: string;
+  /** Pointer size; larger pointers make the demonstrated gesture easier to follow. */
+  pointerScale?: number;
 }
 
 export const sceneSize = { width: 640, height: 400 };
@@ -497,7 +499,10 @@ export function paint(
     );
   }
   const pressed = scene.script.clicks.some((at) => t >= at && t - at < 140);
-  painter.pointer(frame.cursor, pressed && motion ? 0.88 : 1);
+  painter.pointer(
+    frame.cursor,
+    (scene.pointerScale ?? 1) * (pressed && motion ? 0.88 : 1),
+  );
   if (motion) {
     // Fade between loops instead of jumping back to the first state.
     const edge = Math.min(t, scene.script.duration - t);
