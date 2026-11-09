@@ -41,6 +41,14 @@ const button = (text: string) =>
   [...activeDialog().querySelectorAll<HTMLButtonElement>("button")].find(
     (el) => el.textContent?.trim() === text,
   )!;
+const selectFormat = async (label: string) => {
+  for (const format of ["Markdown", "PDF"])
+    if (
+      (button(format).getAttribute("aria-pressed") === "true") !==
+      (format === label)
+    )
+      await act(async () => button(format).click());
+};
 const mount = async () =>
   act(async () =>
     root.render(
@@ -103,7 +111,8 @@ it.each(["Markdown", "PDF"])(
       await act(async () =>
         document.querySelector<HTMLElement>(`[aria-label="${name}"]`)!.click(),
       );
-    await act(async () => button(label).click());
+    await selectFormat(label);
+    await act(async () => button("导出批注").click());
     expect(exportMarkdownFile).toHaveBeenCalledWith(
       expect.stringContaining("underline-quote"),
       "论文-批注",
@@ -122,16 +131,15 @@ it("disables annotation formats when no kinds are selected", async () => {
     '[role="checkbox"]',
   ))
     await act(async () => checkbox.click());
-  expect(button("Markdown").disabled).toBe(true);
-  expect(button("PDF").disabled).toBe(true);
+  expect(button("导出批注").disabled).toBe(true);
   expect(button("导出原文").disabled).toBe(false);
 });
 it.each(["Markdown", "PDF"])(
-  "opens original format selection and exports %s without annotations",
+  "exports original as %s without annotations",
   async (label) => {
     await mount();
+    await selectFormat(label);
     await act(async () => button("导出原文").click());
-    await act(async () => button(label).click());
     expect(exportOriginal).toHaveBeenCalledWith(
       doc,
       label === "PDF" ? "pdf" : "markdown",
@@ -141,30 +149,27 @@ it.each(["Markdown", "PDF"])(
     expect(api.exportTranslation).not.toHaveBeenCalled();
   },
 );
-it.each(["Markdown", "PDF"])(
-  "opens translation format selection and exports %s",
-  async (label) => {
-    await mount();
-    await act(async () => button("导出译文").click());
-    await act(async () => button(label).click());
-    if (label === "PDF")
-      expect(exportTranslatedPDF).toHaveBeenCalledWith(
-        doc,
-        expect.any(AbortSignal),
-        expect.any(Function),
-      );
-    else {
-      expect(api.exportTranslation).toHaveBeenCalledWith(
-        doc.id,
-        "markdown",
-        expect.any(AbortSignal),
-      );
-      expect(downloadBlob).toHaveBeenCalledOnce();
-    }
-    expect(exportOriginal).not.toHaveBeenCalled();
-    expect(exportMarkdownFile).not.toHaveBeenCalled();
-  },
-);
+it.each(["Markdown", "PDF"])("exports translation as %s", async (label) => {
+  await mount();
+  await selectFormat(label);
+  await act(async () => button("导出译文").click());
+  if (label === "PDF")
+    expect(exportTranslatedPDF).toHaveBeenCalledWith(
+      doc,
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
+  else {
+    expect(api.exportTranslation).toHaveBeenCalledWith(
+      doc.id,
+      "markdown",
+      expect.any(AbortSignal),
+    );
+    expect(downloadBlob).toHaveBeenCalledOnce();
+  }
+  expect(exportOriginal).not.toHaveBeenCalled();
+  expect(exportMarkdownFile).not.toHaveBeenCalled();
+});
 it("cancels a format request and prevents its late download", async () => {
   let finish!: (blob: Blob) => void;
   vi.mocked(api.exportTranslation).mockImplementationOnce(
@@ -175,21 +180,78 @@ it("cancels a format request and prevents its late download", async () => {
   );
   await mount();
   await act(async () => button("导出译文").click());
-  await act(async () => button("Markdown").click());
+  await selectFormat("Markdown");
   const signal = vi.mocked(api.exportTranslation).mock.calls[0][2]!;
-  await act(async () => button("取消").click());
+  await act(async () =>
+    activeDialog()
+      .querySelector<HTMLButtonElement>('[data-slot="dialog-close"]')!
+      .click(),
+  );
   expect(signal.aborted).toBe(true);
   await act(async () => finish(new Blob(["late"])));
   expect(downloadBlob).not.toHaveBeenCalled();
-  expect(close).not.toHaveBeenCalled();
+  expect(close).toHaveBeenCalledOnce();
   expect(button("导出原文")).toBeTruthy();
 });
 it("keeps an export error visible and allows retry", async () => {
   vi.mocked(exportOriginal).mockRejectedValueOnce(new Error("正文尚未解析"));
   await mount();
   await act(async () => button("导出原文").click());
-  await act(async () => button("Markdown").click());
+  await selectFormat("Markdown");
   expect(activeDialog().textContent).toContain("正文尚未解析");
   expect(button("Markdown").disabled).toBe(false);
   expect(close).not.toHaveBeenCalled();
+});
+
+it("selects both formats inline and closes only after both finish", async () => {
+  let finish!: (delivery: "download") => void;
+  vi.mocked(exportOriginal)
+    .mockResolvedValueOnce("download")
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+  await mount();
+  await act(async () => button("PDF").click());
+  expect(button("Markdown").getAttribute("aria-pressed")).toBe("true");
+  expect(button("PDF").getAttribute("aria-pressed")).toBe("true");
+  expect(exportOriginal).not.toHaveBeenCalled();
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  await act(async () => button("导出原文").click());
+  expect(vi.mocked(exportOriginal).mock.calls.map((call) => call[1])).toEqual([
+    "markdown",
+    "pdf",
+  ]);
+  expect(close).not.toHaveBeenCalled();
+  await act(async () => finish("download"));
+  expect(close).toHaveBeenCalledOnce();
+});
+it("disables all exports when all formats are deselected", async () => {
+  await mount();
+  await act(async () => button("Markdown").click());
+  for (const label of ["导出批注", "导出原文", "导出译文"])
+    expect(button(label).disabled).toBe(true);
+});
+it("cancels the batch without starting the remaining format", async () => {
+  let finish!: (blob: Blob) => void;
+  vi.mocked(api.exportTranslation).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await mount();
+  await act(async () => button("PDF").click());
+  await act(async () => button("导出译文").click());
+  await act(async () =>
+    activeDialog()
+      .querySelector<HTMLButtonElement>('[data-slot="dialog-close"]')!
+      .click(),
+  );
+  await act(async () => finish(new Blob(["late"])));
+  expect(downloadBlob).not.toHaveBeenCalled();
+  expect(exportTranslatedPDF).not.toHaveBeenCalled();
+  expect(close).toHaveBeenCalledOnce();
 });

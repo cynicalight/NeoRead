@@ -3,15 +3,15 @@ import { useEffect, useRef, useState } from "react";
 import type { Annotation, Document, Message } from "@neoread/core";
 import { api } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
+import { Toggle } from "@neoread/ui/components/toggle";
 import { Checkbox } from "@neoread/ui/components/checkbox";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@neoread/ui/components/dialog";
-import { LoaderCircle } from "lucide-react";
+import { Check, Download, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
 import { downloadBlob, fileTitle } from "./download";
 import { exportTranslatedPDF } from "./translated-pdf-export";
@@ -54,10 +54,7 @@ export function ExportDocumentDialog({
   onClose: () => void;
 }) {
   const [kinds, setKinds] = useState(savedKinds);
-  const [target, setTarget] = useState<Exclude<
-    ExportTarget,
-    "annotations"
-  > | null>(null);
+  const [formats, setFormats] = useState<ExportFormat[]>(["markdown"]);
   const [busy, setBusy] = useState<ExportTarget | null>(null);
   const [error, setError] = useState("");
   const request = useRef<AbortController | null>(null);
@@ -71,11 +68,6 @@ export function ExportDocumentDialog({
   const close = () => {
     request.current?.abort();
     onClose();
-  };
-  const closeFormat = () => {
-    request.current?.abort();
-    setTarget(null);
-    setError("");
   };
   const toggle = (kind: AnnotationExportKind, checked: boolean) => {
     const next = checked
@@ -91,94 +83,94 @@ export function ExportDocumentDialog({
   const hasAnnotations = annotations.some((a) =>
     kinds.includes(a.kind as AnnotationExportKind),
   );
-  const save = async (selection: ExportTarget, format: ExportFormat) => {
-    if (request.current || (selection === "annotations" && !hasAnnotations))
+  const save = async (selection: ExportTarget) => {
+    if (
+      !formats.length ||
+      request.current ||
+      (selection === "annotations" && !hasAnnotations)
+    )
       return;
     const controller = new AbortController();
     request.current = controller;
     setBusy(selection);
     setError("");
-    const requestId = crypto.randomUUID();
-    const started = performance.now();
-    const report = (stage: string) =>
-      reportDiagnostic({
-        level: stage === "failed" ? "error" : "info",
-        event: `document.export.${stage}`,
-        requestId,
-        durationMs: Math.round(performance.now() - started),
-        detail: `target=${selection} format=${format}`,
-      });
-    report("start");
     try {
-      let delivery: "download" | "print" = "download";
-      if (selection === "original")
-        delivery = await exportOriginal(doc, format, controller.signal);
-      else if (selection === "translation") {
-        if (format === "pdf")
-          delivery = (
-            await exportTranslatedPDF(doc, controller.signal, () => {})
-          ).delivery;
-        else {
-          const blob = await api.exportTranslation(
-            doc.id,
-            "markdown",
-            controller.signal,
-          );
-          controller.signal.throwIfAborted();
-          downloadBlob(blob, `${fileTitle(doc.title)}-译文.md`);
+      for (const format of formats) {
+        if (controller.signal.aborted) return;
+        const requestId = crypto.randomUUID();
+        const started = performance.now();
+        const report = (stage: string) =>
+          reportDiagnostic({
+            level: stage === "failed" ? "error" : "info",
+            event: `document.export.${stage}`,
+            requestId,
+            durationMs: Math.round(performance.now() - started),
+            detail: `target=${selection} format=${format}`,
+          });
+        report("start");
+        try {
+          let delivery: "download" | "print" = "download";
+          if (selection === "original")
+            delivery = await exportOriginal(doc, format, controller.signal);
+          else if (selection === "translation") {
+            if (format === "pdf")
+              delivery = (
+                await exportTranslatedPDF(doc, controller.signal, () => {})
+              ).delivery;
+            else {
+              const blob = await api.exportTranslation(
+                doc.id,
+                "markdown",
+                controller.signal,
+              );
+              controller.signal.throwIfAborted();
+              downloadBlob(blob, `${fileTitle(doc.title)}-译文.md`);
+            }
+          } else {
+            delivery = await exportMarkdownFile(
+              annotationMarkdown(doc, annotations, messages, kinds, link),
+              `${fileTitle(doc.title)}-批注`,
+              format,
+              controller.signal,
+            );
+          }
+          if (!controller.signal.aborted) {
+            report(
+              delivery === "download"
+                ? "download_requested"
+                : "print_dialog_closed",
+            );
+            if (delivery === "download") toast.success("已开始下载");
+          }
+        } catch (error) {
+          if (!controller.signal.aborted) report("failed");
+          if (!controller.signal.aborted)
+            setError(
+              error instanceof Error ? error.message : "导出失败，请重试",
+            );
+          return;
+        } finally {
+          if (controller.signal.aborted) report("cancelled");
         }
-      } else {
-        delivery = await exportMarkdownFile(
-          annotationMarkdown(doc, annotations, messages, kinds, link),
-          `${fileTitle(doc.title)}-批注`,
-          format,
-          controller.signal,
-        );
       }
-      if (!controller.signal.aborted) {
-        report(
-          delivery === "download"
-            ? "download_requested"
-            : "print_dialog_closed",
-        );
-        if (delivery === "download") toast.success("已开始下载");
-        onClose();
-      }
-    } catch (error) {
-      if (!controller.signal.aborted) report("failed");
-      if (!controller.signal.aborted)
-        setError(error instanceof Error ? error.message : "导出失败，请重试");
+      if (!controller.signal.aborted) onClose();
     } finally {
-      if (controller.signal.aborted) report("cancelled");
       if (request.current === controller) {
         request.current = null;
         setBusy(null);
       }
     }
   };
-  const formatButtons = (selection: ExportTarget, disabled = false) => (
-    <div className="flex gap-2">
-      {(["markdown", "pdf"] as const).map((format) => (
-        <Button
-          key={format}
-          className="flex-1"
-          variant="outline"
-          disabled={disabled || !!busy}
-          onClick={() => void save(selection, format)}
-        >
-          {busy === selection && (
-            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
-          )}
-          {format === "markdown" ? "Markdown" : "PDF"}
-        </Button>
-      ))}
-    </div>
-  );
+  const targetLabels: Record<ExportTarget, string> = {
+    annotations: "导出批注",
+    original: "导出原文",
+    translation: "导出译文",
+  };
   return (
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle>导出批注</DialogTitle>
+          <DialogTitle>导出</DialogTitle>
         </DialogHeader>
         <div className="flex flex-wrap gap-x-5 gap-y-3">
           {allKinds.map((kind) => (
@@ -193,47 +185,55 @@ export function ExportDocumentDialog({
             </label>
           ))}
         </div>
-        {error && !target && (
+        <div className="flex gap-2" role="group" aria-label="导出格式">
+          {(["markdown", "pdf"] as const).map((format) => (
+            <Toggle
+              key={format}
+              variant="outline"
+              pressed={formats.includes(format)}
+              disabled={!!busy}
+              onPressedChange={(pressed) =>
+                setFormats((current) =>
+                  pressed
+                    ? [...current, format]
+                    : current.filter((item) => item !== format),
+                )
+              }
+              className="flex-1 aria-pressed:border-emerald-300 aria-pressed:bg-emerald-100 aria-pressed:text-emerald-900 dark:aria-pressed:border-emerald-500/40 dark:aria-pressed:bg-emerald-500/20 dark:aria-pressed:text-emerald-200"
+            >
+              {formats.includes(format) && <Check aria-hidden="true" />}
+              {format === "markdown" ? "Markdown" : "PDF"}
+            </Toggle>
+          ))}
+        </div>
+        {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
           </p>
         )}
-        {formatButtons("annotations", !hasAnnotations)}
-        <Dialog
-          open={target !== null}
-          onOpenChange={(open) => !open && closeFormat()}
-        >
-          <div className="grid grid-cols-2 gap-2 border-t pt-4">
-            {(["original", "translation"] as const).map((selection) => (
-              <DialogTrigger
+        <div className="grid grid-cols-3 gap-2 border-t pt-4">
+          {(["annotations", "original", "translation"] as const).map(
+            (selection) => (
+              <Button
                 key={selection}
-                render={<Button variant="ghost" disabled={!!busy} />}
-                onClick={() => {
-                  setError("");
-                  setTarget(selection);
-                }}
+                className="h-10 gap-2 rounded-full"
+                disabled={
+                  !!busy ||
+                  !formats.length ||
+                  (selection === "annotations" && !hasAnnotations)
+                }
+                onClick={() => void save(selection)}
               >
-                {selection === "original" ? "导出原文" : "导出译文"}
-              </DialogTrigger>
-            ))}
-          </div>
-          <DialogContent aria-describedby={undefined}>
-            <DialogHeader>
-              <DialogTitle>
-                {target === "original" ? "导出原文" : "导出译文"}
-              </DialogTitle>
-            </DialogHeader>
-            {target && formatButtons(target)}
-            {error && (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            )}
-            <Button variant="ghost" onClick={closeFormat}>
-              取消
-            </Button>
-          </DialogContent>
-        </Dialog>
+                {busy === selection ? (
+                  <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+                ) : (
+                  <Download className="size-4" />
+                )}
+                {targetLabels[selection]}
+              </Button>
+            ),
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
