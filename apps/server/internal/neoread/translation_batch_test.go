@@ -272,8 +272,8 @@ func TestTranslationTruncatedBatchRetainsRowsAndRetriesOnlyMissing(t *testing.T)
 	}))
 	defer provider.Close()
 	configureTranslationTest(t, s, provider.URL)
-	if err := s.settleTranslations(context.Background(), &p, m); err == nil {
-		t.Fatal("truncated batch reported complete")
+	if err := s.settleTranslations(context.Background(), &p, m); err != nil {
+		t.Fatalf("individual failure interrupted processing: %v", err)
 	}
 	items, _ := s.translations("doc", m)
 	if items[0].Status != "complete" || items[1].Status != "failed" {
@@ -413,8 +413,8 @@ func TestTranslationFailureNamesTheCauseAndKeepsTheOutput(t *testing.T) {
 	}))
 	defer provider.Close()
 	configureTranslationTest(t, s, provider.URL)
-	if err := s.settleTranslations(context.Background(), &p, m); err == nil {
-		t.Fatal("unrecovered paragraph reported complete")
+	if err := s.settleTranslations(context.Background(), &p, m); err != nil {
+		t.Fatalf("individual failure interrupted processing: %v", err)
 	}
 	items, _ := s.translations("doc", m)
 	want := "补译后仍未完成：模型只返回了 0/1 段，另有 1 行无法解析（第 1 行不是合法的 JSON"

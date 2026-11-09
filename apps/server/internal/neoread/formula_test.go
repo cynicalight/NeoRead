@@ -205,16 +205,19 @@ func TestFormulaFailurePreservesCaptionAndCanRetry(t *testing.T) {
 	if err := s.learnPDF(context.Background(), &p); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.processTranslation(context.Background(), &p); err == nil {
-		t.Fatal("accepted invalid math")
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatalf("individual formula failure interrupted processing: %v", err)
+	}
+	if p.Status != "complete" || p.Phase != "ready" {
+		t.Fatalf("formula failure should not fail the whole task: %+v", p)
 	}
 	items, _ := s.translations("doc", m)
 	if items[0].Status != "failed" || items[0].FormulaMarkdown != "" || items[1].Status != "complete" {
 		t.Fatalf("%+v", items)
 	}
 	valid.Store(true)
-	w := request(t, s, "POST", "/api/documents/doc/processing", nil)
-	if w.Code != 200 {
+	w := request(t, s, "POST", "/api/documents/doc/translations", strings.NewReader(`{"blockId":"p1-b1"}`))
+	if w.Code != 202 {
 		t.Fatalf("retry failed: %s", w.Body.String())
 	}
 	p, _ = s.Store.processing("doc")

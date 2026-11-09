@@ -80,20 +80,16 @@ func TestTranslationPartialFailureAndRetryPreservesCompletedBlocks(t *testing.T)
 	if err := s.writeAIConfig(c); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.processTranslation(context.Background(), &p); err == nil {
-		t.Fatal("invalid translation reported success")
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatalf("individual paragraph failure interrupted processing: %v", err)
 	}
-	if p.Phase != "translating" || p.TranslationsDone != 1 || p.TranslationsTotal != 2 {
+	if p.Phase != "ready" || p.Status != "complete" || p.TranslationsDone != 1 || p.TranslationsTotal != 2 {
 		t.Fatalf("partial failure lost translation progress: %+v", p)
 	}
 	response := request(t, s, "GET", "/api/documents/doc/translations", nil)
 	var items []TranslationBlock
 	if json.Unmarshal(response.Body.Bytes(), &items) != nil || len(items) != 2 || items[0].Status != "complete" || items[1].Status != "failed" {
 		t.Fatalf("partial progress lost: %s", response.Body.String())
-	}
-	p.Status = "failed"
-	if err := s.Store.saveProcessing(p); err != nil {
-		t.Fatal(err)
 	}
 	response = request(t, s, "POST", "/api/documents/doc/translations", strings.NewReader(`{"blockId":"p1-b2"}`))
 	if response.Code != 202 {

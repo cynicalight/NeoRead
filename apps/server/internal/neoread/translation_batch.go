@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -359,6 +360,16 @@ func (s *Server) translateBatch(ctx context.Context, doc Document, m translation
 		}
 		if t.Status == "failed" {
 			failed = append(failed, t)
+			reason := "missing_output"
+			if last.err != nil {
+				reason = "provider_error"
+			} else if message := last.decoder.invalid[t.BlockID]; message != "" {
+				reason = "invalid_output"
+				if strings.Contains(message, "原文句子未完整对应") {
+					reason = "source_mismatch"
+				}
+			}
+			s.diagnosticEvent(slog.LevelError, "translation.item_failed", "documentId", doc.ID, "blockId", t.BlockID, "phase", "text", "reasonCode", reason)
 		}
 	}
 	if len(failed) > 0 {
@@ -461,15 +472,6 @@ func (s *Server) settleTranslations(ctx context.Context, p *Processing, m transl
 		}
 		batches := translationBatches(m, items, translationBatchCharacters)
 		if len(batches) == 0 {
-			failed := 0
-			for _, t := range items {
-				if t.Status == "failed" {
-					failed++
-				}
-			}
-			if failed > 0 {
-				return fmt.Errorf("%d 段翻译失败，已完成译文已保存，请重试失败部分", failed)
-			}
 			return nil
 		}
 		config := options.apply(s.aiConfig())

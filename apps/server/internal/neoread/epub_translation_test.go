@@ -82,15 +82,13 @@ func TestEPUBTranslationUsesSharedQueueAndPersistsAcrossRetries(t *testing.T) {
 	}))
 	defer provider.Close()
 	configureTranslationTest(t, s, provider.URL)
-	if err := s.processTranslation(context.Background(), &p); err == nil {
-		t.Fatal("missing paragraph accepted")
+	if err := s.processTranslation(context.Background(), &p); err != nil || p.Status != "complete" {
+		t.Fatalf("individual failure interrupted processing: %+v %v", p, err)
 	}
 	items, err := s.translations(doc.ID, blocks)
 	if err != nil || items[0].Status != "failed" || items[1].Status != "complete" {
 		t.Fatalf("lost partial translations: %+v %v", items, err)
 	}
-	p.Status = "failed"
-	_ = s.Store.saveProcessing(p)
 	response = request(t, s, "POST", "/api/documents/"+doc.ID+"/translations", strings.NewReader(`{"blockId":"`+blocks[0].ID+`"}`))
 	if response.Code != 202 {
 		t.Fatal(response.Body.String())

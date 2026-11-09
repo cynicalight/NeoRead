@@ -89,7 +89,7 @@ function stageLabel(label: string, status: Processing["status"]) {
   const name = label.startsWith("翻译") ? "翻译" : "学习";
   if (status === "queued") return `等待${name}`;
   if (status === "waiting") return `${name}待配置`;
-  if (status === "failed") return `${name}失败`;
+  if (status === "failed") return name === "翻译" ? "翻译中断" : `${name}失败`;
   return label;
 }
 export function CoverProcessing({

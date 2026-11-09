@@ -1405,7 +1405,9 @@ function PaperProcessing({ job }: { job?: Processing }) {
       : status === "waiting"
         ? "等待 AI 配置"
         : status === "failed"
-          ? `${name}失败`
+          ? parsing
+            ? "解析失败"
+            : "翻译中断"
           : `${name}中`;
   const done = parsing ? job.pagesDone : job.translationsDone;
   const total = parsing ? job.pagesTotal : job.translationsTotal;
