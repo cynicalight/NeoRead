@@ -310,6 +310,9 @@ export function ModelSelector({
               aria-label="选择模型"
               aria-busy={loading || saving}
             >
+              {current && (
+                <ProviderIcon provider={provider} model={current} size={20} />
+              )}
               <SelectValue>
                 {current?.name ?? (loading ? "加载模型…" : "选择模型")}
               </SelectValue>
@@ -326,8 +329,9 @@ export function ModelSelector({
                   key={model.id}
                   value={model.id}
                   label={model.name}
-                  className="model-select-option"
+                  className="model-select-option [&>span:first-child]:items-center"
                 >
+                  <ProviderIcon provider={provider} model={model} size={20} />
                   <span className="model-select-name">{model.name}</span>
                 </SelectItem>
               ))}

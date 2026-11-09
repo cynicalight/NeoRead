@@ -73,7 +73,7 @@ const trigger = (label: string) =>
 async function choose(label: string, text: string) {
   await act(async () => trigger(label).click());
   const option = Array.from(document.querySelectorAll('[role="option"]')).find(
-    (item) => item.textContent === text,
+    (item) => (item.getAttribute("aria-label") ?? item.textContent) === text,
   ) as HTMLElement;
   expect(option).toBeDefined();
   await act(async () => {

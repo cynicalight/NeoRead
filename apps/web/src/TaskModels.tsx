@@ -24,6 +24,7 @@ import {
   selectedAgentModel,
 } from "./ModelSelector";
 import { useReaderStore } from "./store";
+import { ProviderIcon } from "./ProviderIdentity";
 
 const AUTO = "__auto__";
 const tasks: [ModelTask, string][] = [
@@ -208,6 +209,13 @@ export function TaskModels({
                   aria-label={`${label}模型`}
                   aria-busy={loading || saving}
                 >
+                  {(current ?? recommended) && (
+                    <ProviderIcon
+                      provider={provider}
+                      model={current ?? recommended}
+                      size={20}
+                    />
+                  )}
                   <SelectValue>
                     {current
                       ? `${current.name}${unavailable ? "（未通过检测）" : ""}`
@@ -216,14 +224,21 @@ export function TaskModels({
                         : defaultLabel}
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent align="start" alignItemWithTrigger={false}>
                   {!recommended && !empty && (
                     <SelectItem value={AUTO} label={defaultLabel}>
                       {defaultLabel}
                     </SelectItem>
                   )}
                   {options.map((m) => (
-                    <SelectItem key={m.id} value={m.id} label={m.name}>
+                    <SelectItem
+                      key={m.id}
+                      value={m.id}
+                      label={m.name}
+                      aria-label={m.name}
+                      className="[&>span:first-child]:items-center"
+                    >
+                      <ProviderIcon provider={provider} model={m} size={20} />
                       {m.name}
                     </SelectItem>
                   ))}
