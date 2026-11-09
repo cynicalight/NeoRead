@@ -117,6 +117,10 @@ it("marks restored sentences that a saved quote covers", () => {
   expect(
     reflowQuoteRanges(host, "a", "Dim d k").map((r) => r.toString()),
   ).toEqual(["Dim ", "dk", " here."]);
+  // A quote crossing into a restored sentence keeps the plain part exact.
+  expect(
+    reflowQuoteRanges(host, "a", "start. Dim d k").map((r) => r.toString()),
+  ).toEqual(["start.", "Dim ", "dk", " here."]);
   host.remove();
 });
 

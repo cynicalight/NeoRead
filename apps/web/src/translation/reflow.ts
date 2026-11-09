@@ -224,10 +224,42 @@ export function reflowQuoteRanges(
   const compact = (text: string) => text.replace(/\s/g, "").toLowerCase();
   const needle = compact(quote);
   if (!needle) return [];
-  return sentenceNodes(element).flatMap((s, i) => {
-    const text = compact(s.dataset.anchor ?? s.textContent ?? "");
-    return text && (needle.includes(text) || text.includes(needle))
-      ? reflowSourceRanges(host, blockId, i)
-      : [];
+  // Locate the quote in the joined extracted text, then map it to sentences:
+  // a restored sentence marks whole, a plain one only its overlapping text.
+  const nodes = sentenceNodes(element);
+  const texts = nodes.map((s) =>
+    compact(s.dataset.anchor ?? s.textContent ?? ""),
+  );
+  const start = texts.join("").indexOf(needle),
+    end = start + needle.length;
+  if (start < 0) return [];
+  let offset = 0;
+  return nodes.flatMap((s, i) => {
+    const from = offset;
+    offset += texts[i].length;
+    if (offset <= start || from >= end) return [];
+    const ranges = reflowSourceRanges(host, blockId, i);
+    if (s.dataset.anchor) return ranges;
+    const part = compactSlice(
+      s.textContent ?? "",
+      Math.max(start, from) - from,
+      Math.min(end, offset) - from,
+    );
+    return searchRanges(ranges, part);
   });
+}
+
+// The text between non-space characters `a` and `b`, spaces inside kept.
+function compactSlice(text: string, a: number, b: number) {
+  let n = 0,
+    out = "";
+  for (const ch of text) {
+    if (/\s/.test(ch)) {
+      if (n > a && n < b) out += ch;
+      continue;
+    }
+    if (n >= a && n < b) out += ch;
+    n++;
+  }
+  return out;
 }
