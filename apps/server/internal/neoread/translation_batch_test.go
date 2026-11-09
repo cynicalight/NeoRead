@@ -24,7 +24,7 @@ func configureTranslationTest(t *testing.T, s *Server, url string) {
 	}
 }
 func translationParagraphLine(p translationParagraph) string {
-	data, _ := json.Marshal(map[string]any{"blockId": p.BlockID, "sourceHash": p.SourceHash, "sentences": []TranslationSentence{{Source: p.Source, Target: "译文。"}}})
+	data, _ := json.Marshal(map[string]any{"blockId": p.BlockID, "sentences": []TranslationSentence{{Source: p.Source, Target: "译文。"}}})
 	return string(data) + "\n"
 }
 func translationLine(b PDFBlock) string {
@@ -92,7 +92,7 @@ func TestTranslationJSONLPublishesOnlyCompleteValidatedLines(t *testing.T) {
 	var saved []TranslationBlock
 	d := newTranslationJSONL(translationBatch{Paragraphs: []translationParagraph{p}}, func(b TranslationBlock) error { saved = append(saved, b); return nil })
 	line := translationParagraphLine(p)
-	for _, chunk := range []string{`{"oops":`, "\n", strings.Replace(line, "version", "wrong", 1), strings.Replace(line, "p1-b1", "p1-b9", 1), line[:len(line)-1]} {
+	for _, chunk := range []string{`{"oops":`, "\n", strings.Replace(line, "p1-b1", "p1-b9", 1), line[:len(line)-1]} {
 		if err := d.feed(chunk); err != nil {
 			t.Fatal(err)
 		}
@@ -329,6 +329,27 @@ func TestTranslationJSONLRepairsUnescapedLatexBackslashes(t *testing.T) {
 	}
 	if !d.completed[p.BlockID] || len(got.Sentences) != 1 || got.Sentences[0].Target != `$\pi$、$\eta$、$\ll$、$\log n$` {
 		t.Fatalf("unescaped LaTeX was not repaired: decoder=%+v block=%+v", d, got)
+	}
+}
+
+func TestTranslationJSONLKeepsServerSourceHash(t *testing.T) {
+	p := translationParagraph{"p1-b2", "h2", "Two."}
+	var got TranslationBlock
+	d := newTranslationJSONL(translationBatch{Paragraphs: []translationParagraph{p}}, func(block TranslationBlock) error {
+		got = block
+		return nil
+	})
+	// A model that still echoes a miscopied hash must not fail the paragraph.
+	line := `{"blockId":"p1-b2","sourceHash":"stale","sentences":[{"source":"Two.","target":"二。"}]}`
+	if err := d.feed(line + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if !d.completed[p.BlockID] || got.SourceHash != "h2" {
+		t.Fatalf("paragraph was not saved under the sent hash: decoder=%+v block=%+v", d, got)
+	}
+	prompt := translationPrompt(Document{Title: "t"}, layoutManifest{Pages: 1}, translationBatch{Paragraphs: []translationParagraph{p}}, "")
+	if strings.Contains(prompt, "sourceHash") || strings.Contains(prompt, `"h2"`) {
+		t.Fatal("prompt still asks the model for source hashes")
 	}
 }
 
