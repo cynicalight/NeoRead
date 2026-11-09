@@ -17,6 +17,7 @@ func responsesToolCompletion(ctx context.Context, c APIConnection, payload map[s
 	}
 	model, _ := payload["model"].(string)
 	body := responsesPayload(model, payload, instructions, input)
+	body["include"] = []string{"reasoning.encrypted_content"}
 	if len(tools) > 0 {
 		body["tools"] = responsesTools(tools)
 	}
@@ -39,8 +40,8 @@ func responsesTools(tools []any) []any {
 	return out
 }
 
-// responsesToolInput 转换已展开页面图片的消息记录。推理内容不回放：
-// 无状态请求没有可引用的推理条目，与 Chat Completions 一样只保留可见记录。
+// responsesToolInput 转换已展开页面图片的消息记录。Responses 原始输出按顺序回放，
+// 包括不透明的 reasoning 条目；仅旧记录使用文本和工具调用重建。
 func responsesToolInput(messages []toolCompletionMessage) (string, []any, error) {
 	var system []string
 	input := []any{}
@@ -56,6 +57,12 @@ func responsesToolInput(messages []toolCompletionMessage) (string, []any, error)
 			}
 			input = append(input, map[string]any{"role": "user", "content": content})
 		case "assistant":
+			if len(m.ResponsesOutput) > 0 {
+				for _, item := range m.ResponsesOutput {
+					input = append(input, item)
+				}
+				continue
+			}
 			if text, _ := m.Content.(string); text != "" {
 				input = append(input, map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": text}}})
 			}
@@ -161,6 +168,15 @@ func readResponsesToolStream(ctx context.Context, r io.Reader, c APIConnection, 
 				}
 			}
 		case "response.output_item.done":
+			var raw struct {
+				Item json.RawMessage `json:"item"`
+			}
+			if err := json.Unmarshal([]byte(data), &raw); err != nil {
+				return false, invalid()
+			}
+			if v.Item.Type == "reasoning" || v.Item.Type == "message" || v.Item.Type == "function_call" {
+				result.ResponsesOutput = append(result.ResponsesOutput, raw.Item)
+			}
 			if v.Item.Type != "function_call" {
 				return false, nil
 			}

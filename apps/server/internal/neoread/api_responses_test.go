@@ -158,3 +158,53 @@ func TestResponsesStreamRequiresTerminal(t *testing.T) {
 	}
 
 }
+
+func TestResponsesReasoningReplayAcrossToolRounds(t *testing.T) {
+	var bodies []map[string]any
+	reasoning := `{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"opaque-test","future_field":{"keep":true}}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if len(bodies) < 3 {
+			io.WriteString(w, "data: {\"type\":\"response.output_item.done\",\"item\":"+strings.ReplaceAll(reasoning, "rs_1", strings.Repeat("r", len(bodies)))+"}\n\n"+responsesFunctionCallWire(strings.Repeat("c", len(bodies)), "search_document", `{"query":"x"}`))
+		} else {
+			io.WriteString(w, responsesTestWire("答案"))
+		}
+	}))
+	defer upstream.Close()
+	conn := APIConnection{URL: upstream.URL, Key: "test", Protocol: "responses"}
+	messages := []toolCompletionMessage{{Role: "user", Content: "question"}}
+	for round := 0; round < 3; round++ {
+		result, err := toolCompletion(t.Context(), conn, completionRequest{Model: "test"}, messages, documentAPITools())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if round < 2 {
+			if len(result.ResponsesOutput) != 2 || string(result.ResponsesOutput[0]) != strings.ReplaceAll(reasoning, "rs_1", strings.Repeat("r", round+1)) {
+				t.Fatalf("lost original output: %s", jsonText(result.ResponsesOutput))
+			}
+			messages = append(messages, toolCompletionMessage{Role: "assistant", Content: result.Text, Calls: result.Calls, ResponsesOutput: result.ResponsesOutput}, toolCompletionMessage{Role: "tool", CallID: result.Calls[0].ID, Content: "found"})
+			if strings.Contains(jsonText(messages), "opaque-test") {
+				t.Fatal("opaque reasoning leaked into generic serialization")
+			}
+		}
+	}
+	for round, body := range bodies {
+		if jsonText(body["include"]) != `["reasoning.encrypted_content"]` {
+			t.Fatalf("missing encrypted content request: %v", body["include"])
+		}
+		input := body["input"].([]any)
+		if len(input) != 1+round*3 {
+			t.Fatalf("duplicated or missing output: %s", jsonText(input))
+		}
+		var expected any
+		for i := 0; i < round; i++ {
+			json.Unmarshal([]byte(strings.ReplaceAll(reasoning, "rs_1", strings.Repeat("r", i+1))), &expected)
+			if jsonText(input[1+i*3]) != jsonText(expected) {
+				t.Fatalf("reasoning changed: %s", jsonText(input))
+			}
+		}
+	}
+}

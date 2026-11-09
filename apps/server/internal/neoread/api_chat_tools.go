@@ -19,19 +19,22 @@ type completionToolCall struct {
 	} `json:"function"`
 }
 type toolCompletionMessage struct {
-	PageImages []documentPageImage  `json:"readerPageImages,omitempty"`
-	Reasoning  string               `json:"reasoning_content,omitempty"`
-	Role       string               `json:"role"`
-	Content    any                  `json:"content"`
-	Calls      []completionToolCall `json:"tool_calls,omitempty"`
-	CallID     string               `json:"tool_call_id,omitempty"`
+	// ResponsesOutput retains opaque protocol state in memory, never in generic JSON or logs.
+	ResponsesOutput []json.RawMessage    `json:"-"`
+	PageImages      []documentPageImage  `json:"readerPageImages,omitempty"`
+	Reasoning       string               `json:"reasoning_content,omitempty"`
+	Role            string               `json:"role"`
+	Content         any                  `json:"content"`
+	Calls           []completionToolCall `json:"tool_calls,omitempty"`
+	CallID          string               `json:"tool_call_id,omitempty"`
 }
 type toolCompletionResult struct {
-	Reasoning string
-	Text      string
-	Calls     []completionToolCall
-	Model     string
-	Tokens    *TokenCounts
+	ResponsesOutput []json.RawMessage
+	Reasoning       string
+	Text            string
+	Calls           []completionToolCall
+	Model           string
+	Tokens          *TokenCounts
 }
 
 func documentAPITools(vision ...bool) []any {
@@ -366,7 +369,7 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 		if err != nil {
 			return GenerateResult{}, err
 		}
-		assistant := toolCompletionMessage{Role: "assistant", Content: response.Text, Calls: response.Calls, Reasoning: response.Reasoning}
+		assistant := toolCompletionMessage{Role: "assistant", Content: response.Text, Calls: response.Calls, Reasoning: response.Reasoning, ResponsesOutput: response.ResponsesOutput}
 		messages = append(messages, assistant)
 		a.conversationEvents = append(a.conversationEvents, assistant)
 		if len(response.Calls) == 0 {
