@@ -62,8 +62,8 @@ func TestDocumentToolsSearchReadAndNavigate(t *testing.T) {
 	if e != nil || !strings.Contains(string(refs), a.corpus.Revision) {
 		t.Fatal("citation not versioned")
 	}
-	if _, e = a.references("fabricated [S999]"); e == nil {
-		t.Fatal("forged source accepted")
+	if refs, e = a.references("fabricated [S999]"); e != nil || string(refs) != "[]" {
+		t.Fatalf("unread source should have no navigation metadata: %s %v", refs, e)
 	}
 	// Index survives a reopened Store and search works without reprocessing.
 	root := s.Store.Root

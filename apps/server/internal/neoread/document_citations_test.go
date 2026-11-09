@@ -19,14 +19,23 @@ func TestDocumentProviderCitationsRequireReadEvidence(t *testing.T) {
 			t.Fatal("duplicate reference", string(refs))
 		}
 	}
-	for _, text := range []string{"[S999]", "【S999】", "［S999］", "（S64、S999）", "(S64, S999)", "citeS999", "citeS64S999", "citeturn1search0", "cite", "citeS64", "citeS64", "cite", "filecite", "cite", "ci", "citeS999citeS64"} {
-		if _, err := a.references(text); errorKind(err) != ErrorProtocol {
-			t.Fatalf("unverified citation accepted: %q %v", text, err)
+	for _, text := range []string{"[S999]", "【S999】", "［S999］", "（S64、S999）", "(S64, S999)", "citeS999", "citeS64S999", "[S64][S999][S64]", "other[S999]", "other [S999]"} {
+		refs, err := a.references(text)
+		if err != nil || strings.Contains(string(refs), "S999") {
+			t.Fatalf("unread source should not block answer or create reference: %q %s %v", text, refs, err)
+		}
+		want := 0
+		if strings.Contains(text, "S64") {
+			want = 1
+		}
+		var parsed []any
+		if json.Unmarshal(refs, &parsed) != nil || len(parsed) != want {
+			t.Fatalf("known references lost or duplicated: %q %s", text, refs)
 		}
 	}
-	for _, text := range []string{"other[S999]", "other [S999]"} {
+	for _, text := range []string{"citeturn1search0", "cite", "citeS64", "citeS64", "cite", "filecite", "cite", "ci", "citeS999citeS64"} {
 		if _, err := a.references(text); errorKind(err) != ErrorProtocol {
-			t.Fatalf("provider marker hid native source validation: %q %v", text, err)
+			t.Fatalf("unverified citation accepted: %q %v", text, err)
 		}
 	}
 }

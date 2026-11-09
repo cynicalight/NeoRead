@@ -8,7 +8,7 @@ import (
 var documentCitationPattern = regexp.MustCompile(`[^]*(?:|)`)
 
 // Accept paired bracket forms actually returned by multilingual providers.
-// Each extracted ID still has to resolve to read evidence before saving.
+// Only IDs backed by read evidence receive navigation metadata.
 const documentSourceList = `S[1-9][0-9]*(?:[ \t]*[,，、;；][ \t]*S[1-9][0-9]*)*`
 
 var documentNativeCitationPattern = regexp.MustCompile(`\[` + documentSourceList + `\]|【` + documentSourceList + `】|［` + documentSourceList + `］|（` + documentSourceList + `）|\(` + documentSourceList + `\)`)
@@ -16,7 +16,7 @@ var documentCitationIDPattern = regexp.MustCompile(`S[1-9][0-9]*`)
 var documentSourceIDPattern = regexp.MustCompile(`^S[1-9][0-9]*$`)
 
 // Provider markers and NeoRead labels resolve through the same evidence check.
-// Unknown IDs, malformed markers and unfinished citations never bypass it.
+// Unknown IDs are filtered when building references; malformed markers remain errors.
 func documentCitationSources(text string) ([]string, error) {
 	sources := []string{}
 	// Scan native labels independently: an unrelated provider marker must not

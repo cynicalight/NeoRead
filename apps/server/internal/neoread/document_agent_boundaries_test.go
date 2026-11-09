@@ -30,7 +30,7 @@ func configureDocumentAPI(t *testing.T, s *Server, url string) {
 	}
 }
 func TestDocumentAgentFailureNeverCommitsAnAnswer(t *testing.T) {
-	for _, mode := range []string{"forged-source", "save-failure"} {
+	for _, mode := range []string{"save-failure"} {
 		t.Run(mode, func(t *testing.T) {
 			s, _ := originalDocumentFixture(t)
 			calls := 0
@@ -40,14 +40,7 @@ func TestDocumentAgentFailureNeverCommitsAnAnswer(t *testing.T) {
 					return
 				}
 				calls++
-				switch mode {
-				default:
-					if mode == "forged-source" {
-						writeAPIReply(w, "unread source [S999]")
-					} else {
-						writeAPIReply(w, "No evidence available")
-					}
-				}
+				writeAPIReply(w, "No evidence available")
 			}))
 			defer upstream.Close()
 			configureDocumentAPI(t, s, upstream.URL)
@@ -251,5 +244,59 @@ func TestDocumentAgentInvalidToolArgumentsCanFinish(t *testing.T) {
 	response := request(t, s, "POST", "/api/documents/doc/chat", strings.NewReader(`{"provider":"api","prompt":"Read the passage","context":""}`))
 	if calls != 2 || !strings.Contains(response.Body.String(), "event: done") || !strings.Contains(response.Body.String(), "passage could not be read") {
 		t.Fatal("tool argument error interrupted chat", calls, response.Body.String())
+	}
+}
+
+func TestPiUnreadSourceKeepsAnswerAndAcceptedContinuation(t *testing.T) {
+	piTestRuntime(t)
+	s, _ := prepareConversationFixture(t)
+	calls := 0
+	answer := "保留原文回答 [S1]，另一项引用 [S999]，再次引用 [S1]。"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			respond(w, 200, map[string]any{"data": []any{map[string]string{"id": "test"}}})
+			return
+		}
+		calls++
+		if calls == 1 {
+			writeToolReply(w, "read_passage", `{"full":true}`)
+			return
+		}
+		writeAPIReply(w, answer)
+	}))
+	defer upstream.Close()
+	configureDocumentAPI(t, s, upstream.URL)
+	session := createSessionTest(t, s)
+	run := awaitRunTest(t, s, startSessionTest(t, s, session, "解释原文"))
+	if run.Status != "completed" || calls != 2 {
+		t.Fatalf("status=%s err=%s calls=%d", run.Status, run.Error, calls)
+	}
+	messages, err := s.Store.chatHistory("doc", session.ID)
+	if err != nil || len(messages) != 2 || messages[1].Content != answer {
+		t.Fatalf("answer not preserved: messages=%+v err=%v", messages, err)
+	}
+	var refs []struct {
+		SourceID string `json:"sourceId"`
+	}
+	if json.Unmarshal(messages[1].References, &refs) != nil || len(refs) != 1 || refs[0].SourceID != "S1" {
+		t.Fatalf("references=%s", messages[1].References)
+	}
+	var raw string
+	if err := s.Store.DB.QueryRow("SELECT body FROM document_conversations WHERE document_id=? AND provider=?", "doc", conversationProvider(session.ID, "api")).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var state documentConversation
+	if json.Unmarshal([]byte(raw), &state) != nil || len(state.PiEntries) == 0 || state.LastMessageID != messages[1].ID || !strings.Contains(string(state.PiEntries), "S999") {
+		t.Fatal("answer continuation was not committed unchanged")
+	}
+	replay := request(t, s, "GET", "/api/documents/doc/chat-sessions/"+session.ID+"/runs/"+run.ID+"/events", nil)
+	if strings.Contains(replay.Body.String(), "event: error") || !strings.Contains(replay.Body.String(), "event: done") {
+		t.Fatalf("wrong terminal: %s", replay.Body.String())
+	}
+	if out := request(t, s, "GET", "/api/documents/doc/messages/"+messages[1].ID+"/sources/S1", nil); out.Code != 200 {
+		t.Fatalf("known source not navigable: %d", out.Code)
+	}
+	if out := request(t, s, "GET", "/api/documents/doc/messages/"+messages[1].ID+"/sources/S999", nil); out.Code == 200 {
+		t.Fatal("unread citation gained fabricated navigation")
 	}
 }

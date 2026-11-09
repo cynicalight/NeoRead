@@ -443,10 +443,9 @@ func (a *documentAgent) references(text string) (json.RawMessage, error) {
 		if seen[source] {
 			continue
 		}
-		found := false
+		// 未读取的编号保留在回答中，但不生成没有证据的跳转元数据。
 		for _, ev := range a.Evidence {
 			if ev.SourceID == source {
-				found = true
 				ref := map[string]any{"text": ev.Text, "location": ev.Location, "kind": "section", "sourceId": source, "corpusRevision": ev.Revision, "contentHash": ev.Hash, "precision": ev.Precision}
 				if ev.PageImage != nil {
 					ref["pageImage"] = ev.PageImage
@@ -454,9 +453,6 @@ func (a *documentAgent) references(text string) (json.RawMessage, error) {
 				refs = append(refs, ref)
 				break
 			}
-		}
-		if !found {
-			return nil, generationError(ErrorProtocol, "回答引用了未经读取的来源，请重试")
 		}
 		seen[source] = true
 	}

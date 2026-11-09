@@ -153,8 +153,8 @@ func TestPDFPageToolScopeEvidenceAndMCPImages(t *testing.T) {
 	if err != nil || !strings.Contains(string(refs), "pageImage") {
 		t.Fatal("missing visual citation", string(refs), err)
 	}
-	if _, err = a.references("[S99]"); err == nil {
-		t.Fatal("unread image citation accepted")
+	if refs, err = a.references("[S99]"); err != nil || string(refs) != "[]" {
+		t.Fatalf("unread image citation gained navigation metadata: %s %v", refs, err)
 	}
 	a.canViewPages = false
 	raw, err := a.call(t.Context(), "read_pdf_pages", json.RawMessage(`{"pages":[1]}`))
