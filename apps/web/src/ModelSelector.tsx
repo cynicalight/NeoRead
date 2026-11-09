@@ -329,7 +329,7 @@ export function ModelSelector({
                   key={model.id}
                   value={model.id}
                   label={model.name}
-                  className="model-select-option [&>span:first-child]:items-center"
+                  className="model-select-option"
                 >
                   <ProviderIcon provider={provider} model={model} size={20} />
                   <span className="model-select-name">{model.name}</span>
