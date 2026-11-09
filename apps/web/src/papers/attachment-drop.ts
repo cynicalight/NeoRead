@@ -10,7 +10,7 @@ const fileDrag = (event: React.DragEvent) => {
   return types.includes("Files") && !types.includes(PAPER_DRAG_TYPE);
 };
 
-/** Collapsed papers require dwell; expanded attachment areas accept directly. */
+/** PDF-only drops require dwell on collapsed papers; other files attach directly. */
 export function useAttachmentDrop(doc: Document, immediate = false) {
   const [armed, setArmed] = useState(false);
   const state = useRef<{
@@ -101,12 +101,20 @@ export function useAttachmentDrop(doc: Document, immediate = false) {
         reset();
     },
     onDrop: (event: React.DragEvent<HTMLElement>) => {
-      const accept = fileDrag(event) && (immediate || state.current.armed);
+      if (!fileDrag(event)) {
+        reset();
+        return;
+      }
+      const files = Array.from(event.dataTransfer.files);
+      // Non-PDF files cannot be imported as papers; dropping them on a paper
+      // always adds attachments, including mixed PDF/document batches.
+      const hasSupplement = files.some((file) => !/\.pdf$/i.test(file.name));
+      const accept = immediate || state.current.armed || hasSupplement;
       reset();
       if (!accept) return; // Bubble to App's normal import handler.
       event.preventDefault();
       event.stopPropagation();
-      void uploadAttachments(doc, Array.from(event.dataTransfer.files));
+      void uploadAttachments(doc, files);
     },
   };
 }

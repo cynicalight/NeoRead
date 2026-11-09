@@ -79,8 +79,9 @@ export function AttachmentUploads({ doc }: { doc: Document }) {
         role="status"
       >
         <span>
-          {batch.running ? "正在添加附件" : "附件处理完成"} · {complete}/
-          {batch.entries.length}
+          {batch.running
+            ? `正在添加附件 · ${complete}/${batch.entries.length}`
+            : "未完成的附件"}
         </span>
         {batch.running ? (
           <Button

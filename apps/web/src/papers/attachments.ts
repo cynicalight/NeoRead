@@ -212,7 +212,11 @@ export async function uploadAttachments(doc: Document, files: File[]) {
   useAttachments.setState((s) => ({
     uploads: {
       ...s.uploads,
-      [doc.id]: { entries: [...entries], controller, running: false },
+      [doc.id]: entries.some(
+        (e) => e.status === "failed" || e.status === "cancelled",
+      )
+        ? { entries: [...entries], controller, running: false }
+        : undefined,
     },
   }));
   // A cancelled response may already have been committed; reconcile with the server.
