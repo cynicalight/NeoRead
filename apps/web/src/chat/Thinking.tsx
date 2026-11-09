@@ -39,7 +39,7 @@ export function Thinking({
             </TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>
-        <TraceCollapsibleContent className="max-h-80 overflow-y-auto text-sm whitespace-pre-wrap [overflow-wrap:anywhere] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <TraceCollapsibleContent className="max-h-80 overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {text.trim()}
         </TraceCollapsibleContent>
       </TraceCollapsible>

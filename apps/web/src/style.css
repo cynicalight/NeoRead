@@ -1197,8 +1197,17 @@ kbd {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Progress lines, tool records and reasoning use the answer's size (and font scale). */
+.chat-message [data-slot="trace-line"],
+.chat-message [data-slot="trace-collapsible-trigger"] {
+  font-size: inherit;
+}
 .chat-message.assistant {
   padding-bottom: 0;
+}
+/* Before the copy row exists, keep the progress line clear of the composer. */
+.chat-message.assistant:not(:has(> .chat-message-actions)) {
+  padding-bottom: 24px;
 }
 .chat-message-actions {
   display: flex;
