@@ -6,7 +6,7 @@ import {
   reflowSourceParts,
   reflowSourceSelection,
   reflowBlockText,
-  splitQuote,
+  reflowMarkRanges,
 } from "./reflow";
 
 const translated = (
@@ -213,31 +213,26 @@ it("maps both ways around subscripts the extraction moved", () => {
   host.remove();
 });
 
-it("splits a quote saved across paragraphs into each paragraph's part", () => {
-  const blocks = [
-    { id: "a", text: "First paragraph ends here." },
-    { id: "b", text: "Second paragraph goes on." },
-    { id: "c", text: "Third." },
-  ];
-  expect(splitQuote(blocks, "ends here. Second paragraph")).toEqual([
-    { blockId: "a", quote: "ends here." },
-    { blockId: "b", quote: "Second paragraph" },
-  ]);
-  // The text layer can order subscripts unlike the extracted paragraphs.
-  const math = [
-    { id: "a", text: "outputs of dimension d = 512 . model" },
-    { id: "b", text: "Decoder: The decoder is also composed of layers." },
-  ];
+it("finds a text-layer quote across paragraphs by its ends, then word by word", () => {
+  const host = document.createElement("div");
+  host.innerHTML = `
+    <div data-reflow-source="a"><span data-source-sentence="0">We suspect that for large values of d , the dot products grow large. </span><span data-source-sentence="1">To counteract this effect, we scale the dot products by √ d .</span></div>
+    <div data-reflow-source="b"><span data-source-sentence="0">Instead of performing a single attention function with d -dimensional keys.</span></div>`;
+  document.body.append(host);
+  const marked = (quote: string) =>
+    reflowMarkRanges(host, ["a", "b"], quote)
+      .map((r) => r.toString())
+      .join("|");
+  // Ends found by their first and last ten characters, across paragraphs.
   expect(
-    splitQuote(
-      math,
-      "outputs of dimension dmodel = 512.\nDecoder: The decoder",
-    ),
-  ).toEqual([
-    { blockId: "a", quote: "outputs of dimension d = 512 . model" },
-    { blockId: "b", quote: "Decoder: The decoder" },
-  ]);
-  expect(splitQuote(blocks.slice(0, 1), "elsewhere")).toEqual([
-    { blockId: "a", quote: "elsewhere" },
-  ]);
+    marked("we scale the dot products by √dk. Instead of performing"),
+  ).toBe("we scale the dot products by √ d .|Instead of performing");
+  // A quote starting on a subscript the paragraph moved matches word by word
+  // from its first matched word.
+  expect(marked("dk, the dot products grow large. To counteract")).toBe(
+    "the dot products grow large.|To counteract",
+  );
+  // Mostly unmatched words do not place a quote.
+  expect(marked("dk th")).toBe("");
+  host.remove();
 });

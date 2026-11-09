@@ -332,9 +332,8 @@ function selectedSource(node: HTMLElement, range: Range) {
 }
 
 /**
- * Ranges of a saved quote in reflowed text. A quote that crosses a restored
- * formula is not literal text there, so it is located in the joined extracted
- * text and mapped back sentence by sentence.
+ * Ranges of a saved quote in reflowed text, for marks made here, whose quote
+ * is extracted text. Its span is mapped back sentence by sentence.
  */
 export function reflowQuoteRanges(
   host: HTMLElement,
@@ -344,77 +343,152 @@ export function reflowQuoteRanges(
   const found = searchRanges(reflowSourceRanges(host, blockId), quote);
   const element = sourceElement(host, blockId);
   if (found.length || !element?.querySelector("[data-anchor]")) return found;
+  const sentences = sentenceNodes(element);
+  const texts = sentences.map((s) => compact(sentenceText(s)));
   const needle = compact(quote);
-  if (!needle) return [];
-  const nodes = sentenceNodes(element);
-  const texts = nodes.map((s) =>
-    compact(s.dataset.anchor ?? s.textContent ?? ""),
+  const at = needle ? texts.join("").indexOf(needle) : -1;
+  return at < 0 ? [] : spanRanges(sentences, texts, at, at + needle.length);
+}
+
+/**
+ * Ranges of a quote from the PDF text layer in the reflowed paragraphs it
+ * covers. The text layer and the extracted paragraphs can differ around
+ * formulas, so the quote is found by its first and last ten characters, and
+ * failing that word by word: the span runs from the first to the last matched
+ * word with at most 20% unmatched words, dropping its sparser end until so.
+ */
+export function reflowMarkRanges(
+  host: HTMLElement,
+  blockIds: string[],
+  quote: string,
+): Range[] {
+  const sentences = blockIds.flatMap((id) => {
+    const element = sourceElement(host, id);
+    return element ? sentenceNodes(element) : [];
+  });
+  const raw = sentences.map(sentenceText);
+  const texts = raw.map(compact);
+  const span = edgeSpan(texts.join(""), compact(quote)) ?? wordSpan(raw, quote);
+  return span ? spanRanges(sentences, texts, ...span) : [];
+}
+
+// A restored sentence stands for its extracted text; a plain one shows it.
+const sentenceText = (s: HTMLElement) =>
+  s.dataset.anchor ?? s.textContent ?? "";
+
+function edgeSpan(text: string, needle: string): [number, number] | undefined {
+  if (!needle) return;
+  const at = text.indexOf(needle);
+  if (at >= 0) return [at, at + needle.length];
+  if (needle.length < 20) return;
+  const start = text.indexOf(needle.slice(0, 10));
+  const tail = start < 0 ? -1 : text.indexOf(needle.slice(-10), start + 10);
+  return tail < 0 ? undefined : [start, tail + 10];
+}
+
+// Words with their [start, end) in text without spaces.
+function words(text: string) {
+  const offsets: number[] = [];
+  let n = 0;
+  for (let i = 0; i <= text.length; i++) {
+    offsets.push(n);
+    if (i < text.length && !/\s/.test(text[i])) n++;
+  }
+  const found =
+    typeof Intl !== "undefined" && "Segmenter" in Intl
+      ? Array.from(
+          new Intl.Segmenter(undefined, { granularity: "word" }).segment(text),
+        ).flatMap((w) =>
+          w.isWordLike ? [{ text: w.segment, index: w.index }] : [],
+        )
+      : Array.from(text.matchAll(/[\p{L}\p{N}]+/gu), (m) => ({
+          text: m[0],
+          index: m.index,
+        }));
+  return found.map((w) => ({
+    word: w.text.toLowerCase(),
+    start: offsets[w.index],
+    end: offsets[w.index + w.text.length],
+  }));
+}
+
+function wordSpan(
+  texts: string[],
+  quote: string,
+): [number, number] | undefined {
+  let base = 0;
+  const pool = texts.flatMap((text) => {
+    const found = words(text).map((w) => ({
+      ...w,
+      start: w.start + base,
+      end: w.end + base,
+    }));
+    base += compact(text).length;
+    return found;
+  });
+  const wanted = words(quote).map((w) => w.word);
+  const at = lcsMatches(
+    pool.map((w) => w.word),
+    wanted,
   );
-  const span = locate(texts.join(""), needle);
-  if (!span) return [];
-  const [start, end] = span;
+  const hits = at.flatMap((j, i) => (j === undefined ? [] : [i]));
+  // Too few shared words cannot place the quote.
+  if (hits.length < wanted.length / 2) return;
+  let s = 0,
+    e = hits.length - 1;
+  while (s <= e) {
+    const total = hits[e] - hits[s] + 1;
+    if (total - (e - s + 1) <= total * 0.2)
+      return [pool[hits[s]].start, pool[hits[e]].end];
+    // Drop the end farther from its neighbouring match.
+    if (hits[s + 1] - hits[s] >= hits[e] - hits[e - 1]) s++;
+    else e--;
+  }
+}
+
+// Ranges of the span [start, end) of text without spaces across sentences.
+function spanRanges(
+  sentences: HTMLElement[],
+  texts: string[],
+  start: number,
+  end: number,
+): Range[] {
   let offset = 0;
-  return nodes.flatMap((s, i) => {
+  return sentences.flatMap((s, i) => {
     const from = offset;
     offset += texts[i].length;
     if (offset <= start || from >= end) return [];
     const a = Math.max(start, from) - from,
       b = Math.min(end, offset) - from;
-    if (s.dataset.anchor) return restoredRanges(s, a, b);
-    return searchRanges(
-      reflowSourceRanges(host, blockId, i),
-      compactSlice(s.textContent ?? "", a, b),
-    );
+    return s.dataset.anchor ? restoredRanges(s, a, b) : plainRanges(s, a, b);
   });
 }
 
-/**
- * Each paragraph's part of a quote saved across paragraphs, found in their
- * extracted text joined in reading order. A quote not found there is offered
- * to every paragraph whole.
- */
-export function splitQuote(
-  blocks: { id: string; text: string }[],
-  quote: string,
-): { blockId: string; quote: string }[] {
-  const needle = compact(quote);
-  const texts = blocks.map((b) => compact(b.text));
-  const span = locate(texts.join(""), needle);
-  if (!span) return blocks.map((b) => ({ blockId: b.id, quote }));
-  const [start, end] = span;
-  let offset = 0;
-  return blocks.flatMap((b, i) => {
-    const from = offset;
-    offset += texts[i].length;
-    if (offset <= start || from >= end) return [];
-    const part = compactSlice(
-      b.text,
-      Math.max(start, from) - from,
-      Math.min(end, offset) - from,
-    );
-    return [{ blockId: b.id, quote: part }];
-  });
-}
-
-/**
- * The span of `needle` in `text`, both without spaces. The PDF text layer and
- * the extracted paragraphs can order subscripts differently ("dmodel = 512"
- * against "d = 512 . model"), so a quote not found whole is located by its
- * start and end.
- */
-function locate(text: string, needle: string): [number, number] | undefined {
-  if (!needle) return;
-  const at = text.indexOf(needle);
-  if (at >= 0) return [at, at + needle.length];
-  for (let k = Math.min(16, needle.length >> 1); k >= 4; k--) {
-    const start = text.indexOf(needle.slice(0, k));
-    if (start < 0) continue;
-    const tail = text.indexOf(needle.slice(-k), start + k);
-    if (tail < 0) continue;
-    const end = tail + k;
-    // A far-off tail is another passage, not this quote.
-    if (end - start <= needle.length * 1.5) return [start, end];
+// Ranges of the non-space characters [a, b) of a plain sentence.
+function plainRanges(sentence: HTMLElement, a: number, b: number) {
+  const ranges: Range[] = [];
+  const walker = document.createTreeWalker(sentence, NodeFilter.SHOW_TEXT);
+  let node: Node | null,
+    n = 0;
+  while ((node = walker.nextNode())) {
+    const text = node.textContent ?? "";
+    let from = -1,
+      to = -1;
+    for (let k = 0; k < text.length; k++) {
+      if (/\s/.test(text[k])) continue;
+      if (n >= a && n < b) {
+        if (from < 0) from = k;
+        to = k + 1;
+      }
+      n++;
+    }
+    if (from < 0) continue;
+    const range = document.createRange();
+    range.setStart(node, from);
+    range.setEnd(node, to);
+    ranges.push(range);
   }
+  return ranges;
 }
 
 // The text between non-space characters `a` and `b`, spaces inside kept.

@@ -28,7 +28,7 @@ import {
   hasReflowSource,
   reflowQuoteRanges,
   reflowSourceRanges,
-  splitQuote,
+  reflowMarkRanges,
   segmentSentences,
 } from "./reflow";
 
@@ -260,7 +260,7 @@ export function useSentenceMarks(
             );
         // Ordinary source marks live in the PDF text layer; reflowed text
         // finds their quote in the paragraphs under the saved rectangles.
-        // A quote across paragraphs is split into each paragraph's part.
+        // A text-layer quote is found across the paragraphs it covers.
         const location = annotation.location;
         if (!passages?.length && location.quote?.trim()) {
           const covered = blocks.flatMap((block) =>
@@ -269,22 +269,15 @@ export function useSentenceMarks(
             hasReflowSource(host, block.id) &&
             (!location.rects?.length ||
               location.rects.some((r) => overlap(r, block.bounds) > 0))
-              ? [
-                  {
-                    id: block.id,
-                    text: block.image
-                      ? block.caption || block.text
-                      : block.text,
-                  },
-                ]
+              ? [block.id]
               : [],
           );
-          for (const part of splitQuote(covered, location.quote))
-            marks.push(
-              ...reflowQuoteRanges(host, part.blockId, part.quote).map(
-                (range) => ({ annotation, range }),
-              ),
-            );
+          marks.push(
+            ...reflowMarkRanges(host, covered, location.quote).map((range) => ({
+              annotation,
+              range,
+            })),
+          );
         }
         if (passages?.length && !reflowed.length)
           marks.push(

@@ -46,17 +46,25 @@ export function alignedSpan(
   if (first < 0 || last < 0) return;
   let start = at[first]!,
     end = at[last]! + 1;
-  for (let i = first - 1; i >= 0; i--) {
+  // A needle character missing nearby (moved elsewhere) is skipped, up to
+  // two in a row.
+  for (let i = first - 1, missed = 0; i >= 0 && missed <= 2; i--) {
     let k = 1;
     while (k <= 4 && text[start - k] !== needle[i]) k++;
-    if (k > 4 || start - k < 0) break;
-    start -= k;
+    if (k > 4 || start - k < 0) missed++;
+    else {
+      start -= k;
+      missed = 0;
+    }
   }
-  for (let i = last + 1; i < needle.length; i++) {
+  for (let i = last + 1, missed = 0; i < needle.length && missed <= 2; i++) {
     let k = 0;
     while (k < 4 && text[end + k] !== needle[i]) k++;
-    if (k === 4 || end + k >= text.length) break;
-    end += k + 1;
+    if (k === 4 || end + k >= text.length) missed++;
+    else {
+      end += k + 1;
+      missed = 0;
+    }
   }
   // Only reordering is tolerated: the span holds exactly the needle's
   // characters, so different words or variables never match.
