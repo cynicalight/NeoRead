@@ -9,6 +9,7 @@ import { sentenceAnchor } from "@neoread/core";
 import { selectionContext } from "../readers/selection-context";
 import { searchRanges } from "./search-ranges";
 import { texText } from "../chat/tex-text";
+import { lcsMatches } from "../text-align";
 
 /** One reflowed source sentence. */
 export interface ReflowPart {
@@ -261,26 +262,6 @@ function sentenceUnits(sentence: HTMLElement): Unit[] {
     u.to = u.formula ? Math.max(u.from, after) : u.from;
   });
   return units;
-}
-
-// For each item of `a`, the index in `b` it pairs with in a longest common
-// subsequence, or undefined.
-function lcsMatches(a: string[], b: string) {
-  const n = a.length,
-    m = b.length;
-  const table = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
-  for (let i = n - 1; i >= 0; i--)
-    for (let j = m - 1; j >= 0; j--)
-      table[i][j] =
-        a[i] === b[j]
-          ? table[i + 1][j + 1] + 1
-          : Math.max(table[i + 1][j], table[i][j + 1]);
-  const out: (number | undefined)[] = new Array(n);
-  for (let i = 0, j = 0; i < n && j < m;)
-    if (a[i] === b[j]) out[i++] = j++;
-    else if (table[i + 1][j] >= table[i][j + 1]) i++;
-    else j++;
-  return out;
 }
 
 // Whether a unit lies in the extracted span [s, e). A formula overlapping it

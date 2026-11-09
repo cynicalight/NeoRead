@@ -1,3 +1,4 @@
+import { alignedSpan } from "../text-align";
 // Inputs use the same whitespace-free, lower-case text as PDF selection offsets.
 // OCR sometimes moves mathematical subscripts to the end of a line. Match the
 // complete prose in that case, retaining the original PDF offsets for painting.
@@ -74,31 +75,43 @@ export function sentenceTextRanges(
       matches.push({ start, end: cursor });
       continue;
     }
-    const needle = prose(source).value;
-    // Without a complete paragraph match, require a unique substantial prose
-    // sentence with the same variables. Paragraph context can also account for
-    // subscripts that OCR has moved across sentence boundaries.
-    if (
-      !wholeParagraph &&
-      (needle.length < 32 || needle.length < source.length * 0.8)
-    )
-      continue;
-    const projected =
-      contextual >= 0 ? contextual : uniqueIndex(pdfProse.value, needle);
-    if (
-      !needle ||
-      projected < 0 ||
-      pdfProse.value.slice(projected, projected + needle.length) !== needle
-    )
-      continue;
-    start = pdfProse.starts[projected];
-    const end = pdfProse.ends[projected + needle.length - 1];
-    if (!wholeParagraph && symbols(source) !== symbols(text.slice(start, end)))
-      continue;
-    // Paragraph context resolves repeated sentences; otherwise require a
-    // unique full-prose match. This never expands an unmatched sentence.
-    cursor = end;
-    matches.push({ start, end });
+    const proseMatch = (
+      start: number,
+    ): { start: number; end: number } | undefined => {
+      const needle = prose(source).value;
+      // Without a complete paragraph match, require a unique substantial prose
+      // sentence with the same variables. Paragraph context can also account for
+      // subscripts that OCR has moved across sentence boundaries.
+      if (
+        !wholeParagraph &&
+        (needle.length < 32 || needle.length < source.length * 0.8)
+      )
+        return;
+      const projected =
+        contextual >= 0 ? contextual : uniqueIndex(pdfProse.value, needle);
+      if (
+        !needle ||
+        projected < 0 ||
+        pdfProse.value.slice(projected, projected + needle.length) !== needle
+      )
+        return;
+      start = pdfProse.starts[projected];
+      const end = pdfProse.ends[projected + needle.length - 1];
+      if (
+        !wholeParagraph &&
+        symbols(source) !== symbols(text.slice(start, end))
+      )
+        return;
+      // Paragraph context resolves repeated sentences; otherwise require a
+      // unique full-prose match. This never expands an unmatched sentence.
+      return { start, end };
+    };
+    // Text whose subscripts the PDF orders differently still aligns.
+    const match = proseMatch(start) ?? alignedSpan(text, source);
+    if (match) {
+      cursor = match.end;
+      matches.push(match);
+    }
   }
   return matches;
 }
