@@ -136,7 +136,9 @@
 }
 .translation-sentence,
 .translation-sentence > .message-markdown,
-.translation-sentence > .message-markdown > p {
+.translation-sentence > .message-markdown > p,
+.reflow-sentence > .message-markdown,
+.reflow-sentence > .message-markdown > p {
   display: inline;
   margin: 0;
 }
