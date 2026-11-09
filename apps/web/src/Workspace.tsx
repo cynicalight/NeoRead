@@ -10,6 +10,7 @@ import {
   updateReaderLayout,
 } from "./neoread-layout";
 import { SelectionTranslation } from "./SelectionTranslation";
+import { SearchResultText } from "./SearchResultText";
 import { LinkPreviewPanel } from "./LinkPreviewPanel";
 import { AnnotationHoverCard } from "./AnnotationHoverCard";
 import {
@@ -1316,7 +1317,12 @@ export function Workspace({
                             ? " · 原文"
                             : ""}
                       </small>
-                      <span>{result.excerpt}</span>
+                      <span>
+                        <SearchResultText
+                          text={result.excerpt}
+                          query={searchedQuery}
+                        />
+                      </span>
                     </Button>
                   ))}
                 </ScrollArea>
