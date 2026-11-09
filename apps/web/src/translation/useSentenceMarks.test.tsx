@@ -218,7 +218,7 @@ async function pointer(selector: string, type: string, x: number, buttons = 0) {
         button: 0,
       }),
     );
-    await vi.advanceTimersByTimeAsync(425);
+    await vi.advanceTimersByTimeAsync(125);
   });
 }
 it("highlights both sentence texts in either direction, clears on drag, and keeps native selection untouched", async () => {
@@ -387,16 +387,16 @@ it("waits for dwell, tolerates line gaps, and cancels pending work on interrupti
     });
   };
   send(10);
-  await advance(399);
+  await advance(99);
   send(10, "pointerleave");
   await advance(600);
   expect(matching).not.toHaveBeenCalled();
   expect(hover()).toBeUndefined();
   send(10);
-  await advance(200);
+  await advance(50);
   send(12);
   await act(async () => root.render(<App translations={[{ ...t }]} />));
-  await advance(199);
+  await advance(49);
   expect(matching).not.toHaveBeenCalled();
   expect(hover()).toBeUndefined();
   await advance(1);
@@ -417,12 +417,12 @@ it("waits for dwell, tolerates line gaps, and cancels pending work on interrupti
   await advance(1);
   expect(hover()).toBeUndefined();
   send(10);
-  await advance(399);
+  await advance(99);
   send(10, "pointerdown");
   await advance(600);
   expect(hover()).toBeUndefined();
   send(10);
-  await advance(400);
+  await advance(100);
   expect(hover()).toBeDefined();
   send(10, "scroll");
   expect(hover()).toBeUndefined();

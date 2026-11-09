@@ -493,7 +493,7 @@ export function useSentenceMarks(
         enterTimer = undefined;
         anchor = undefined;
         if (pointer.current) resolveHover(pointer.current);
-      }, 400);
+      }, 100);
     };
     let pressed: { x: number; y: number } | undefined;
     const down = (event: PointerEvent) => {
