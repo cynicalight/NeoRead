@@ -369,9 +369,9 @@ export function reflowQuoteRanges(
   const texts = nodes.map((s) =>
     compact(s.dataset.anchor ?? s.textContent ?? ""),
   );
-  const start = texts.join("").indexOf(needle),
-    end = start + needle.length;
-  if (start < 0) return [];
+  const span = locate(texts.join(""), needle);
+  if (!span) return [];
+  const [start, end] = span;
   let offset = 0;
   return nodes.flatMap((s, i) => {
     const from = offset;
@@ -385,6 +385,55 @@ export function reflowQuoteRanges(
       compactSlice(s.textContent ?? "", a, b),
     );
   });
+}
+
+/**
+ * Each paragraph's part of a quote saved across paragraphs, found in their
+ * extracted text joined in reading order. A quote not found there is offered
+ * to every paragraph whole.
+ */
+export function splitQuote(
+  blocks: { id: string; text: string }[],
+  quote: string,
+): { blockId: string; quote: string }[] {
+  const needle = compact(quote);
+  const texts = blocks.map((b) => compact(b.text));
+  const span = locate(texts.join(""), needle);
+  if (!span) return blocks.map((b) => ({ blockId: b.id, quote }));
+  const [start, end] = span;
+  let offset = 0;
+  return blocks.flatMap((b, i) => {
+    const from = offset;
+    offset += texts[i].length;
+    if (offset <= start || from >= end) return [];
+    const part = compactSlice(
+      b.text,
+      Math.max(start, from) - from,
+      Math.min(end, offset) - from,
+    );
+    return [{ blockId: b.id, quote: part }];
+  });
+}
+
+/**
+ * The span of `needle` in `text`, both without spaces. The PDF text layer and
+ * the extracted paragraphs can order subscripts differently ("dmodel = 512"
+ * against "d = 512 . model"), so a quote not found whole is located by its
+ * start and end.
+ */
+function locate(text: string, needle: string): [number, number] | undefined {
+  if (!needle) return;
+  const at = text.indexOf(needle);
+  if (at >= 0) return [at, at + needle.length];
+  for (let k = Math.min(16, needle.length >> 1); k >= 4; k--) {
+    const start = text.indexOf(needle.slice(0, k));
+    if (start < 0) continue;
+    const tail = text.indexOf(needle.slice(-k), start + k);
+    if (tail < 0) continue;
+    const end = tail + k;
+    // A far-off tail is another passage, not this quote.
+    if (end - start <= needle.length * 1.5) return [start, end];
+  }
 }
 
 // The text between non-space characters `a` and `b`, spaces inside kept.

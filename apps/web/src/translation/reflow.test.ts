@@ -6,6 +6,7 @@ import {
   reflowSourceParts,
   reflowSourceSelection,
   reflowBlockText,
+  splitQuote,
 } from "./reflow";
 
 const translated = (
@@ -210,4 +211,33 @@ it("maps both ways around subscripts the extraction moved", () => {
     quote: "to a sequence 1 n of",
   });
   host.remove();
+});
+
+it("splits a quote saved across paragraphs into each paragraph's part", () => {
+  const blocks = [
+    { id: "a", text: "First paragraph ends here." },
+    { id: "b", text: "Second paragraph goes on." },
+    { id: "c", text: "Third." },
+  ];
+  expect(splitQuote(blocks, "ends here. Second paragraph")).toEqual([
+    { blockId: "a", quote: "ends here." },
+    { blockId: "b", quote: "Second paragraph" },
+  ]);
+  // The text layer can order subscripts unlike the extracted paragraphs.
+  const math = [
+    { id: "a", text: "outputs of dimension d = 512 . model" },
+    { id: "b", text: "Decoder: The decoder is also composed of layers." },
+  ];
+  expect(
+    splitQuote(
+      math,
+      "outputs of dimension dmodel = 512.\nDecoder: The decoder",
+    ),
+  ).toEqual([
+    { blockId: "a", quote: "outputs of dimension d = 512 . model" },
+    { blockId: "b", quote: "Decoder: The decoder" },
+  ]);
+  expect(splitQuote(blocks.slice(0, 1), "elsewhere")).toEqual([
+    { blockId: "a", quote: "elsewhere" },
+  ]);
 });
