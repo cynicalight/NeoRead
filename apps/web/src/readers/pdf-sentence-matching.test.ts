@@ -57,3 +57,16 @@ it("rejects ambiguous prose without paragraph context and resolves it with sourc
     { start: pdf.length, end: pdf.length * 2 },
   ]);
 });
+
+it("aligns a repeated sentence after the ones before it", () => {
+  const text = "thevalueofdkispositive.".repeat(2);
+  const block = "thevalueofdispositivek.".repeat(2);
+  const sentence = "thevalueofdispositivek.";
+  expect(sentenceTextRanges(text, block, [sentence], 23)).toEqual([
+    { start: 23, end: 46 },
+  ]);
+  expect(sentenceTextRanges(text, block, [sentence, sentence])).toEqual([
+    { start: 0, end: 23 },
+    { start: 23, end: 46 },
+  ]);
+});

@@ -33,6 +33,14 @@ function symbols(text: string) {
     .join("");
 }
 
+// The aligned span after `cursor`, so a repeated sentence never matches an
+// earlier one.
+function alignedFrom(text: string, source: string, cursor: number) {
+  const from = Math.max(0, Math.min(cursor, text.length));
+  const span = alignedSpan(text.slice(from), source);
+  return span && { start: span.start + from, end: span.end + from };
+}
+
 export function sentenceTextRanges(
   text: string,
   block: string,
@@ -107,7 +115,7 @@ export function sentenceTextRanges(
       return { start, end };
     };
     // Text whose subscripts the PDF orders differently still aligns.
-    const match = proseMatch(start) ?? alignedSpan(text, source);
+    const match = proseMatch(start) ?? alignedFrom(text, source, cursor);
     if (match) {
       cursor = match.end;
       matches.push(match);
