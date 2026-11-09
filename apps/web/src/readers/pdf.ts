@@ -702,6 +702,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     blockId: string,
     signal: AbortSignal,
     width?: number,
+    theme: ReaderTheme = this.theme,
   ): Promise<Blob> {
     const block = this.blockData.find((item) => item.id === blockId);
     if (!block || !this.pdf || this.disposed) throw new Error("图片位置不可用");
@@ -720,6 +721,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.ceil(viewport.width * bounds.width));
     canvas.height = Math.max(1, Math.ceil(viewport.height * bounds.height));
+    const pageColors = pdfObjectColors(theme);
     const task = page.render({
       canvas,
       canvasContext: canvas.getContext("2d")!,
@@ -733,7 +735,8 @@ export class PDFReaderAdapter implements ReaderAdapter {
         -viewport.height * bounds.y,
       ],
       annotationMode: pdfjs.AnnotationMode.DISABLE,
-      background: "white",
+      background: pageColors?.background ?? "white",
+      pageColors: pageColors ?? undefined,
     });
     const cancel = () => task.cancel();
     signal.addEventListener("abort", cancel, { once: true });

@@ -206,17 +206,23 @@ export function PDFReadingView({
     selection = useRef<ReaderSelection | null>(null),
     scrollFrame = useRef(0);
   const equationNumbers = useMemo(() => formulaNumbers(blocks), [blocks]);
-  const [blockImages, setBlockImages] =
-    useState<ReturnType<typeof blockImageCache>>();
+  const imageTheme = `${theme.mode}:${theme.pdfDarkContrast ?? "soft"}`;
+  const [imageCache, setImageCache] = useState<{
+    theme: string;
+    cache: ReturnType<typeof blockImageCache>;
+  }>();
   useEffect(() => {
     if (!engine?.renderBlockImage) return;
-    const cache = blockImageCache(engine.renderBlockImage.bind(engine));
-    setBlockImages(cache);
-    return () => {
-      cache.dispose();
-      setBlockImages(undefined);
-    };
-  }, [engine, blocks]);
+    const imageThemeSnapshot = { ...theme };
+    const cache = blockImageCache((id, signal, width) =>
+      engine.renderBlockImage!(id, signal, width, imageThemeSnapshot),
+    );
+    setImageCache({ theme: imageTheme, cache });
+    return () => cache.dispose();
+  }, [engine, blocks, imageTheme]);
+  const blockImages =
+    imageCache?.theme === imageTheme ? imageCache.cache : undefined;
+  const imageKey = `${imageTheme}:${blockImages ? "ready" : "pending"}`;
   const visibleBlocks = blocks.filter(
     (b) => !isPDFPageDecoration(b) && !equationNumbers.pairedIds.has(b.id),
   );
@@ -1104,6 +1110,7 @@ export function PDFReadingView({
                     translation={translated}
                     documentId={doc.id}
                     renderImage={blockImages?.url}
+                    imageTheme={imageKey}
                     retry={() => void translate(block.id)}
                     paused={processing?.enabled === false}
                   />
@@ -1238,6 +1245,7 @@ export function PDFReadingView({
                 translation={activePopup}
                 documentId={doc.id}
                 renderImage={blockImages?.url}
+                imageTheme={imageKey}
                 retry={() => void translate(popup.block.id)}
                 paused={processing?.enabled === false}
               />

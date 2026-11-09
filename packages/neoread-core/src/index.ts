@@ -560,6 +560,7 @@ export interface ReaderAdapter {
     blockId: string,
     signal: AbortSignal,
     width?: number,
+    theme?: ReaderTheme,
   ): Promise<Blob>;
   followBlock?(anchor: ReadingAnchor): Promise<void>;
   previewCitation?(

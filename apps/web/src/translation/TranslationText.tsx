@@ -204,6 +204,7 @@ function TranslationContent({
   onCitation,
   imageURL,
   renderImage,
+  imageTheme,
   source,
   showTranslation = true,
   markTranslation = false,
@@ -222,6 +223,7 @@ function TranslationContent({
   imageURL?: string;
   /** Replaces the low-resolution layout crop with a render sized for display. */
   renderImage?: (blockId: string, width: number) => Promise<string>;
+  imageTheme?: string;
   /** Reflowed source text, shown between the image and the translation. */
   source?: ReactNode;
   /** Reflowed source-only reading hides the translation of text blocks. */
@@ -240,7 +242,7 @@ function TranslationContent({
     ["algorithm", "table", "chart", "image"].includes(block.label);
   const image = block.image ? (
     <BlockImage
-      key={`${block.id}:${block.image}`}
+      key={`${block.id}:${block.image}:${imageTheme ?? ""}`}
       src={imageURL ?? blockImageURL(documentId, block.id, block.image)}
       alt={block.caption || block.text || block.label}
       render={
