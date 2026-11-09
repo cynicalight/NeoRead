@@ -96,18 +96,22 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.message-markdown a[href^="#neoread-citation?"] {
+.message-markdown a[href^="#neoread-citation?"],
+.reflow-source a[href^="#neoread-citation?"] {
   color: #2563eb;
   text-decoration: none;
   cursor: pointer;
 }
-.dark .message-markdown a[href^="#neoread-citation?"] {
+.dark .message-markdown a[href^="#neoread-citation?"],
+.dark .reflow-source a[href^="#neoread-citation?"] {
   color: #60a5fa;
 }
-:root[data-theme="sepia"] .message-markdown a[href^="#neoread-citation?"] {
+:root[data-theme="sepia"] .message-markdown a[href^="#neoread-citation?"],
+:root[data-theme="sepia"] .reflow-source a[href^="#neoread-citation?"] {
   color: var(--brand-text);
 }
-.message-markdown a[href^="#neoread-citation?"]:hover {
+.message-markdown a[href^="#neoread-citation?"]:hover,
+.reflow-source a[href^="#neoread-citation?"]:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
 }

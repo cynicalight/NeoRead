@@ -4,7 +4,12 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MessageMarkdown } from "./chat/MessageMarkdown";
 import type { Root } from "mdast";
-import { ReadingLinkNavigation, remarkReadingCitations } from "./reading-links";
+import {
+  ReadingLinkNavigation,
+  readingLinkTokens,
+  remarkReadingCitations,
+} from "./reading-links";
+import { ReflowSource } from "./translation/TranslationText";
 import { installPDFExternalLinks } from "./readers/pdf-external-links";
 vi.mock("./chat/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 const openExternal = vi.fn(async () => {});
@@ -208,4 +213,38 @@ it("renders bracketed figure references as one keyboard-accessible link", async 
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+it("links citations and figures in reflowed source text without changing it", () => {
+  const value = "As in [3–5, 8] and Fig. 2, see [12].";
+  const tokens = readingLinkTokens(value);
+  expect(tokens.map((t) => t.text).join("")).toBe(value);
+  expect(tokens.filter((t) => t.label).map((t) => t.label)).toEqual([
+    "3",
+    "5",
+    "8",
+    "figure:2",
+    "12",
+  ]);
+});
+
+it("opens citations from reflowed source sentences", async () => {
+  const visit = vi.fn();
+  await act(async () =>
+    createRoot(host).render(
+      <ReflowSource
+        block={{ id: "b1", label: "text", text: "Prior work [7] agrees." }}
+        onCitation={visit}
+      />,
+    ),
+  );
+  const link = host.querySelector<HTMLAnchorElement>(
+    'a[href^="#neoread-citation?"]',
+  )!;
+  expect(link.textContent).toBe("7");
+  expect(host.querySelector(".reflow-source")?.textContent).toBe(
+    "Prior work [7] agrees.",
+  );
+  link.click();
+  expect(visit).toHaveBeenCalledWith("b1", "7");
 });

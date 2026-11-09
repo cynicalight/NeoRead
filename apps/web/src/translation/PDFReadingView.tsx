@@ -1092,6 +1092,7 @@ export function PDFReadingView({
                               <ReflowSource
                                 block={block}
                                 translation={translated}
+                                onCitation={text.props.onCitation}
                               />
                             )
                           }

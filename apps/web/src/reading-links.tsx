@@ -97,3 +97,35 @@ function citationList(list: string, blockId: string): PhrasingContent[] {
   });
 }
 const text = (value: string): Text => ({ type: "text", value });
+
+/**
+ * Citation and figure links in plain text. Unlike the Markdown pass, ranges
+ * are not expanded, so the original text stays exactly as extracted.
+ */
+export function readingLinkTokens(value: string) {
+  const tokens: { text: string; label?: string }[] = [];
+  const push = (part: string, label?: string) => {
+    if (!part) return;
+    const last = tokens.at(-1);
+    if (!label && last && !last.label) last.text += part;
+    else tokens.push({ text: part, label });
+  };
+  const citations = (part: string) => {
+    let start = 0;
+    for (const match of part.matchAll(citationPattern)) {
+      push(part.slice(start, match.index + 1));
+      for (const token of match[1].split(/(\d+)/))
+        push(token, /^\d+$/.test(token) ? token : undefined);
+      start = match.index + match[0].length - 1;
+    }
+    push(part.slice(start));
+  };
+  let start = 0;
+  for (const figure of figureReferences(value)) {
+    citations(value.slice(start, figure.index));
+    push(figure.text, `figure:${figure.label}`);
+    start = figure.index + figure.text.length;
+  }
+  citations(value.slice(start));
+  return tokens;
+}

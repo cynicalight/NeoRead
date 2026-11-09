@@ -11,7 +11,11 @@ import {
   type ReactNode,
 } from "react";
 import { reflowSourceParts } from "./reflow";
-import { ReadingLinkNavigation } from "../reading-links";
+import {
+  citationHref,
+  readingLinkTokens,
+  ReadingLinkNavigation,
+} from "../reading-links";
 import { ErrorBoundary } from "../ErrorBoundary";
 const FormulaFragment = lazy(() => import("./FormulaFragment"));
 const Markdown = lazy(() =>
@@ -131,9 +135,12 @@ const markdownSource = /\$|\\\(|\\\[/;
 export function ReflowSource({
   block,
   translation,
+  onCitation,
 }: {
   block: DisplayBlock;
   translation?: TranslationBlock;
+  /** Citation and figure links preview on hover and jump on click. */
+  onCitation?: (blockId: string, label: string) => void;
 }) {
   const text = block.image ? block.caption || block.text : block.text;
   if (!text.trim()) return null;
@@ -142,7 +149,28 @@ export function ReflowSource({
       {reflowSourceParts(text, translation).map((part, i) => (
         <span key={i} className="reflow-sentence" data-source-sentence={i}>
           {markdownSource.test(part) ? (
-            <MessageMarkdown content={part} />
+            <MessageMarkdown
+              content={part}
+              blockId={block.id}
+              onCitation={onCitation}
+            />
+          ) : onCitation ? (
+            readingLinkTokens(part).map((token, k) =>
+              token.label ? (
+                <a
+                  key={k}
+                  href={citationHref(block.id, token.label)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    onCitation(block.id, token.label!);
+                  }}
+                >
+                  {token.text}
+                </a>
+              ) : (
+                token.text
+              ),
+            )
           ) : (
             part
           )}
