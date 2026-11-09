@@ -32,8 +32,49 @@ const states: Record<ToolActivity["status"], string | undefined> = {
   unavailable: "此网址无法读取",
   deferred: "暂未取得结果",
 };
+const documentTools = new Set([
+  "get_outline",
+  "search_document",
+  "read_passage",
+  "read_pdf_pages",
+]);
+function isDocumentTool(tool: ToolActivity) {
+  const parts = tool.tool.split("/");
+  return (
+    tool.kind === "tool" &&
+    (parts.length === 1 ||
+      (parts.length === 2 && parts[0] === "neoread_document")) &&
+    documentTools.has(parts.at(-1)!)
+  );
+}
+function displayTarget(tool: ToolActivity) {
+  if (!isDocumentTool(tool)) {
+    if (tool.target) return tool.target;
+    if (tool.kind === "web" && tool.url && /^https?:\/\//i.test(tool.url)) {
+      try {
+        const url = new URL(tool.url);
+        return `${url.host}${url.pathname === "/" ? "" : url.pathname}${url.search}`;
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+  if (!tool.target || documentTools.has(tool.target)) return undefined;
+  return tool.target
+    .split(" · ")[0]
+    .replace(/第 (\d+)—(\d+) 页/g, (match, first, last) =>
+      first === last ? `第 ${first} 页` : match,
+    );
+}
 const rowTitle = (tool: ToolActivity) =>
-  [states[tool.status], tool.title, tool.target].filter(Boolean).join(" · ");
+  [
+    states[tool.status],
+    isDocumentTool(tool) ? "读取文档" : tool.title,
+    displayTarget(tool),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 const traceStatus = (status: ToolActivity["status"]) =>
   status === "running" ? "running" : status === "failed" ? "error" : undefined;
 function ToolIcon({ tool }: { tool: ToolActivity }) {
@@ -73,9 +114,7 @@ export function ToolActivities({
   const current = tools.filter((tool) => tool.status === "running").at(-1);
   const failed = tools.some((tool) => tool.status === "failed");
   const cancelled = tools.some((tool) => tool.status === "cancelled");
-  const summary = current
-    ? `${states.running} · ${current.title}${current.target ? ` · ${current.target}` : ""}`
-    : `执行记录${failed ? "（有失败）" : cancelled ? "（有取消）" : ""}`;
+  const summary = `执行记录${failed ? "（有失败）" : cancelled ? "（有取消）" : ""}`;
   return (
     <Trace className="mb-2">
       <TraceCollapsible open={open} onOpenChange={setOpen}>
@@ -88,6 +127,7 @@ export function ToolActivities({
             </TraceIcon>
             <TraceTitle>{summary}</TraceTitle>
             <TraceDescription>
+              {current ? "执行中 · " : ""}
               {tools.length} 项
               {sources.length ? ` · ${sources.length} 个网页来源` : ""}
             </TraceDescription>
@@ -98,32 +138,48 @@ export function ToolActivities({
           className="max-h-80 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           <Trace>
-            {tools.map((tool) => (
-              <TraceCollapsible key={tool.id}>
-                <TraceCollapsibleTrigger
-                  title={rowTitle(tool)}
-                >
-                  <TraceLine status={traceStatus(tool.status)}>
-                    <TraceIcon>
-                      <ToolIcon tool={tool} />
-                    </TraceIcon>
-                    <TraceTitle>{rowTitle(tool)}</TraceTitle>
-                    {duration(tool) && (
-                      <TraceDescription>{duration(tool)}</TraceDescription>
+            {tools.map((tool) => {
+              const line = (
+                <TraceLine status={traceStatus(tool.status)}>
+                  <TraceIcon>
+                    <ToolIcon tool={tool} />
+                  </TraceIcon>
+                  <TraceTitle>{rowTitle(tool)}</TraceTitle>
+                  {duration(tool) && (
+                    <TraceDescription>{duration(tool)}</TraceDescription>
+                  )}
+                </TraceLine>
+              );
+              return (
+                <div key={tool.id} className="min-w-0">
+                  {tool.kind === "web" &&
+                  tool.url &&
+                  /^https?:\/\//i.test(tool.url) ? (
+                    <a
+                      href={tool.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void openExternalLink(tool.url!);
+                      }}
+                    >
+                      {line}
+                      <span className="sr-only">（在浏览器中打开）</span>
+                    </a>
+                  ) : (
+                    line
+                  )}
+                  {tool.detail &&
+                    tool.detail !== tool.target &&
+                    tool.detail !== states[tool.status] && (
+                      <p className="mt-1 ml-6 text-xs whitespace-pre-wrap [overflow-wrap:anywhere]">
+                        {tool.detail}
+                      </p>
                     )}
-                  </TraceLine>
-                </TraceCollapsibleTrigger>
-                <TraceCollapsibleContent
-                  keepMounted
-                  className="text-xs whitespace-pre-wrap [overflow-wrap:anywhere]"
-                >
-                  <div>{tool.tool}</div>
-                  {tool.target && <div>{tool.target}</div>}
-                  {tool.url && <WebLink url={tool.url} title={tool.url} />}
-                  {tool.detail && <div>{tool.detail}</div>}
-                </TraceCollapsibleContent>
-              </TraceCollapsible>
-            ))}
+                </div>
+              );
+            })}
             {sources.map((source) => (
               <div key={source.id} className="min-w-0">
                 <WebLink url={source.url} title={source.title || source.url} />
