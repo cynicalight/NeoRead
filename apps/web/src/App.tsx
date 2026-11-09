@@ -11,6 +11,7 @@ import {
   FileText,
   Loader2,
   PanelLeft,
+  Pin,
   Command,
   X,
   Tags,
@@ -101,6 +102,10 @@ export function App() {
   const mode = libraryMode(libraryPreferences);
   const papers = mode === "papers";
   const documents = allDocuments.filter((d) => d.library === mode);
+  const pinnedBooks = (libraryPreferences.papers?.pinned || []).flatMap((key) => {
+    const doc = documents.find((d) => `doc:${d.id}` === key);
+    return doc ? [doc] : [];
+  });
   const resolvedTheme = useResolvedTheme(theme);
   const { jobs, error: processingError } = useProcessing();
   useUpdateProgress();
@@ -573,6 +578,26 @@ export function App() {
                 />
               ) : (
                 <nav className="space-y-1">
+                  {pinnedBooks.length > 0 && (
+                    <section className="paper-nav-section">
+                      <h3 className="paper-nav-heading">置顶</h3>
+                      {pinnedBooks.map((doc) => (
+                        <Button
+                          key={doc.id}
+                          variant="ghost"
+                          className="nav-item"
+                          title={doc.title}
+                          onClick={() => void openDocument(doc)}
+                        >
+                          <BookOpen className="size-4 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate text-left">
+                            {doc.title}
+                          </span>
+                          <Pin className="size-3 shrink-0 text-muted-foreground" />
+                        </Button>
+                      ))}
+                    </section>
+                  )}
                   {[
                     {
                       id: "all",

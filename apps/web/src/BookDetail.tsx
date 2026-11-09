@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, MoreHorizontal, Star } from "lucide-react";
+import { BookOpen, MoreHorizontal, Pin, Star } from "lucide-react";
 import type { Document, PaperMetadataField } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
 import { Input } from "@neoread/ui/components/input";
@@ -9,7 +9,8 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@neoread/ui/components/dropdown-menu";
-import { addTag, patchPapers } from "./papers/actions";
+import { addTag, patchPapers, savePaperPreferences } from "./papers/actions";
+import { togglePinned } from "./papers/model";
 import { Field, TagChips } from "./papers/PaperDetail";
 import { relativeTime, wasOpened } from "./papers/format";
 import { CategoryDialog } from "./papers/CategoryDialog";
@@ -54,6 +55,10 @@ export function BookDetail({
   const [editingDescription, setEditingDescription] = useState(false);
   const [tagging, setTagging] = useState(false);
   const documents = useReaderStore((s) => s.documents);
+  const pinKey = `doc:${doc.id}`;
+  const pinned = useReaderStore(
+    (s) => !!s.libraryPreferences.papers?.pinned?.includes(pinKey),
+  );
   const m = doc.metadata;
   const percent = Math.round(doc.percentage * 100);
   return (
@@ -119,6 +124,18 @@ export function BookDetail({
             <Star
               className={doc.favorite ? "fill-current text-amber-500" : ""}
             />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            aria-label={pinned ? "取消置顶" : "置顶到侧栏"}
+            title={pinned ? "取消置顶" : "置顶到侧栏"}
+            aria-pressed={pinned}
+            onClick={() =>
+              void savePaperPreferences((p) => togglePinned(p, pinKey))
+            }
+          >
+            <Pin className={pinned ? "fill-current" : ""} />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger
