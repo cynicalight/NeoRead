@@ -204,29 +204,12 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 	}
 
 	endpoint := resolveAPIEndpoint(c)
-	api, path := "openai-completions", "/chat/completions"
-	if endpoint.Protocol == "anthropic" {
-		api, path = "anthropic-messages", "/messages"
-	}
-	if endpoint.Protocol == "responses" {
-		api, path = "openai-responses", "/responses"
-	}
-	window := req.ContextWindow
-	if window <= 0 {
-		window = defaultDocumentContextTokens
-	}
-	rule := reasoningRule(endpoint, req.Model, req.SupportedEfforts)
-	payload := map[string]any{}
-	rule.apply(payload, endpoint.Protocol, req.Effort, rule.resolve(req.Effort))
-	request := piRequest{Version: 1, RunID: id(), Prompt: in.Prompt, System: chatInstructions, Key: c.Key, Effort: "off", Payload: payload, Endpoint: endpoint.Base + path, Tools: []map[string]any{}}
+	request, _, window := newPiRequest(c, req)
+	request.Prompt, request.System = in.Prompt, chatInstructions
 	if in.Chat.piRunID != "" {
 		request.RunID = in.Chat.piRunID
 	}
 	request.DurableCheckpoints = in.Chat.piCheckpoint != nil
-	request.Model = map[string]any{"id": req.Model, "name": req.Model, "api": api, "provider": "neoread-api", "baseUrl": endpoint.Base, "reasoning": false, "input": []string{"text", "image"}, "contextWindow": window, "maxTokens": min(8192, window/4), "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "compat": map[string]any{"supportsStore": false, "supportsDeveloperRole": false, "supportsReasoningEffort": false, "maxTokensField": "max_tokens"}}
-	if api == "anthropic-messages" {
-		delete(request.Model, "compat")
-	}
 	for _, image := range in.images() {
 		request.Images = append(request.Images, piImage(image))
 	}
@@ -517,6 +500,36 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 		return a.finishDocumentAnswer(ctx, result, emit)
 	}
 	return result, nil
+}
+
+// newPiRequest builds the model request for the configured API protocol.
+func newPiRequest(c APIConnection, req completionRequest) (piRequest, string, int) {
+	endpoint := resolveAPIEndpoint(c)
+	api, path := piWireAPI(endpoint.Protocol)
+	window := req.ContextWindow
+	if window <= 0 {
+		window = defaultDocumentContextTokens
+	}
+	rule := reasoningRule(endpoint, req.Model, req.SupportedEfforts)
+	payload := map[string]any{}
+	rule.apply(payload, endpoint.Protocol, req.Effort, rule.resolve(req.Effort))
+	request := piRequest{Version: 1, RunID: id(), Key: c.Key, Effort: "off", Payload: payload, Endpoint: endpoint.Base + path, Tools: []map[string]any{}}
+	request.Model = map[string]any{"id": req.Model, "name": req.Model, "api": api, "provider": "neoread-api", "baseUrl": endpoint.Base, "reasoning": false, "input": []string{"text", "image"}, "contextWindow": window, "maxTokens": min(8192, window/4), "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "compat": map[string]any{"supportsStore": false, "supportsDeveloperRole": false, "supportsReasoningEffort": false, "maxTokensField": "max_tokens"}}
+	if api == "anthropic-messages" {
+		delete(request.Model, "compat")
+	}
+	return request, path, window
+}
+
+func piWireAPI(protocol string) (api, path string) {
+	switch protocol {
+	case "anthropic":
+		return "anthropic-messages", "/messages"
+	case "responses":
+		return "openai-responses", "/responses"
+	default:
+		return "openai-completions", "/chat/completions"
+	}
 }
 
 func piUsageStatus(status string) string {
