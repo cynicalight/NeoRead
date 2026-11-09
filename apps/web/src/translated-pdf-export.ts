@@ -5,6 +5,7 @@ import {
   PDFExportError,
 } from "./translation/pdf-export-error";
 import type { Document } from "@neoread/core";
+import { toast } from "sonner";
 import { api, publicationURL } from "@neoread/api";
 import workerURL from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { downloadBlob, fileTitle } from "./download";
@@ -121,5 +122,42 @@ export async function exportTranslatedPDF(
     );
     if (signal.aborted) throw new DOMException("已取消导出", "AbortError");
     throw error;
+  }
+}
+
+/** The library menu closes before export finishes; keep progress and cancellation available. */
+export async function exportTranslatedPDFWithToast(doc: Document) {
+  const controller = new AbortController();
+  const action = { label: "取消", onClick: () => controller.abort() };
+  const id = toast.loading("正在准备译文与字体…", { action });
+  try {
+    const result = await exportTranslatedPDF(
+      doc,
+      controller.signal,
+      (progress) => {
+        if (controller.signal.aborted) return;
+        toast.loading(
+          progress.phase === "preparing"
+            ? "正在准备译文与字体…"
+            : progress.phase === "saving"
+              ? "正在生成 PDF…"
+              : `正在排版 ${progress.done + 1} / ${progress.total} 页`,
+          { id, action },
+        );
+      },
+    );
+    toast.success("已开始下载译文 PDF", {
+      id,
+      description: `${result.pages} 页，${result.translated} 个译文段落${result.issues.length ? `，${result.issues.length} 处保留原文` : ""}`,
+      action: undefined,
+    });
+  } catch (error) {
+    if (controller.signal.aborted)
+      toast.info("已取消导出", { id, action: undefined });
+    else
+      toast.error(
+        error instanceof Error ? error.message : "译文 PDF 导出失败，请重试",
+        { id, action: undefined },
+      );
   }
 }

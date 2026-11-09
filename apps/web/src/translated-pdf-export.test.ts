@@ -7,6 +7,20 @@ const mocks = vi.hoisted(() => ({
   engine: vi.fn(),
   log: vi.fn(),
   download: vi.fn(),
+  toast: {
+    loading: vi.fn(
+      (
+        _message: string,
+        _options?: {
+          id?: string | number;
+          action?: { label: string; onClick: () => void };
+        },
+      ) => "export",
+    ),
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+  },
 }));
 vi.mock("@neoread/api", () => ({
   api: { blocks: mocks.blocks, translations: mocks.translations },
@@ -22,7 +36,11 @@ vi.mock("./download", () => ({
   downloadBlob: mocks.download,
   fileTitle: () => "document",
 }));
-import { exportTranslatedPDF } from "./translated-pdf-export";
+vi.mock("sonner", () => ({ toast: mocks.toast }));
+import {
+  exportTranslatedPDF,
+  exportTranslatedPDFWithToast,
+} from "./translated-pdf-export";
 const doc = {
   id: "private-document",
   type: "pdf",
@@ -42,12 +60,10 @@ beforeEach(() => {
   });
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        arrayBuffer: async () => new ArrayBuffer(0),
-      }),
+    vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    }),
   );
 });
 it.each([
@@ -130,4 +146,56 @@ it("keeps successful downloads free of failure diagnostics", async () => {
   expect(
     mocks.log.mock.calls.filter(([e]) => e.event.endsWith("failed")),
   ).toHaveLength(0);
+});
+
+it("keeps menu export progress visible after the menu closes and reports the downloaded result", async () => {
+  mocks.engine.mockImplementation(
+    async (_load, _source, _blocks, _translations, _fonts, options) => {
+      options.onProgress({ phase: "pages", done: 1, total: 3 });
+      return {
+        bytes: new Uint8Array(),
+        pages: 3,
+        translated: 2,
+        issues: [{ page: 2, reason: "overflow" }],
+      };
+    },
+  );
+  await exportTranslatedPDFWithToast(doc);
+  expect(mocks.toast.loading).toHaveBeenCalledWith(
+    "正在排版 2 / 3 页",
+    expect.objectContaining({
+      id: "export",
+      action: expect.objectContaining({ label: "取消" }),
+    }),
+  );
+  expect(mocks.download).toHaveBeenCalledOnce();
+  expect(mocks.toast.success).toHaveBeenCalledWith("已开始下载译文 PDF", {
+    id: "export",
+    description: "3 页，2 个译文段落，1 处保留原文",
+    action: undefined,
+  });
+});
+it("reports a menu export failure without an unhandled rejection or download", async () => {
+  mocks.engine.mockRejectedValue(new Error("没有已完成译文"));
+  await exportTranslatedPDFWithToast(doc);
+  expect(mocks.download).not.toHaveBeenCalled();
+  expect(mocks.toast.error).toHaveBeenCalledWith("没有已完成译文", {
+    id: "export",
+    action: undefined,
+  });
+  expect(mocks.toast.success).not.toHaveBeenCalled();
+});
+it("cancels a menu export before it can download and reports cancellation without a failure toast", async () => {
+  mocks.engine.mockImplementation(async () => {
+    const options = mocks.toast.loading.mock.calls[0][1];
+    options!.action!.onClick();
+    return { bytes: new Uint8Array(), pages: 1, translated: 1, issues: [] };
+  });
+  await exportTranslatedPDFWithToast(doc);
+  expect(mocks.download).not.toHaveBeenCalled();
+  expect(mocks.toast.info).toHaveBeenCalledWith("已取消导出", {
+    id: "export",
+    action: undefined,
+  });
+  expect(mocks.toast.error).not.toHaveBeenCalled();
 });

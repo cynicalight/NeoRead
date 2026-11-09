@@ -49,6 +49,7 @@ import {
 import { paperLink } from "./format";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
 import { reparseDocument } from "../reparse-document";
+import { exportTranslatedPDFWithToast } from "../translated-pdf-export";
 import { CitationMenuItems } from "./CitationMenu";
 import {
   categoryTree,
@@ -124,7 +125,7 @@ export function PaperMenuItems({
   const link = one ? paperLink(one.metadata) : "";
   return (
     <>
-      {!inPanel && (
+      {kind === "dropdown" && !inPanel && (
         <>
           {one && (
             <K.Item onClick={() => actions.open(one)}>
@@ -149,79 +150,83 @@ export function PaperMenuItems({
           <K.Separator />
         </>
       )}
-      <K.Sub>
-        <K.SubTrigger>分类</K.SubTrigger>
-        <K.SubContent className="max-h-80 min-w-44">
-          {flattenCategories(categoryTree(categories)).map((node) => {
-            const { name } = node;
-            const inside = docs.every((d) =>
-              d.folders.some((f) => f.toLowerCase() === name.toLowerCase()),
-            );
-            return (
-              <K.Checkbox
-                key={name}
-                checked={inside}
-                onCheckedChange={() =>
-                  void (inside
-                    ? removeFromCategory(docs, name)
-                    : addToCategory(docs, name))
+      {kind === "dropdown" && (
+        <>
+          <K.Sub>
+            <K.SubTrigger>分类</K.SubTrigger>
+            <K.SubContent className="max-h-80 min-w-44">
+              {flattenCategories(categoryTree(categories)).map((node) => {
+                const { name } = node;
+                const inside = docs.every((d) =>
+                  d.folders.some((f) => f.toLowerCase() === name.toLowerCase()),
+                );
+                return (
+                  <K.Checkbox
+                    key={name}
+                    checked={inside}
+                    onCheckedChange={() =>
+                      void (inside
+                        ? removeFromCategory(docs, name)
+                        : addToCategory(docs, name))
+                    }
+                  >
+                    <span
+                      className="truncate"
+                      style={{ paddingLeft: node.depth * 12 }}
+                    >
+                      {node.label}
+                    </span>
+                  </K.Checkbox>
+                );
+              })}
+              {categories.length > 0 && <K.Separator />}
+              <K.Item onClick={() => actions.newCategory(docs)}>
+                <FolderPlus />
+                新建分类并放入…
+              </K.Item>
+            </K.SubContent>
+          </K.Sub>
+          <K.Sub>
+            <K.SubTrigger>标签</K.SubTrigger>
+            <K.SubContent className="max-h-80 min-w-44">
+              {tags.map((tag) => {
+                const on = docs.every((d) => hasTag(d, tag));
+                return (
+                  <K.Checkbox
+                    key={tag}
+                    checked={on}
+                    onCheckedChange={() => void toggleTagFor(docs, tag)}
+                  >
+                    <span className="truncate">#{tag}</span>
+                  </K.Checkbox>
+                );
+              })}
+              {tags.length > 0 && <K.Separator />}
+              <K.Item onClick={() => actions.newTag(docs)}>
+                <Tag />
+                新标签…
+              </K.Item>
+            </K.SubContent>
+          </K.Sub>
+          <K.Sub>
+            <K.SubTrigger>阅读状态</K.SubTrigger>
+            <K.SubContent>
+              <K.RadioGroup
+                value={status}
+                onValueChange={(value: string) =>
+                  void setReadingStatus(docs, value as ReadingStatus)
                 }
               >
-                <span
-                  className="truncate"
-                  style={{ paddingLeft: node.depth * 12 }}
-                >
-                  {node.label}
-                </span>
-              </K.Checkbox>
-            );
-          })}
-          {categories.length > 0 && <K.Separator />}
-          <K.Item onClick={() => actions.newCategory(docs)}>
-            <FolderPlus />
-            新建分类并放入…
-          </K.Item>
-        </K.SubContent>
-      </K.Sub>
-      <K.Sub>
-        <K.SubTrigger>标签</K.SubTrigger>
-        <K.SubContent className="max-h-80 min-w-44">
-          {tags.map((tag) => {
-            const on = docs.every((d) => hasTag(d, tag));
-            return (
-              <K.Checkbox
-                key={tag}
-                checked={on}
-                onCheckedChange={() => void toggleTagFor(docs, tag)}
-              >
-                <span className="truncate">#{tag}</span>
-              </K.Checkbox>
-            );
-          })}
-          {tags.length > 0 && <K.Separator />}
-          <K.Item onClick={() => actions.newTag(docs)}>
-            <Tag />
-            新标签…
-          </K.Item>
-        </K.SubContent>
-      </K.Sub>
-      <K.Sub>
-        <K.SubTrigger>阅读状态</K.SubTrigger>
-        <K.SubContent>
-          <K.RadioGroup
-            value={status}
-            onValueChange={(value: string) =>
-              void setReadingStatus(docs, value as ReadingStatus)
-            }
-          >
-            {(Object.keys(statusLabels) as ReadingStatus[]).map((key) => (
-              <K.Radio key={key} value={key}>
-                {statusLabels[key]}
-              </K.Radio>
-            ))}
-          </K.RadioGroup>
-        </K.SubContent>
-      </K.Sub>
+                {(Object.keys(statusLabels) as ReadingStatus[]).map((key) => (
+                  <K.Radio key={key} value={key}>
+                    {statusLabels[key]}
+                  </K.Radio>
+                ))}
+              </K.RadioGroup>
+            </K.SubContent>
+          </K.Sub>
+        </>
+      )}
       {one && one.type === "pdf" && actions.addAttachment && (
         <K.Sub>
           <K.SubTrigger>
@@ -238,7 +243,9 @@ export function PaperMenuItems({
           </K.SubContent>
         </K.Sub>
       )}
-      <CitationMenuItems kind={kind} docs={docs} nested />
+      {kind === "dropdown" && (
+        <CitationMenuItems kind={kind} docs={docs} nested />
+      )}
       {extra}
       {one && (
         <>
@@ -247,19 +254,23 @@ export function PaperMenuItems({
             <RefreshCw />
             重新解析
           </K.Item>
-          <K.Item
-            onClick={() =>
-              void copyText(neoreadLink({ id: one.id }), "已复制阅读链接")
-            }
-          >
-            <Link2 />
-            复制阅读链接
-          </K.Item>
-          {link && (
-            <K.Item onClick={() => openLink(link)}>
-              <ExternalLink />
-              打开论文主页
-            </K.Item>
+          {kind === "dropdown" && (
+            <>
+              <K.Item
+                onClick={() =>
+                  void copyText(neoreadLink({ id: one.id }), "已复制阅读链接")
+                }
+              >
+                <Link2 />
+                复制阅读链接
+              </K.Item>
+              {link && (
+                <K.Item onClick={() => openLink(link)}>
+                  <ExternalLink />
+                  打开论文主页
+                </K.Item>
+              )}
+            </>
           )}
           {window.neoreadDesktop?.showDocumentFile && (
             <K.Item onClick={() => revealFile(one)}>
@@ -267,6 +278,12 @@ export function PaperMenuItems({
               {window.neoreadDesktop.platform === "darwin"
                 ? "在 Finder 中显示"
                 : "在文件夹中显示"}
+            </K.Item>
+          )}
+          {kind === "context" && one.type === "pdf" && (
+            <K.Item onClick={() => void exportTranslatedPDFWithToast(one)}>
+              <FileDown />
+              导出译文 PDF
             </K.Item>
           )}
           {one.type === "pdf" && (
@@ -281,7 +298,7 @@ export function PaperMenuItems({
           </K.Item>
         </>
       )}
-      <K.Separator />
+      {(kind === "dropdown" || one || extra) && <K.Separator />}
       <K.Item variant="destructive" onClick={() => actions.trash(docs)}>
         <Trash2 />
         {docs.length > 1 ? `将 ${docs.length} 篇移到回收站` : "移到回收站"}
