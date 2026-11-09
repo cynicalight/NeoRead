@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Annotation } from "@neoread/core";
 import { api } from "@neoread/api";
-import { downloadBlob } from "./download";
+import { saveExportBlob } from "./download";
 import { exportTranslatedPDF } from "./translated-pdf-export";
 import { exportMarkdownFile, exportOriginal } from "./document-export";
 import { ExportDocumentDialog } from "./ExportDocumentDialog";
@@ -12,8 +12,9 @@ import { paper } from "./papers/fixtures";
 vi.mock("@neoread/api", () => ({
   api: { exportTranslation: vi.fn(), annotations: vi.fn(), messages: vi.fn() },
 }));
-vi.mock("./download", () => ({
-  downloadBlob: vi.fn(),
+vi.mock("./download", async (original) => ({
+  ...(await original<typeof import("./download")>()),
+  saveExportBlob: vi.fn(),
   fileTitle: (title: string) => title,
 }));
 vi.mock("./translated-pdf-export", () => ({ exportTranslatedPDF: vi.fn() }));
@@ -185,7 +186,7 @@ it.each(["Markdown", "PDF"])("exports translation as %s", async (label) => {
       "markdown",
       expect.any(AbortSignal),
     );
-    expect(downloadBlob).toHaveBeenCalledOnce();
+    expect(saveExportBlob).toHaveBeenCalledOnce();
   }
   expect(exportOriginal).not.toHaveBeenCalled();
   expect(exportMarkdownFile).not.toHaveBeenCalled();
@@ -209,7 +210,7 @@ it("cancels a format request and prevents its late download", async () => {
   );
   expect(signal.aborted).toBe(true);
   await act(async () => finish(new Blob(["late"])));
-  expect(downloadBlob).not.toHaveBeenCalled();
+  expect(saveExportBlob).not.toHaveBeenCalled();
   expect(close).toHaveBeenCalledOnce();
   expect(button("原文")).toBeTruthy();
 });
@@ -270,7 +271,7 @@ it("cancels the batch without starting the remaining format", async () => {
       .click(),
   );
   await act(async () => finish(new Blob(["late"])));
-  expect(downloadBlob).not.toHaveBeenCalled();
+  expect(saveExportBlob).not.toHaveBeenCalled();
   expect(exportTranslatedPDF).not.toHaveBeenCalled();
   expect(close).toHaveBeenCalledOnce();
 });
@@ -323,6 +324,50 @@ it("keeps data loading failures retryable", async () => {
   expect(exportMarkdownFile).not.toHaveBeenCalled();
   await act(async () => button("导出").click());
   expect(exportMarkdownFile).toHaveBeenCalledOnce();
+});
+it("waits for each of four exports before starting the next", async () => {
+  let finish!: (delivery: "download") => void;
+  vi.mocked(exportOriginal).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let saveTranslation!: () => void;
+  vi.mocked(saveExportBlob).mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        saveTranslation = resolve;
+      }),
+  );
+  await mount();
+  await act(async () => button("译文").click());
+  await act(async () => button("PDF").click());
+  await act(async () => button("导出").click());
+  expect(exportOriginal).toHaveBeenCalledTimes(1);
+  expect(api.exportTranslation).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
+  await act(async () => finish("download"));
+  expect(exportOriginal).toHaveBeenCalledTimes(2);
+  expect(saveExportBlob).toHaveBeenCalledOnce();
+  expect(exportTranslatedPDF).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
+  await act(async () => saveTranslation());
+  expect(exportTranslatedPDF).toHaveBeenCalledOnce();
+  expect(close).toHaveBeenCalledOnce();
+});
+it("stops the remaining files when a native save is cancelled", async () => {
+  vi.mocked(saveExportBlob).mockRejectedValueOnce(
+    new DOMException("已取消导出", "AbortError"),
+  );
+  await mount();
+  await selectTarget("译文");
+  await act(async () => button("PDF").click());
+  await act(async () => button("导出").click());
+  expect(exportTranslatedPDF).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
+  expect(activeDialog().querySelector('[role="alert"]')).toBeNull();
+  expect(button("导出").disabled).toBe(false);
 });
 it("requires at least one content selection", async () => {
   await mount();

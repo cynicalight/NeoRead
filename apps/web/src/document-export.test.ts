@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { Annotation, PDFBlock } from "@neoread/core";
 import { api } from "@neoread/api";
-import { downloadBlob, downloadText } from "./download";
+import { saveExportBlob } from "./download";
 import { paper } from "./papers/fixtures";
 import {
   annotationMarkdown,
@@ -13,9 +13,9 @@ vi.mock("@neoread/api", () => ({
   api: { blocks: vi.fn(), epubBlocks: vi.fn() },
   publicationURL: () => "/original.pdf",
 }));
-vi.mock("./download", () => ({
-  downloadBlob: vi.fn(),
-  downloadText: vi.fn(),
+vi.mock("./download", async (original) => ({
+  ...(await original<typeof import("./download")>()),
+  saveExportBlob: vi.fn(),
   fileTitle: (s: string) => s,
 }));
 afterEach(() => {
@@ -52,7 +52,11 @@ it("downloads the original PDF bytes without calling annotation or translation A
     vi.fn().mockResolvedValue({ ok: true, blob: async () => blob }),
   );
   await exportOriginal(doc, "pdf", new AbortController().signal);
-  expect(downloadBlob).toHaveBeenCalledWith(blob, "Title-原文.pdf");
+  expect(saveExportBlob).toHaveBeenCalledWith(
+    blob,
+    "Title-原文.pdf",
+    expect.any(AbortSignal),
+  );
   expect(api.blocks).not.toHaveBeenCalled();
 });
 it("does not download an original PDF returned after cancellation", async () => {
@@ -70,7 +74,7 @@ it("does not download an original PDF returned after cancellation", async () => 
   await expect(
     exportOriginal(doc, "pdf", controller.signal),
   ).rejects.toMatchObject({ name: "AbortError" });
-  expect(downloadBlob).not.toHaveBeenCalled();
+  expect(saveExportBlob).not.toHaveBeenCalled();
 });
 it("exports EPUB source Markdown using the same cancellation signal", async () => {
   vi.mocked(api.epubBlocks).mockResolvedValue([
@@ -84,10 +88,13 @@ it("exports EPUB source Markdown using the same cancellation signal", async () =
   const signal = new AbortController().signal;
   await exportOriginal({ ...doc, type: "epub" }, "markdown", signal);
   expect(api.epubBlocks).toHaveBeenCalledWith(doc.id, signal);
-  expect(downloadText).toHaveBeenCalledWith(
-    expect.stringContaining("EPUB source"),
+  expect(await vi.mocked(saveExportBlob).mock.calls[0][0].text()).toContain(
+    "EPUB source",
+  );
+  expect(saveExportBlob).toHaveBeenCalledWith(
+    expect.any(Blob),
     "Title-原文.md",
-    "text/markdown",
+    signal,
   );
 });
 it("includes question answers but excludes unrelated chat, bookmarks and other annotation kinds", () => {
@@ -129,5 +136,5 @@ it("cancels annotation PDF rendering without downloading a late native result", 
     exportMarkdownFile("# 批注", "annotations", "pdf", controller.signal),
   ).rejects.toMatchObject({ name: "AbortError" });
   expect(cancel).toHaveBeenCalledOnce();
-  expect(downloadBlob).not.toHaveBeenCalled();
+  expect(saveExportBlob).not.toHaveBeenCalled();
 });

@@ -6,7 +6,7 @@ import type {
   EPUBReadingBlock,
 } from "@neoread/core";
 import { api, publicationURL } from "@neoread/api";
-import { downloadBlob, downloadText, fileTitle } from "./download";
+import { saveExportBlob, exportCancelled, fileTitle } from "./download";
 import { notesMarkdown } from "./notes-export";
 import { reportDiagnostic } from "./diagnostics";
 
@@ -76,7 +76,11 @@ export async function exportMarkdownFile(
 ): Promise<"download" | "print"> {
   signal.throwIfAborted();
   if (format === "markdown") {
-    downloadText(markdown, `${filename}.md`, "text/markdown");
+    await saveExportBlob(
+      new Blob([markdown], { type: "text/markdown;charset=utf-8" }),
+      `${filename}.md`,
+      signal,
+    );
     return "download";
   }
   const requestId = crypto.randomUUID();
@@ -110,14 +114,17 @@ export async function exportMarkdownFile(
       signal.removeEventListener("abort", cancel);
     }
     signal.throwIfAborted();
-    downloadBlob(
+    await saveExportBlob(
       new Blob([new Uint8Array(bytes)], { type: "application/pdf" }),
       `${filename}.pdf`,
+      signal,
     );
-    report("download_requested");
+    report(
+      window.neoreadDesktop?.saveExportFile ? "saved" : "download_requested",
+    );
     return "download";
   } catch (error) {
-    report(signal.aborted ? "cancelled" : "failed");
+    report(exportCancelled(error, signal) ? "cancelled" : "failed");
     throw error;
   }
 }
@@ -135,7 +142,7 @@ export async function exportOriginal(
     if (!response.ok) throw new Error("原文读取失败，请重试");
     const blob = await response.blob();
     signal.throwIfAborted();
-    downloadBlob(blob, `${fileTitle(doc.title)}-原文.pdf`);
+    await saveExportBlob(blob, `${fileTitle(doc.title)}-原文.pdf`, signal);
     return "download" as const;
   }
   const blocks =

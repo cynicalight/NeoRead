@@ -18,7 +18,7 @@ import {
 } from "@neoread/ui/components/dialog";
 import { Check, Download, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
-import { downloadBlob, fileTitle } from "./download";
+import { saveExportBlob, exportCancelled, fileTitle } from "./download";
 import { exportTranslatedPDF } from "./translated-pdf-export";
 import {
   annotationExportKinds,
@@ -102,6 +102,7 @@ export function ExportDocumentDialog({
     request.current = controller;
     setBusy(targets[0]);
     setError("");
+    let savedCount = 0;
     let exportAnnotations = annotations;
     let exportMessages = messages;
     try {
@@ -136,7 +137,11 @@ export function ExportDocumentDialog({
                   controller.signal,
                 );
                 controller.signal.throwIfAborted();
-                downloadBlob(blob, `${fileTitle(doc.title)}-译文.md`);
+                await saveExportBlob(
+                  blob,
+                  `${fileTitle(doc.title)}-译文.md`,
+                  controller.signal,
+                );
               }
             } else {
               if (!exportAnnotations || !exportMessages) {
@@ -170,12 +175,23 @@ export function ExportDocumentDialog({
             if (!controller.signal.aborted) {
               report(
                 delivery === "download"
-                  ? "download_requested"
+                  ? window.neoreadDesktop?.saveExportFile
+                    ? "saved"
+                    : "download_requested"
                   : "print_dialog_closed",
               );
-              if (delivery === "download") toast.success("已开始下载");
+              if (delivery === "download") savedCount++;
             }
           } catch (error) {
+            if (exportCancelled(error, controller.signal)) {
+              controller.abort();
+              toast.info(
+                savedCount
+                  ? `已取消导出，已保存 ${savedCount} 个文件`
+                  : "已取消导出",
+              );
+              return;
+            }
             if (!controller.signal.aborted) report("failed");
             if (!controller.signal.aborted)
               setError(
@@ -187,7 +203,15 @@ export function ExportDocumentDialog({
           }
         }
       }
-      if (!controller.signal.aborted) onClose();
+      if (!controller.signal.aborted) {
+        if (savedCount)
+          toast.success(
+            window.neoreadDesktop?.saveExportFile
+              ? `已保存 ${savedCount} 个文件`
+              : `已发起 ${savedCount} 个文件的下载`,
+          );
+        onClose();
+      }
     } finally {
       if (request.current === controller) {
         request.current = null;

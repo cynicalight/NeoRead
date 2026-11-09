@@ -6,7 +6,7 @@ import {
 import type { Document } from "@neoread/core";
 import { toast } from "sonner";
 import { api } from "@neoread/api";
-import { downloadBlob, fileTitle } from "./download";
+import { saveExportBlob, exportCancelled, fileTitle } from "./download";
 import { reportDiagnostic } from "./diagnostics";
 export type PDFExportProgress = { phase: "preparing" | "saving" };
 export type TranslatedPDFResult = { delivery: "download" | "print" };
@@ -70,16 +70,20 @@ export async function exportTranslatedPDF(
     }
     signal.throwIfAborted();
     phase = "download";
-    downloadBlob(
+    await saveExportBlob(
       new Blob([new Uint8Array(bytes)], { type: "application/pdf" }),
       `${fileTitle(doc.title)}-译文.pdf`,
+      signal,
     );
-    event("download_requested");
+    event(
+      window.neoreadDesktop?.saveExportFile ? "saved" : "download_requested",
+    );
     return { delivery: "download" };
   } catch (error) {
+    const cancelled = exportCancelled(error, signal);
     event(
-      signal.aborted ? "cancelled" : "failed",
-      signal.aborted
+      cancelled ? "cancelled" : "failed",
+      cancelled
         ? "reasonCode=user_cancelled"
         : exportFailureDetail(
             exportFailure(
@@ -94,7 +98,7 @@ export async function exportTranslatedPDF(
             ),
           ),
     );
-    if (signal.aborted) throw new DOMException("已取消导出", "AbortError");
+    if (cancelled) throw new DOMException("已取消导出", "AbortError");
     throw error;
   }
 }
@@ -117,10 +121,15 @@ export async function exportTranslatedPDFWithToast(doc: Document) {
       },
     );
     if (result.delivery === "download")
-      toast.success("已开始下载译文 PDF", { id, action: undefined });
+      toast.success(
+        window.neoreadDesktop?.saveExportFile
+          ? "已保存译文 PDF"
+          : "已开始下载译文 PDF",
+        { id, action: undefined },
+      );
     else toast.info("打印窗口已关闭", { id, action: undefined });
   } catch (error) {
-    if (controller.signal.aborted)
+    if (exportCancelled(error, controller.signal))
       toast.info("已取消导出", { id, action: undefined });
     else
       toast.error(
@@ -142,10 +151,19 @@ export async function exportTranslatedMarkdownWithToast(doc: Document) {
       controller.signal,
     );
     controller.signal.throwIfAborted();
-    downloadBlob(blob, `${fileTitle(doc.title)}-译文.md`);
-    toast.success("已开始下载译文 Markdown", { id, action: undefined });
+    await saveExportBlob(
+      blob,
+      `${fileTitle(doc.title)}-译文.md`,
+      controller.signal,
+    );
+    toast.success(
+      window.neoreadDesktop?.saveExportFile
+        ? "已保存译文 Markdown"
+        : "已开始下载译文 Markdown",
+      { id, action: undefined },
+    );
   } catch (error) {
-    if (controller.signal.aborted)
+    if (exportCancelled(error, controller.signal))
       toast.info("已取消导出", { id, action: undefined });
     else
       toast.error(

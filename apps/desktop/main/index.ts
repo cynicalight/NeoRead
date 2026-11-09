@@ -1,4 +1,5 @@
 import { renderMarkdownPDF, cancelMarkdownPDF } from "./markdown-pdf";
+import { saveExportFile } from "./export-file";
 import { confirmReaderMigration } from "./migration-confirmation";
 import { startupAppearanceArgument } from "../startup-appearance";
 import { saveStartupAppearance } from "./startup-appearance-cache";
@@ -994,6 +995,23 @@ app
       )
         throw new Error("Invalid sender");
     };
+    ipcMain.handle(
+      "neoread:save-export-file",
+      async (event, name: unknown, bytes: unknown) => {
+        settingsSender(event);
+        diagnostics?.record("document.export.save_start");
+        try {
+          const saved = await saveExportFile(window!, name, bytes);
+          diagnostics?.record(
+            saved ? "document.export.saved" : "document.export.save_cancelled",
+          );
+          return saved;
+        } catch (error) {
+          diagnostics?.record("document.export.save_failed", error);
+          throw new Error("文件保存失败，请重试");
+        }
+      },
+    );
     ipcMain.handle(
       "neoread:markdown-pdf",
       (event, id: unknown, html: unknown) => {

@@ -20,8 +20,9 @@ vi.mock("./markdown-pdf", () => ({
   printMarkdownInBrowser: mocks.print,
 }));
 vi.mock("./diagnostics", () => ({ reportDiagnostic: mocks.log }));
-vi.mock("./download", () => ({
-  downloadBlob: mocks.download,
+vi.mock("./download", async (original) => ({
+  ...(await original<typeof import("./download")>()),
+  saveExportBlob: mocks.download,
   fileTitle: () => "document",
 }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
@@ -137,6 +138,7 @@ it("downloads the Markdown snapshot without rendering it", async () => {
   expect(mocks.download).toHaveBeenCalledExactlyOnceWith(
     blob,
     "document-译文.md",
+    expect.any(AbortSignal),
   );
   expect(mocks.render).not.toHaveBeenCalled();
   expect(window.neoreadDesktop!.markdownPDF).not.toHaveBeenCalled();
