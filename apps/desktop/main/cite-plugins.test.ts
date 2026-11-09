@@ -45,6 +45,8 @@ async function setup(platform: NodeJS.Platform) {
     home: join(root, "home"),
     appData: join(root, "appdata"),
     plugins,
+    // Keep Windows runs inside the fixture instead of querying the host Office registry.
+    windowsWordFolders: async () => ({ folders: [], detected: false }),
     compileAppleScript: vi.fn(async (_source: string, target: string) => {
       await writeFile(target, "compiled");
     }),
