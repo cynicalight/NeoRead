@@ -151,6 +151,11 @@
   background-color: rgba(59, 130, 246, 0.3);
   background-color: color-mix(in srgb, AccentColor 30%, transparent);
 }
+/* KaTeX defaults to 1.21em, which reads larger than the surrounding prose. */
+.translation-document .katex,
+.epub-reflow-translation .katex {
+  font-size: 1.05em;
+}
 /* A selection touching a formula paints the formula's whole box (see
    formula-highlight.ts); the more specific selector keeps it above marks. */
 .translation-document
