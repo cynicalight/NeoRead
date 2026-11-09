@@ -7,13 +7,13 @@ import (
 
 func TestTranslationPromptAsksForKaTeXInlineMath(t *testing.T) {
 	prompt := translationPrompt(Document{Title: "t"}, layoutManifest{Pages: 1}, translationBatch{}, "")
-	for _, rule := range []string{"KaTeX", "$T_i$", `\\ll`, `\\$`, "不要输出 $$", "行内数学是例外", "$(x_1, ..., x_n)$"} {
+	for _, rule := range []string{"KaTeX", "$T_i$", `\\ll`, `\\$`, "不要输出 $$", "行内数学是例外", "$(x_1, ..., x_n)$", "source 里对应位置也必须写成同样的 $...$"} {
 		if !strings.Contains(prompt, rule) {
 			t.Fatalf("prompt lacks %q", rule)
 		}
 	}
 	// The verbatim rule must not also tell the model to keep formulas as extracted.
-	if strings.Contains(prompt, "公式和符号保持原样") {
+	if strings.Contains(prompt, "公式和符号保持原样") || strings.Contains(prompt, "无法确定的符号照抄原文") {
 		t.Fatal("PDF prompt contradicts the inline math rule")
 	}
 	// EPUB source is verbatim, so it never carries LaTeX.

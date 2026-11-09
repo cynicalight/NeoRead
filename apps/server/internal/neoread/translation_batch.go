@@ -64,7 +64,7 @@ func translationBatches(m translationInput, items []TranslationBlock, target int
 func translationPrompt(doc Document, m translationInput, batch translationBatch, instructions string) string {
 	frontMatter := m.translationFrontMatter()
 	sourceRule := `原文由 PDF 文字提取得到，可能有少量提取错误：单词内部多出空格（如 "A GENT" 应为 "AGENT"）、行末连字符拆开的单词、错位的数学斜体字母或上下标。sentences.source 默认逐字复制原文；只在能确定是这类提取错误时做最小修正，例如合并被拆开的单词。不确定时保持原样，不要润色、改写或调整语序。
-行内数学是例外：sentences.source 中的行内数学（变量、下标、上标、运算符等）必须与译文一样写成 $...$ KaTeX，并把被提取打散或挪到别处的下标、上标放回原位，例如 "symbol representations ( x , ..., x ) to a sequence 1 n of" 写成 "symbol representations $(x_1, ..., x_n)$ to a sequence of"。无法确定的符号照抄原文。公式以外的文字仍逐字复制。译文按修正后的正确含义翻译。`
+行内数学是例外：sentences.source 中的行内数学（变量、下标、上标、运算符等）必须与译文一样写成 $...$ KaTeX，并把被提取打散或挪到别处的下标、上标放回原位，例如 "symbol representations ( x , ..., x ) to a sequence 1 n of" 写成 "symbol representations $(x_1, ..., x_n)$ to a sequence of"。同一句的 target 里写成 $...$ 的数学，source 里对应位置也必须写成同样的 $...$。公式以外的文字仍逐字复制。译文按修正后的正确含义翻译。`
 	// PDF source sentences restore inline math as an explicit exception to the
 	// verbatim rule, so reflowed source text can render it; their anchors still
 	// locate the extracted text.
