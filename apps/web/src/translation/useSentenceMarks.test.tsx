@@ -223,6 +223,26 @@ it("maps original search words through PDF sentence ranges", async () => {
   );
   expect(texts(search())).toEqual(["Original"]);
 });
+it("highlights search words in untranslated reflowed source text", async () => {
+  const result: SearchResult = {
+    id: "p1-b1:source:0",
+    blockId: "p1-b1",
+    side: "source",
+    excerpt: "Original sentence.",
+    location: { type: "pdf", page: 1 },
+  };
+  await act(async () =>
+    root.render(
+      <App
+        reflow
+        translations={[]}
+        searchQuery="Original"
+        searchResults={[result]}
+      />,
+    ),
+  );
+  expect(texts(search())).toEqual(["Original"]);
+});
 async function pointer(selector: string, type: string, x: number, buttons = 0) {
   await act(async () => {
     host.querySelector(selector)!.dispatchEvent(

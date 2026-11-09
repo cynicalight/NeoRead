@@ -372,11 +372,15 @@ export function useSentenceMarks(
                 );
             });
           } else {
+            // Untranslated reflowed text is visible itself; the PDF text layer
+            // is hidden.
             ranges.push(
               ...searchRanges(
-                engine.sentenceRanges?.([
-                  { blockId: block.id, sources: [block.text] },
-                ]) ?? [],
+                hasReflowSource(host, block.id)
+                  ? reflowSourceRanges(host, block.id)
+                  : (engine.sentenceRanges?.([
+                      { blockId: block.id, sources: [block.text] },
+                    ]) ?? []),
                 searchQuery,
               ),
             );
