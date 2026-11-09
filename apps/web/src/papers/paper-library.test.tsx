@@ -576,6 +576,20 @@ it.each(["card", "table"] as const)(
       "Attention Is All You Need",
     ).querySelector<HTMLButtonElement>('[aria-label="重试翻译"]')!;
     expect(retry).not.toBeNull();
+    if (layout === "card") {
+      const frame = row("Attention Is All You Need").querySelector(
+        ".paper-cover-frame",
+      )!;
+      expect(frame.querySelector(".cover-processing")?.contains(retry)).toBe(
+        true,
+      );
+      expect(
+        row("Attention Is All You Need").querySelector(
+          '.book-progress[role="progressbar"]',
+        ),
+      ).not.toBeNull();
+      expect(frame.querySelector('[aria-label$="的更多操作"]')).toBeNull();
+    }
     await act(async () => {
       retry.click();
       retry.click();
@@ -588,6 +602,34 @@ it.each(["card", "table"] as const)(
 );
 
 const prefs = () => useReaderStore.getState().libraryPreferences.papers ?? {};
+it("shows the reading status and file size under a paper cover", async () => {
+  await act(async () => {
+    useReaderStore.setState({
+      documents: [
+        paper({
+          id: "read",
+          title: "Read paper",
+          percentage: 0.42,
+          size: 2 * 1024 * 1024,
+        }),
+        paper({
+          id: "new",
+          title: "New paper",
+          percentage: 0,
+          size: 1024 * 1024,
+        }),
+      ],
+      libraryPreferences: { mode: "papers", papers: { layout: "card" } },
+    });
+    root.render(<Harness />);
+  });
+  expect(row("Read paper").querySelector(".book-status")?.textContent).toBe(
+    "已读 42%2.0 MB",
+  );
+  expect(row("New paper").querySelector(".book-status")?.textContent).toBe(
+    "还未开始阅读1.0 MB",
+  );
+});
 const press = (target: Element, type: string, clientX = 0) =>
   act(async () => {
     target.dispatchEvent(

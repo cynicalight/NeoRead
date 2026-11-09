@@ -88,6 +88,7 @@ import {
 import { useReaderStore } from "../store";
 import { TrashView } from "../TrashView";
 import { BookCoverImage } from "../book-cover";
+import { CoverProcessing } from "../ProcessingStatus";
 import { useCardZoom } from "../useCardZoom";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
 import { trashWithUndo } from "../library-actions";
@@ -172,6 +173,7 @@ export interface PaperLibraryProps {
   moveToBooks: (doc: Document) => void;
   navOpen: boolean;
   onToggleNav: () => void;
+  onSettings?: () => void;
 }
 
 const busy = (job?: Processing) =>
@@ -187,6 +189,7 @@ export function PaperLibrary({
   moveToBooks,
   navOpen,
   onToggleNav,
+  onSettings,
 }: PaperLibraryProps) {
   const prefs = useReaderStore((s) => s.libraryPreferences.papers) || {};
   const sort: PaperSort = prefs.sort || "opened";
@@ -677,6 +680,7 @@ export function PaperLibrary({
         onToggleAttachments={() => toggleAttachments(doc.id)}
         doc={doc}
         job={jobs.get(doc.id)}
+        onSettings={onSettings}
         selected={
           !picking && (selectedId === doc.id || clickIntent.pending === doc.id)
         }
@@ -1479,6 +1483,7 @@ function PaperRow({
   moreMenu,
   expanded,
   onToggleAttachments,
+  onSettings,
 }: {
   doc: Document;
   job?: Processing;
@@ -1502,6 +1507,7 @@ function PaperRow({
   moreMenu: React.ReactNode;
   expanded: boolean;
   onToggleAttachments: () => void;
+  onSettings?: () => void;
 }) {
   const upload = useAttachments((s) => s.uploads[doc.id]);
   const cached = useAttachments((s) => s.items[doc.id]);
@@ -1809,19 +1815,47 @@ function PaperRow({
           <>
             {dropHint}
             {check}
-            <div
-              className={`book-cover paper-card-cover cover-${coverTone(doc.id)}`}
-            >
-              <BookCoverImage doc={doc} />
-              <div className="cover-title">{doc.title}</div>
+            <div className="book-cover-frame paper-cover-frame">
+              <div
+                className={`book-cover paper-card-cover cover-${coverTone(doc.id)}`}
+              >
+                <BookCoverImage doc={doc} />
+                <div className="cover-title">{doc.title}</div>
+              </div>
+              {job && (
+                <div data-row-action>
+                  {job.manualTranslation &&
+                  !job.enabled &&
+                  job.phase !== "learning" ? (
+                    <span className="cover-analyze">
+                      <PaperProcessing job={job} />
+                    </span>
+                  ) : (
+                    <CoverProcessing
+                      job={job}
+                      learningName="解析"
+                      onSettings={onSettings ?? (() => {})}
+                    />
+                  )}
+                </div>
+              )}
             </div>
             {title}
             {authorLine}
-            <div className="paper-card-meta">
-              {status}
-              <PaperProcessing job={job} />
-              {more}
+            <div
+              className="book-progress"
+              role="progressbar"
+              aria-label="阅读进度"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent}
+            >
+              <div style={{ width: `${percent}%` }} />
             </div>
+            <p className="book-status">
+              {doc.percentage > 0 ? `已读 ${percent}%` : "还未开始阅读"}
+              <span>{(doc.size / 1024 / 1024).toFixed(1)} MB</span>
+            </p>
           </>
         ) : (
           <>

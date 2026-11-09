@@ -681,6 +681,7 @@ export function App() {
                 moveToBooks={(doc) => void moveDocument(doc, "books")}
                 navOpen={nav}
                 onToggleNav={() => setNav(!nav)}
+                onSettings={() => setSettings(true)}
               />
             ) : (
               <main
