@@ -50,7 +50,11 @@ it("prints in an isolated window and destroys it after success", async () => {
   expect(window.destroy).toHaveBeenCalledOnce();
   const filter =
     window.webContents.session.webRequest.onBeforeRequest.mock.calls[0][0];
+  const allow = vi.fn();
+  filter({ url: "data:image/png;base64,aW1hZ2U=" }, allow);
+  expect(allow).toHaveBeenCalledWith({ cancel: false });
   for (const url of [
+    "data:text/javascript;base64,YWxlcnQoMSk=",
     "https://example.com",
     "file:///private",
     "http://127.0.0.1:1234/",

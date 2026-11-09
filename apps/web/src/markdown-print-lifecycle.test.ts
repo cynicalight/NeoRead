@@ -6,9 +6,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 it("keeps the frame until print preview closes and then removes it", async () => {
+  document.title = "NeoRead";
   const pending = printMarkdownInBrowser(
     "<p>译文</p>",
     new AbortController().signal,
+    "Attention Is All You Need-译文",
   );
   const frame = document.querySelector("iframe")!;
   Object.defineProperty(frame.contentDocument, "fonts", {
@@ -20,9 +22,11 @@ it("keeps the frame until print preview closes and then removes it", async () =>
   frame.dispatchEvent(new Event("load"));
   await vi.waitFor(() => expect(print).toHaveBeenCalledOnce());
   expect(frame.isConnected).toBe(true);
+  expect(document.title).toBe("Attention Is All You Need-译文");
   frame.contentWindow!.dispatchEvent(new Event("afterprint"));
   await pending;
   expect(document.querySelector("iframe")).toBeNull();
+  expect(document.title).toBe("NeoRead");
 });
 it("cleans up the frame if cancelled while loading", async () => {
   const controller = new AbortController();

@@ -2,6 +2,7 @@ package neoread
 
 import (
 	"archive/zip"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -176,7 +177,7 @@ func (s *Server) exportTranslation(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "无法读取译文")
 		return
 	}
-	markdown, assets, err := translationExportMarkdown(d.Title, source, items, format == "zip")
+	markdown, assets, err := translationExportMarkdown(d.Title, source, items, true)
 	if err != nil {
 		fail(w, 409, err.Error())
 		return
@@ -185,9 +186,18 @@ func (s *Server) exportTranslation(w http.ResponseWriter, r *http.Request) {
 		markdown += "---\n\n" + notes + "\n"
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	rootPath := filepath.Join(s.Store.Root, "cache", d.ID)
+	if d.Type == "pdf" {
+		rootPath = s.analysisDir(d.ID)
+	}
 	if format == "markdown" {
+		markdown, err = inlineTranslationImages(rootPath, markdown, assets)
+		if err != nil {
+			fail(w, 500, "无法读取导出图片，请重试")
+			return
+		}
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": "translation.md"}))
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": d.Title + "-译文.md"}))
 		_, _ = io.WriteString(w, markdown)
 		return
 	}
@@ -200,18 +210,62 @@ func (s *Server) exportTranslation(w http.ResponseWriter, r *http.Request) {
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
-	rootPath := filepath.Join(s.Store.Root, "cache", d.ID)
-	if d.Type == "pdf" {
-		rootPath = s.analysisDir(d.ID)
-	}
 	err = writeTranslationArchive(file, rootPath, markdown, assets)
 	if err != nil {
-		fail(w, 500, "无法打包译文图片，请重试或选择 Markdown（不含图片）")
+		fail(w, 500, "无法打包译文图片，请重试")
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="translation.zip"`)
 	http.ServeContent(w, r, "translation.zip", time.Time{}, file)
+}
+
+// Inline assets keep a standalone Markdown file portable and let PDF export
+// render images without network or library credentials in the print document.
+func inlineTranslationImages(rootPath, markdown string, assets []translationExportAsset) (string, error) {
+	if len(assets) == 0 {
+		return markdown, nil
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	for _, asset := range assets {
+		data, mimeType, err := readTranslationExportImage(root, asset.source)
+		if err != nil {
+			return "", err
+		}
+		markdown = strings.ReplaceAll(markdown, "]("+asset.name+")", "](data:"+mimeType+";base64,"+base64.StdEncoding.EncodeToString(data)+")")
+		if len(markdown) > 16<<20 {
+			return "", errors.New("inline image export exceeds limit")
+		}
+	}
+	return markdown, nil
+}
+
+func readTranslationExportImage(root *os.Root, source string) ([]byte, string, error) {
+	types := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml", ".avif": "image/avif"}
+	mimeType, ok := types[strings.ToLower(filepath.Ext(source))]
+	if !ok {
+		return nil, "", errors.New("unsupported image resource")
+	}
+	f, err := root.Open(source)
+	if err != nil {
+		return nil, "", err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, (32<<20)+1))
+	if err != nil || len(data) > 32<<20 {
+		return nil, "", errors.New("image resource exceeds export limit")
+	}
+	if mimeType == "image/svg+xml" {
+		data, _, err = sanitizeContent(data)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	return data, mimeType, nil
 }
 
 func writeTranslationArchive(file io.Writer, rootPath, markdown string, assets []translationExportAsset) error {
@@ -230,26 +284,9 @@ func writeTranslationArchive(file io.Writer, rootPath, markdown string, assets [
 		return err
 	}
 	for _, asset := range assets {
-		switch strings.ToLower(filepath.Ext(asset.source)) {
-		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif":
-		default:
-			return errors.New("unsupported image resource")
-		}
-		// OpenRoot prevents traversal and symlinks from escaping the document.
-		f, err := root.Open(asset.source)
+		data, _, err := readTranslationExportImage(root, asset.source)
 		if err != nil {
 			return err
-		}
-		data, err := io.ReadAll(io.LimitReader(f, (32<<20)+1))
-		f.Close()
-		if err != nil || len(data) > 32<<20 {
-			return errors.New("image resource exceeds export limit")
-		}
-		if strings.EqualFold(filepath.Ext(asset.source), ".svg") {
-			data, _, err = sanitizeContent(data)
-			if err != nil {
-				return err
-			}
 		}
 		entry, err = z.Create(asset.name)
 		if err != nil {

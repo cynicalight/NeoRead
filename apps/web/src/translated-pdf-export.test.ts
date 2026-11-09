@@ -49,7 +49,7 @@ it("renders the same Markdown export without opening the source PDF", async () =
     delivery: "download",
   });
   expect(mocks.markdown).toHaveBeenCalledWith(doc.id, "markdown", signal);
-  expect(mocks.render).toHaveBeenCalledWith("# 译文\n\n正文");
+  expect(mocks.render).toHaveBeenCalledWith("# 译文\n\n正文", "document-译文");
   expect(window.neoreadDesktop!.markdownPDF).toHaveBeenCalledWith(
     expect.any(String),
     "<html>译文</html>",

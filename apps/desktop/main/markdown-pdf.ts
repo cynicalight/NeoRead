@@ -35,7 +35,13 @@ export async function renderMarkdownPDF(
     (_contents, _permission, callback) => callback(false),
   );
   window.webContents.session.webRequest.onBeforeRequest((details, callback) => {
-    callback({ cancel: !details.url.startsWith("data:text/html;") });
+    callback({
+      cancel:
+        !details.url.startsWith("data:text/html;") &&
+        !/^data:image\/(png|jpeg|gif|webp|avif|svg\+xml);base64,/.test(
+          details.url,
+        ),
+    });
   });
   const timer = setTimeout(() => cancelMarkdownPDF(id), 60_000);
   try {

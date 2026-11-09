@@ -92,10 +92,10 @@ export async function exportMarkdownFile(
   try {
     const engine = await import("./markdown-pdf");
     signal.throwIfAborted();
-    const html = engine.markdownPrintHTML(markdown);
+    const html = engine.markdownPrintHTML(markdown, filename);
     const desktop = window.neoreadDesktop;
     if (!desktop?.markdownPDF) {
-      await engine.printMarkdownInBrowser(html, signal);
+      await engine.printMarkdownInBrowser(html, signal, filename);
       report("print_dialog_closed");
       return "print";
     }

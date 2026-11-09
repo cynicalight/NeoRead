@@ -6,14 +6,25 @@ import katex from "katex";
 import { remarkLatex } from "./chat/remark-latex";
 
 // A self-contained print document: no app theme, reader zoom, scripts or remote assets.
-export function markdownPrintHTML(markdown: string): string {
+const embeddedImage =
+  /^data:image\/(?:png|jpeg|gif|webp|avif|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/;
+export function markdownPrintHTML(markdown: string, title = "导出"): string {
   const body = renderToStaticMarkup(
     <ReactMarkdown
       skipHtml
       remarkPlugins={[remarkGfm, remarkMath, remarkLatex]}
-      urlTransform={(url) => (/^(https?:\/\/|mailto:|#)/i.test(url) ? url : "")}
+      urlTransform={(url) =>
+        /^(https?:\/\/|mailto:|#)/i.test(url) || embeddedImage.test(url)
+          ? url
+          : ""
+      }
       components={{
-        img: ({ alt }) => <span>[图片：{alt || "未包含"}]</span>,
+        img: ({ alt, src }) =>
+          typeof src === "string" && embeddedImage.test(src) ? (
+            <img src={src} alt={alt || ""} />
+          ) : (
+            <span>[图片：{alt || "未包含"}]</span>
+          ),
         code: ({ className, children }) => {
           if (
             className?.includes("math-inline") ||
@@ -41,12 +52,13 @@ export function markdownPrintHTML(markdown: string): string {
     </ReactMarkdown>,
   );
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
-<title>译文</title><style>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+${renderToStaticMarkup(<title>{title}</title>)}<style>
 @page { size: A4; margin: 20mm; }
 body { font-family: system-ui, sans-serif; font-size: 16px; line-height: 1.6; color: #111; background: white; overflow-wrap: anywhere; }
 h1,h2,h3,h4,h5,h6 { line-height: 1.4; break-after: avoid; }
 h1 { font-size: 1.4em; } h2 { font-size: 1.25em; } h3 { font-size: 1.1em; }
+img { max-width: 100%; height: auto; break-inside: avoid; }
 p { margin: .65em 0; orphans: 3; widows: 3; }
 blockquote { margin-left: 0; padding-left: 1em; border-left: 2px solid #ccc; color: #555; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -62,10 +74,12 @@ a { color: inherit; } math[display="block"] { margin: 1em 0; }
 export async function printMarkdownInBrowser(
   html: string,
   signal: AbortSignal,
+  filename = "导出",
 ): Promise<void> {
   signal.throwIfAborted();
   const frame = document.createElement("iframe");
-  frame.title = "译文打印";
+  frame.title = filename;
+  const previousTitle = document.title;
   frame.setAttribute("sandbox", "allow-same-origin allow-modals");
   frame.style.cssText =
     "position:fixed;left:-10000px;width:800px;height:600px;border:0";
@@ -105,6 +119,7 @@ export async function printMarkdownInBrowser(
       });
       signal.addEventListener("abort", abort, { once: true });
       try {
+        document.title = filename;
         frame.contentWindow!.print();
       } catch (error) {
         signal.removeEventListener("abort", abort);
@@ -112,6 +127,7 @@ export async function printMarkdownInBrowser(
       }
     });
   } finally {
+    if (document.title === filename) document.title = previousTitle;
     frame.remove();
   }
 }

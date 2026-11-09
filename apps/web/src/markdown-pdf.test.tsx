@@ -27,3 +27,18 @@ it("does not turn untrusted document HTML, images or URLs into active content", 
   expect(html).not.toContain("https://private.example");
   expect(html).toContain("default-src 'none'");
 });
+
+it("renders embedded images and escapes the print filename", () => {
+  const html = markdownPrintHTML(
+    "![Table 2](data:image/png;base64,aW1hZ2U=)",
+    "论文<&>-译文",
+  );
+  expect(html).toContain(
+    '<img src="data:image/png;base64,aW1hZ2U=" alt="Table 2"',
+  );
+  expect(html).toContain("<title>论文&lt;&amp;&gt;-译文</title>");
+  expect(html).toContain("img-src data:");
+  expect(
+    markdownPrintHTML("![bad](data:text/html;base64,PHNjcmlwdD4=)"),
+  ).not.toContain("<img");
+});

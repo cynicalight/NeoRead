@@ -40,14 +40,21 @@ export async function exportTranslatedPDF(
     signal.throwIfAborted();
     phase = "layout";
     event("stage");
-    const html = engine.markdownPrintHTML(await blob.text());
+    const html = engine.markdownPrintHTML(
+      await blob.text(),
+      `${fileTitle(doc.title)}-译文`,
+    );
     signal.throwIfAborted();
     phase = "saving";
     event("stage");
     onProgress({ phase: "saving" });
     const desktop = window.neoreadDesktop;
     if (!desktop?.markdownPDF) {
-      await engine.printMarkdownInBrowser(html, signal);
+      await engine.printMarkdownInBrowser(
+        html,
+        signal,
+        `${fileTitle(doc.title)}-译文`,
+      );
       event("print_dialog_closed");
       return { delivery: "print" };
     }
