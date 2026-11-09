@@ -518,3 +518,17 @@ it("skips setters when the browser serializes a percentage with fewer digits", (
     setter.mockRestore();
   }
 });
+
+it("marks the end of highlights that carry a note and removes the mark with the note", () => {
+  const noted = { ...annotation("noted"), note: "批注" };
+  layer.setAnnotations([annotation("plain"), noted]);
+  const markers = host.querySelectorAll<HTMLElement>(".neoread-note-marker");
+  expect(markers).toHaveLength(1);
+  expect(markers[0].dataset.annotationId).toBe("noted");
+  expect(markers[0].getAttribute("aria-hidden")).toBe("true");
+  // Top-right corner of the last rectangle.
+  expect(parseFloat(markers[0].style.left)).toBeCloseTo(30);
+  expect(parseFloat(markers[0].style.top)).toBeCloseTo(20);
+  layer.setAnnotations([{ ...noted, note: " " }]);
+  expect(host.querySelector(".neoread-note-marker")).toBeNull();
+});

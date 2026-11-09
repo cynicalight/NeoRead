@@ -1058,6 +1058,32 @@ kbd {
 .neoread-highlight[data-kind="underline"][data-hovered] {
   background: color-mix(in srgb, var(--annotation-color) 30%, transparent);
 }
+/* Small superscript glyph at the end of a highlight that carries a note. */
+.neoread-note-marker {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -5px 0 0 0;
+  pointer-events: none;
+  z-index: 7;
+  background-color: color-mix(
+    in srgb,
+    var(--annotation-color, #facc15) 55%,
+    var(--foreground)
+  );
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+.epub-web-note-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
 .neoread-loading {
   position: absolute;
   inset: 0;

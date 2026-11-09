@@ -53,6 +53,9 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   private selection: ReaderSelection | null = null;
   private annotations: Annotation[] = [];
   private marks: { id: string; range: Range }[] = [];
+  /** Last range of each annotation that has note text. */
+  private noted: { range: Range; color: string }[] = [];
+  private noteLayer = document.createElement("div");
   private focus: EPUBLocation[] = [];
   private names: string[] = [];
   private prefix = `epub-web-${++sequence}`;
@@ -263,6 +266,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     if (typeof ResizeObserver !== "undefined") {
       this.resize = new ResizeObserver(() => {
         if (this.container.closest("[inert]")) return;
+        this.placeNotes();
         this.preserveAnchor();
         this.onScroll();
       });
@@ -984,6 +988,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   }
   private paint() {
     this.marks = [];
+    this.noted = [];
     for (const name of this.names) globalThis.CSS?.highlights?.delete(name);
     this.names = [];
     this.style.textContent = "";
@@ -1033,6 +1038,11 @@ export class EPUBReaderAdapter implements ReaderAdapter {
         }
       }
       add(ranges, annotation.color, annotation.kind === "underline");
+      if (annotation.note?.trim() && ranges.length)
+        this.noted.push({
+          range: ranges[ranges.length - 1]!,
+          color: annotation.color,
+        });
     }
     add(
       this.focus.flatMap((location) =>
@@ -1044,12 +1054,39 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       "#3b82f6",
     );
     this.style.textContent = rules.join("\n");
+    this.placeNotes();
     const key = [...new Set(unresolved)].sort().join(",");
     if (key && key !== this.unresolved)
       toast.error(
         `${new Set(unresolved).size} 条批注暂时无法定位，已保留在笔记中。`,
       );
     this.unresolved = key;
+  }
+  /** Marks the end of each annotation that has a note. */
+  private placeNotes() {
+    const layer = this.noteLayer;
+    const view = this.container.getBoundingClientRect();
+    const markers = this.noted.flatMap(({ range, color }) => {
+      const rect = Array.from(range.getClientRects?.() ?? [])
+        .filter((r) => r.width > 0 && r.height > 0)
+        .at(-1);
+      if (!rect) return [];
+      const marker = document.createElement("span");
+      marker.className = "neoread-note-marker";
+      marker.style.setProperty("--annotation-color", color);
+      marker.style.left = `${rect.right - view.left + this.container.scrollLeft}px`;
+      marker.style.top = `${rect.top - view.top + this.container.scrollTop}px`;
+      return [marker];
+    });
+    if (!markers.length) {
+      layer.replaceChildren();
+      layer.remove();
+      return;
+    }
+    layer.className = "epub-web-note-layer";
+    layer.setAttribute("aria-hidden", "true");
+    layer.replaceChildren(...markers);
+    if (layer.parentElement !== this.container) this.container.append(layer);
   }
   async focusEPUBLocations(locations: EPUBLocation[]) {
     this.focus = locations;
