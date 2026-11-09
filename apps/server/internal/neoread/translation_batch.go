@@ -84,7 +84,7 @@ func translationPrompt(doc Document, m translationInput, batch translationBatch,
 每行格式：{"blockId":"原样复制该段 blockId","sentences":[{"source":"该句原文","target":"该句中文译文"}]}。
 blockId 必须与输入段落严格对应。不能合并、拆分或遗漏段落。sentences 按顺序完整覆盖该段 source，不能改写措辞、增补或遗漏原文；一句原文可以对应多句中文。保留术语、数值、公式和代码。图题仅翻译图题，不补写图表或图片内部内容。
 ` + sourceRule + `
-译文 target 中的行内数学（变量、下标、上标、集合、运算符等）一律写成 KaTeX 可解析的 LaTeX，用 $...$ 包裹，例如 $T_i$、$MVSG(s, \ll)$、$O(n\log n)$。原文中被提取打散的下标（如 "𝑇 … 𝑖"）在能确定时还原为 $T_i$；不确定时照抄原文符号，不要猜。不要使用 Unicode 数学斜体或上下标字符代替 LaTeX。普通文本中的美元符号写成 \$。不要输出 $$ 独立公式：独立公式块已由公式图片单独转换。字符串在 JSON 中，反斜杠必须转义：\ll 写作 \\ll，\$ 写作 \\$。` + sourceMath + `
+译文 target 中的行内数学（变量、下标、上标、集合、运算符等）一律写成 KaTeX 可解析的 LaTeX，用 $...$ 包裹，例如 $T_i$、$MVSG(s, \ll)$、$O(n\log n)$。相邻的行内公式之间必须至少保留一个空格（包括化学式后紧接参考文献上标的情况），例如 $x$ $^{25}$，禁止写成 $x$$^{25}$。原文中被提取打散的下标（如 "𝑇 … 𝑖"）在能确定时还原为 $T_i$；不确定时照抄原文符号，不要猜。不要使用 Unicode 数学斜体或上下标字符代替 LaTeX。普通文本中的美元符号写成 \$。不要输出 $$ 独立公式：独立公式块已由公式图片单独转换。字符串在 JSON 中，反斜杠必须转义：\ll 写作 \\ll，\$ 写作 \\$。` + sourceMath + `
 字符串内部的换行必须写为 JSON 转义，物理换行仅用于分隔完整 JSON 对象。标题、作者、frontMatter、contextBefore、contextAfter 仅为参考上下文，不为它们额外输出行。只翻译 paragraphs 列出的段落。
 ` + translationStyle(instructions) + `输入资料：
 ` + string(data)
