@@ -150,9 +150,11 @@ export function PDFReadingView({
         }
       : undefined,
   );
+  const originalReading = useRef<PDFReadingAnchor | undefined>(undefined);
   const recordReading = (anchor: PDFReadingAnchor) => {
     reading.current = anchor;
     if (state.current.reflow) reflowReading.current = anchor;
+    else originalReading.current = anchor;
   };
   const translationMotion = useRef({
     operation: 0,
@@ -593,12 +595,16 @@ export function PDFReadingView({
           return (l: DocumentLocation) => actions.current.focus(l);
         if (key === "next" || key === "previous")
           return () => {
-            if (!state.current.blocks.length) return target[key]();
+            if (!state.current.blocks.length)
+              return state.current.reflow ? Promise.resolve() : target[key]();
             const block = state.current.blocks.find(
               (b) => b.id === reading.current?.blockId,
             );
             const current =
-              block?.page ?? (target.getLocation() as { page: number }).page;
+              block?.page ??
+              (state.current.reflow
+                ? 1
+                : (target.getLocation() as { page: number }).page);
             return actions.current.go({
               type: "pdf",
               page: Math.max(1, current + (key === "next" ? 1 : -1)),
@@ -626,7 +632,9 @@ export function PDFReadingView({
                             block.bounds.height,
                       }),
                 }
-              : target.getLocation();
+              : state.current.reflow
+                ? { type: "pdf", page: 1 }
+                : target.getLocation();
           };
         if (
           key === "isNear" &&
@@ -683,7 +691,8 @@ export function PDFReadingView({
     events.selection(null);
     window.getSelection()?.removeAllRanges();
     void engine.focusSentences?.("", []);
-    const anchor = reading.current;
+    const anchor = reflow ? reflowReading.current : originalReading.current;
+    if (!reflow) reading.current = anchor;
     const operation = explicitFocus.current.operation;
     const restore = async () => {
       // Reflowed text keeps its place; the hidden PDF needs no zoom or sync.
@@ -729,13 +738,21 @@ export function PDFReadingView({
   const restoreReflow = () => {
     if (!state.current.reflow || reflowRestored.current || !pane.current)
       return;
+    reading.current = reflowReading.current;
     const anchor = reflowReading.current;
     if (anchor && !targetNode(anchor.blockId)) return;
+    if (!anchor && !visibleBlocks.length) {
+      pane.current.scrollTop = 0;
+      return;
+    }
     reflowRestored.current = true;
     if (anchor) {
       reading.current = anchor;
       followTranslation(anchor);
-    } else pane.current.scrollTop = 0;
+    } else {
+      recordReading({ blockId: visibleBlocks[0].id, fraction: 0 });
+      pane.current.scrollTop = 0;
+    }
   };
   useLayoutEffect(restoreReflow, [blocks, doc.id, reflow]);
   useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);

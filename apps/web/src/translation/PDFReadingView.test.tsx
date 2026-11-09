@@ -1471,3 +1471,73 @@ it("returns to the latest reflow paragraph after switching modes or tabs", async
     expect.any(Number),
   );
 });
+
+it("restores the non-reflow translation position after reading elsewhere in reflow", async () => {
+  const later = {
+    id: "p1-b2",
+    page: 1,
+    label: "text",
+    text: "Later",
+    bounds: { x: 0.1, y: 0.7, width: 0.3, height: 0.1 },
+  };
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("translation-document"))
+        return new DOMRect(0, 0, 600, 600);
+      const id = this.dataset.reflowBlock ?? this.dataset.translationBlock;
+      if (id)
+        return new DOMRect(
+          0,
+          (id === "p1-b1" ? 700 : 1500) -
+            (this.closest<HTMLElement>(".translation-document")?.scrollTop ??
+              0),
+          600,
+          200,
+        );
+      return new DOMRect(0, 0, 600, 200);
+    });
+  try {
+    await renderView(defaultTheme, [later]);
+    await click("仅译文");
+    await act(async () =>
+      fixture.ready!.goTo({ type: "pdf", page: 1, x: 0.1, y: 0.2 }),
+    );
+    await renderView(reflowed, [later]);
+    await act(async () =>
+      fixture.ready!.goTo({ type: "pdf", page: 1, reflowBlockId: "p1-b2" }),
+    );
+    await renderView(defaultTheme, [later]);
+    expect(
+      host.querySelector<HTMLElement>(".translation-document")!.scrollTop,
+    ).toBe(400);
+  } finally {
+    rect.mockRestore();
+  }
+});
+
+it("starts a first reflow session at its own first page, independently of the PDF", async () => {
+  const later = {
+    id: "p4-b1",
+    page: 4,
+    label: "text",
+    text: "Later",
+    bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+  };
+  const next = { ...later, id: "p2-b1", page: 2 };
+  await renderView(defaultTheme, [next, later]);
+  await act(async () =>
+    fixture.ready!.goTo({ type: "pdf", page: 4, x: 0.1, y: 0.2 }),
+  );
+  await renderView(reflowed, [next, later]);
+  expect(fixture.ready!.getLocation()).toMatchObject({
+    type: "pdf",
+    page: 1,
+    reflowBlockId: "p1-b1",
+  });
+  await act(async () => fixture.ready!.next());
+  expect(events.location).toHaveBeenLastCalledWith(
+    expect.objectContaining({ page: 2, reflowBlockId: "p2-b1" }),
+    expect.any(Number),
+  );
+});
