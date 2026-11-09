@@ -22,6 +22,7 @@
     "build:agent": "pnpm --filter @neoread/agent build"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@types/jsdom": "^21.1.7",
     "@types/node": "^22.19.0",
     "@types/react": "^19.2.0",

@@ -59,7 +59,7 @@ try {
   });
   if (native.error) throw native.error;
   assert.equal(native.status, 0, "Packaged native processor smoke failed");
-  const agent = spawnSync(electron, [join(resources, "agent/smoke.mjs")], {
+  const agent = spawnSync(electron, [join(resources, "agent.asar/smoke.mjs")], {
     cwd: temporary,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     stdio: "inherit",
@@ -85,7 +85,7 @@ try {
         ...process.env,
         NEOREAD_TOKEN: token,
         NEOREAD_NODE: electron,
-        NEOREAD_AGENT: join(resources, "agent/dist/main.mjs"),
+        NEOREAD_AGENT: join(resources, "agent.asar/dist/main.mjs"),
         NEOREAD_PROCESSOR: join(resources, "processor/main.mjs"),
       },
       stdio: ["ignore", "pipe", "inherit"],

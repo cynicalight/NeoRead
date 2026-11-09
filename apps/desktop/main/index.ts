@@ -216,7 +216,7 @@ async function startServer() {
         NEOREAD_TOKEN: serverToken,
         NEOREAD_NODE: process.execPath,
         NEOREAD_AGENT: app.isPackaged
-          ? join(process.resourcesPath, "agent", "dist", "main.mjs")
+          ? join(process.resourcesPath, "agent.asar", "dist", "main.mjs")
           : join(root, "agent", "dist", "main.mjs"),
         NEOREAD_PROCESSOR: app.isPackaged
           ? join(process.resourcesPath, "processor", "main.mjs")

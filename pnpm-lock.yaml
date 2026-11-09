@@ -19,6 +19,9 @@ importers:
 
   .:
     devDependencies:
+      '@electron/asar':
+        specifier: 3.4.1
+        version: 3.4.1
       '@types/jsdom':
         specifier: ^21.1.7
         version: 21.1.7
