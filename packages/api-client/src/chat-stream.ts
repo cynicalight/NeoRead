@@ -63,9 +63,14 @@ export function decodeFrame(frame: string): ChatStreamEvent | undefined {
         ["search", "web", "tool"].includes(String(parsed.kind)) &&
         typeof parsed.tool === "string" &&
         typeof parsed.title === "string" &&
-        ["running", "completed", "failed", "cancelled"].includes(
-          String(parsed.status),
-        ) &&
+        [
+          "running",
+          "completed",
+          "failed",
+          "cancelled",
+          "unavailable",
+          "deferred",
+        ].includes(String(parsed.status)) &&
         typeof parsed.startedAt === "string" &&
         ["target", "url", "detail", "finishedAt"].every(
           (k) => parsed[k] === undefined || typeof parsed[k] === "string",

@@ -7569,7 +7569,7 @@
                   "target": { "type": "string" },
                   "url": { "type": "string", "format": "uri" },
                   "status":
-                    { "enum": ["running", "completed", "failed", "cancelled"] },
+                    { "enum": ["running", "completed", "failed", "cancelled", "unavailable", "deferred"] },
                   "detail": { "type": "string" },
                   "startedAt": { "type": "string" },
                   "finishedAt": { "type": "string" },

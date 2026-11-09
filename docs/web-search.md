@@ -16,6 +16,10 @@
 
 DeepSeek 参考：[Search & Fetch 指南](https://api-docs.deepseek.com/zh-cn/guides/search/)、[Search](https://api-docs.deepseek.com/zh-cn/api/search/)、[Fetch](https://api-docs.deepseek.com/zh-cn/api/fetch/)。这两项是独立工具 API，未向 Chat Completions 请求添加未经支持的 `enable_search` 参数。
 
+DeepSeek Fetch 明确返回内容不存在时，执行记录显示“此网址无法读取”，不会加入已读来源。临时服务或响应格式失败显示“暂未取得结果”；模型可使用已有资料或其他来源继续，不能声称已读取失败的网页。认证、余额及权限错误继续显示可操作提示。
+
+直接搜索服务只对明确的临时 HTTP 状态（408、429、500、502、503、504）最多尝试三次，默认等待 1 秒和 2 秒，并遵守更长的 `Retry-After`。所有尝试共用两分钟工具时限和相同请求体。网络异常、读取失败及格式错误不自动重放；取消立即传播。诊断事件 `web.tool.retry` 和 `web.tool.deferred` 不记录密钥、查询词或上游正文。
+
 ## 执行记录与来源
 
 聊天回答上方提供可展开的执行记录。搜索词、网页 URL、工具名和中途进度来自实际工具事件；按调用 ID 更新为执行中、完成、失败或取消，正文到达后仍可展开查看。Go 文档工具补充实际读取的章节、页码或关键词。

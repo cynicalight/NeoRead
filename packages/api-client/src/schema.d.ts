@@ -5678,7 +5678,7 @@ export interface components {
             /** Format: uri */
             url?: string;
             /** @enum {unknown} */
-            status: "running" | "completed" | "failed" | "cancelled";
+            status: "running" | "completed" | "failed" | "cancelled" | "unavailable" | "deferred";
             detail?: string;
             startedAt: string;
             finishedAt?: string;

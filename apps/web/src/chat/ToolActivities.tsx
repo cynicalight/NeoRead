@@ -28,12 +28,19 @@ const states = {
   completed: "已完成",
   failed: "失败",
   cancelled: "已取消",
+  unavailable: "此网址无法读取",
+  deferred: "暂未取得结果",
 } as const;
 const traceStatus = (status: ToolActivity["status"]) =>
   status === "running" ? "running" : status === "failed" ? "error" : undefined;
 function ToolIcon({ tool }: { tool: ToolActivity }) {
   if (tool.status === "failed") return <CircleX />;
-  if (tool.status === "cancelled") return <CircleSlash />;
+  if (
+    tool.status === "cancelled" ||
+    tool.status === "unavailable" ||
+    tool.status === "deferred"
+  )
+    return <CircleSlash />;
   if (tool.status === "completed") return <Check />;
   if (tool.kind === "search") return <Search />;
   if (tool.kind === "web") return <Globe />;

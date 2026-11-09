@@ -109,3 +109,80 @@ it("preserves tool details across updates and parent folding, and distinguishes 
     vi.unstubAllGlobals();
   }
 });
+
+it("shows an unavailable fetch as a neutral result while preserving service failures", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const tool: ToolActivity = {
+    id: "missing",
+    kind: "web",
+    tool: "web_fetch",
+    title: "读取网页",
+    url: "https://example.com/missing",
+    status: "unavailable",
+    detail: "未能取得此网址的网页内容，请尝试其他网址。",
+    startedAt: "2026-11-02T00:00:00Z",
+    finishedAt: "2026-11-02T00:00:01Z",
+  };
+  try {
+    await act(async () => root.render(<ToolActivities tools={[tool]} />));
+    await act(async () => host.querySelector("button")!.click());
+    expect(host.textContent).toContain("此网址无法读取");
+    expect(host.textContent).not.toContain("有失败");
+    expect(host.textContent).not.toContain("已完成");
+    expect(host.querySelector('[data-status="error"]')).toBeNull();
+    await act(async () =>
+      root.render(
+        <ToolActivities
+          tools={[
+            { ...tool, status: "failed", detail: "网页读取服务暂不可用" },
+          ]}
+        />,
+      ),
+    );
+    expect(host.textContent).toContain("有失败");
+    expect(host.querySelector('[data-status="error"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("keeps exhausted temporary web failures neutral without exposing HTTP errors", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <ToolActivities
+          tools={[
+            {
+              id: "temporary",
+              kind: "web",
+              tool: "web_fetch",
+              title: "读取网页",
+              status: "deferred",
+              detail: "暂未取得结果",
+              startedAt: "2026-11-02T00:00:00Z",
+            },
+          ]}
+        />,
+      ),
+    );
+    await act(async () => host.querySelector("button")!.click());
+    expect(host.querySelectorAll("button")[1].textContent).toContain(
+      "暂未取得结果",
+    );
+    expect(host.textContent).not.toMatch(/有失败|503|服务暂不可用|已完成/);
+    expect(host.querySelector('[data-status="error"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});

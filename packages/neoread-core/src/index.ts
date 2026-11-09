@@ -632,7 +632,13 @@ export interface ToolActivity {
   title: string;
   target?: string;
   url?: string;
-  status: "running" | "completed" | "failed" | "cancelled";
+  status:
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "unavailable"
+    | "deferred";
   detail?: string;
   startedAt: string;
   finishedAt?: string;

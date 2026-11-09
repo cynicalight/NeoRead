@@ -47,7 +47,7 @@ func TestDeepSeekWebPermissionSourcesAndFailure(t *testing.T) {
 	c.WebSearch = true
 	c.webTransport = webRoundTrip(func(*http.Request) (*http.Response, error) { return webJSON(429, `{"error":"PRIVATE_SECRET"}`), nil })
 	raw, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"x"}`))
-	if err != nil || !strings.Contains(string(raw), "限流") || strings.Contains(string(raw), "PRIVATE_SECRET") || c.Tools[1].Status != "failed" {
+	if err != nil || !strings.Contains(string(raw), "temporarily_unavailable") || strings.Contains(string(raw), "PRIVATE_SECRET") || c.Tools[1].Status != "deferred" {
 		t.Fatal(string(raw), err, c.Tools)
 	}
 	c.webCalls = webToolCalls
