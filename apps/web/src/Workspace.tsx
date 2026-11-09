@@ -12,7 +12,6 @@ import {
 import { SelectionTranslation } from "./SelectionTranslation";
 import { LinkPreviewPanel } from "./LinkPreviewPanel";
 import { AnnotationHoverCard } from "./AnnotationHoverCard";
-import { AnnotationQuote } from "./AnnotationQuote";
 import {
   useCallback,
   useEffect,
@@ -46,7 +45,6 @@ import {
   Type,
   Sun,
   Moon,
-  Check,
   CircleHelp,
 } from "lucide-react";
 import { api, blockImageURL } from "@neoread/api";
@@ -59,6 +57,7 @@ import {
   type ReaderAdapter,
   type ReaderSelection,
   type ReaderAnnotationTarget,
+  type SelectionAnchor,
   type TOCItem,
   type SearchResult,
   type ReaderTheme,
@@ -86,13 +85,6 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@neoread/ui/components/popover";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@neoread/ui/components/dialog";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -334,7 +326,8 @@ export function Workspace({
   const searchInput = useRef<HTMLInputElement>(null);
   const [searching, setSearching] = useState(false);
   const [note, setNote] = useState("");
-  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteAnchor, setNoteAnchor] = useState<SelectionAnchor | null>(null);
+  const noteOpen = !!noteAnchor;
   const [noteKind, setNoteKind] = useState<"note" | "question">("note");
   const palette = highlightPalette(useReaderStore((s) => s.theme));
   const [savedColor, setMarkColor] = useState<string>(() => {
@@ -632,7 +625,7 @@ export function Workspace({
       adapter?.clearSelection();
       if (kind === "bookmark")
         toast.success("已添加书签", { id: "neoread-annotation-save" });
-      setNoteOpen(false);
+      setNoteAnchor(null);
       setNoteSelection(null);
       setEditingAnnotation(null);
       setNote("");
@@ -677,14 +670,30 @@ export function Workspace({
     setSelection(next);
     selectionClipboard.selection(next);
   };
-  const editAnnotationNote = (annotation: Annotation) => {
+  const editAnnotationNote = (
+    annotation: Annotation,
+    anchor: SelectionAnchor,
+  ) => {
     setHoveredAnnotation(null);
     setNoteKind(annotation.kind === "question" ? "question" : "note");
     setEditingAnnotation(annotation);
     setNoteSelection({ text: annotation.quote, location: annotation.location });
     setNote(annotation.note);
-    setNoteOpen(true);
+    setNoteAnchor(anchor);
     adapter?.clearSelection();
+  };
+  // Removes only the note; the highlight stays and Cmd+Z restores the text.
+  const deleteAnnotationNote = async (annotation: Annotation) => {
+    if (annotationSaving.current) return;
+    annotationSaving.current = true;
+    try {
+      const saved = await api.updateAnnotationNote(doc.id, annotation.id, "");
+      setAnnotations((items) => applySavedAnnotation(items, saved));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      annotationSaving.current = false;
+    }
   };
   const askAnnotationAI = (annotation: Annotation) => {
     const quote = { text: annotation.quote, location: annotation.location };
@@ -1373,7 +1382,9 @@ export function Workspace({
                 pane={readingPane}
                 deleting={deleting.has(selectedAnnotation.id)}
                 onDelete={(id) => void removeAnnotation(id)}
-                onNote={editAnnotationNote}
+                onNote={(annotation) =>
+                  editAnnotationNote(annotation, annotationTarget.anchor)
+                }
                 onAskAI={askAnnotationAI}
                 onAnswer={(annotation) => void answerQuestion(annotation)}
                 onColor={(annotation, color) => void recolor(annotation, color)}
@@ -1402,7 +1413,7 @@ export function Workspace({
                     setEditingAnnotation(null);
                     setNoteSelection(selection);
                     setNote("");
-                    setNoteOpen(true);
+                    setNoteAnchor(selection.anchor!);
                     adapter?.clearSelection();
                   }}
                 >
@@ -1415,7 +1426,7 @@ export function Workspace({
                     setEditingAnnotation(null);
                     setNoteSelection(selection);
                     setNote("");
-                    setNoteOpen(true);
+                    setNoteAnchor(selection.anchor!);
                     adapter?.clearSelection();
                   }}
                 >
@@ -1748,7 +1759,32 @@ export function Workspace({
       <AnnotationHoverCard
         target={active && !selection && !noteOpen ? hoveredAnnotation : null}
         annotations={annotations}
+        editor={
+          active && noteAnchor
+            ? {
+                anchor: noteAnchor,
+                kind: noteKind,
+                editing: !!editingAnnotation,
+                initial: editingAnnotation?.note ?? "",
+                value: note,
+                saving: noteSaving,
+                canAnswer: !!provider,
+                onChange: setNote,
+                onSave: () => void annotate(noteKind, note),
+                onSaveAndAnswer: () =>
+                  void annotate("question", note).then((saved) => {
+                    if (saved) void answerQuestion(saved);
+                  }),
+                onClose: () => {
+                  setNoteAnchor(null);
+                  setNoteSelection(null);
+                  setEditingAnnotation(null);
+                },
+              }
+            : null
+        }
         onEdit={editAnnotationNote}
+        onDelete={(annotation) => void deleteAnnotationNote(annotation)}
       />
       <LinkPreviewPanel
         key={doc.id}
@@ -1770,89 +1806,6 @@ export function Workspace({
           onClose={() => setPreviewImage(undefined)}
         />
       )}
-      <Dialog
-        open={active && noteOpen}
-        onOpenChange={(open) => {
-          if (noteSaving) return;
-          setNoteOpen(open);
-          if (!open) {
-            setNoteSelection(null);
-            setEditingAnnotation(null);
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {noteKind === "question"
-                ? editingAnnotation
-                  ? "编辑问题"
-                  : "提问"
-                : editingAnnotation?.note.trim()
-                  ? "编辑批注"
-                  : "添加批注"}
-            </DialogTitle>
-            <DialogDescription className="sr-only">
-              {noteKind === "question"
-                ? "就当前选区提问"
-                : "为当前选区添加批注"}
-            </DialogDescription>
-          </DialogHeader>
-          <blockquote className="note-preview">
-            {noteSelection && (
-              <AnnotationQuote
-                quote={noteSelection.text}
-                location={noteSelection.location}
-              />
-            )}
-          </blockquote>
-          <Textarea
-            autoFocus
-            placeholder={
-              noteKind === "question" ? "想弄清楚什么？" : "批注内容…"
-            }
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-          {noteKind === "question" ? (
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => void annotate("question", note)}
-                disabled={noteSaving || !note.trim()}
-              >
-                <Check />
-                保存问题
-              </Button>
-              {!editingAnnotation && (
-                <Button
-                  className="flex-1"
-                  disabled={noteSaving || !note.trim() || !provider}
-                  onClick={() =>
-                    void annotate("question", note).then((saved) => {
-                      if (saved) void answerQuestion(saved);
-                    })
-                  }
-                >
-                  <Sparkles />
-                  保存并让 AI 回答
-                </Button>
-              )}
-            </div>
-          ) : (
-            <Button
-              onClick={() => void annotate("note", note)}
-              disabled={
-                noteSaving || (!note.trim() && !editingAnnotation?.note.trim())
-              }
-            >
-              <Check />
-              保存批注
-            </Button>
-          )}
-        </DialogContent>
-      </Dialog>
       {active && exportingNotes && (
         <ExportDocumentDialog
           key={`export-${doc.id}`}

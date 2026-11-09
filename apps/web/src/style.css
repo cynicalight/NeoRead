@@ -1636,15 +1636,6 @@ kbd {
   white-space: pre-wrap;
   line-height: 1.8;
 }
-.note-preview {
-  border-left: 2px solid #c9ae6d;
-  padding-left: 14px;
-  max-height: 160px;
-  overflow: auto;
-  font-size: 12px;
-  line-height: 1.8;
-  color: var(--muted-foreground);
-}
 .page-navigation {
   display: flex;
   flex-shrink: 0;
