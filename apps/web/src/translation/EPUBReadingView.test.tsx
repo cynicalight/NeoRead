@@ -459,6 +459,28 @@ it("links block hover and focuses a clicked block in both panes", async () => {
   expect(adapter.focusBlock).toHaveBeenCalledTimes(2);
 });
 
+it("prioritizes double-click selection over translation block focus", async () => {
+  await click("原文译文");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+  const section = host.querySelector<HTMLElement>('[data-translation-block="e-b"]')!;
+  vi.mocked(adapter.focusBlock!).mockClear();
+  const clickBlock = (detail: number) => {
+    section.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+    section.dispatchEvent(new MouseEvent("click", { bubbles: true, detail }));
+  };
+  await act(async () => {
+    clickBlock(1);
+    clickBlock(2);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  expect(adapter.focusBlock).not.toHaveBeenCalled();
+  await act(async () => {
+    clickBlock(1);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  expect(adapter.focusBlock).toHaveBeenCalledWith("e-b", "parallel");
+});
+
 it("initializes chapter context in memory without saving progress on open", async () => {
   expect(fixture.ready!.getLocation()).toMatchObject({
     type: "epub",

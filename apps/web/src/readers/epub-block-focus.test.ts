@@ -114,6 +114,38 @@ it("focuses a clicked block but not after a drag or text selection", () => {
   expect(onFocus).not.toHaveBeenCalled();
 });
 
+it("defers mouse focus and cancels it for a double click or a selection", () => {
+  vi.useFakeTimers();
+  try {
+    const paragraph = container.querySelector('[data-epub-block="p"]')!;
+    const click = (detail: number) => {
+      paragraph.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+      const event = new MouseEvent("click", { bubbles: true, detail });
+      paragraph.addEventListener("click", (e) => overlay.click(e as MouseEvent), { once: true });
+      paragraph.dispatchEvent(event);
+    };
+    click(1);
+    expect(onFocus).not.toHaveBeenCalled();
+    click(2);
+    vi.advanceTimersByTime(500);
+    expect(onFocus).not.toHaveBeenCalled();
+    click(1);
+    vi.advanceTimersByTime(149);
+    expect(onFocus).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onFocus).toHaveBeenCalledOnce();
+    onFocus.mockClear();
+    click(1);
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    window.getSelection()!.addRange(range);
+    vi.advanceTimersByTime(500);
+    expect(onFocus).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("centers a block, top-aligns a tall one, and removes the box", async () => {
   await overlay.focus("p");
   // The padded box (596, 48 high) sits at (400 - 48) / 2.

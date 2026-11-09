@@ -55,6 +55,7 @@ import {
 } from "./reflow";
 import { copyText } from "../chat/clipboard";
 import { EPUBBlockOverlay } from "../readers/epub-block-focus";
+import { DeferredBlockFocus } from "../readers/deferred-block-focus";
 import { blockImageCache } from "./block-images";
 import { useSentenceMarks } from "./useSentenceMarks";
 import { translatedSelection as captureTranslationSelection } from "./selection";
@@ -120,6 +121,15 @@ export function PDFReadingView({
   const [engine, setEngine] = useState<ReaderAdapter>();
   const [hoveredBlock, setHoveredBlock] = useState<string>();
   const [focusedBlock, setFocusedBlock] = useState<string>();
+  const deferredFocus = useMemo(() => new DeferredBlockFocus(), []);
+  useEffect(() => {
+    const cancel = () => deferredFocus.cancel();
+    document.addEventListener("pointerdown", cancel, true);
+    return () => {
+      document.removeEventListener("pointerdown", cancel, true);
+      deferredFocus.cancel();
+    };
+  }, [deferredFocus]);
   const hoverOwner = useRef<"source" | "translation" | undefined>(undefined);
   const hover = (origin: "source" | "translation", blockId?: string) => {
     if (reflow) return;
@@ -794,6 +804,7 @@ export function PDFReadingView({
     };
   }, []);
   const input = (active: typeof side.current) => {
+    deferredFocus.cancel();
     cancelTranslationMotion();
     if (explicitFocus.current.moving || active === "translation")
       engine?.cancelBlockFocus?.();
@@ -1309,7 +1320,11 @@ export function PDFReadingView({
                             ) > 5))
                       )
                         return;
-                      if (theme.blockFocus !== false) focusTranslation(block);
+                      if (theme.blockFocus !== false)
+                        deferredFocus.schedule(event.detail, () => {
+                          if (!window.getSelection()?.toString().trim())
+                            focusTranslation(block);
+                        });
                     }}
                     onKeyDown={(event) => {
                       if (

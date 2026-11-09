@@ -1,4 +1,5 @@
 import { reducedMotion } from "../motion";
+import { DeferredBlockFocus } from "./deferred-block-focus";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { EPUBReadingBlock, PDFBlockAction } from "@neoread/core";
@@ -67,6 +68,7 @@ export class EPUBBlockOverlay<Block extends OverlayBlock = EPUBReadingBlock> {
   private linkedId: string | null = null;
   private focusId: string | null = null;
   private pressed?: { id: string; x: number; y: number };
+  private pendingFocus = new DeferredBlockFocus();
   private operation = 0;
   private abort = new AbortController();
   private fade?: Animation;
@@ -217,7 +219,10 @@ export class EPUBBlockOverlay<Block extends OverlayBlock = EPUBReadingBlock> {
   }
 
   private leave = () => this.dismiss(false);
-  private clear = () => this.dismiss(true);
+  private clear = () => {
+    this.pendingFocus.cancel();
+    this.dismiss(true);
+  };
   private dismiss(immediate: boolean) {
     this.hideHover(immediate);
     if (this.hovered) {
@@ -227,6 +232,7 @@ export class EPUBBlockOverlay<Block extends OverlayBlock = EPUBReadingBlock> {
   }
 
   private press = (event: PointerEvent) => {
+    this.pendingFocus.cancel();
     this.cancel();
     this.pressed = undefined;
     if ((event.target as Element | null)?.closest(blockActionTarget)) return;
@@ -246,8 +252,10 @@ export class EPUBBlockOverlay<Block extends OverlayBlock = EPUBReadingBlock> {
       this.blockAt(event) !== pressed.id
     )
       return;
-    this.clear();
-    this.onFocus(pressed.id);
+    this.pendingFocus.schedule(event.detail, () => {
+      this.clear();
+      this.onFocus(pressed.id);
+    });
   }
 
   setLinkedBlock(id: string | null) {
@@ -327,12 +335,14 @@ export class EPUBBlockOverlay<Block extends OverlayBlock = EPUBReadingBlock> {
   }
 
   cancel() {
+    this.pendingFocus.cancel();
     if (!this.focusId) return;
     this.operation++;
     this.release();
   }
 
   destroy() {
+    this.pendingFocus.cancel();
     this.operation++;
     this.abort.abort();
     this.actions.unmount();

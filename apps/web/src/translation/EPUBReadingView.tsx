@@ -39,6 +39,7 @@ import { epubBlocksAt } from "./epub-links";
 import { ReadingSync } from "../readers/pdf-reading";
 import { animatePDFScroll } from "../readers/pdf-scroll";
 import { isSelectionToolbar } from "../readers/selection-anchor";
+import { DeferredBlockFocus } from "../readers/deferred-block-focus";
 import { defaultTheme } from "@neoread/core";
 import { translationFont } from "../appearance";
 import "./translation.css";
@@ -98,6 +99,15 @@ export function EPUBReadingView({
   );
   const engine = useRef<ReaderAdapter | undefined>(undefined);
   const selection = useRef<ReaderSelection | null>(null);
+  const deferredFocus = useMemo(() => new DeferredBlockFocus(), []);
+  useEffect(() => {
+    const cancel = () => deferredFocus.cancel();
+    document.addEventListener("pointerdown", cancel, true);
+    return () => {
+      document.removeEventListener("pointerdown", cancel, true);
+      deferredFocus.cancel();
+    };
+  }, [deferredFocus]);
   const position = useRef<EPUBLocation>(
     doc.progress?.type === "epub" ? doc.progress : { type: "epub", href: "" },
   );
@@ -357,6 +367,7 @@ export function EPUBReadingView({
     engine.current?.cancelBlockFocus?.();
   };
   const input = (origin: "source" | "translation") => {
+    deferredFocus.cancel();
     translationMotion.current++;
     pendingFollow.current = undefined;
     syncTarget.current = undefined;
@@ -960,7 +971,10 @@ export function EPUBReadingView({
                     )
                       return;
                     if (theme.blockFocus !== false)
-                      focusBlock(block.id, "translation");
+                      deferredFocus.schedule(event.detail, () => {
+                        if (!window.getSelection()?.toString().trim())
+                          focusBlock(block.id, "translation");
+                      });
                   }}
                   onKeyDown={(event) => {
                     if (
