@@ -35,7 +35,7 @@ const render = async (
     ),
   );
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(110);
+    await vi.advanceTimersByTimeAsync(60);
   });
 };
 beforeEach(() => {

@@ -119,7 +119,7 @@ export function AnnotationHoverCard({
   useEffect(() => {
     cancel();
     if (target) {
-      timer.current = setTimeout(() => setShown(target), 100);
+      timer.current = setTimeout(() => setShown(target), 50);
     } else if (!inside.current) leave();
     return cancel;
   }, [target]);
