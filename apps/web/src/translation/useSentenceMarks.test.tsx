@@ -433,7 +433,7 @@ it("waits for dwell, tolerates line gaps, and cancels pending work on interrupti
 });
 
 it.each(["highlight", "underline", "note"] as const)(
-  "suppresses the whole marked source sentence for %s, previews without selecting, and restores after deletion",
+  "opens the %s note only over the mark and hovers the rest of its sentence",
   async (kind) => {
     const annotation: Annotation = {
       id: "source-mark",
@@ -449,22 +449,30 @@ it.each(["highlight", "underline", "note"] as const)(
         rects: [{ x: 0, y: 0, width: 0.2, height: 1 }],
       },
     };
+    const sentence = ["Original sentence.", "翻译句子。"];
     await act(async () => root.render(<App annotations={[annotation]} />));
-    // Hover the unmarked part of the same sentence.
+    // The unmarked part of the same sentence behaves like any sentence.
     await pointer("[data-source]", "pointermove", 70);
+    expect(texts(hover())).toEqual(sentence);
+    expect(events.annotationHover).toHaveBeenLastCalledWith(null);
+    // Moving onto the mark within the sentence opens its note.
+    await pointer("[data-source]", "pointermove", 10);
     expect(hover()).toBeUndefined();
     expect(events.annotationHover).toHaveBeenLastCalledWith(
       expect.objectContaining({ ids: [annotation.id] }),
     );
     expect(events.annotation).not.toHaveBeenCalled();
+    await pointer("[data-source]", "pointermove", 70);
+    expect(texts(hover())).toEqual(sentence);
+    expect(events.annotationHover).toHaveBeenLastCalledWith(null);
     await pointer("[data-source]", "pointerleave", 70);
     expect(events.annotationHover).toHaveBeenLastCalledWith(null);
-    await pointer("[data-source]", "pointermove", 70);
+    await pointer("[data-source]", "pointermove", 10);
     expect(events.annotationHover).toHaveBeenLastCalledWith(
       expect.objectContaining({ ids: [annotation.id] }),
     );
     await act(async () => root.render(<App annotations={[]} />));
-    expect(texts(hover())).toEqual(["Original sentence.", "翻译句子。"]);
+    expect(texts(hover())).toEqual(sentence);
     expect(events.annotationHover).toHaveBeenLastCalledWith(null);
   },
 );

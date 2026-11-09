@@ -802,6 +802,33 @@ it("emits note hover independently of selection/click and clears it on leaving",
   expect(events.selection).not.toHaveBeenCalled();
   host.dispatchEvent(new MouseEvent("pointerleave"));
   expect(events.annotationHover).toHaveBeenLastCalledWith(null);
+  // Only the marked words open the note, not the rest of their sentence.
+  const lineBox = text.getBoundingClientRect();
+  Range.prototype.getClientRects = function (this: Range) {
+    return [
+      new DOMRect(
+        lineBox.left + this.startOffset * 10,
+        lineBox.top,
+        (this.endOffset - this.startOffset) * 10,
+        20,
+      ),
+    ] as unknown as DOMRectList;
+  };
+  await reader.highlight([annotation]);
+  const move = (x: number) =>
+    text.dispatchEvent(
+      new MouseEvent("pointermove", {
+        bubbles: true,
+        clientX: lineBox.left + x,
+        clientY: lineBox.top + 10,
+      }),
+    );
+  move(105); // "Same words|." — same sentence, outside the mark
+  expect(events.annotationHover).toHaveBeenLastCalledWith(null);
+  move(40);
+  expect(events.annotationHover).toHaveBeenLastCalledWith(
+    expect.objectContaining({ ids: ["note"] }),
+  );
 });
 
 it("opens from metadata without loading distant text and resolves an unloaded search hit on demand", async () => {

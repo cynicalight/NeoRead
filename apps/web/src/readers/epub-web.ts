@@ -1,8 +1,5 @@
 import { selectionContext } from "./selection-context";
-import {
-  annotationsInRects,
-  sentenceRectsAtPoint,
-} from "../translation/annotation-hover";
+import { annotationsAtPoint } from "../translation/annotation-hover";
 import { api } from "@neoread/api";
 import type {
   Annotation,
@@ -910,17 +907,18 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       this.events.annotationHover?.(null);
       return;
     }
-    const rects = sentenceRectsAtPoint(target, event.clientX, event.clientY);
     const byId = new Map(this.annotations.map((a) => [a.id, a]));
     const ranges = this.marks.flatMap((mark) => {
       const annotation = byId.get(mark.id);
       return annotation ? [{ annotation, range: mark.range }] : [];
     });
-    const matches = annotationsInRects(
+    // Only the marked text itself opens the note, not the rest of its sentence.
+    const { annotations: matches, rects } = annotationsAtPoint(
       this.container,
       this.annotations,
       ranges,
-      rects,
+      event.clientX,
+      event.clientY,
     );
     this.events.annotationHover?.(
       matches.length

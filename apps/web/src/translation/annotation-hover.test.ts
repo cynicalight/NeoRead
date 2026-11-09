@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 import type { Annotation } from "@neoread/core";
-import { annotationsInRects, sentenceRectsAtPoint } from "./annotation-hover";
+import { annotationsAtPoint, annotationsInRects } from "./annotation-hover";
 afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
 });
-it("previews a partial EPUB mark throughout its sentence, without leaking into the next sentence", () => {
+it("opens a partial EPUB mark only over the marked text", () => {
   const host = document.createElement("div");
   host.innerHTML =
     '<p data-epub-block="b">First sentence. Second sentence.</p>';
@@ -36,29 +36,19 @@ it("previews a partial EPUB mark throughout its sentence, without leaking into t
     location: { type: "epub", href: "a.xhtml" },
   } as Annotation;
   const marks = [{ annotation, range }];
-  expect(
-    annotationsInRects(
-      host,
-      [annotation],
-      marks,
-      sentenceRectsAtPoint(paragraph, 100, 10),
-    ),
-  ).toEqual([annotation]);
-  expect(
-    annotationsInRects(
-      host,
-      [annotation],
-      marks,
-      sentenceRectsAtPoint(paragraph, 220, 10),
-    ),
-  ).toEqual([]);
-  expect(sentenceRectsAtPoint(paragraph, 400, 10)).toEqual([]);
+  const at = (x: number) =>
+    annotationsAtPoint(host, [annotation], marks, x, 10).annotations;
+  expect(at(30)).toEqual([annotation]); // inside "irst" (offsets 1..5)
+  expect(at(100)).toEqual([]); // same sentence, outside the mark
+  expect(at(220)).toEqual([]); // next sentence
+  expect(annotationsAtPoint(host, [annotation], marks, 30, 10).rects).toEqual([
+    new DOMRect(10, 0, 40, 20),
+  ]);
 });
-it("handles empty sentences and excludes bookmarks from PDF suppression", () => {
+it("excludes bookmarks from PDF suppression", () => {
   const host = document.createElement("div");
   host.innerHTML =
     '<p data-sentence="0"></p><div class="page" data-page-number="1"></div>';
-  expect(sentenceRectsAtPoint(host.firstElementChild!, 0, 0)).toEqual([]);
   vi.spyOn(host.lastElementChild!, "getBoundingClientRect").mockReturnValue(
     new DOMRect(0, 0, 100, 100),
   );
@@ -74,4 +64,37 @@ it("handles empty sentences and excludes bookmarks from PDF suppression", () => 
   expect(
     annotationsInRects(host, [bookmark], [], [new DOMRect(10, 10, 20, 20)]),
   ).toEqual([]);
+});
+it("ignores sentences on neighbouring lines whose text boxes only touch the mark", () => {
+  const host = document.createElement("div");
+  host.innerHTML = '<div class="page" data-page-number="1"></div>';
+  document.body.append(host);
+  vi.spyOn(host.firstElementChild!, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 1000, 1000),
+  );
+  // Lines every 20px with 24px-tall text boxes: the mark is on y = 100..124.
+  const note = {
+    id: "n",
+    kind: "highlight",
+    note: "批注",
+    location: {
+      type: "pdf",
+      page: 1,
+      rects: [{ x: 0.1, y: 0.1, width: 0.4, height: 0.024 }],
+    },
+  } as Annotation;
+  const line = (top: number, left = 100, width = 400) =>
+    new DOMRect(left, top, width, 24);
+  expect(annotationsInRects(host, [note], [], [line(80)])).toEqual([]);
+  expect(annotationsInRects(host, [note], [], [line(120)])).toEqual([]);
+  // Previous sentence ends exactly where the mark starts on the same line.
+  expect(annotationsInRects(host, [note], [], [line(100, 0, 100.4)])).toEqual(
+    [],
+  );
+  expect(annotationsInRects(host, [note], [], [line(100, 300, 50)])).toEqual([
+    note,
+  ]);
+  expect(
+    annotationsInRects(host, [note], [], [new DOMRect(150, 110, 1, 1)]),
+  ).toEqual([note]);
 });

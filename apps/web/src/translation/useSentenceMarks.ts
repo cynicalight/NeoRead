@@ -1,4 +1,4 @@
-import { annotationsInRects } from "./annotation-hover";
+import { annotationsAtPoint, annotationsInRects } from "./annotation-hover";
 import { SentenceHover } from "./sentence-hover";
 import { useEffect, useId, useRef } from "react";
 import type { RefObject } from "react";
@@ -77,12 +77,16 @@ export function useSentenceMarks(
     const searchName = `${prefix}-search`;
     const cache = new Map<string, Range[]>();
     let geometry = new WeakMap<Range, DOMRect[]>();
-    const containsPoint = (range: Range, x: number, y: number) => {
+    const rectsOf = (range: Range) => {
       let rects = geometry.get(range);
       if (!rects) {
         rects = Array.from(range.getClientRects());
         geometry.set(range, rects);
       }
+      return rects;
+    };
+    const containsPoint = (range: Range, x: number, y: number) => {
+      const rects = rectsOf(range);
       return rects.some(
         (r) =>
           r.width &&
@@ -120,6 +124,10 @@ export function useSentenceMarks(
     let anchor: { x: number; y: number } | undefined;
     let activeRanges: Range[] = [];
     let activeAnnotationTarget: ReaderAnnotationTarget | null = null;
+    // Marks in the active sentence and its hover, so moving within the
+    // sentence can switch between the note card and the sentence highlight.
+    let activeMarked: Annotation[] = [];
+    let activeHover: { key: string; ranges: Range[] } | undefined;
     const cancelEnter = () => {
       clearTimeout(enterTimer);
       enterTimer = undefined;
@@ -135,6 +143,8 @@ export function useSentenceMarks(
         leaveTimer = undefined;
         activeRanges = [];
         activeAnnotationTarget = null;
+        activeMarked = [];
+        activeHover = undefined;
         hover.clear();
       }, 500);
     };
@@ -152,6 +162,8 @@ export function useSentenceMarks(
       cancelLeave();
       activeRanges = [];
       activeAnnotationTarget = null;
+      activeMarked = [];
+      activeHover = undefined;
       hover.clear(true);
     };
     const targetCache = new Map<string, Range[]>();
@@ -326,6 +338,20 @@ export function useSentenceMarks(
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(paint);
     };
+    const report = (matches: Annotation[], rects: DOMRect[], x: number) => {
+      activeAnnotationTarget =
+        matches.length && rects.length
+          ? {
+              ids: matches.map((a) => a.id),
+              anchor: {
+                x,
+                top: Math.min(...rects.map((r) => r.top)),
+                bottom: Math.max(...rects.map((r) => r.bottom)),
+              },
+            }
+          : null;
+      latest.current.events.annotationHover?.(activeAnnotationTarget);
+    };
     const resolveHover = (point: { target: Element; x: number; y: number }) => {
       const { blocks, translations } = latest.current;
       const target =
@@ -339,28 +365,15 @@ export function useSentenceMarks(
         deferClear();
         return;
       }
-      const report = (matches: Annotation[], rects: DOMRect[]) => {
-        activeAnnotationTarget =
-          matches.length && rects.length
-            ? {
-                ids: matches.map((a) => a.id),
-                anchor: {
-                  x: point.x,
-                  top: Math.min(...rects.map((r) => r.top)),
-                  bottom: Math.max(...rects.map((r) => r.bottom)),
-                },
-              }
-            : null;
-        latest.current.events.annotationHover?.(activeAnnotationTarget);
-      };
-      const pointRect = new DOMRect(point.x, point.y, 1, 1);
-      const direct = annotationsInRects(
+      const direct = annotationsAtPoint(
         host,
         latest.current.annotations,
         marks,
-        [pointRect],
+        point.x,
+        point.y,
+        rectsOf,
       );
-      if (direct.length) hover.clear(true);
+      if (direct.annotations.length) hover.clear(true);
       const translated = target.closest<HTMLElement>("[data-sentence]");
       let t: TranslationBlock | undefined,
         index = -1,
@@ -425,7 +438,7 @@ export function useSentenceMarks(
           );
       }
       if (!t || index < 0 || !t.sentences[index]) {
-        report(direct, [pointRect]);
+        report(direct.annotations, direct.rects, point.x);
         deferClear();
         return;
       }
@@ -440,18 +453,23 @@ export function useSentenceMarks(
       const rects = activeRanges.flatMap((range) =>
         Array.from(range.getClientRects()),
       );
-      const matches = annotationsInRects(
-        host,
-        latest.current.annotations,
-        marks,
-        rects,
-      );
-      report(
-        matches,
-        activeRanges.flatMap((range) => Array.from(range.getClientRects())),
-      );
-      if (matches.length) hover.clear(true);
-      else hover.show(`${t.blockId}:${index}:${fromTranslation}`, ranges);
+      activeMarked = [
+        ...new Set([
+          ...annotationsInRects(host, latest.current.annotations, marks, rects),
+          ...direct.annotations,
+        ]),
+      ];
+      activeHover = { key: `${t.blockId}:${index}:${fromTranslation}`, ranges };
+      applyPoint(point.x, point.y);
+    };
+    // Only the marked text opens the note; the rest of the sentence hovers.
+    const applyPoint = (x: number, y: number) => {
+      const hit = activeMarked.length
+        ? annotationsAtPoint(host, activeMarked, marks, x, y, rectsOf)
+        : { annotations: [], rects: [] };
+      report(hit.annotations, hit.rects, x);
+      if (hit.annotations.length) hover.clear(true);
+      else if (activeHover) hover.show(activeHover.key, activeHover.ranges);
     };
     const move = (event: PointerEvent) => {
       if (event.buttons || window.getSelection()?.toString().trim()) {
@@ -476,7 +494,7 @@ export function useSentenceMarks(
       ) {
         cancelEnter();
         cancelLeave();
-        latest.current.events.annotationHover?.(activeAnnotationTarget);
+        applyPoint(event.clientX, event.clientY);
         return;
       }
       latest.current.events.annotationHover?.(null);
