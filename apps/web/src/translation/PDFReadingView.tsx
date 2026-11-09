@@ -685,6 +685,20 @@ export function PDFReadingView({
       engine.hoverBlock?.(null);
     };
   }, [mode, engine, active, reflow]);
+  // Reflowed text opens at the saved place once its paragraphs render: the
+  // hidden PDF reports that place, possibly before the paragraphs arrive.
+  const reflowRestored = useRef(false);
+  useEffect(() => {
+    reflowRestored.current = false;
+  }, [doc.id, reflow]);
+  const restoreReflow = () => {
+    const anchor = reading.current;
+    if (!state.current.reflow || reflowRestored.current || !anchor) return;
+    if (!pane.current?.querySelector(blockSelector)) return;
+    reflowRestored.current = true;
+    followTranslation(anchor);
+  };
+  useEffect(restoreReflow, [visibleBlocks.length, reflow]);
   useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
   useEffect(() => {
     const release = () => {
@@ -922,6 +936,7 @@ export function PDFReadingView({
                   )
                     return;
                   recordReading(anchor);
+                  restoreReflow();
                   if (
                     state.current.mode === "parallel" &&
                     !state.current.reflow &&

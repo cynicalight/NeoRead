@@ -1330,3 +1330,21 @@ it("copies a PDF paragraph with the formulas its translation restored", async ()
     delete (events as { blockAction?: unknown }).blockAction;
   }
 });
+it("opens reflowed text at the place the hidden PDF reports, once", async () => {
+  await renderView(reflowed);
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  const block = pane.querySelector<HTMLElement>('[data-reflow-block="p1-b1"]')!;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+  block.getBoundingClientRect = () =>
+    new DOMRect(0, 1500 - pane.scrollTop, 600, 200);
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0 }),
+  );
+  expect(pane.scrollTop).toBeCloseTo(1200);
+  // Later reports from the hidden PDF no longer move the visible text.
+  pane.scrollTop = 0;
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0 }),
+  );
+  expect(pane.scrollTop).toBe(0);
+});
