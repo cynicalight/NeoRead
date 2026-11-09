@@ -183,3 +183,18 @@ it("keeps the toolbar reachable across the box margin above the block", () => {
   expect(box()).toBeNull();
   expect(onHover).toHaveBeenLastCalledWith(null);
 });
+
+it("covers a reflowed translation placed after a mixed block's runs", () => {
+  const runs = container.querySelectorAll('[data-epub-run="m"]');
+  const translation = document.createElement("div");
+  translation.dataset.reflowBlock = "m";
+  translation.innerHTML = "<span>译文</span>";
+  runs[1].after(translation);
+  rect(runs[0], 100);
+  rect(runs[1], 140);
+  rect(translation, 180);
+  expect(epubBlockId(translation.firstElementChild)).toBe("m");
+  const box = epubBlockRect(container, "m")!;
+  expect(box.top + box.height).toBeGreaterThanOrEqual(220);
+  expect(box.top).toBeLessThanOrEqual(100);
+});

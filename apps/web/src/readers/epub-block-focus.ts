@@ -6,9 +6,11 @@ import { BlockActions } from "../BlockActions";
 
 // EPUB paragraphs are already DOM blocks: hover, counterpart and focus boxes
 // follow the rendered element (or the text runs of a mixed container) instead
-// of a parsed page layout, matching the PDF block interaction.
+// of a parsed page layout, matching the PDF block interaction. Reflowed text
+// marks each paragraph's parts (source text and translation) with
+// data-reflow-block, so one box covers the whole bilingual paragraph.
 
-const blockSelector = "[data-epub-run], [data-epub-block]";
+const blockSelector = "[data-epub-run], [data-epub-block], [data-reflow-block]";
 // Includes the toolbar's padding, which bridges the gap above the block.
 const blockActionTarget = "[data-block-action], .block-actions";
 // Breathing room around the text, like the margin of a parsed PDF block.
@@ -20,7 +22,11 @@ export function epubBlockId(target: EventTarget | null) {
     target instanceof Element
       ? target.closest<HTMLElement>(blockSelector)
       : null;
-  return element?.dataset.epubRun ?? element?.dataset.epubBlock;
+  return (
+    element?.dataset.epubRun ??
+    element?.dataset.epubBlock ??
+    element?.dataset.reflowBlock
+  );
 }
 
 /** Viewport rect covering every rendered part of a block. */
@@ -31,7 +37,7 @@ export function epubBlockRect(container: HTMLElement, id: string) {
     right = -Infinity,
     bottom = -Infinity;
   for (const node of container.querySelectorAll<HTMLElement>(
-    `[data-epub-block=${value}], [data-epub-run=${value}]`,
+    `[data-epub-block=${value}], [data-epub-run=${value}], [data-reflow-block=${value}]`,
   )) {
     const r = node.getBoundingClientRect();
     if (!r.width && !r.height) continue;
@@ -49,7 +55,9 @@ export function epubBlockRect(container: HTMLElement, id: string) {
   };
 }
 
-export class EPUBBlockOverlay {
+type OverlayBlock = { id: string; image?: string };
+
+export class EPUBBlockOverlay<Block extends OverlayBlock = EPUBReadingBlock> {
   private hover = this.box("neoread-block-hover");
   private linked = this.box("neoread-block-hover neoread-block-counterpart");
   private focusBox = this.box("neoread-block-hover neoread-block-focus");
@@ -67,11 +75,8 @@ export class EPUBBlockOverlay {
     private container: HTMLElement,
     private onHover: (id: string | null) => void,
     private onFocus: (id: string) => void,
-    private blocks: () => EPUBReadingBlock[] = () => [],
-    private onAction: (
-      block: EPUBReadingBlock,
-      action: PDFBlockAction,
-    ) => void = () => {},
+    private blocks: () => Block[] = () => [],
+    private onAction: (block: Block, action: PDFBlockAction) => void = () => {},
   ) {
     this.actions = createRoot(this.hover);
     this.focusBox.addEventListener("animationend", () => {
@@ -115,11 +120,12 @@ export class EPUBBlockOverlay {
       height: `${rect.height}px`,
     });
     element.dataset.blockId = id;
-    element.dataset.blockKind = this.container.querySelector(
-      `img[data-epub-block=${JSON.stringify(id)}]`,
-    )
-      ? "image"
-      : "text";
+    element.dataset.blockKind =
+      this.container.querySelector(
+        `img[data-epub-block=${JSON.stringify(id)}]`,
+      ) || this.blocks().find((b) => b.id === id)?.image
+        ? "image"
+        : "text";
     if (element === this.hover) {
       this.fade?.cancel();
       this.fade = undefined;
@@ -178,7 +184,7 @@ export class EPUBBlockOverlay {
     this.actionsFor = block?.id;
     this.actions.render(
       block
-        ? createElement(BlockActions<EPUBReadingBlock>, {
+        ? createElement(BlockActions<Block>, {
             block,
             onAction: this.onAction,
           })
