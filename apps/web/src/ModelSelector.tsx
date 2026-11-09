@@ -351,16 +351,6 @@ export function ModelSelector({
             </SelectContent>
           </Select>
         </div>
-        {effortInfo && (
-          <p className="text-xs text-muted-foreground" role="status">
-            {effortInfo.note}
-            {!fixedEffort &&
-            effortInfo.mappings?.[effort] &&
-            effortInfo.mappings[effort] !== effort
-              ? ` ${effort} → ${effortInfo.mappings[effort]}${effortInfo.mode === "budget" ? " tokens" : ""}`
-              : ""}
-          </p>
-        )}
         <div className="effort-slider-wrap">
           <Slider
             className="effort-slider"
