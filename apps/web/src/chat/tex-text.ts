@@ -22,7 +22,15 @@ export function texText(range: Range): string {
         ? `$$${math.dataset.tex}$$`
         : `$${math.dataset.tex}$`,
     );
-  return copy.textContent ?? "";
+  // Rendered off screen, innerText keeps the paragraph and line breaks that
+  // textContent drops.
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:-99999px;top:0";
+  box.append(copy);
+  document.body.append(box);
+  const text = box.innerText ?? box.textContent ?? "";
+  box.remove();
+  return text;
 }
 
 /** Copies selections that touch a formula as text with TeX. */

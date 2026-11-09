@@ -36,6 +36,26 @@ it("copies a selection inside one formula as the whole formula", () => {
   expect(texText(range)).toBe("$(x_1, ..., x_n)$");
 });
 
+it("keeps the line breaks the rendered text has", () => {
+  // jsdom has no layout; stand in for innerText's block and <br> breaks.
+  Object.defineProperty(HTMLElement.prototype, "innerText", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return [...this.childNodes].map((n) => n.textContent).join("\n");
+    },
+  });
+  try {
+    document.body.innerHTML =
+      '<div id="a"><p>one <span class="markdown-math" data-tex="x"><span class="katex">x</span></span></p><p>two</p></div>';
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById("a")!);
+    expect(texText(range)).toBe("one $x$\ntwo");
+    expect(document.body.children).toHaveLength(1);
+  } finally {
+    delete (HTMLElement.prototype as { innerText?: string }).innerText;
+  }
+});
+
 it("puts TeX on the clipboard only for selections with formulas", () => {
   const p = host();
   dispose = installTeXCopy(document);
