@@ -1,3 +1,5 @@
+import { reflowBlockText } from "./reflow";
+import { copyText } from "../chat/clipboard";
 import { useSentenceMarks } from "./useSentenceMarks";
 import { useTranslations } from "./useTranslations";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
@@ -606,6 +608,17 @@ export function EPUBReadingView({
       }}
       events={{
         ...events,
+        epubBlockAction: (block, action) => {
+          const { reflow, translations, events } = live.current;
+          if (reflow && action === "copy" && !block.image) {
+            const translation = translations.find(
+              (t) => t.blockId === block.id,
+            );
+            void copyText(reflowBlockText(block.text, translation), "已复制");
+            return;
+          }
+          events.epubBlockAction?.(block, action);
+        },
         epubBlocksChanged: (items) => {
           const top = pane.current?.getBoundingClientRect().top ?? 0;
           const node = Array.from(

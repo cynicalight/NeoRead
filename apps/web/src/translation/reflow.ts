@@ -48,6 +48,29 @@ export function reflowSourceParts(
   });
 }
 
+/**
+ * A reflowed paragraph as copied: its source with restored formulas as TeX, a
+ * blank line, then its translation.
+ */
+export function reflowBlockText(text: string, translation?: TranslationBlock) {
+  const source = reflowSourceParts(text, translation)
+    .map((part) => part.display ?? part.text)
+    .join("")
+    .trim();
+  const target =
+    translation?.status === "complete"
+      ? translation.sentences
+          .map((s) => s.target)
+          .reduce(
+            (all, next) =>
+              all + (all && needsSpace(all, next) ? " " : "") + next,
+            "",
+          )
+          .trim()
+      : "";
+  return target ? `${source}\n\n${target}` : source;
+}
+
 /** The same untranslated split used by sentence hover. */
 export function segmentSentences(text: string): TranslationSentence[] {
   if (typeof Intl === "undefined" || !("Segmenter" in Intl))

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { copyText } from "../chat/clipboard";
 import { useReaderStore } from "../store";
 import { ReadingLinkNavigation } from "../reading-links";
 import { act, useContext, useEffect } from "react";
@@ -47,6 +48,10 @@ vi.mock("@neoread/api", () => ({
     translate: vi.fn(async () => ({ queued: true })),
   },
   blockImageURL: () => "",
+}));
+vi.mock("../chat/clipboard", () => ({
+  copyText: vi.fn(async () => true),
+  copyImage: vi.fn(async () => true),
 }));
 vi.mock("../chat/MessageMarkdown", () => ({
   MessageMarkdown: ({
@@ -1242,9 +1247,20 @@ it("offers paragraph actions and focuses reflowed paragraphs only when enabled",
     );
     expect(copy?.getAttribute("aria-label")).toBe("复制此段");
     await act(async () => copy!.click());
+    // Reflowed paragraphs copy their source and translation together.
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith(
+      expect.any(String),
+      "已复制",
+    );
+    expect(blockAction).not.toHaveBeenCalled();
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>('[data-block-action="explain"]')!
+        .click(),
+    );
     expect(blockAction).toHaveBeenCalledWith(
       expect.objectContaining({ id: "p1-b1" }),
-      "copy",
+      "explain",
     );
     await press();
     expect(focus).not.toHaveBeenCalled();

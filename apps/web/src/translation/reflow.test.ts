@@ -5,6 +5,7 @@ import {
   reflowQuoteRanges,
   reflowSourceParts,
   reflowSourceSelection,
+  reflowBlockText,
 } from "./reflow";
 
 const translated = (
@@ -149,4 +150,24 @@ it("turns a reflowed source selection into per-paragraph source anchors", () => 
     ],
   });
   host.remove();
+});
+
+it("copies a reflowed paragraph as restored source, a blank line and its translation", () => {
+  const translation = {
+    blockId: "a",
+    sourceHash: "h",
+    status: "complete",
+    sentences: [
+      { source: "Plain start.", target: "开头。" },
+      {
+        source: "Dim $d_k$ here.",
+        anchor: "Dim d k here.",
+        target: "维度 $d_k$。",
+      },
+    ],
+  } as TranslationBlock;
+  expect(reflowBlockText("Plain start. Dim d k here.", translation)).toBe(
+    "Plain start. Dim $d_k$ here.\n\n开头。维度 $d_k$。",
+  );
+  expect(reflowBlockText("Only source.")).toBe("Only source.");
 });

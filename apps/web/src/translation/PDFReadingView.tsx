@@ -48,7 +48,8 @@ import {
   showsOriginal,
   TranslationText,
 } from "./TranslationText";
-import { reflowSourceSelection } from "./reflow";
+import { reflowBlockText, reflowSourceSelection } from "./reflow";
+import { copyText } from "../chat/clipboard";
 import { EPUBBlockOverlay } from "../readers/epub-block-focus";
 import { blockImageCache } from "./block-images";
 import { useSentenceMarks } from "./useSentenceMarks";
@@ -478,7 +479,16 @@ export function PDFReadingView({
         if (state.current.theme.reflowBlockFocus === true) void value.focus(id);
       },
       () => state.current.blocks,
-      (block, action) => state.current.events.blockAction?.(block, action),
+      (block, action) => {
+        if (action === "copy" && !block.image) {
+          const translation = state.current.translations.find(
+            (t) => t.blockId === block.id,
+          );
+          void copyText(reflowBlockText(block.text, translation), "已复制");
+          return;
+        }
+        state.current.events.blockAction?.(block, action);
+      },
     );
     overlay.current = value;
     return () => {
