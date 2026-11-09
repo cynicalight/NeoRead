@@ -1268,13 +1268,16 @@ export function Workspace({
                   go={move}
                 />
               </TabsContent>
-              <TabsContent value="search" className="min-h-0 flex-1 p-3">
+              <TabsContent
+                value="search"
+                className="relative flex min-h-0 flex-1 flex-col gap-3 p-3"
+              >
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
                     void search();
                   }}
-                  className="flex gap-1"
+                  className="flex shrink-0 gap-1"
                 >
                   <Input
                     aria-label="搜索文档"
@@ -1298,34 +1301,39 @@ export function Workspace({
                     <Search />
                   </Button>
                 </form>
-                <p className="my-3 text-xs text-muted-foreground">
+                <ScrollArea className="min-h-0 flex-1">
+                  <div className="pb-12">
+                    {results.map((result) => (
+                      <Button
+                        key={result.id}
+                        variant="ghost"
+                        className="search-result"
+                        onClick={() => openSearchResult(result)}
+                      >
+                        <small>
+                          {locationLabel(result.location)}
+                          {result.side === "translation"
+                            ? " · 译文"
+                            : result.side === "source"
+                              ? " · 原文"
+                              : ""}
+                        </small>
+                        <span>
+                          <SearchResultText
+                            text={result.excerpt}
+                            query={searchedQuery}
+                          />
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                </ScrollArea>
+                <p
+                  role="status"
+                  className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1 text-xs whitespace-nowrap text-muted-foreground shadow-sm"
+                >
                   {searching ? "正在搜索…" : `${results.length} 个结果`}
                 </p>
-                <ScrollArea className="h-[calc(100%-90px)]">
-                  {results.map((result) => (
-                    <Button
-                      key={result.id}
-                      variant="ghost"
-                      className="search-result"
-                      onClick={() => openSearchResult(result)}
-                    >
-                      <small>
-                        {locationLabel(result.location)}
-                        {result.side === "translation"
-                          ? " · 译文"
-                          : result.side === "source"
-                            ? " · 原文"
-                            : ""}
-                      </small>
-                      <span>
-                        <SearchResultText
-                          text={result.excerpt}
-                          query={searchedQuery}
-                        />
-                      </span>
-                    </Button>
-                  ))}
-                </ScrollArea>
               </TabsContent>
             </Tabs>
           </aside>
