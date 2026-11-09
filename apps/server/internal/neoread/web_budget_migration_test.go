@@ -32,8 +32,8 @@ func TestWebBudgetMigrationKeepsToolsAvailable(t *testing.T) {
 			t.Fatalf("trace cap stopped answer: %v", err)
 		}
 	}
-	if len(c.Tools) > 256 {
-		t.Fatal("unbounded trace storage")
+	if len(c.Tools) != 502 {
+		t.Fatalf("execution history dropped: %d", len(c.Tools))
 	}
 }
 func TestCodexWebBudgetMigrationDoesNotAbort(t *testing.T) {
@@ -48,17 +48,18 @@ func TestCodexWebBudgetMigrationDoesNotAbort(t *testing.T) {
 		t.Fatal(c.webCalls)
 	}
 }
-func TestWebBudgetMigrationPreservesSourceStorageBudget(t *testing.T) {
-	c := &chatInput{WebSearch: true}
-	for i := 0; i < webSourceLimit+6; i++ {
+func TestWebBudgetMigrationPreservesAllSources(t *testing.T) {
+	calls := 0
+	c := &chatInput{WebSearch: true, webTransport: webRoundTrip(func(*http.Request) (*http.Response, error) {
+		calls++
+		return webJSON(200, `{"results":[{"url":"https://example.com/new","summary":"new body"}]}`), nil
+	})}
+	for i := 0; i < 1006; i++ {
 		c.addWebSource(WebSource{URL: fmt.Sprintf("https://example.com/%d", i), Kind: "search"})
 	}
-	if len(c.WebSources) != webSourceLimit {
-		t.Fatal("source cap changed", len(c.WebSources))
-	}
-	raw, err := c.callWebTool(t.Context(), APIConnection{URL: "https://api.deepseek.com", Key: "key"}, "web_search", json.RawMessage(`{"query":"docs"}`))
-	if err != nil || !strings.Contains(string(raw), "budgetNotice") || c.Tools[0].Status != "deferred" {
-		t.Fatalf("source cap did not return advisory: %s %v", raw, err)
+	raw, err := c.callWebTool(t.Context(), APIConnection{URL: defaultSearchURL, Key: "key"}, "web_search", json.RawMessage(`{"query":"docs"}`))
+	if err != nil || calls != 1 || len(c.WebSources) != 1007 || !strings.Contains(string(raw), "new body") || c.Tools[0].Status != "completed" {
+		t.Fatalf("new source blocked: calls=%d sources=%d raw=%s err=%v", calls, len(c.WebSources), raw, err)
 	}
 }
 

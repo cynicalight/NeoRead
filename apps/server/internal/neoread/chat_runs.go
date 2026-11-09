@@ -10,7 +10,6 @@ import (
 )
 
 const maxConcurrentChats = 4
-const maxChatRunEvents = 8 << 20
 
 type ChatRun struct {
 	ID            string `json:"id"`
@@ -35,7 +34,6 @@ type chatRun struct {
 	mu       sync.Mutex
 	record   chatRunRecord
 	events   []chatRunEvent
-	bytes    int
 	changed  chan struct{}
 	done     chan struct{}
 	settled  bool
@@ -66,11 +64,6 @@ func (r *chatRun) send(event string, value any) error {
 		r.terminal = &e
 		return nil
 	}
-	if r.bytes+len(raw) > maxChatRunEvents || len(r.events) > 50000 {
-		r.cancel()
-		return generationError(ErrorLimit, "会话输出超过限制")
-	}
-	r.bytes += len(raw)
 	r.events = append(r.events, e)
 	r.notify()
 	return nil

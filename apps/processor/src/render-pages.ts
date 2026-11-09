@@ -16,11 +16,7 @@ const { values } = parseArgs({
 if (!values.input || !values.output || !values.pages)
   throw new Error("Usage: --input PDF --output DIRECTORY --pages 1,3");
 const selected = [...new Set(values.pages.split(",").map(Number))];
-if (
-  !selected.length ||
-  selected.length > 8 ||
-  selected.some((p) => !Number.isInteger(p) || p < 1)
-)
+if (!selected.length || selected.some((p) => !Number.isInteger(p) || p < 1))
   throw new Error("Invalid pages");
 const require = createRequire(import.meta.url);
 const assets = dirname(require.resolve("pdfjs-dist/package.json"));
@@ -39,14 +35,10 @@ try {
   const pdf = await task.promise;
   if (selected.some((p) => p > pdf.numPages))
     throw new Error("Page outside PDF");
-  let bytes = 0;
   for (const number of selected) {
     const page = await pdf.getPage(number);
     const { canvas } = await renderPage(page);
     const image = canvas.toBuffer("image/png");
-    bytes += image.length;
-    if (image.length > 8 * 1024 * 1024 || bytes > 32 * 1024 * 1024)
-      throw new Error("Rendered images exceed transport limit");
     await writeFile(join(values.output, `page-${number}.png`), image, {
       flag: "wx",
       mode: 0o600,

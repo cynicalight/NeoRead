@@ -3,8 +3,17 @@ import { spawn, execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { beforeAll, expect, test } from "vitest";
+import {
+  SessionManager,
+  type FileEntry,
+} from "@earendil-works/pi-coding-agent";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const testImage = {
+  type: "image" as const,
+  mimeType: "image/png",
+  data: "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGP4z8DAAMIM/4EAAB/uBfsL2WiLAAAAAElFTkSuQmCC",
+};
 beforeAll(() => execFileSync(process.execPath, ["build.mjs"], { cwd: root }));
 
 test("SDK worker bridges only registered tools and resumes accepted history", async () => {
@@ -361,6 +370,7 @@ function responsesInput(base: string) {
 async function responseWorker(
   input: ReturnType<typeof responsesInput>,
   cancelOn?: "draft" | "tool",
+  toolImages: { type: "image"; data: string; mimeType: string }[] = [],
 ) {
   const child = spawn(process.execPath, ["dist/main.mjs"], { cwd: root });
   const events: any[] = [];
@@ -390,6 +400,7 @@ async function responseWorker(
                   ? "[W1] https://example.test/source"
                   : "[W1] 原文是 42",
             },
+            ...toolImages,
           ],
         }) + "\n",
       );
@@ -1035,3 +1046,235 @@ test.each([65, 256])(
   },
   15000,
 );
+
+test("Pi preserves over 64 MiB of history while native compaction controls resumed context", async () => {
+  let requests = 0;
+  const incoming: any[] = [];
+  const upstream = createServer(async (req, res) => {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    incoming.push(JSON.parse(raw));
+    requests++;
+    const output =
+      requests === 1
+        ? {
+            type: "function_call",
+            id: "fc_archive",
+            call_id: "call_archive",
+            name: "web_search",
+            arguments: '{"query":"historical evidence"}',
+            status: "completed",
+          }
+        : requests === 2
+          ? {
+              ...responseText,
+              content: [
+                {
+                  type: "output_text",
+                  text: "retained discussion ".repeat(5000),
+                  annotations: [],
+                },
+              ],
+            }
+          : responseText;
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end(responseEvents(output, "completed", requests === 3 ? 25601 : 15));
+  });
+  await new Promise<void>((resolve) =>
+    upstream.listen(0, "127.0.0.1", resolve),
+  );
+  try {
+    const input = responsesInput(
+      `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+    );
+    input.model.input.push("image");
+    const first = await responseWorker(input);
+    expect(first.code).toBe(0);
+    const initialEntries = first.events.at(-1).entries as FileEntry[];
+    const second = await responseWorker({
+      ...input,
+      entries: initialEntries,
+    } as ReturnType<typeof responsesInput>);
+    expect(second.code).toBe(0);
+    expect(requests).toBe(4);
+    const compactedEntries = second.events.at(-1).entries as FileEntry[];
+    const compacted = SessionManager.inMemory(root, {}, compactedEntries);
+    const checkpoint = compacted
+      .getBranch()
+      .find((entry) => entry.type === "compaction");
+    expect(checkpoint).toBeDefined();
+    const activeIDs = new Set(
+      compacted.buildContextEntries().map((entry) => entry.id),
+    );
+    const retired = initialEntries.find(
+      (entry) =>
+        entry.type === "message" &&
+        entry.message.role === "toolResult" &&
+        !activeIDs.has(entry.id),
+    );
+    expect(retired).toBeDefined();
+
+    // 兼容旧版保存的完整树：压缩摘要已生效，但被摘要替代的工具正文仍在归档里。
+    const archived = JSON.parse(JSON.stringify(initialEntries)) as FileEntry[];
+    const originalIDs = new Set(archived.map((entry) => entry.id));
+    archived.push(
+      ...compactedEntries.filter((entry) => !originalIDs.has(entry.id)),
+    );
+    let previous: string | null = null;
+    for (const entry of archived) {
+      if (entry.type === "session") continue;
+      entry.parentId = previous;
+      previous = entry.id;
+      if (
+        entry.id === retired!.id &&
+        entry.type === "message" &&
+        entry.message.role === "toolResult"
+      )
+        entry.message.content = [
+          {
+            type: "text",
+            text: "retired-tool-body:" + "x".repeat(65 * 1024 * 1024),
+          },
+          testImage,
+        ];
+    }
+    const archivedManager = SessionManager.inMemory(root, {}, archived);
+    expect(archivedManager.buildSessionProjection().messages).toEqual(
+      compacted.buildSessionProjection().messages,
+    );
+    expect(Buffer.byteLength(JSON.stringify(archived))).toBeGreaterThan(
+      32 * 1024 * 1024,
+    );
+    const third = await responseWorker({
+      ...input,
+      entries: archived,
+    } as ReturnType<typeof responsesInput>);
+    expect({
+      code: third.code,
+      errors: third.events.filter((event) => event.type === "error"),
+    }).toEqual({ code: 0, errors: [] });
+    const saved = third.events.at(-1).entries as FileEntry[];
+    expect(Buffer.byteLength(JSON.stringify(saved))).toBeGreaterThan(
+      32 * 1024 * 1024,
+    );
+    expect(saved.some((entry) => entry.id === retired!.id)).toBe(true);
+    expect(saved.some((entry) => entry.id === checkpoint!.id)).toBe(true);
+    expect(JSON.stringify(incoming[4])).not.toContain("retired-tool-body:");
+    expect(JSON.stringify(incoming[4])).not.toContain(testImage.data);
+    const savedTool = saved.find((entry) => entry.id === retired!.id) as any;
+    expect(savedTool.message.content).toContainEqual(testImage);
+    const fourth = await responseWorker({
+      ...input,
+      entries: saved,
+    } as ReturnType<typeof responsesInput>);
+    expect(fourth.code).toBe(0);
+    expect(fourth.events.at(-1).type).toBe("complete");
+  } finally {
+    upstream.close();
+    upstream.closeAllConnections();
+  }
+}, 30000);
+
+test("Pi accepts a provider-completed answer beyond the former host output limits", async () => {
+  const answer = "x".repeat(4 * 1024 * 1024 + 1);
+  const upstream = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+      /* consume */
+    }
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end(
+      responseEvents({
+        ...responseText,
+        content: [{ type: "output_text", text: answer, annotations: [] }],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) =>
+    upstream.listen(0, "127.0.0.1", resolve),
+  );
+  try {
+    const result = await responseWorker(
+      responsesInput(
+        `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+      ),
+    );
+    expect({
+      code: result.code,
+      errors: result.events.filter((event) => event.type === "error"),
+    }).toEqual({ code: 0, errors: [] });
+    expect(result.events.at(-1)).toMatchObject({
+      type: "complete",
+      text: answer,
+    });
+    expect(
+      result.events
+        .filter((event) => event.type === "draft")
+        .map((event) => event.text)
+        .join(""),
+    ).toBe(answer);
+  } finally {
+    upstream.close();
+    upstream.closeAllConnections();
+  }
+}, 15000);
+
+test("Pi preserves attachment and tool images in history and sends active images when resumed", async () => {
+  const picture = testImage;
+  const requests: any[] = [];
+  const upstream = createServer(async (req, res) => {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    requests.push(JSON.parse(raw));
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end(
+      responseEvents(
+        requests.length === 1
+          ? {
+              type: "function_call",
+              id: "fc_image",
+              call_id: "call_image",
+              name: "web_fetch",
+              arguments: '{"query":"figure"}',
+              status: "completed",
+            }
+          : responseText,
+      ),
+    );
+  });
+  await new Promise<void>((resolve) =>
+    upstream.listen(0, "127.0.0.1", resolve),
+  );
+  try {
+    const input = responsesInput(
+      `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+    );
+    input.model.input.push("image");
+    const first = await responseWorker(
+      { ...input, images: [picture] } as ReturnType<typeof responsesInput>,
+      undefined,
+      [picture],
+    );
+    expect(first.code).toBe(0);
+    const entries = first.events.at(-1).entries as FileEntry[];
+    const messages = SessionManager.inMemory(
+      root,
+      {},
+      entries,
+    ).buildSessionProjection().messages;
+    for (const role of ["user", "toolResult"]) {
+      const message = messages.find((message) => message.role === role) as any;
+      expect(message.content).toContainEqual(picture);
+    }
+    const resumed = await responseWorker({ ...input, entries } as ReturnType<
+      typeof responsesInput
+    >);
+    expect(resumed.code).toBe(0);
+    const wire = JSON.stringify(requests[2]);
+    expect(wire.match(/"type":"input_image"/g)).toHaveLength(2);
+    expect(wire).toContain(`data:image/png;base64,${picture.data}`);
+    expect(wire).not.toContain("历史图片");
+  } finally {
+    upstream.close();
+    upstream.closeAllConnections();
+  }
+}, 15000);

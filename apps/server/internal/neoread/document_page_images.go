@@ -31,7 +31,7 @@ type documentPageImage struct {
 
 func pageImageName(revision string, page int) (string, error) {
 	decoded, err := hex.DecodeString(revision)
-	if err != nil || len(decoded) != 32 || page < 1 || page > 1000 {
+	if err != nil || len(decoded) != 32 || page < 1 {
 		return "", generationError(ErrorProtocol, "页面图片来源无效")
 	}
 	return filepath.Join(pageImageVersion, revision, fmt.Sprintf("page-%d.png", page)), nil
@@ -52,12 +52,12 @@ func (s *Server) cachedPageImage(documentID, revision string, page int) ([]byte,
 		return nil, image, err
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, (8<<20)+1))
-	if err != nil || len(data) > 8<<20 {
-		return nil, image, generationError(ErrorLimit, "页面图片过大或不可读")
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, image, generationError(ErrorProtocol, "页面图片不可读")
 	}
 	config, err := png.DecodeConfig(bytes.NewReader(data))
-	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width)*int64(config.Height) > 4_100_000 {
+	if err != nil || config.Width < 1 || config.Height < 1 {
 		return nil, image, generationError(ErrorProtocol, "页面图片格式无效")
 	}
 	image = documentPageImage{Page: page, Width: config.Width, Height: config.Height, Bytes: len(data), Revision: revision, Hash: sourceKey(string(data))}
@@ -115,15 +115,10 @@ func (s *Server) renderDocumentPages(ctx context.Context, c *documentCorpus, pag
 		}
 	}
 	images := []documentPageImage{}
-	bytes := 0
 	for _, page := range pages {
-		data, image, err := s.cachedPageImage(d.ID, c.Revision, page)
+		_, image, err := s.cachedPageImage(d.ID, c.Revision, page)
 		if err != nil {
 			return nil, err
-		}
-		bytes += len(data)
-		if bytes > 32<<20 {
-			return nil, generationError(ErrorLimit, "页面图片总大小超过传输上限，请减少页数")
 		}
 		images = append(images, image)
 	}
@@ -150,12 +145,12 @@ func resultPageImages(raw json.RawMessage) []documentPageImage {
 	return result.Images
 }
 
-// Uses the same attempt lock, cancellation, trace, coverage and budget as text tools.
+// Uses the same attempt lock, cancellation, trace and coverage as text tools.
 func (a *documentAgent) readPDFPages(ctx context.Context, args json.RawMessage) (map[string]any, error) {
 	var q struct {
 		Pages []int `json:"pages"`
 	}
-	if strictToolArguments(args, &q) != nil || len(q.Pages) == 0 || len(q.Pages) > 8 {
+	if strictToolArguments(args, &q) != nil || len(q.Pages) == 0 {
 		return map[string]any{"error": "invalid_arguments"}, nil
 	}
 	if !a.canViewPages {
@@ -178,11 +173,7 @@ func (a *documentAgent) readPDFPages(ctx context.Context, args json.RawMessage) 
 			seen[p] = true
 		}
 	}
-	count := min(len(pages), a.sourceTokenLimit()/pageImageTokens)
-	if count == 0 {
-		a.needsCompaction = true
-		return map[string]any{"needsCompaction": true, "message": "No space for page images; compact or finish using available evidence."}, nil
-	}
+	count := len(pages)
 	if a.activity != nil {
 		labels := []string{}
 		for _, p := range pages[:count] {

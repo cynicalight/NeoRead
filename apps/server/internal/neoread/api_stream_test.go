@@ -67,19 +67,25 @@ func TestCompletionStreamBoundaries(t *testing.T) {
 			t.Fatalf("length=%d %v", len(result.Text), err)
 		}
 	})
-	t.Run("answer-limit", func(t *testing.T) {
-		wire := `data: {"choices":[{"index":0,"delta":{"content":"` + strings.Repeat("a", (1<<20)+1) + `"}}]}` + "\n\n"
-		_, err := readCompletionStream(t.Context(), strings.NewReader(wire), nil)
-		if errorKind(err) != ErrorLimit {
-			t.Fatal(err)
+	t.Run("large-answer-and-reasoning", func(t *testing.T) {
+		answer := strings.Repeat("a", (1<<20)+1)
+		reasoning := strings.Repeat("r", (1<<20)+1)
+		wire := "data: " + jsonText(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]string{"content": answer, "reasoning_content": reasoning}}}}) + "\n\n" + stop + end
+		var observed strings.Builder
+		result, err := readCompletionStream(t.Context(), strings.NewReader(wire), func(e ProviderEvent) error { observed.WriteString(e.Reasoning); return nil })
+		if err != nil || result.Text != answer || observed.String() != reasoning {
+			t.Fatalf("large result lost: text=%d reasoning=%d %v", len(result.Text), observed.Len(), err)
 		}
 	})
-	t.Run("frame-limit", func(t *testing.T) {
-		_, err := readCompletionStream(t.Context(), strings.NewReader("data: "+strings.Repeat("a", maxProviderFrame)), nil)
-		if err == nil {
-			t.Fatal("accepted oversized frame")
+	t.Run("large-frame", func(t *testing.T) {
+		answer := strings.Repeat("a", (8<<20)+1)
+		wire := "data: " + jsonText(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]string{"content": answer}}}}) + "\n\n" + stop + end
+		result, err := readCompletionStream(t.Context(), strings.NewReader(wire), nil)
+		if err != nil || result.Text != answer {
+			t.Fatalf("large frame lost: text=%d %v", len(result.Text), err)
 		}
 	})
+
 }
 
 type oneByteReader struct{ io.Reader }

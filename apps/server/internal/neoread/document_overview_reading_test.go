@@ -57,18 +57,8 @@ func TestDocumentRangeReadAndTokenBudget(t *testing.T) {
 		b.corpus.Passages = append(b.corpus.Passages, documentPassage{ID: fmt.Sprint(i), Section: "chapter", Text: strings.Repeat("fact ", 100), Location: json.RawMessage(`{"type":"pdf","page":3}`)})
 	}
 	raw, err = b.call(t.Context(), "read_passage", json.RawMessage(`{"fromPage":3,"toPage":3}`))
-	if err != nil || !strings.Contains(string(raw), `"truncated":true`) || !strings.Contains(string(raw), `"nextCursor"`) || b.evidenceTokens > b.sourceTokens {
-		t.Fatal("range ignored context budget", err, string(raw))
-	}
-	var response struct {
-		Next string `json:"nextCursor"`
-	}
-	_ = json.Unmarshal(raw, &response)
-	before := len(b.Evidence)
-	b.sourceTokens = 20000
-	raw, err = b.call(t.Context(), "read_passage", json.RawMessage(jsonText(map[string]any{"fromPage": 3, "toPage": 3, "cursor": response.Next})))
-	if err != nil || len(b.Evidence) != 40 || before == 0 {
-		t.Fatal("continuation lost paragraphs", err, len(b.Evidence), string(raw))
+	if err != nil || strings.Contains(string(raw), `"truncated":true`) || len(b.Evidence) != 40 || b.evidenceTokens <= b.sourceTokens {
+		t.Fatal("range was clipped to the estimated context budget", err, len(b.Evidence))
 	}
 	if _, valid := documentReadIndices(b.corpus, documentReadRequest{Full: true, FromPage: 3, ToPage: 3}); valid {
 		t.Fatal("ambiguous selectors accepted")

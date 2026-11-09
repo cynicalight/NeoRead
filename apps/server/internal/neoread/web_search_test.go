@@ -61,7 +61,7 @@ func TestDeepSeekWebFetchBoundsAndCancel(t *testing.T) {
 		return webJSON(200, jsonText(map[string]string{"title": "Page", "content": strings.Repeat("a", 9000)})), nil
 	})}
 	raw, err := c.callWebTool(t.Context(), conn, "web_fetch", json.RawMessage(`{"url":"https://1.1.1.1/page"}`))
-	if err != nil || !strings.Contains(string(raw), `"truncated":true`) || len(c.WebSources) != 1 || c.WebSources[0].Kind != "page" {
+	if err != nil || len(c.WebSources) != 1 || len(c.WebSources[0].Text) != 9000 || c.WebSources[0].Kind != "page" {
 		t.Fatal(err, string(raw))
 	}
 	for _, url := range []string{"file:///etc/passwd", "http://127.0.0.1/", "http://[::1]/", "http://192.168.1.1/", "http://169.254.169.254/", "https://user:pass@example.com/"} {
@@ -193,8 +193,8 @@ func TestNativeWebCitationsKeepDocumentValidationAndStreaming(t *testing.T) {
 	if got := c.normalizeWebCitations("citeturn1view0"); !strings.Contains(got, "引用未解析") {
 		t.Fatal(got)
 	}
-	if _, err := documentCitationSources(c.normalizeWebCitations("citeunknown")); err == nil {
-		t.Fatal("unknown source bypassed validator")
+	if sources, err := documentCitationSources(c.normalizeWebCitations("citeunknown")); err != nil || len(sources) != 0 {
+		t.Fatalf("unknown web citation produced document evidence: %v %v", sources, err)
 	}
 	c.WebSearch = false
 	if c.normalizeWebCitations(text) != text {
@@ -202,11 +202,11 @@ func TestNativeWebCitationsKeepDocumentValidationAndStreaming(t *testing.T) {
 	}
 }
 
-func TestSourceRefreshStillEnforcesSnapshotLimit(t *testing.T) {
+func TestSourceRefreshPreservesFullSnapshot(t *testing.T) {
 	c := &chatInput{}
 	first := c.addWebSource(WebSource{URL: "https://example.com/", Title: "Original", Text: "Summary", Kind: "search"})
 	next := c.addWebSource(WebSource{URL: first.URL, Title: strings.Repeat("x", 500), Text: strings.Repeat("原文", 8000), Kind: "page"})
-	if next.ID != first.ID || !next.Truncated || len(next.Text) > 8192 || len([]rune(next.Title)) > 161 || next.RetrievedAt == "" {
+	if next.ID != first.ID || next.Truncated || next.Text != strings.Repeat("原文", 8000) || next.Title != strings.Repeat("x", 500) || next.RetrievedAt == "" {
 		t.Fatal(next.ID, next.Truncated, len(next.Text), len([]rune(next.Title)))
 	}
 	c.recordTool(ToolActivity{ID: "x", Kind: "tool", Title: "Read", Status: "completed"})
@@ -237,9 +237,9 @@ func TestToolCompletionRetainsActualTargetAndProgress(t *testing.T) {
 		t.Fatal(messages, err)
 	}
 }
-func TestWebSourceBudgetIsNotReportedAsNoResults(t *testing.T) {
+func TestWebSourcesBeyondFormerLimitDoNotBlockNewRequests(t *testing.T) {
 	c := &chatInput{WebSearch: true}
-	for i := 0; i < webSourceLimit-1; i++ {
+	for i := 0; i < 1005; i++ {
 		c.addWebSource(WebSource{URL: fmt.Sprintf("https://example.com/%d", i), Title: "Existing", Kind: "search"})
 	}
 	count := 0
@@ -249,15 +249,15 @@ func TestWebSourceBudgetIsNotReportedAsNoResults(t *testing.T) {
 	})
 	conn := APIConnection{URL: "https://api.deepseek.com", Key: "dummy"}
 	raw, err := c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"new docs"}`))
-	if err != nil || !strings.Contains(string(raw), `"budgetExhausted":true`) || !strings.Contains(c.Tools[0].Detail, "预算已满") {
+	if err != nil || len(c.WebSources) != 1007 || strings.Contains(string(raw), "budgetExhausted") || c.Tools[0].Status != "completed" {
 		t.Fatal(string(raw), c.Tools, err)
 	}
 	raw, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"other docs"}`))
-	if err != nil || !strings.Contains(string(raw), `"shouldFinish":true`) || count != 1 || c.Tools[1].Status != "deferred" {
+	if err != nil || strings.Contains(string(raw), "budgetNotice") || count != 2 || c.Tools[1].Status != "completed" {
 		t.Fatal(string(raw), c.Tools, err, count)
 	}
 	err = c.codexToolEvent("item/completed", json.RawMessage(`{"item":{"id":"native","type":"webSearch","query":"other docs","results":[{"title":"New","url":"https://example.com/new"}]}}`))
-	if err != nil || !strings.Contains(c.Tools[2].Detail, "预算已满") {
+	if err != nil || len(c.WebSources) != 1008 || c.Tools[2].Status != "completed" || strings.Contains(c.Tools[2].Detail, "预算已满") {
 		t.Fatal(err, c.Tools)
 	}
 }

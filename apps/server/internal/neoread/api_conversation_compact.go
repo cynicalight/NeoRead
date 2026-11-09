@@ -65,7 +65,7 @@ func conversationImageBytes(messages []toolCompletionMessage) int {
 
 func compactAPIConversation(ctx context.Context, c APIConnection, req completionRequest, a *documentAgent, messages []toolCompletionMessage) ([]toolCompletionMessage, error) {
 	limit := a.inputTokenLimit() - estimateDocumentTokens(jsonText(documentAPITools(a.canViewPages))) - 1024
-	if conversationTokens(messages) < limit && conversationImageBytes(messages) <= 32<<20 && !a.needsCompaction {
+	if conversationTokens(messages) < limit && !a.needsCompaction {
 		return messages, nil
 	}
 	if len(messages) < 3 {
@@ -101,22 +101,16 @@ func compactAPIConversation(ctx context.Context, c APIConnection, req completion
 	if used > limit-4096 {
 		return nil, generationError(ErrorLimit, "本轮输入超过可用上下文，未截断原文")
 	}
-	imageBytes := 0
-	for i := range keep {
-		imageBytes += conversationImageBytes(groups[i])
-	}
 	for i := len(groups) - 1; i >= 0; i-- {
 		if keep[i] {
 			continue
 		}
 		n := conversationTokens(groups[i])
-		groupBytes := conversationImageBytes(groups[i])
-		if used+n > tailBudget || imageBytes+groupBytes > 32<<20 {
+		if used+n > tailBudget {
 			break
 		}
 		keep[i] = true
 		used += n
-		imageBytes += groupBytes
 	}
 	older := [][]toolCompletionMessage{}
 	tail := []toolCompletionMessage{}

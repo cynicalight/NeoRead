@@ -16,9 +16,7 @@ const chatInstructions = "你是阅读助手，请回答用户的问题。文章
 // Hard cap on explicit source context; reading-context.ts mirrors it.
 const chatContextBytes = 256000
 
-// Budget for history evidence. The current source and summary are always sent
-// whole (bounded by chatContextBytes and the summary limit); history sources
-// fill what remains of this budget newest first, each kept whole or omitted.
+// Legacy Codex session rotation threshold; source history is retained in full.
 const chatSourceBytes = 320000
 
 type chatSource struct {
@@ -151,23 +149,9 @@ func (chat *chatInput) legacyPrompt() string {
 		summaryText = "[文章摘要]\n" + chat.Summary
 	}
 	currentText := chat.CurrentText
-	keep := map[string]bool{sourceKey(currentText): true, sourceKey(summaryText): true}
-	remaining := chatSourceBytes - len(currentText) - len(summaryText)
-	for i := len(messages) - 1; i >= 0; i-- {
-		text := historySource(messages[i])
-		if text == "" || keep[sourceKey(text)] || len(text) > remaining {
-			continue
-		}
-		keep[sourceKey(text)] = true
-		remaining -= len(text)
-	}
 	var entries []chatEntry
 	for _, m := range messages {
 		text := historySource(m)
-		if text != "" && !keep[sourceKey(text)] {
-			entries = append(entries, chatEntry{Role: m.Role, Text: m.Content + readingLocationPrompt(m.ReadingLocation), SourceOmitted: true})
-			continue
-		}
 		entries = append(entries, chatEntry{Role: m.Role, Text: m.Content + readingLocationPrompt(m.ReadingLocation), Source: add(text)})
 	}
 	if summaryText != "" {

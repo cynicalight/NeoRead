@@ -16,7 +16,7 @@ var documentCitationIDPattern = regexp.MustCompile(`S[1-9][0-9]*`)
 var documentSourceIDPattern = regexp.MustCompile(`^S[1-9][0-9]*$`)
 
 // Provider markers and NeoRead labels resolve through the same evidence check.
-// Unknown IDs are filtered when building references; malformed markers remain errors.
+// Unknown IDs and malformed fragments do not block the answer; only known evidence gets navigation.
 func documentCitationSources(text string) ([]string, error) {
 	sources := []string{}
 	// Scan native labels independently: an unrelated provider marker must not
@@ -31,11 +31,11 @@ func documentCitationSources(text string) ([]string, error) {
 			continue // Other provider marker families are not document citations.
 		}
 		if !strings.HasSuffix(marker, "") || (kind != "cite" && kind != "filecite") || len(parts) < 2 {
-			return nil, generationError(ErrorProtocol, "回答的来源标记不完整，请重试")
+			continue
 		}
 		for _, source := range parts[1:] {
 			if !documentSourceIDPattern.MatchString(source) {
-				return nil, generationError(ErrorProtocol, "回答包含无法识别的来源，请重试")
+				continue
 			}
 			sources = append(sources, source)
 		}

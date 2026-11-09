@@ -197,7 +197,7 @@ func TestDocumentToolCapabilityVersionDoesNotInvalidateText(t *testing.T) {
 		t.Fatal("stale tool check either survived or invalidated independent text capability")
 	}
 }
-func TestDocumentReadReturnsTargetWithinResultBudget(t *testing.T) {
+func TestDocumentReadReturnsAllRequestedNeighbors(t *testing.T) {
 	s, _ := epubRangeFixture(t, nil)
 	text := strings.Repeat("原始中文段落", 1200)
 	os.WriteFile(s.Store.Root+"/cache/doc/a.xhtml", []byte("<html><body><p>"+text+"</p></body></html>"), 0600)
@@ -208,14 +208,14 @@ func TestDocumentReadReturnsTargetWithinResultBudget(t *testing.T) {
 	a := &documentAgent{server: s, corpus: corpus, ctx: t.Context(), ID: id()}
 	target := corpus.Passages[4].ID
 	raw, err := a.call(t.Context(), "read_passage", json.RawMessage(fmt.Sprintf(`{"blockId":%q,"before":3,"after":3}`, target)))
-	if err != nil || len(raw) > 12<<10 || !strings.Contains(string(raw), target) {
-		t.Fatalf("target lost in bounded neighbor read: %s %v", raw, err)
+	if err != nil || len(raw) <= 12<<10 || !strings.Contains(string(raw), target) {
+		t.Fatalf("target or full neighbors lost: %s %v", raw, err)
 	}
 	var returned struct {
 		Items []documentEvidence `json:"items"`
 	}
 	json.Unmarshal(raw, &returned)
-	if len(returned.Items) != len(a.Evidence) {
+	if len(returned.Items) != len(a.Evidence) || len(returned.Items) != 7 {
 		t.Fatal("unreturned passage entered evidence ledger")
 	}
 }

@@ -161,3 +161,19 @@ it.each(["unavailable", "deferred"])(
     ).rejects.toThrow();
   },
 );
+
+it("accepts large valid tool output and answer events without host size gates", async () => {
+  const text = "x".repeat(7 * 1024 * 1024);
+  const seen: ChatStreamEvent[] = [];
+  await consumeChatStream(
+    stream([
+      encode(
+        `event: delta\ndata: ${JSON.stringify({ text })}\n\nevent: done\ndata: {"ok":true}\n\n`,
+      ),
+    ]),
+    new AbortController().signal,
+    (event) => seen.push(event),
+  );
+  expect(seen[0]).toEqual({ event: "delta", data: { text } });
+  expect(seen.at(-1)?.event).toBe("done");
+});

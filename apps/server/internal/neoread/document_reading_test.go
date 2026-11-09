@@ -235,9 +235,9 @@ func TestDocumentReadingSoftStopPreservesFailuresAndEvidence(t *testing.T) {
 	if err != nil || !strings.Contains(string(raw), `"shouldFinish":true`) || !strings.Contains(string(raw), `"recommendedRemainingCalls":2`) {
 		t.Fatal("missing advance budget feedback", err, string(raw))
 	}
-	a.bytes = documentEvidenceBytes - 1
-	if _, err = a.call(t.Context(), "read_passage", json.RawMessage(jsonText(map[string]string{"blockId": a.corpus.Passages[2].ID}))); err != nil || a.fatal != nil || len(a.Evidence) != 1 || !a.readingStopped() {
-		t.Fatal("evidence budget discarded usable source", err)
+	a.bytes = (2 << 20) - 1
+	if _, err = a.call(t.Context(), "read_passage", json.RawMessage(jsonText(map[string]string{"blockId": a.corpus.Passages[2].ID}))); err != nil || a.fatal != nil || len(a.Evidence) != 2 || a.readingStopped() {
+		t.Fatal("former evidence budget blocked source", err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()

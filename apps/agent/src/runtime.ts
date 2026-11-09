@@ -178,13 +178,8 @@ export async function runAgent(
     noTools: "builtin",
   });
   const maxToolRounds = 255;
-  let rounds = 0,
-    aborted = false,
-    outputBytes = 0,
-    reasoningBytes = 0,
-    draftBytes = 0;
+  let rounds = 0;
   const stop = () => {
-    aborted = true;
     void session.abort();
   };
   signal.addEventListener("abort", stop, { once: true });
@@ -209,24 +204,11 @@ export async function runAgent(
       });
     }
     if (event.type === "message_start" && event.message.role === "assistant") {
-      draftBytes = 0;
       emit({ type: "draft", reset: true, text: "" });
     }
     if (event.type === "message_update") {
       const delta = event.assistantMessageEvent;
       if (delta.type === "text_delta" || delta.type === "thinking_delta") {
-        const bytes = Buffer.byteLength(delta.delta);
-        outputBytes += bytes;
-        if (delta.type === "thinking_delta") reasoningBytes += bytes;
-        else draftBytes += bytes;
-        if (
-          outputBytes > 4 * 1024 * 1024 ||
-          reasoningBytes > 1024 * 1024 ||
-          draftBytes > 1024 * 1024
-        ) {
-          stop();
-          return;
-        }
         emit({
           type: delta.type === "text_delta" ? "draft" : "reasoning",
           text: delta.delta,
@@ -263,7 +245,6 @@ export async function runAgent(
     });
     await session.waitForIdle();
     signal.throwIfAborted();
-    if (aborted) throw new Error("Agent 输出超过限制");
     const last = session.messages.at(-1);
     if (!last || last.role !== "assistant" || last.stopReason !== "stop")
       throw new Error(
@@ -276,28 +257,9 @@ export async function runAgent(
       .map((part) => part.text)
       .join("");
     if (!text.trim()) throw new Error("模型未返回回答");
-    // Images stay in NeoRead's document cache. Historical attachments must be
-    // re-read through scoped tools, never silently become unbounded DB blobs.
     const entries = JSON.parse(
-      JSON.stringify(
-        [manager.getHeader(), ...manager.getEntries()],
-        (_key, value: unknown) => {
-          if (
-            value &&
-            typeof value === "object" &&
-            "type" in value &&
-            value.type === "image"
-          )
-            return {
-              type: "text",
-              text: "[历史图片：需要时重新调用 read_pdf_pages 核对原图；手动附件需重新提供。]",
-            };
-          return value;
-        },
-      ),
+      JSON.stringify([manager.getHeader(), ...manager.getEntries()]),
     ) as FileEntry[];
-    if (Buffer.byteLength(JSON.stringify(entries)) > 32 * 1024 * 1024)
-      throw new Error("会话记录过大，请新建会话；已有历史已保留");
     return { text, entries };
   } finally {
     signal.removeEventListener("abort", stop);

@@ -34,8 +34,8 @@ func TestDocumentProviderCitationsRequireReadEvidence(t *testing.T) {
 		}
 	}
 	for _, text := range []string{"citeturn1search0", "cite", "citeS64", "citeS64", "cite", "filecite", "cite", "ci", "citeS999citeS64"} {
-		if _, err := a.references(text); errorKind(err) != ErrorProtocol {
-			t.Fatalf("unverified citation accepted: %q %v", text, err)
+		if refs, err := a.references(text); err != nil || strings.Contains(string(refs), "S999") {
+			t.Fatalf("malformed citation blocked answer or invented reference: %q %s %v", text, refs, err)
 		}
 	}
 }

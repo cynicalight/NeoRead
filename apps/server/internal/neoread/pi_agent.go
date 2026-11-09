@@ -91,13 +91,19 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 	if err = encoder.Encode(map[string]any{"type": "start", "input": request}); err != nil {
 		return piEvent{}, err
 	}
-	scan := bufio.NewScanner(output)
-	scan.Buffer(make([]byte, 64<<10), 40<<20)
+	reader := bufio.NewReader(output)
 	var complete piEvent
 	seen := map[string]bool{}
-	for scan.Scan() {
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if readErr == io.EOF && len(line) == 0 {
+			break
+		}
+		if readErr != nil {
+			return piEvent{}, generationError(ErrorProtocol, "pi 输出读取失败或事件未完成")
+		}
 		var e piEvent
-		if json.Unmarshal(scan.Bytes(), &e) != nil || e.Version != 1 || e.RunID != request.RunID || complete.Type != "" {
+		if json.Unmarshal(line, &e) != nil || e.Version != 1 || e.RunID != request.RunID || complete.Type != "" {
 			return piEvent{}, generationError(ErrorProtocol, "pi 返回了无效的运行事件")
 		}
 		switch e.Type {
@@ -121,7 +127,7 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 				return piEvent{}, err
 			}
 		case "complete":
-			if strings.TrimSpace(e.Text) == "" || len(e.Text) > 1<<20 || len(e.Entries) == 0 || len(e.Entries) > 32<<20 || !json.Valid(e.Entries) {
+			if strings.TrimSpace(e.Text) == "" || len(e.Entries) == 0 || !json.Valid(e.Entries) {
 				return piEvent{}, generationError(ErrorProtocol, "pi 未返回完整回答和会话状态")
 			}
 			complete = e
@@ -137,9 +143,6 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 		default:
 			return piEvent{}, generationError(ErrorProtocol, "pi 返回了未知事件")
 		}
-	}
-	if scan.Err() != nil {
-		return piEvent{}, generationError(ErrorProtocol, "pi 输出超过限制或读取失败")
 	}
 	err = cmd.Wait()
 	waited = true

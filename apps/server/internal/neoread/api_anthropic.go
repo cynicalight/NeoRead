@@ -1,7 +1,6 @@
 package neoread
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"io"
@@ -62,8 +61,6 @@ type anthropicUsage struct {
 }
 
 func readAnthropicStream(ctx context.Context, r io.Reader, c APIConnection, emit func(ProviderEvent) error) (GenerateResult, error) {
-	scan := bufio.NewScanner(r)
-	scan.Buffer(make([]byte, 4096), maxProviderFrame)
 	var frame, text strings.Builder
 	started, finished := false, false
 	model := ""
@@ -101,9 +98,6 @@ func readAnthropicStream(ctx context.Context, r io.Reader, c APIConnection, emit
 		return emit(ProviderEvent{Metrics: []ModelTokens{{Model: model, Tokens: tokens}}})
 	}
 	add := func(part string) error {
-		if text.Len()+len(part) > 1<<20 {
-			return generationError(ErrorLimit, "API 回答超过 1 MiB 限制")
-		}
 		text.WriteString(part)
 		if emit != nil && part != "" {
 			return emit(ProviderEvent{Text: part})
@@ -232,37 +226,14 @@ func readAnthropicStream(ctx context.Context, r io.Reader, c APIConnection, emit
 		}
 		return false, nil
 	}
-	for scan.Scan() {
-		if ctx.Err() != nil {
-			return GenerateResult{}, ctx.Err()
-		}
-		line := scan.Text()
-		if line == "" {
-			done, err := dispatch()
-			if err != nil {
-				return GenerateResult{}, err
-			}
-			if done {
-				return GenerateResult{Text: text.String(), FinishReason: "stop"}, nil
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "data:") {
-			value := strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
-			if frame.Len()+len(value)+1 > maxProviderFrame {
-				return GenerateResult{}, protocol()
-			}
-			frame.WriteString(value)
-			frame.WriteByte('\n')
-		}
+	err := consumeCompletionFrames(ctx, r, func(data string) (bool, error) {
+		frame.WriteString(data)
+		return dispatch()
+	})
+	if err != nil {
+		return GenerateResult{}, err
 	}
-	if ctx.Err() != nil {
-		return GenerateResult{}, ctx.Err()
-	}
-	if scan.Err() != nil {
-		return GenerateResult{}, generationError(ErrorNetwork, "Messages API 流中断或事件过大")
-	}
-	return GenerateResult{}, protocol()
+	return GenerateResult{Text: text.String(), FinishReason: "stop"}, nil
 }
 
 // The Messages adapter currently supports text generation, so document chat

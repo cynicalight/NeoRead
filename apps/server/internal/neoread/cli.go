@@ -2,6 +2,7 @@ package neoread
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -72,8 +73,7 @@ func invokeCLI(ctx context.Context, root, provider, model string, in AIInput, de
 	}
 	stop := context.AfterFunc(child, func() { time.AfterFunc(450*time.Millisecond, func() { _ = stdout.Close() }) })
 	defer stop()
-	scan := bufio.NewScanner(stdout)
-	scan.Buffer(make([]byte, 4096), maxProviderFrame)
+	scan := &providerLineReader{reader: bufio.NewReader(stdout)}
 	var text strings.Builder
 	failed := false
 	completed := false
@@ -100,7 +100,7 @@ func invokeCLI(ctx context.Context, root, provider, model string, in AIInput, de
 		}
 		completed = completed || done
 		failed = failed || bad
-		if bad || text.Len()+len(part) > 1<<20 {
+		if bad {
 			failed = true
 			cancel()
 			break
@@ -157,8 +157,7 @@ func invokeKimi(ctx context.Context, work, model string, in AIInput, delta func(
 	}
 	lifecycle := newRPCLifecycle(ctx, cmd, stdin, stdout)
 	defer func() { lifecycle.close(); cancel(); _ = cmd.Wait() }()
-	scan := bufio.NewScanner(stdout)
-	scan.Buffer(make([]byte, 4096), maxProviderFrame)
+	scan := &providerLineReader{reader: bufio.NewReader(stdout)}
 	var text strings.Builder
 	sessionID := ""
 	request := func(id int, method string, params any) (json.RawMessage, error) {
@@ -201,9 +200,6 @@ func invokeKimi(ctx context.Context, work, model string, in AIInput, delta func(
 				}
 				_ = json.Unmarshal(msg.Params, &p)
 				if ctx.Err() == nil && id == 3 && sessionID != "" && p.SessionID == sessionID && p.Update.Type == "agent_message_chunk" && p.Update.Content.Type == "text" {
-					if text.Len()+len(p.Update.Content.Text) > 1<<20 {
-						return nil, generationError(ErrorLimit, "Kimi 回答过长")
-					}
 					text.WriteString(p.Update.Content.Text)
 					if delta != nil {
 						delta(p.Update.Content.Text)
@@ -299,3 +295,32 @@ func invokeKimi(ctx context.Context, work, model string, in AIInput, delta func(
 	}
 	return text.String(), nil
 }
+
+// providerLineReader 保留完整 JSONL 行，由协议解析决定是否有效，不按消息大小截断。
+type providerLineReader struct {
+	reader *bufio.Reader
+	line   []byte
+	err    error
+	ended  bool
+}
+
+func (s *providerLineReader) Scan() bool {
+	if s.ended {
+		return false
+	}
+	line, err := s.reader.ReadBytes('\n')
+	if err != nil {
+		s.ended = true
+		if err != io.EOF {
+			s.err = err
+			return false
+		}
+	}
+	if len(line) == 0 {
+		return false
+	}
+	s.line = bytes.TrimSuffix(bytes.TrimSuffix(line, []byte("\n")), []byte("\r"))
+	return true
+}
+func (s *providerLineReader) Bytes() []byte { return s.line }
+func (s *providerLineReader) Err() error    { return s.err }

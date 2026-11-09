@@ -22,9 +22,7 @@ func (c *chatInput) rememberNativeWebSource(id, url string) {
 	if c.nativeWebRefs == nil {
 		c.nativeWebRefs = map[string]string{}
 	}
-	if len(c.nativeWebRefs) < 128 {
-		c.nativeWebRefs[id] = url
-	}
+	c.nativeWebRefs[id] = url
 }
 func (c *chatInput) normalizeWebCitations(text string) string {
 	if c == nil || !c.WebSearch {

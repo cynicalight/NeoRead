@@ -21,7 +21,6 @@ process.on("SIGTERM", close);
 lines.on("close", close);
 lines.on("line", (line) => {
   try {
-    if (Buffer.byteLength(line) > 64 * 1024 * 1024) throw new Error("请求过大");
     const message = JSON.parse(line);
     if (message.type === "start" && !started) {
       started = true;
