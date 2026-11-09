@@ -1042,7 +1042,11 @@ export function Settings({
                 <span>
                   文字重排
                   <span className="block text-xs text-muted-foreground">
-                    按段落重排正文，译文显示在对应原文下方
+                    按段落重排正文，译文显示在对应原文下方。
+                    <span className="font-semibold text-foreground">
+                      建议配置 Agent 后再开启，部分原文的 LaTeX 公式需要依靠 AI
+                      识别
+                    </span>
                   </span>
                 </span>
                 <Switch
