@@ -70,9 +70,11 @@ export function EPUBReadingView({
   const [chapter, setChapter] = useState(
     doc.progress?.type === "epub" ? doc.progress.href.split("#")[0] : "",
   );
-  const { translations, error: streamError } = useTranslations(doc.id, [
-    ...new Set(blocks.map((b) => b.location.href)),
-  ]);
+  const { translations, error: streamError } = useTranslations(
+    doc.id,
+    [...new Set(blocks.map((b) => b.location.href))],
+    active,
+  );
   const root = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLDivElement>(null);
   const [sentenceEngine, setSentenceEngine] = useState<ReaderAdapter>();

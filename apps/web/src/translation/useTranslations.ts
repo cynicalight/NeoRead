@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { TranslationBlock } from "@neoread/core";
 import { api } from "@neoread/api";
-export function useTranslations(documentId: string, hrefs?: string[]) {
+export function useTranslations(
+  documentId: string,
+  hrefs?: string[],
+  active = true,
+) {
   const [translations, setTranslations] = useState<TranslationBlock[]>([]);
   const [error, setError] = useState("");
   const scope = hrefs?.join("\0");
@@ -11,7 +15,7 @@ export function useTranslations(documentId: string, hrefs?: string[]) {
       setTranslations([]);
     previousDocument.current = documentId;
     setError("");
-    if (scope === "") return;
+    if (!active || scope === "") return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let retryDelay = 500;
@@ -51,6 +55,6 @@ export function useTranslations(documentId: string, hrefs?: string[]) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [documentId, scope]);
+  }, [documentId, scope, active]);
   return { translations, error };
 }

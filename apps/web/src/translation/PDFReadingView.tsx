@@ -111,7 +111,7 @@ export function PDFReadingView({
     reflow ? node.dataset.reflowBlock : node.dataset.translationBlock;
   const [mode, setMode] = useState<Mode>("source"),
     [syncEnabled, setSyncEnabled] = useState(true);
-  const { translations, error } = useTranslations(doc.id);
+  const { translations, error } = useTranslations(doc.id, undefined, active);
   const [popup, setPopup] = useState<{ block: PDFBlock; rect: DOMRect }>();
   const [engine, setEngine] = useState<ReaderAdapter>();
   const [hoveredBlock, setHoveredBlock] = useState<string>();
