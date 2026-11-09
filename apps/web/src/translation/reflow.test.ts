@@ -83,7 +83,7 @@ const restored = () => {
   return host;
 };
 
-it("selects restored formulas by their whole extracted sentence", () => {
+it("stores a selection across a formula as just its extracted text", () => {
   const host = restored();
   const blocks = [
     {
@@ -103,24 +103,24 @@ it("selects restored formulas by their whole extracted sentence", () => {
   // A partly selected formula reads whole as TeX.
   expect(selection.text).toBe("start. Dim $d_k$");
   expect(selection.location).toMatchObject({
-    quote: "start. Dim d k here.",
-    sourceAnchors: [{ blockId: "a", source: "start. Dim d k here." }],
+    quote: "start. Dim d k",
+    sourceAnchors: [{ blockId: "a", source: "start. Dim d k" }],
   });
   host.remove();
 });
 
-it("marks restored sentences that a saved quote covers", () => {
+it("marks the formula and plain text a saved quote covers", () => {
   const host = restored();
   expect(
     reflowQuoteRanges(host, "a", "start.").map((r) => r.toString()),
   ).toEqual(["start."]);
   expect(
     reflowQuoteRanges(host, "a", "Dim d k").map((r) => r.toString()),
-  ).toEqual(["Dim ", "dk", " here."]);
+  ).toEqual(["Dim", "dk"]);
   // A quote crossing into a restored sentence keeps the plain part exact.
   expect(
     reflowQuoteRanges(host, "a", "start. Dim d k").map((r) => r.toString()),
-  ).toEqual(["start.", "Dim ", "dk", " here."]);
+  ).toEqual(["start.", "Dim", "dk"]);
   host.remove();
 });
 
@@ -174,4 +174,40 @@ it("copies a reflowed paragraph as restored source, a blank line and its transla
     "Plain start. Dim $d_k$ here.\n\n开头。维度 $d_k$。",
   );
   expect(reflowBlockText("Only source.")).toBe("Only source.");
+});
+
+it("maps both ways around subscripts the extraction moved", () => {
+  const host = document.createElement("div");
+  host.innerHTML = `
+    <div data-reflow-source="a">
+      <span data-source-sentence="0" data-anchor="maps ( x , ..., x ) to a sequence 1 n of z."><span>maps <span class="markdown-math" data-tex="(x_1, ..., x_n)"><span class="katex">(x1,...,xn)</span></span> to a sequence of z.</span></span>
+    </div>`;
+  document.body.append(host);
+  const marked = (quote: string) =>
+    reflowQuoteRanges(host, "a", quote).map((r) => r.toString());
+  // From the PDF: the formula alone, and plain text past the moved subscripts.
+  expect(marked("( x , ..., x )")).toEqual(["(x1,...,xn)"]);
+  expect(marked("x ) to a sequence 1 n")).toEqual([
+    "(x1,...,xn)",
+    "to a sequence",
+  ]);
+  // To the PDF: the selected plain text keeps what the extraction put between.
+  const text = host.querySelector(".katex")!.parentElement!.nextSibling!;
+  const range = document.createRange();
+  range.setStart(text, 1);
+  range.setEnd(text, " to a sequence of".length);
+  Object.assign(range, { getBoundingClientRect: () => new DOMRect() });
+  const blocks = [
+    {
+      id: "a",
+      page: 1,
+      label: "text",
+      text: "",
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+    },
+  ] as PDFBlock[];
+  expect(reflowSourceSelection(host, range, blocks)!.location).toMatchObject({
+    quote: "to a sequence 1 n of",
+  });
+  host.remove();
 });

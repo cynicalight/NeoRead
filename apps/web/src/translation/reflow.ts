@@ -195,23 +195,165 @@ function clip(node: Node, range: Range) {
 }
 const sentenceNodes = (node: HTMLElement) =>
   Array.from(node.querySelectorAll<HTMLElement>("[data-source-sentence]"));
+const compact = (text: string) => text.replace(/\s/g, "").toLowerCase();
+
 /**
- * Selected extracted text of one reflowed paragraph. Rendered KaTeX cannot be
- * mapped back character by character, so a touched restored sentence
- * contributes its whole extracted text.
+ * One rendered piece of a restored sentence, a character or a whole formula,
+ * with the span [from, to) of extracted-text characters (spaces removed) it
+ * stands for. An unmatched piece has an empty span at its position.
+ */
+interface Unit {
+  node: Node;
+  offset: number;
+  formula?: Element;
+  from: number;
+  to: number;
+}
+/**
+ * Aligns a restored sentence's rendered text with its extracted text: plain
+ * characters by longest common subsequence, and each formula to the extracted
+ * characters left between its matched neighbours.
+ */
+function sentenceUnits(sentence: HTMLElement): Unit[] {
+  const anchor = compact(sentence.dataset.anchor ?? "");
+  const units: Unit[] = [];
+  const walker = document.createTreeWalker(sentence, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const formula = node.parentElement?.closest("[data-tex]");
+    if (formula) {
+      if (units.at(-1)?.formula !== formula)
+        units.push({ node: formula, offset: 0, formula, from: 0, to: 0 });
+      continue;
+    }
+    const text = node.textContent ?? "";
+    for (let k = 0; k < text.length; k++)
+      if (!/\s/.test(text[k])) units.push({ node, offset: k, from: 0, to: 0 });
+  }
+  const chars = units.flatMap((u) =>
+    u.formula ? [] : [u.node.textContent![u.offset].toLowerCase()],
+  );
+  const matched = lcsMatches(chars, anchor);
+  let c = 0;
+  const at = units.map((u) => (u.formula ? undefined : matched[c++]));
+  units.forEach((u, k) => {
+    const own = at[k];
+    if (own !== undefined) {
+      u.from = own;
+      u.to = own + 1;
+      return;
+    }
+    // Between the matched neighbours: a formula covers that gap, an unmatched
+    // character sits at its start.
+    let before = -1,
+      after = anchor.length;
+    for (let j = k - 1; j >= 0; j--)
+      if (at[j] !== undefined) {
+        before = at[j]!;
+        break;
+      }
+    for (let j = k + 1; j < units.length; j++)
+      if (at[j] !== undefined) {
+        after = at[j]!;
+        break;
+      }
+    u.from = before + 1;
+    u.to = u.formula ? Math.max(u.from, after) : u.from;
+  });
+  return units;
+}
+
+// For each item of `a`, the index in `b` it pairs with in a longest common
+// subsequence, or undefined.
+function lcsMatches(a: string[], b: string) {
+  const n = a.length,
+    m = b.length;
+  const table = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      table[i][j] =
+        a[i] === b[j]
+          ? table[i + 1][j + 1] + 1
+          : Math.max(table[i + 1][j], table[i][j + 1]);
+  const out: (number | undefined)[] = new Array(n);
+  for (let i = 0, j = 0; i < n && j < m;)
+    if (a[i] === b[j]) out[i++] = j++;
+    else if (table[i + 1][j] >= table[i][j + 1]) i++;
+    else j++;
+  return out;
+}
+
+// Whether a unit lies in the extracted span [s, e). A formula overlapping it
+// counts whole; an empty span counts when the text on both sides does.
+const unitIn = (u: Unit, s: number, e: number) =>
+  u.to > u.from ? u.from < e && u.to > s : s < u.from && u.from < e;
+
+/** Ranges of a restored sentence that stand for its extracted span [s, e). */
+function restoredRanges(sentence: HTMLElement, s: number, e: number) {
+  const ranges: Range[] = [];
+  let run: Range | undefined;
+  for (const u of sentenceUnits(sentence)) {
+    if (!unitIn(u, s, e)) {
+      run = undefined;
+      continue;
+    }
+    if (u.formula) {
+      const range = document.createRange();
+      range.selectNode(u.formula);
+      ranges.push(range);
+      run = undefined;
+    } else if (run?.endContainer === u.node && run.endOffset <= u.offset + 1) {
+      run.setEnd(u.node, u.offset + 1);
+    } else {
+      run = document.createRange();
+      run.setStart(u.node, u.offset);
+      run.setEnd(u.node, u.offset + 1);
+      ranges.push(run);
+    }
+  }
+  return ranges;
+}
+
+/**
+ * The extracted text a selection covers in a restored sentence: the selected
+ * characters, and any touched formula whole.
+ */
+function restoredSelection(sentence: HTMLElement, range: Range) {
+  const touched = sentenceUnits(sentence).filter((u) =>
+    u.formula
+      ? range.intersectsNode(u.formula)
+      : range.comparePoint(u.node, u.offset) === 0 &&
+        range.comparePoint(u.node, u.offset + 1) === 0,
+  );
+  if (!touched.length) return "";
+  const s = Math.min(...touched.map((u) => u.from)),
+    e = Math.max(...touched.map((u) => Math.max(u.to, u.from)));
+  return compactSlice(sentence.dataset.anchor ?? "", s, e);
+}
+
+/**
+ * Selected extracted text of one reflowed paragraph; a restored sentence maps
+ * its selection back through its alignment.
  */
 function selectedSource(node: HTMLElement, range: Range) {
   const sentences = sentenceNodes(node);
   if (!sentences.some((s) => s.dataset.anchor)) return clip(node, range);
   return sentences
     .filter((s) => range.intersectsNode(s))
-    .map((s) => s.dataset.anchor ?? clip(s, range))
-    .join("");
+    .map((s) =>
+      s.dataset.anchor ? restoredSelection(s, range) : clip(s, range),
+    )
+    .reduce(
+      (all, next) =>
+        all + (all && next && needsSpace(all, next) ? " " : "") + next,
+      "",
+    );
 }
 
 /**
  * Ranges of a saved quote in reflowed text. A quote that crosses a restored
- * formula is not literal text there, so it marks the sentences it covers.
+ * formula is not literal text there, so it is located in the joined extracted
+ * text and mapped back sentence by sentence.
  */
 export function reflowQuoteRanges(
   host: HTMLElement,
@@ -221,11 +363,8 @@ export function reflowQuoteRanges(
   const found = searchRanges(reflowSourceRanges(host, blockId), quote);
   const element = sourceElement(host, blockId);
   if (found.length || !element?.querySelector("[data-anchor]")) return found;
-  const compact = (text: string) => text.replace(/\s/g, "").toLowerCase();
   const needle = compact(quote);
   if (!needle) return [];
-  // Locate the quote in the joined extracted text, then map it to sentences:
-  // a restored sentence marks whole, a plain one only its overlapping text.
   const nodes = sentenceNodes(element);
   const texts = nodes.map((s) =>
     compact(s.dataset.anchor ?? s.textContent ?? ""),
@@ -238,14 +377,13 @@ export function reflowQuoteRanges(
     const from = offset;
     offset += texts[i].length;
     if (offset <= start || from >= end) return [];
-    const ranges = reflowSourceRanges(host, blockId, i);
-    if (s.dataset.anchor) return ranges;
-    const part = compactSlice(
-      s.textContent ?? "",
-      Math.max(start, from) - from,
-      Math.min(end, offset) - from,
+    const a = Math.max(start, from) - from,
+      b = Math.min(end, offset) - from;
+    if (s.dataset.anchor) return restoredRanges(s, a, b);
+    return searchRanges(
+      reflowSourceRanges(host, blockId, i),
+      compactSlice(s.textContent ?? "", a, b),
     );
-    return searchRanges(ranges, part);
   });
 }
 
