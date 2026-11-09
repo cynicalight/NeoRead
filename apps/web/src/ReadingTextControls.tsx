@@ -76,6 +76,9 @@ export function ReadingTextControls({
   const zoom = typeof theme.zoom === "number" ? theme.zoom : undefined;
   const translationSize = theme.translationFontSize ?? 1;
   const assistantSize = theme.assistantFontScale ?? 1;
+  // Reflowed PDF text renders its source like EPUB text, so it takes the same
+  // source font settings and one margin for the whole column.
+  const reflowed = docType === "epub" || theme.textReflow === true;
   const margin =
     docType === "epub"
       ? theme.margin
@@ -84,7 +87,7 @@ export function ReadingTextControls({
   const marginRow = (
     <StepRow
       label="边距"
-      title={docType === "epub" ? "边距" : "译文边距"}
+      title={reflowed ? "边距" : "译文边距"}
       value={margin}
       display={`${margin}`}
       min={READING_MARGIN.min}
@@ -102,14 +105,14 @@ export function ReadingTextControls({
   );
   return (
     <div className="space-y-4">
-      {docType === "epub" && (
+      {reflowed && (
         <>
           <Section title="版面">{marginRow}</Section>
           <Separator />
         </>
       )}
       <Section title="原文">
-        {docType === "epub" ? (
+        {reflowed ? (
           <>
             <FontRow
               label="原文"
@@ -208,7 +211,7 @@ export function ReadingTextControls({
             </Button>
           }
         />
-        {docType === "pdf" && marginRow}
+        {!reflowed && marginRow}
       </Section>
       <Separator />
       <Section title="Agent">
