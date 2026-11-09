@@ -524,9 +524,20 @@ export function EPUBReadingView({
     hover("source");
     hover("translation");
     setMode(value);
-    // The reader keeps its place itself while translations appear or hide.
+    // Reflowed text keeps the current paragraph centred once translations
+    // appear or hide; hidden source text cannot hold a finer place.
     if (live.current.reflow) {
       input("source");
+      const block = epubBlocksAt(position.current, live.current.blocks)[0];
+      cancelAnimationFrame(modeFrame.current);
+      modeFrame.current = requestAnimationFrame(() => {
+        modeFrame.current = requestAnimationFrame(() => {
+          if (block)
+            void engine.current
+              ?.followBlock?.({ blockId: block.id, fraction: 0.5 })
+              .catch((e) => toast.error(e.message));
+        });
+      });
       return;
     }
     input(value === "translation" ? "translation" : "source");

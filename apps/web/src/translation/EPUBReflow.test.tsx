@@ -237,3 +237,22 @@ it("focuses a clicked paragraph unless the setting is off", async () => {
   await act(async () => fixture.events!.epubBlockFocus!("p1"));
   expect(adapter.focusBlock).toHaveBeenCalledWith("p1", "source");
 });
+it("centres the current paragraph after switching modes", async () => {
+  await renderView();
+  await act(async () =>
+    fixture.events!.location(
+      { type: "epub", href: "a.xhtml", blockId: "p1", start: 5, end: 5 },
+      0.5,
+    ),
+  );
+  vi.mocked(adapter.followBlock!).mockClear();
+  await click("仅译文");
+  await act(async () => {
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+  });
+  expect(adapter.followBlock).toHaveBeenCalledWith({
+    blockId: "p1",
+    fraction: 0.5,
+  });
+});
