@@ -55,3 +55,9 @@ func TestComparableLettersIgnoreKaTeXCommands(t *testing.T) {
 		t.Fatalf("letters %q", got)
 	}
 }
+
+func TestSimilarTextIgnoresGreekVariablesOnBothSides(t *testing.T) {
+	if !similarText(`Let $\alpha, \beta, \gamma, \delta, \epsilon, \zeta, \eta, \theta$.`, "Let α, β, γ, δ, ε, ζ, η, θ.") {
+		t.Fatal("restored Greek variables must match the extracted Greek letters")
+	}
+}
