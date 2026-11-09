@@ -23,7 +23,8 @@ func TestTranslationServiceKeepsOtherProviderTaskSettings(t *testing.T) {
 	}
 	service, adapter := s.translationService(config)
 	defer adapter.close()
-	claude, ok := service.connections["claude"].Adapter.(configuredCLIAdapter)
+	wrapped, ok := service.connections["claude"].Adapter.(claudeChatAdapter)
+	claude := wrapped.configuredCLIAdapter
 	if !ok || service.primary != "claude" || claude.model != "translation-model" || claude.level != "low" || claude.task != taskTranslation {
 		t.Fatalf("translation task settings not preserved: %#v", service)
 	}

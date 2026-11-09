@@ -1,5 +1,13 @@
 # Agent 流式输出：前后端对接约定
 
+## Claude Code 文档工具 · 2026-11-03
+
+全文索引就绪且不含图片时，Claude Code 文档问答与 Codex 共用本地文档 MCP（`get_outline`、`search_document`、`read_passage`、`read_pdf_pages`）、阅读预算和保存时的来源解析，回答中已读取的 `[S1]` 保存为可跳转的来源，未读取的编号按上文规则只保留文字。图片提问或索引未就绪时仍走原无工具路径。
+
+`--safe-mode` 会同时禁用 `--mcp-config` 中的服务，因此文档问答不使用它，改为显式隔离：`--tools ""` 关闭内置工具，`--strict-mcp-config` 只加载 NeoRead 文档服务，`--allowedTools` 只放行上述四个工具，`disableAllHooks`、`--disable-slash-commands` 及 `CLAUDE_CODE_DISABLE_CLAUDE_MDS`／`CLAUDE_CODE_DISABLE_AUTO_MEMORY` 关闭 hooks、技能、CLAUDE.md 和自动记忆。MCP Bearer token 只通过环境变量传入。`init` 事件必须报告该服务已连接，且工具清单与放行清单完全一致，否则本轮失败、不回退。
+
+每轮启动独立进程，不保存 Claude 会话；NeoRead 在上下文预算内重放最近的可见对话，较早记录会说明已省略。工具调用前的文字以 `draft` 显示，新消息开始时 `reset`；只有 `end_turn` 的最后一条消息、且与 `result.result` 一致时，才以 `delta` 提交并保存。工具调用以现有工具活动显示。
+
 ## 公式与来源标记兼容 · Issue #70 · 2026-10-17
 
 正文和 SSE 保留提供方原始文本。渲染器同时识别 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`，代码块、行内代码和普通转义不参与公式解析；静态与流式展示共用规则。

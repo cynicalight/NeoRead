@@ -83,6 +83,10 @@ func runAgentProcess() {
 		emit(map[string]bool{"loggedIn": true})
 		return
 	}
+	if provider == "claude" && strings.HasPrefix(mode, "document") && strings.Contains(args, "mcp__"+claudeDocumentServer+"__") {
+		fakeClaudeDocument(mode)
+		return
+	}
 	if provider == "claude" {
 		if mode == "user-settings" && !strings.Contains(args, "--setting-sources user") {
 			os.Exit(1)

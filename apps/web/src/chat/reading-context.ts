@@ -49,7 +49,8 @@ export async function readingContext(
   // Only an explicit page/chapter action needs renderer text for providers
   // without document tools. Merely attaching an image never reads the page.
   const documentAgent =
-    !hasImages && (provider === "codex" || provider === "api");
+    !hasImages &&
+    (provider === "codex" || provider === "claude" || provider === "api");
   if (useSection && !documentAgent && adapter) {
     context = await adapter.getContext();
     references = readingLocation

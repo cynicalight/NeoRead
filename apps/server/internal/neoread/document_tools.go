@@ -97,7 +97,7 @@ func (a *documentAgent) resetAttempt(provider string) {
 	}
 	a.ID = id()
 	a.provider = provider
-	a.canViewPages = provider == "codex"
+	a.canViewPages = provider == "codex" || provider == "claude"
 	a.Traces = nil
 	a.Evidence = nil
 	a.bytes = 0
