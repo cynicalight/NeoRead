@@ -1530,7 +1530,7 @@ function PaperRow({
       <ChevronRight className={expanded ? "rotate-90" : undefined} />
     </Button>
   );
-  const byline = paperByline(doc);
+  const byline = paperByline(doc, showAuthors);
   const authors = showAuthors ? authorsShort(doc) : "";
   const authorLine = authors && (
     <p className="paper-row-byline" title={authors}>

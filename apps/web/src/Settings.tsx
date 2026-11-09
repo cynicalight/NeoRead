@@ -796,11 +796,22 @@ export function Settings({
                 layout="settings"
               />
             </section>
-            <section>
-              <div className="flex items-center justify-between gap-3">
-                <h3 id="motion-label" className="text-sm font-medium">
-                  动态效果
-                </h3>
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span id="authors-label">显示作者名称</span>
+                <Switch
+                  aria-labelledby="authors-label"
+                  checked={paperPreferences.showAuthors !== false}
+                  onCheckedChange={(checked) =>
+                    void savePaperPreferences((prefs) => ({
+                      ...prefs,
+                      showAuthors: !!checked,
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span id="motion-label">动态效果</span>
                 <Switch
                   id="motion-enabled"
                   aria-labelledby="motion-label"
@@ -1079,29 +1090,6 @@ export function Settings({
             {currentLibrary === "papers" && (
               <>
                 <CitePluginSettings open={open} />
-                <section>
-                  <h3 className="mb-3 text-sm font-medium">显示设置</h3>
-                  <label className="flex items-center justify-between gap-4 text-sm">
-                    <span>
-                      论文显示作者名字
-                      <span className="block text-xs text-muted-foreground">
-                        在表格和卡片中的标题下方显示
-                      </span>
-                    </span>
-                    <Switch
-                      aria-label="论文显示作者名字"
-                      checked={paperPreferences.showAuthors !== false}
-                      onCheckedChange={(checked) =>
-                        void updateLibraryPreferences({
-                          papers: {
-                            ...paperPreferences,
-                            showAuthors: !!checked,
-                          },
-                        }).catch((e) => toast.error(e.message))
-                      }
-                    />
-                  </label>
-                </section>
                 <section>
                   <h3 className="mb-3 text-sm font-medium">导入设置</h3>
                   <label className="flex items-center justify-between gap-4 text-sm">

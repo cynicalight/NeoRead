@@ -25,6 +25,7 @@ import { toggleDocumentSelection, trashWithUndo } from "./library-actions";
 import { BookCoverImage } from "./book-cover";
 import { BookMenuItems } from "./BookMenu";
 import { useClickIntent } from "./DetailSheet";
+import { useReaderStore } from "./store";
 
 export function LibraryDocuments({
   documents,
@@ -61,6 +62,9 @@ export function LibraryDocuments({
   /** Single click shows details and double click opens; without it, click opens. */
   onActivate?: (id: string | null) => void;
 }) {
+  const showAuthors = useReaderStore(
+    (state) => state.libraryPreferences.papers?.showAuthors !== false,
+  );
   const overviewJobs = useOverviewJobs();
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState(false);
@@ -289,7 +293,7 @@ export function LibraryDocuments({
                   </div>
                   <div className="cover-text">
                     <div className="cover-title">{doc.title}</div>
-                    {doc.author && (
+                    {showAuthors && doc.author && (
                       <div className="cover-author" title={doc.author}>
                         {doc.author}
                       </div>
