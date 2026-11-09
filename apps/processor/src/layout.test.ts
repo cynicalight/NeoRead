@@ -236,3 +236,22 @@ it("keeps a table caption above the table as a separate paragraph at its origina
   });
   expect(blocks[1].caption).toBeUndefined();
 });
+
+it("keeps subscripts after their character instead of the line end", () => {
+  const regions = decodeRegions([22, 0.9, 0, 0, 100, 100, 0], 100, 100);
+  const span = (text: string, x: number, y: number, height = 0.02) => ({
+    text,
+    bounds: { x, y, width: 0.04, height },
+  });
+  const result = assignText(regions, [
+    span("keys of dimension d", 0.1, 0.1),
+    span("k", 0.3, 0.11, 0.014),
+    span(", and values of dimension d", 0.32, 0.1),
+    span("v", 0.6, 0.11, 0.014),
+    span(".", 0.62, 0.1),
+    span("We compute the dot products", 0.1, 0.13),
+  ]);
+  expect(result.texts[0]).toBe(
+    "keys of dimension d k , and values of dimension d v . We compute the dot products",
+  );
+});
