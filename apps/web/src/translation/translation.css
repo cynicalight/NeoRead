@@ -437,6 +437,7 @@
 .pdf-reading[data-reflow] .translation-document {
   position: relative;
   padding-top: 32px;
+  padding-inline: var(--reflow-margin, 48px);
 }
 .reflow-source {
   font-family: var(--reflow-source-font, inherit);

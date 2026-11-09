@@ -29,6 +29,10 @@ export type PDFLocation = {
   }[];
   type: "pdf";
   page: number;
+  /** Paragraph visible in the PDF reflow view. */
+  reflowBlockId?: string;
+  /** Independently saved position of the reflow reading view. */
+  reflowPosition?: { page: number; blockId: string };
   x?: number;
   y?: number;
   quote?: string;

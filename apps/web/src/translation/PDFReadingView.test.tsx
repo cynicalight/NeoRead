@@ -154,12 +154,13 @@ async function renderView(
   extraBlocks: PDFBlock[] = [],
   searchResults: SearchResult[] = [],
   sidebarsOpen = { left: true, right: true },
+  progress?: Document["progress"],
 ) {
   await act(async () =>
     root.render(
       <PDFReadingView
         sidebarsOpen={sidebarsOpen}
-        document={{ id: "doc", type: "pdf" } as Document}
+        document={{ id: "doc", type: "pdf", progress } as Document}
         theme={theme}
         annotations={[]}
         searchResults={searchResults}
@@ -1331,7 +1332,7 @@ it("copies a PDF paragraph with the formulas its translation restored", async ()
     delete (events as { blockAction?: unknown }).blockAction;
   }
 });
-it("opens reflowed text at the place the hidden PDF reports, once", async () => {
+it("does not move reflow text when the hidden PDF reports a position", async () => {
   await renderView(reflowed);
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
   const block = pane.querySelector<HTMLElement>('[data-reflow-block="p1-b1"]')!;
@@ -1341,11 +1342,132 @@ it("opens reflowed text at the place the hidden PDF reports, once", async () => 
   await act(async () =>
     fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0 }),
   );
-  expect(pane.scrollTop).toBeCloseTo(1200);
-  // Later reports from the hidden PDF no longer move the visible text.
-  pane.scrollTop = 0;
-  await act(async () =>
-    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0 }),
-  );
   expect(pane.scrollTop).toBe(0);
+});
+
+it("restores the saved reflow paragraph after that paragraph arrives", async () => {
+  const progress = {
+    type: "pdf" as const,
+    page: 1,
+    reflowPosition: { page: 2, blockId: "p2-b1" },
+  };
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await renderView(reflowed, [], [], undefined, progress);
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      return this.dataset.reflowBlock === "p2-b1"
+        ? new DOMRect(0, 1500 - pane.scrollTop, 600, 200)
+        : new DOMRect(0, 0, 600, 600);
+    });
+  try {
+    await act(async () =>
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0 }),
+    );
+    expect(pane.scrollTop).toBe(0);
+    await renderView(
+      reflowed,
+      [
+        {
+          id: "p2-b1",
+          page: 2,
+          label: "text",
+          text: "Later paragraph",
+          bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+        },
+      ],
+      [],
+      undefined,
+      progress,
+    );
+    expect(pane.scrollTop).toBeCloseTo(1200);
+  } finally {
+    rect.mockRestore();
+  }
+});
+
+it("uses the chosen margin immediately without a PDF-derived column width", async () => {
+  await renderView({ ...reflowed, pdfTranslationMargin: 0 });
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  expect(pane.style.getPropertyValue("--reflow-margin")).toBe("0px");
+  expect(pane.hasAttribute("data-column")).toBe(false);
+  expect(pane.style.getPropertyValue("--pdf-column-width")).toBe("");
+});
+
+it("saves the visible reflow paragraph when the reader scrolls", async () => {
+  await renderView(reflowed);
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  const block = pane.querySelector<HTMLElement>('[data-reflow-block="p1-b1"]')!;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+  block.getBoundingClientRect = () => new DOMRect(0, 80, 600, 400);
+  events.location.mockClear();
+  await act(async () => {
+    pane.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 100 }));
+    pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+    await new Promise(requestAnimationFrame);
+  });
+  expect(events.location).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "pdf", page: 1, reflowBlockId: "p1-b1" }),
+    expect.any(Number),
+  );
+});
+
+it("returns to the latest reflow paragraph after switching modes or tabs", async () => {
+  const later = {
+    id: "p1-b2",
+    page: 1,
+    label: "text",
+    text: "Later",
+    bounds: { x: 0.1, y: 0.7, width: 0.3, height: 0.1 },
+  };
+  const progress = {
+    type: "pdf" as const,
+    page: 1,
+    reflowPosition: { page: 1, blockId: "p1-b1" },
+  };
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await renderView(reflowed, [later], [], undefined, progress);
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+  const node = pane.querySelector<HTMLElement>('[data-reflow-block="p1-b2"]')!;
+  node.getBoundingClientRect = () =>
+    new DOMRect(0, 1200 - pane.scrollTop, 600, 200);
+  vi.mocked(adapter.goTo).mockClear();
+  await act(async () =>
+    fixture.ready!.goTo({ type: "pdf", page: 1, reflowBlockId: "p1-b2" }),
+  );
+  expect(pane.scrollTop).toBe(900);
+  expect(adapter.goTo).not.toHaveBeenCalled();
+  await renderView(defaultTheme, [later], [], undefined, progress);
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("translation-document"))
+        return new DOMRect(0, 0, 600, 600);
+      if (this.dataset.reflowBlock === "p1-b2")
+        return new DOMRect(
+          0,
+          1200 -
+            (this.closest<HTMLElement>(".translation-document")?.scrollTop ??
+              0),
+          600,
+          200,
+        );
+      return new DOMRect(0, 0, 600, 200);
+    });
+  try {
+    await renderView(reflowed, [later], [], undefined, progress);
+    const restored = host.querySelector<HTMLElement>(".translation-document")!;
+    expect(restored.scrollTop).toBe(900);
+  } finally {
+    rect.mockRestore();
+  }
+  expect(events.location).toHaveBeenCalledWith(
+    expect.objectContaining({ reflowBlockId: "p1-b2" }),
+    expect.any(Number),
+  );
 });

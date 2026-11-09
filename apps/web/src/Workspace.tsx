@@ -129,6 +129,7 @@ import { EPUBReadingView } from "./translation/EPUBReadingView";
 import { PDFReadingView } from "./translation/PDFReadingView";
 import { useReaderStore } from "./store";
 import { scheduleProgress, flushProgress } from "./progress";
+import { pdfModeLocation, savePDFProgress } from "./pdf-progress";
 import { ReadingTextControls } from "./ReadingTextControls";
 import { translationFont } from "./appearance";
 import { AppearancePicker } from "./AppearancePicker";
@@ -236,22 +237,30 @@ export function Workspace({
   };
   const [toc, setTOC] = useState<TOCItem[]>([]);
   const [location, setLocation] = useState<DocumentLocation | undefined>(
-    doc.progress,
+    doc.progress?.type === "pdf"
+      ? pdfModeLocation(doc.progress, theme.textReflow === true)
+      : doc.progress,
   );
   const lastReadingLocation = useRef(doc.progress);
+  const pdfProgress = useRef(
+    doc.progress?.type === "pdf" ? doc.progress : undefined,
+  );
   const resumeReading = useRef(false);
   useEffect(() => {
     if (!active) {
       resumeReading.current = true;
       return;
     }
-    if (resumeReading.current && adapter && lastReadingLocation.current) {
+    const position =
+      doc.type === "pdf"
+        ? pdfModeLocation(pdfProgress.current, theme.textReflow === true)
+        : lastReadingLocation.current;
+    if (resumeReading.current && adapter) {
       resumeReading.current = false;
-      void adapter
-        .goTo(lastReadingLocation.current)
-        .catch((e) => toast.error(e.message));
+      if (position)
+        void adapter.goTo(position).catch((e) => toast.error(e.message));
     }
-  }, [active, adapter]);
+  }, [active, adapter, doc.type, theme.textReflow]);
   const [translationSelection, setTranslationSelection] =
     useState<ReaderSelection | null>(null);
   const [selection, setSelection] = useState<ReaderSelection | null>(null);
@@ -480,6 +489,15 @@ export function Workspace({
   const [preparing, setSending] = useState(false);
   const sending = preparing || chat.busy;
   const [pageInput, setPageInput] = useState("");
+  useEffect(() => {
+    if (doc.type !== "pdf") return;
+    const position = pdfModeLocation(
+      pdfProgress.current,
+      theme.textReflow === true,
+    );
+    setLocation(position);
+    setPageInput(String(position?.page ?? 1));
+  }, [doc.id, doc.type, theme.textReflow]);
   const abort = useRef<AbortController | null>(null);
   const searchSerial = useRef(0);
   useEffect(() => {
@@ -585,8 +603,19 @@ export function Workspace({
     setLocation(next);
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
     if (next.type === "pdf") setPageInput(String(next.page));
-    scheduleProgress(doc.id, { progress: next, percentage: percent }, (e) =>
-      toast.error(e.message),
+    if (next.type === "pdf")
+      pdfProgress.current = savePDFProgress(
+        pdfProgress.current,
+        next,
+        theme.textReflow === true,
+      );
+    scheduleProgress(
+      doc.id,
+      {
+        progress: next.type === "pdf" ? pdfProgress.current! : next,
+        percentage: percent,
+      },
+      (e) => toast.error(e.message),
     );
   };
   const annotate = async (
