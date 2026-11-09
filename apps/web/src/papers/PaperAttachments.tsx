@@ -306,11 +306,15 @@ export function PaperAttachments({
             <DropdownMenuTrigger
               disabled={busy || uploading}
               render={
-                <Button size="xs" variant="ghost" aria-label="添加附件" />
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="添加附件"
+                  title="添加附件"
+                />
               }
             >
               <Plus />
-              添加
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => picker.current?.click()}>

@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react";
+import { Plus } from "lucide-react";
 import type { APIConnection } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
 import { Input } from "@neoread/ui/components/input";
@@ -172,10 +173,13 @@ export function APIModelForm({
       />
       <Button
         type="submit"
+        size="icon"
         variant="outline"
+        aria-label="添加模型 ID"
+        title="添加模型 ID"
         disabled={disabled || saving || !id.trim()}
       >
-        添加
+        <Plus />
       </Button>
     </form>
   );

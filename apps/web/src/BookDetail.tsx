@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, MoreHorizontal, Pin, Star } from "lucide-react";
+import { BookOpen, MoreHorizontal, Pin, Plus, Star } from "lucide-react";
 import type { Document, PaperMetadataField } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
 import { Input } from "@neoread/ui/components/input";
@@ -246,11 +246,15 @@ export function BookDetail({
           <div className="flex items-center justify-between">
             <h3>简介</h3>
             <Button
-              size="xs"
+              size={!editingDescription && !m.abstract ? "icon-xs" : "xs"}
               variant="ghost"
+              aria-label={
+                !editingDescription && !m.abstract ? "添加简介" : undefined
+              }
+              title={!editingDescription && !m.abstract ? "添加简介" : undefined}
               onClick={() => setEditingDescription(!editingDescription)}
             >
-              {editingDescription ? "完成" : m.abstract ? "编辑" : "添加"}
+              {editingDescription ? "完成" : m.abstract ? "编辑" : <Plus />}
             </Button>
           </div>
           {editingDescription ? (

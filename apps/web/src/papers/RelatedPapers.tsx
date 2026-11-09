@@ -67,9 +67,17 @@ export function RelatedPapers({ doc }: { doc: Document }) {
             if (!next) setQuery("");
           }}
         >
-          <PopoverTrigger render={<Button size="xs" variant="ghost" />}>
+          <PopoverTrigger
+            render={
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="关联论文"
+                title="关联论文"
+              />
+            }
+          >
             <Plus />
-            关联
           </PopoverTrigger>
           <PopoverContent align="end" className="w-72 gap-1 p-2">
             <Input
