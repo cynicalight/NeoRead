@@ -30,9 +30,16 @@ jobs:
       # Vite chunk rendering exceeds Node's default heap on macOS runners.
       NODE_OPTIONS: --max-old-space-size=4096
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
-      # No Apple or Windows credentials. macOS uses the fixed self-signed
-      # certificate (apps/desktop/mac-sign.cjs) so in-place updates verify.
+      # macOS signing: prefer the Apple Developer ID certificate when the
+      # NEOREAD_APPLE_* secrets are configured (then notarize + staple with
+      # scripts/notarize-mac.mjs); otherwise fall back to the fixed self-signed
+      # certificate so in-place updates keep verifying. No Windows credentials.
       CSC_FOR_PULL_REQUEST: "true"
+      NEOREAD_APPLE_P12: ${{ startsWith(matrix.target, 'mac-') && secrets.NEOREAD_APPLE_P12 || '' }}
+      NEOREAD_APPLE_P12_PASSWORD: ${{ startsWith(matrix.target, 'mac-') && secrets.NEOREAD_APPLE_P12_PASSWORD || '' }}
+      NEOREAD_APPLE_ID: ${{ startsWith(matrix.target, 'mac-') && secrets.NEOREAD_APPLE_ID || '' }}
+      NEOREAD_APPLE_PASSWORD: ${{ startsWith(matrix.target, 'mac-') && secrets.NEOREAD_APPLE_PASSWORD || '' }}
+      NEOREAD_APPLE_TEAM_ID: ${{ startsWith(matrix.target, 'mac-') && secrets.NEOREAD_APPLE_TEAM_ID || '' }}
       NEOREAD_MAC_SIGN_P12: ${{ startsWith(matrix.target, 'mac-') && secrets.NEOREAD_MAC_SIGN_P12 || '' }}
       NEOREAD_MAC_SIGN_P12_PASSWORD: ${{ startsWith(matrix.target, 'mac-') && secrets.NEOREAD_MAC_SIGN_P12_PASSWORD || '' }}
     steps:
@@ -57,6 +64,9 @@ jobs:
           key: neoread-layout-model-${{ hashFiles('apps/processor/model.json') }}
       - name: Build installers and verify packaged runtimes
         run: pnpm package
+      - name: Notarize and staple macOS installers
+        if: startsWith(matrix.target, 'mac-')
+        run: node scripts/notarize-mac.mjs
       - name: Store verified installers
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

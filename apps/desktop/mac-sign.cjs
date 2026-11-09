@@ -1,10 +1,23 @@
 // electron-builder `mac.sign` hook. electron-builder still prepares the
-// @electron/osx-sign options (ad-hoc identity "-"); with the fixed NeoRead
-// certificate available, only the identity and keychain are replaced.
+// @electron/osx-sign options (ad-hoc identity "-"); with a fixed certificate
+// available, only the identity and keychain are replaced.
+//
+// Two signing modes:
+//   1. Apple Developer ID (preferred; required for notarization):
+//        NEOREAD_APPLE_P12            base64 .p12 export of a Developer ID
+//                                     Application certificate (with private key)
+//        NEOREAD_APPLE_P12_PASSWORD   its password
+//      Files are timestamped with Apple's timestamp service and the app is
+//      built with Hardened Runtime (see builder.config.cjs). The release is
+//      then notarized and stapled by scripts/notarize-mac.mjs.
+//   2. Fixed self-signed certificate (fallback for local / preview builds):
+//        NEOREAD_MAC_SIGN_P12           base64 .p12 with the certificate and key
+//        NEOREAD_MAC_SIGN_P12_PASSWORD  its password
+//
 // Squirrel.Mac installs an update only when it is signed by the same
-// certificate as the running app, so every release must use this one.
-//   NEOREAD_MAC_SIGN_P12           base64 .p12 with the certificate and key
-//   NEOREAD_MAC_SIGN_P12_PASSWORD  its password
+// certificate as the running app, so every release must keep using the
+// certificate users installed with; switching certificates requires one manual
+// DMG install for existing users.
 const { signAsync } = require("@electron/osx-sign");
 const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
@@ -63,7 +76,7 @@ async function withCertificate(p12, password, sign) {
     ].map((match) => match[1]);
     if (identities.length !== 1)
       throw new Error(
-        `Expected one signing identity in NEOREAD_MAC_SIGN_P12, found ${identities.length}`,
+        `Expected one signing identity in the certificate, found ${identities.length}`,
       );
     return await sign(identities[0], keychain);
   } finally {
@@ -78,17 +91,34 @@ async function withCertificate(p12, password, sign) {
 }
 
 module.exports = async function sign(options) {
-  const p12 = process.env.NEOREAD_MAC_SIGN_P12;
-  if (!p12) {
+  const appleP12 = process.env.NEOREAD_APPLE_P12;
+  const fallbackP12 = process.env.NEOREAD_MAC_SIGN_P12;
+  if (!appleP12 && !fallbackP12) {
     if (process.env.RELEASE_TAG)
       throw new Error(
-        "Release builds must be signed with the fixed NeoRead certificate (NEOREAD_MAC_SIGN_P12).",
+        "Release builds must be signed (NEOREAD_APPLE_P12 for Apple Developer ID, or NEOREAD_MAC_SIGN_P12 for the fixed self-signed certificate).",
       );
     return signAsync(options);
   }
+  if (appleP12) {
+    const password = process.env.NEOREAD_APPLE_P12_PASSWORD;
+    if (!password) throw new Error("NEOREAD_APPLE_P12_PASSWORD is not set.");
+    return withCertificate(appleP12, password, (identity, keychain) =>
+      signAsync({
+        ...options,
+        identity,
+        keychain,
+        // Apple's timestamp service: required for notarization.
+        optionsForFile: (file) => ({
+          ...options.optionsForFile?.(file),
+          timestamp: true,
+        }),
+      }),
+    );
+  }
   const password = process.env.NEOREAD_MAC_SIGN_P12_PASSWORD;
   if (!password) throw new Error("NEOREAD_MAC_SIGN_P12_PASSWORD is not set.");
-  return withCertificate(p12, password, (identity, keychain) =>
+  return withCertificate(fallbackP12, password, (identity, keychain) =>
     signAsync({
       ...options,
       identity,

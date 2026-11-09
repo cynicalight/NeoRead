@@ -44,11 +44,25 @@ try {
         encoding: "utf8",
       });
       assert.equal(details.status, 0, details.stderr);
-      assert.match(
-        details.stderr,
-        /^Authority=NeoRead Self-Signed$/m,
-        "Release must be signed with the fixed NeoRead certificate",
-      );
+      const authorities = [
+        ...details.stderr.matchAll(/^Authority=(.+)$/gm),
+      ].map((match) => match[1]);
+      if (process.env.NEOREAD_APPLE_P12) {
+        // Developer ID signing: the authority chain starts with the Developer
+        // ID Application certificate.
+        assert.ok(
+          authorities.some((authority) =>
+            authority.startsWith("Developer ID Application: "),
+          ),
+          "Release must be signed with a Developer ID Application certificate",
+        );
+      } else {
+        assert.match(
+          details.stderr,
+          /^Authority=NeoRead Self-Signed$/m,
+          "Release must be signed with the fixed NeoRead certificate",
+        );
+      }
     }
   }
   const native = spawnSync(electron, [join(resources, "processor/smoke.mjs")], {

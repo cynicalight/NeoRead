@@ -11,11 +11,11 @@ NeoRead 使用 GitHub Actions 和 electron-builder，发布 GitHub Release 后�
 
 当前工作流不构建 Intel Mac、Windows ARM64 或 Linux 安装包。Intel Mac 暂停构建：`onnxruntime-node` 自 1.24 起不再提供 darwin/x64 原生库，包内检查无法加载版面模型。`builder.config.cjs` 与更新检查仍保留 `mac-intel-x64` 命名，恢复时在 `.github/workflows/build.yml`（`macos-15-intel` runner）和 `scripts/release-assets.mjs` 中加回该目标即可。
 
-当前没有 Apple 开发者证书。macOS 正式版使用仓库固定的自签名证书签名（见下文“macOS 签名证书”），不做 Apple 公证；Gatekeeper 不信任该证书，表现与 ad-hoc 签名相同。Windows 安装包没有 Authenticode 签名。系统可能阻止首次打开。macOS 可在确认下载来源后，在“系统设置 → 隐私与安全性”中允许该应用；Windows SmartScreen 可选择“更多信息 → 仍要运行”。组织设备策略可能禁止绕过。无需关闭系统整体安全保护。校验值用于检查文件完整性，不能替代开发者身份签名。
+macOS 正式版支持两种签名模式：若仓库配置了 Apple Developer 凭据（见下文“Apple 公证”），安装包使用 Developer ID Application 证书签名、开启 Hardened Runtime，并完成 Apple 公证与盖章，Gatekeeper 直接放行；未配置时退回仓库固定的自签名证书签名，不做 Apple 公证；Gatekeeper 不信任该证书，表现与 ad-hoc 签名相同。Windows 安装包没有 Authenticode 签名。系统可能阻止首次打开。macOS 可在确认下载来源后，在“系统设置 → 隐私与安全性”中允许该应用；Windows SmartScreen 可选择“更多信息 → 仍要运行”。组织设备策略可能禁止绕过。无需关闭系统整体安全保护。校验值用于检查文件完整性，不能替代开发者身份签名。
 
 ## macOS 签名证书
 
-Squirrel.Mac 只安装与当前应用出自同一证书的更新。所有正式版必须使用同一张自签名证书；丢失或更换证书后，已安装的版本无法原地更新，只能手动下载 DMG 一次。
+Squirrel.Mac 只安装与当前应用出自同一证书的更新。所有正式版必须使用同一张固定证书（自签名证书，或配置了 Apple 凭据时的 Developer ID 证书）；丢失或更换证书后，已安装的版本无法原地更新，只能手动下载 DMG 一次。
 
 首次启用时在本机执行一次，输出目录必须不存在：
 
@@ -28,6 +28,47 @@ gh secret set NEOREAD_MAC_SIGN_P12_PASSWORD < ~/neoread-mac-sign/password.txt
 把 `neoread-sign.p12` 和 `password.txt` 离线备份后，可删除本机副本。证书有效期 20 年，CN 为 `NeoRead Self-Signed`。
 
 `apps/desktop/mac-sign.cjs` 是 electron-builder 的 `mac.sign` 钩子：electron-builder 照常生成签名参数，钩子把证书导入临时钥匙串，替换签名身份后逐个签名嵌套二进制，结束后删除临时钥匙串，不修改登录钥匙串或信任设置。证书无人验证时间戳，签名不请求 Apple 时间戳服务。没有证书时退回 ad-hoc 签名，适用于本地构建和手动试跑；带 Release tag 的构建缺少证书会直接失败，包内检查也会确认签名者为 `NeoRead Self-Signed`。证书只传给 macOS 构建任务。
+
+## Apple 公证（可选）
+
+配置 Apple Developer 凭据后，Release 安装包使用 Developer ID Application 证书签名并提交 Apple 公证（notarization），公证通过后盖章（stapling），Gatekeeper 不再拦截，用户双击即可打开。
+
+### 前提（一次性）
+
+- Apple Developer Program 成员（$99/年），并已启用 Developer ID Application 证书；
+- Apple ID 与 App 专用密码（appleid.apple.com → 登录与安全 → App 专用密码 生成，不要使用账号密码本身）；
+- Team ID（developer.apple.com → Membership details）。
+
+### 配置 secrets
+
+在 macOS 上导出证书并写入仓库 secrets（五组凭据要么全配、要么全不配；只配一部分会在发版时直接失败，避免发出"已签名但未公证"的包）：
+
+```sh
+base64 < DeveloperID.p12 | tr -d '\n' > developer-id.p12.base64
+gh secret set NEOREAD_APPLE_P12 < developer-id.p12.base64
+gh secret set NEOREAD_APPLE_P12_PASSWORD
+gh secret set NEOREAD_APPLE_ID
+gh secret set NEOREAD_APPLE_PASSWORD
+gh secret set NEOREAD_APPLE_TEAM_ID
+```
+
+Release 工作流会自动读取这些 secret；之后每次发版都会自动签名、公证并盖章。
+
+### 责任与安全
+
+Developer ID 证书私钥代表证书持有人的身份，Gatekeeper 会显示该证书持有人的姓名。把 .p12 放进本仓库 secrets 即等于授权维护者可代表该身份签名。若证书持有人不是仓库维护者，请先明确双方责任与信任关系；更稳妥的做法是让证书持有人在自己控制的 runner 上执行 Release 构建。
+
+### 证书切换的一次性成本
+
+Squirrel.Mac 只安装与当前应用同一证书签名的更新。已安装版本由自签名证书签名时，切换到 Developer ID 后首次更新需要用户手动下载一次 DMG 安装，之后原地更新恢复正常。
+
+### 发版后验证（在 macOS 上）
+
+```sh
+codesign --verify --deep --strict release/mac-arm64/NeoRead.app
+spctl --assess --type execute --verbose=4 release/mac-arm64/NeoRead.app   # 预期 accepted
+xcrun stapler validate release/NeoRead-<version>-mac-arm64.dmg
+```
 
 ## 发版步骤
 
