@@ -140,6 +140,8 @@ export class EPUBReaderAdapter implements ReaderAdapter {
           current.startContainer instanceof Element
             ? current.startContainer
             : current.startContainer.parentElement;
+        // Reflowed translations inside a source paragraph select themselves.
+        if (element?.closest("[data-translation-block]")) return;
         const id =
           element?.closest<HTMLElement>("[data-epub-run]")?.dataset.epubRun ??
           element?.closest<HTMLElement>("[data-epub-block]")?.dataset.epubBlock;

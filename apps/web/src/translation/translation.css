@@ -396,3 +396,21 @@
     animation: none;
   }
 }
+/* Reflowed text: each translation sits under its source paragraph. */
+.epub-reflow-translation {
+  display: block;
+  margin-top: 0.35em;
+  font-family: var(--reflow-translation-font, inherit);
+  font-size: calc(1em * var(--reflow-translation-scale, 1));
+  font-weight: var(--reflow-translation-weight, inherit);
+}
+.epub-reflow[data-reflow-mode="translation"] .epub-web-chapter [data-epub-run] {
+  display: none;
+}
+.epub-reflow[data-reflow-mode="translation"] .epub-reflow-translation {
+  margin-top: 0;
+}
+.epub-reflow-translation .translation-pending {
+  min-height: 0;
+  justify-content: flex-start;
+}

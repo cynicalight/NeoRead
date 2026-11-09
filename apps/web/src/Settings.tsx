@@ -1038,6 +1038,33 @@ export function Settings({
                   }
                 />
               </label>
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
+                  文字重排
+                  <span className="block text-xs text-muted-foreground">
+                    按段落重排正文，译文显示在对应原文下方
+                  </span>
+                </span>
+                <Switch
+                  aria-label="文字重排"
+                  checked={theme.textReflow === true}
+                  onCheckedChange={(checked) =>
+                    setTheme({ textReflow: !!checked })
+                  }
+                />
+              </label>
+              {theme.textReflow === true && (
+                <label className="flex items-center justify-between gap-4 text-sm">
+                  <span>点击段落聚焦</span>
+                  <Switch
+                    aria-label="点击段落聚焦"
+                    checked={theme.reflowBlockFocus === true}
+                    onCheckedChange={(checked) =>
+                      setTheme({ reflowBlockFocus: !!checked })
+                    }
+                  />
+                </label>
+              )}
             </section>
             <section>
               <HighlightColorsEditor />

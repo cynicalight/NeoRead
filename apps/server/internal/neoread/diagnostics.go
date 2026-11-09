@@ -154,7 +154,7 @@ func (s *Server) diagnosticSettings() map[string]any {
 	for _, item := range []struct {
 		key     string
 		allowed []string
-	}{{"neoread", []string{"appearance", "autoTranslatePDF", "linkTranslationAnnotations", "translationFontFamily", "translationFontSize"}}, {"preferences:library", []string{"mode", "primaryMode"}}} {
+	}{{"neoread", []string{"appearance", "autoTranslatePDF", "linkTranslationAnnotations", "textReflow", "translationFontFamily", "translationFontSize"}}, {"preferences:library", []string{"mode", "primaryMode"}}} {
 		var body string
 		if s.Store.DB.QueryRow("SELECT value FROM settings WHERE key=?", item.key).Scan(&body) != nil {
 			continue
