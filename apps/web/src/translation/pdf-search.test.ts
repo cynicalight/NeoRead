@@ -58,3 +58,44 @@ it("does not return stale translation text before completion", () => {
   expect(searchPDFBlocks("译文", blocks, pending)).toEqual([]);
   expect(searchPDFBlocks("garbled", blocks, pending)).toHaveLength(1);
 });
+
+it("returns the complete matching sentence rather than a character window", () => {
+  const sentence =
+    "An extraordinarily long introductory clause explains why the target appears here and continues with enough additional detail to exceed the old excerpt window comfortably.";
+  const text = `An unrelated sentence. ${sentence} Another unrelated sentence.`;
+  const results = searchPDFBlocks("target", [{ ...blocks[0], text }], []);
+  expect(results[0].excerpt).toBe(sentence);
+});
+
+it("returns complete Chinese sentences and preserves phrases spanning sentences", () => {
+  const text = "上一句。这里包含目标词，后面还有说明。下一句。";
+  expect(searchPDFBlocks("目标", [{ ...blocks[0], text }], [])[0].excerpt).toBe(
+    "这里包含目标词，后面还有说明。",
+  );
+  expect(
+    searchPDFBlocks("说明。下一", [{ ...blocks[0], text }], [])[0].excerpt,
+  ).toBe("这里包含目标词，后面还有说明。下一句。");
+});
+
+it("anchors translated matches to their side and sentence offsets", () => {
+  const translated = [
+    {
+      ...translations[0],
+      sentences: [
+        { source: "First sentence.", target: "第一句。" },
+        { source: "Second sentence.", target: "第二句。" },
+      ],
+    },
+  ];
+  const result = searchPDFBlocks("第二", blocks, translated)[0];
+  expect(result.excerpt).toBe("第二句。");
+  expect(result.location).toMatchObject({
+    translation: {
+      blockId: "one",
+      sourceHash: "a",
+      sentenceIndexes: [1],
+      start: 4,
+      end: 6,
+    },
+  });
+});

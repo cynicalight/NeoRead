@@ -1,3 +1,4 @@
+import { searchExcerpt } from "./search-excerpt";
 import { selectionContext } from "./selection-context";
 import { annotationsAtPoint } from "../translation/annotation-hover";
 import { api } from "@neoread/api";
@@ -810,7 +811,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
         if (!first || !last) continue;
         results.push({
           id: `${first.block.id}:${start - first.start}`,
-          excerpt: text.slice(Math.max(0, start - 35), end + 60),
+          excerpt: searchExcerpt(text, start, end),
           location: {
             type: "epub",
             href: chapter.info.href,

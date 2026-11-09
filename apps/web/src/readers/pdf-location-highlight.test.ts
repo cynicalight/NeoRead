@@ -106,3 +106,86 @@ it("distinguishes repeated words using the selected occurrence in its paragraph"
     Range.prototype.getClientRects = original;
   }
 });
+
+it("locates a search word when other text in its repaired paragraph differs", () => {
+  page.innerHTML =
+    '<div class="textLayer"><span>OCR typo. before target after.</span></div>';
+  const original = Range.prototype.getClientRects;
+  Range.prototype.getClientRects = function () {
+    expect(this.toString()).toBe("target");
+    return [new DOMRect(200, 300, 60, 10)] as unknown as DOMRectList;
+  };
+  try {
+    const text = "OCR corrected. before target after.";
+    marks.show(
+      {
+        type: "pdf",
+        page: 1,
+        quote: "target",
+        quoteContext: { text, start: text.indexOf("target") },
+      },
+      "",
+      [{ x: 0.1, y: 0.2, width: 0.8, height: 0.3 }],
+    );
+    expect(
+      page.querySelector<HTMLElement>(".neoread-location-highlight > div")
+        ?.style.width,
+    ).toBe("6%");
+  } finally {
+    Range.prototype.getClientRects = original;
+  }
+});
+
+it("does not replace an unresolved search word with a whole-paragraph highlight", () => {
+  marks.show(
+    {
+      type: "pdf",
+      page: 1,
+      quote: "target",
+      quoteContext: { text: "before target after", start: 7 },
+    },
+    "",
+    [{ x: 0.1, y: 0.2, width: 0.8, height: 0.3 }],
+  );
+  expect(page.querySelector(".neoread-location-highlight")).toBeNull();
+  page.innerHTML = '<div class="textLayer"><span>unrelated text</span></div>';
+  marks.paint();
+  expect(page.querySelector(".neoread-location-highlight")).toBeNull();
+});
+
+it("keeps repeated search matches distinct after an OCR repair elsewhere", () => {
+  const text = "Typo. target first, target second.";
+  page.innerHTML = `<div class="textLayer"><span>${text}</span></div>`;
+  const repaired = "Corrected. target first, target second.";
+  const original = Range.prototype.getClientRects;
+  Range.prototype.getClientRects = function () {
+    return [
+      new DOMRect(this.startOffset * 10, 100, 60, 10),
+    ] as unknown as DOMRectList;
+  };
+  try {
+    for (const start of [
+      repaired.indexOf("target"),
+      repaired.lastIndexOf("target"),
+    ]) {
+      marks.show({
+        type: "pdf",
+        page: 1,
+        quote: "target",
+        quoteContext: { text: repaired, start },
+        x: 0.5,
+        y: 0.1,
+      });
+      const expected =
+        start === repaired.indexOf("target")
+          ? text.indexOf("target")
+          : text.lastIndexOf("target");
+      expect(
+        page.querySelector<HTMLElement>(".neoread-location-highlight > div")
+          ?.style.left,
+      ).toBe(`${expected}%`);
+    }
+  } finally {
+    Range.prototype.getClientRects = original;
+  }
+});

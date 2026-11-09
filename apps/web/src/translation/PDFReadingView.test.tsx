@@ -195,6 +195,7 @@ it("uses repaired text for search and focuses the matching block", async () => {
   ).toBe(true);
   await act(async () => fixture.ready!.focusLocation!(results[0].location));
   expect(adapter.focusBlock).toHaveBeenCalledWith("p1-b1", "parallel");
+  expect(adapter.flashReference).not.toHaveBeenCalled();
 });
 
 it("retains PDF.js search on pages without parsed blocks", async () => {

@@ -1,3 +1,4 @@
+import { searchExcerpt } from "./search-excerpt";
 import { reportDiagnostic } from "../diagnostics";
 import { PDFResizeObserver } from "./pdf-resize";
 import { readPDFOutline } from "./pdf-outline";
@@ -341,15 +342,19 @@ export class PDFReaderAdapter implements ReaderAdapter {
     if (!query.trim() || !this.pdf) return results;
     for (let page = 1; page <= this.pdf.numPages && !this.disposed; page++) {
       const text = await this.pageText(page);
-      const index = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+      const index = text
+        .toLocaleLowerCase()
+        .indexOf(query.trim().toLocaleLowerCase());
       if (index >= 0)
         results.push({
           id: `${page}`,
-          excerpt: text.slice(
-            Math.max(0, index - 65),
-            index + query.length + 110,
-          ),
-          location: { type: "pdf", page, quote: query },
+          excerpt: searchExcerpt(text, index, index + query.trim().length),
+          location: {
+            type: "pdf",
+            page,
+            quote: query.trim(),
+            quoteContext: { text, start: index },
+          },
         });
       if (results.length >= 100) break;
     }

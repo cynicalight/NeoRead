@@ -1,3 +1,4 @@
+import { searchExcerpt } from "../readers/search-excerpt";
 import {
   isPDFPageDecoration,
   type PDFBlock,
@@ -38,19 +39,36 @@ export function searchPDFBlocks(
       while (from < lower.length && results.length < 100) {
         const index = lower.indexOf(needle, from);
         if (index < 0) break;
+        let sentenceStart = 0;
+        const sentenceIndexes =
+          translation?.sentences.flatMap((sentence, i) => {
+            const length = sentence.target.length;
+            const hit =
+              index < sentenceStart + length &&
+              index + needle.length > sentenceStart;
+            sentenceStart += length + 1;
+            return hit ? [i] : [];
+          }) ?? [];
         results.push({
           id: `${block.id}:${side}:${index}`,
           blockId: block.id,
           side,
-          excerpt: text.slice(
-            Math.max(0, index - 35),
-            index + needle.length + 60,
-          ),
+          excerpt: searchExcerpt(text, index, index + needle.length),
           location: {
             type: "pdf",
             page: block.page,
-            ...(side === "source"
-              ? { quote: query.trim(), quoteContext: { text, start: index } }
+            quote: query.trim(),
+            quoteContext: { text, start: index },
+            ...(side === "translation"
+              ? {
+                  translation: {
+                    blockId: block.id,
+                    sourceHash: translation!.sourceHash,
+                    sentenceIndexes,
+                    start: index - (sentenceIndexes[0] ?? 0),
+                    end: index + needle.length - (sentenceIndexes.at(-1) ?? 0),
+                  },
+                }
               : {}),
             x: block.bounds.x + block.bounds.width / 2,
             y: block.bounds.y + block.bounds.height / 2,

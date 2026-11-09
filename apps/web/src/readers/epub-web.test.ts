@@ -388,6 +388,11 @@ it("uses TOC and internal fragment links and delegates external URLs", async () 
 it("expands FTS chapter hits into exact repeated occurrences and selects the requested occurrence", async () => {
   await open();
   const results = await reader.search("Same words");
+  expect(results.map((result) => result.excerpt)).toEqual([
+    "Same words.",
+    "Same words.",
+    "Same words.",
+  ]);
   expect(results.map((r) => (r.location as EPUBLocation).start)).toEqual([
     0, 12, 0,
   ]);

@@ -435,7 +435,12 @@ export function PDFReadingView({
     const operation = explicitFocus.current.operation;
     await completed;
     if (operation !== explicitFocus.current.operation) return;
-    if (location.type === "pdf" && mode !== "translation" && !reflow)
+    if (
+      location.type === "pdf" &&
+      !(location.translation && location.quoteContext) &&
+      mode !== "translation" &&
+      !reflow
+    )
       engine?.flashReference?.(location, location.quote ?? "");
   };
   // Keep the public adapter usable by TOC, notes and page navigation in all modes.

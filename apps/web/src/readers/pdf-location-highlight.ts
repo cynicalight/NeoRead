@@ -27,7 +27,8 @@ export class PDFLocationHighlight {
     let rects = target.rects?.length
       ? target.rects
       : this.quoteRects(page, target);
-    if (!rects.length) rects = this.fallback ?? [];
+    // Search feedback must never turn a missing word into a paragraph selection.
+    if (!rects.length && !target.quoteContext) rects = this.fallback ?? [];
     if (!rects.length) return;
     const layer = document.createElement("div");
     layer.className = "neoread-location-highlight";
@@ -67,9 +68,10 @@ export class PDFLocationHighlight {
       }
     }
     const bounds = page.getBoundingClientRect();
-    const candidates: Array<
-      { x: number; y: number; width: number; height: number }[]
-    > = [];
+    const candidates: {
+      rects: { x: number; y: number; width: number; height: number }[];
+      score: number;
+    }[] = [];
     const context = target.quoteContext;
     const paragraph = context ? normalize(context.text) : "";
     const offset = context
@@ -80,15 +82,31 @@ export class PDFLocationHighlight {
       at >= 0;
       at = text.indexOf(needle, at + 1)
     ) {
-      // A search result carries its paragraph and exact occurrence, so repeated
-      // words cannot collapse onto whichever match happens to be nearest center.
-      if (
-        context &&
-        (at < offset ||
-          !paragraph ||
-          text.slice(at - offset, at - offset + paragraph.length) !== paragraph)
-      )
-        continue;
+      // Prefer the exact occurrence. OCR repairs elsewhere in the paragraph
+      // must not prevent matching a word still present in the PDF text layer.
+      let score = 0;
+      if (context) {
+        if (
+          at >= offset &&
+          paragraph &&
+          text.slice(at - offset, at - offset + paragraph.length) === paragraph
+        )
+          score = paragraph.length + 1;
+        else {
+          for (let i = 1; i <= offset && i <= at; i++) {
+            if (paragraph[offset - i] !== text[at - i]) break;
+            score++;
+          }
+          for (
+            let i = needle.length;
+            offset + i < paragraph.length && at + i < text.length;
+            i++
+          ) {
+            if (paragraph[offset + i] !== text[at + i]) break;
+            score++;
+          }
+        }
+      }
       const rects = [];
       // Separate text-node ranges avoid giant boxes across columns or <br> elements.
       for (let start = at; start < at + needle.length;) {
@@ -112,15 +130,34 @@ export class PDFLocationHighlight {
         }
         start = end;
       }
-      if (rects.length) candidates.push(rects);
+      if (
+        context &&
+        this.fallback?.length &&
+        !rects.some((rect) =>
+          this.fallback!.some(
+            (block) =>
+              rect.x < block.x + block.width &&
+              rect.x + rect.width > block.x &&
+              rect.y < block.y + block.height &&
+              rect.y + rect.height > block.y,
+          ),
+        )
+      )
+        continue;
+      if (rects.length) candidates.push({ rects, score });
     }
     if (target.x !== undefined || target.y !== undefined) {
       const distance = (rect: { x: number; y: number }) =>
         Math.abs(rect.x - (target.x ?? rect.x)) +
         Math.abs(rect.y - (target.y ?? rect.y));
-      candidates.sort((a, b) => distance(a[0]) - distance(b[0]));
+      candidates.sort(
+        (a, b) =>
+          b.score - a.score || distance(a.rects[0]) - distance(b.rects[0]),
+      );
+    } else {
+      candidates.sort((a, b) => b.score - a.score);
     }
-    return candidates[0] ?? [];
+    return candidates[0]?.rects ?? [];
   }
   clear = () => {
     clearTimeout(this.timer);
