@@ -298,3 +298,140 @@ it("offers to restore a saved answer without generating again", async () => {
   expect(stream).toHaveBeenCalledTimes(1);
   expect(regenerate).not.toHaveBeenCalled();
 });
+
+it("offers a real continue action for a saved checkpoint without regenerating the question", async () => {
+  let history: Message[] = [];
+  let run: import("@neoread/core").ChatRun | undefined;
+  const regenerate = vi.fn();
+  const stream = vi.fn<ChatTransport["stream"]>(
+    async (_id, input, _signal, emit) => {
+      history = [
+        {
+          id: input.userMessageId!,
+          documentId: "doc",
+          role: "user",
+          content: input.prompt,
+          createdAt: "now",
+        },
+      ];
+      run = {
+        id: "checkpoint-run",
+        documentId: "doc",
+        sessionId: "session",
+        userMessageId: input.userMessageId!,
+        provider: "api",
+        status: "failed",
+        resumable: true,
+        startedAt: "now",
+      };
+      emit({ event: "delta", data: { text: "unfinished" } });
+      emit({ event: "error", data: { error: "upstream 502" } });
+    },
+  );
+  const continueRun = vi.fn<NonNullable<ChatTransport["continueRun"]>>(
+    async (active, _signal, emit) => {
+      expect(active.id).toBe("checkpoint-run");
+      history.push({
+        id: "answer",
+        documentId: "doc",
+        role: "assistant",
+        content: "continued successfully",
+        createdAt: "now",
+      });
+      run = { ...active, status: "completed", resumable: false };
+      emit({ event: "done", data: { ok: true } });
+    },
+  );
+  session = new ChatSession("doc", {
+    messages: async () => history,
+    latestRun: async () => run,
+    stream,
+    continueRun,
+  });
+  await session.load();
+  await session.send(question);
+  await act(async () =>
+    root.render(
+      <AssistantPanel
+        session={session}
+        empty={null}
+        extras={() => null}
+        references={() => null}
+        onRegenerate={regenerate}
+      />,
+    ),
+  );
+  expect(button("继续")).toBeDefined();
+  expect(button("重新生成")).toBeUndefined();
+  expect(host.textContent).not.toContain("502");
+  await act(async () => {
+    button("继续")!.click();
+    await vi.waitFor(() => expect(session.getSnapshot().busy).toBe(false));
+  });
+  expect(continueRun).toHaveBeenCalledOnce();
+  expect(stream).toHaveBeenCalledOnce();
+  expect(regenerate).not.toHaveBeenCalled();
+  expect(host.textContent).toContain("continued successfully");
+  expect(host.textContent).not.toContain("unfinished");
+  expect(host.querySelectorAll(".chat-question")).toHaveLength(1);
+});
+
+it("replaces continue with regenerate and preserves a binding rejection message", async () => {
+  const { RequestError } = await import("@neoread/api");
+  const run: import("@neoread/core").ChatRun = {
+    id: "run",
+    documentId: "doc",
+    sessionId: "session",
+    userMessageId: "question",
+    provider: "api",
+    status: "failed",
+    resumable: true,
+    startedAt: "now",
+  };
+  session = new ChatSession("doc", {
+    messages: async () => [
+      {
+        id: "question",
+        documentId: "doc",
+        role: "user",
+        content: "question",
+        createdAt: "now",
+      },
+    ],
+    latestRun: async () => run,
+    stream: vi.fn(),
+    resume: async (_run, _signal, emit) => {
+      emit({ event: "error", data: { error: "502" } });
+    },
+    continueRun: async () => {
+      throw new RequestError(
+        "文档已更新，请重新生成。",
+        undefined,
+        undefined,
+        409,
+      );
+    },
+  });
+  await session.load();
+  await vi.waitFor(() => expect(session.getSnapshot().busy).toBe(false));
+  await act(async () =>
+    root.render(
+      <AssistantPanel
+        session={session}
+        empty={null}
+        extras={() => null}
+        references={() => null}
+        onRegenerate={() => {}}
+      />,
+    ),
+  );
+  expect(button("继续")).toBeDefined();
+  await act(async () => {
+    button("继续")!.click();
+    await vi.waitFor(() => expect(session.getSnapshot().busy).toBe(false));
+  });
+  expect(button("继续")).toBeUndefined();
+  expect(button("重新生成")).toBeDefined();
+  expect(host.textContent).toContain("文档已更新，请重新生成。");
+  expect(host.textContent).not.toContain("可从已保存的进度继续");
+});

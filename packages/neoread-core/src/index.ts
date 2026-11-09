@@ -942,6 +942,7 @@ export interface ChatRun {
   provider: string;
   status: "running" | "completed" | "failed" | "cancelled" | "interrupted";
   error?: string;
+  resumable?: boolean;
   startedAt: string;
   finishedAt?: string;
 }

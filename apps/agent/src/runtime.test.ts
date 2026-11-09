@@ -369,8 +369,9 @@ function responsesInput(base: string) {
 }
 async function responseWorker(
   input: ReturnType<typeof responsesInput>,
-  cancelOn?: "draft" | "tool",
+  cancelOn?: "draft" | "tool" | "retry",
   toolImages: { type: "image"; data: string; mimeType: string }[] = [],
+  checkpointReply?: "reject" | "cancel",
 ) {
   const child = spawn(process.execPath, ["dist/main.mjs"], { cwd: root });
   const events: any[] = [];
@@ -379,9 +380,26 @@ async function responseWorker(
   createInterface({ input: child.stdout }).on("line", (line) => {
     const event = JSON.parse(line);
     events.push(event);
+    if (event.type === "checkpoint") {
+      child.stdin.write(
+        JSON.stringify(
+          checkpointReply === "cancel"
+            ? { type: "cancel", runId: input.runId }
+            : {
+                type: "checkpointAck",
+                runId: input.runId,
+                id: event.id,
+                ...(checkpointReply === "reject"
+                  ? { error: "checkpoint_save_failed" }
+                  : {}),
+              },
+        ) + "\n",
+      );
+    }
     if (
       (cancelOn === "draft" && event.type === "draft" && event.text) ||
-      (cancelOn === "tool" && event.type === "tool")
+      (cancelOn === "tool" && event.type === "tool") ||
+      (cancelOn === "retry" && event.type === "activity" && event.attempt)
     ) {
       child.stdin.write(
         JSON.stringify({ type: "cancel", runId: input.runId }) + "\n",
@@ -586,7 +604,9 @@ test.each([
       expect(result.events.some((event) => event.type === "complete")).toBe(
         false,
       );
-      expect(requests).toBe(1);
+      expect(requests).toBe(
+        ["truncated", "failed", "retryable"].includes(mode) ? 3 : 1,
+      );
       if (mode === "truncated" || mode === "failed" || mode === "cancel")
         expect(
           result.events.some(
@@ -689,7 +709,7 @@ test.each(["redirect", "foreign-endpoint"])(
         false,
       );
       expect(foreignRequests).toBe(0);
-      expect(upstreamRequests).toBe(mode === "redirect" ? 1 : 0);
+      expect(upstreamRequests).toBe(mode === "redirect" ? 3 : 0);
       expect(JSON.stringify(result.events)).not.toContain("fixture-secret");
     } finally {
       upstream.close();
@@ -1278,3 +1298,453 @@ test("Pi preserves attachment and tool images in history and sends active images
     upstream.closeAllConnections();
   }
 }, 15000);
+
+test.each(["503", "partial-stream"])(
+  "Pi retries %s within the same session without repeating completed tools",
+  async (failure) => {
+    const requests: any[] = [];
+    const upstream = createServer(async (req, res) => {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      requests.push(JSON.parse(raw));
+      if (requests.length === 2 && failure === "503") {
+        res.writeHead(503);
+        res.end('{"error":{"message":"temporary outage"}}');
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.end(
+        responseEvents(
+          requests.length === 1
+            ? {
+                type: "function_call",
+                id: "fc_once",
+                call_id: "call_once",
+                name: "web_search",
+                arguments: '{"query":"evidence"}',
+                status: "completed",
+              }
+            : responseText,
+          requests.length === 2 ? "truncated" : "completed",
+        ),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      upstream.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      const input = {
+        ...responsesInput(
+          `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+        ),
+        durableCheckpoints: true,
+      };
+      const result = await responseWorker(input);
+      expect({
+        code: result.code,
+        errors: result.events.filter((event) => event.type === "error"),
+      }).toEqual({ code: 0, errors: [] });
+      expect(requests).toHaveLength(3);
+      expect(
+        result.events.filter((event) => event.type === "tool"),
+      ).toHaveLength(1);
+      expect(
+        requests[2].input.filter(
+          (item: any) => item.type === "function_call_output",
+        ),
+      ).toEqual([expect.objectContaining({ call_id: "call_once" })]);
+      expect(
+        requests[2].input.filter((item: any) => item.role === "user"),
+      ).toHaveLength(1);
+      expect(
+        result.events.some(
+          (event) => event.type === "activity" && event.attempt === 1,
+        ),
+      ).toBe(true);
+      const checkpoint = result.events.find(
+        (event) =>
+          event.type === "checkpoint" &&
+          event.entries.some(
+            (entry: any) => entry.message?.role === "toolResult",
+          ),
+      );
+      expect(checkpoint.canContinue).toBe(true);
+      if (failure === "partial-stream") {
+        const drafts = result.events.filter((event) => event.type === "draft");
+        expect(
+          drafts.filter((event) => event.text.includes("42")),
+        ).toHaveLength(2);
+        expect(drafts.at(-2).reset).toBe(true);
+      }
+      expect(result.events.at(-1).type).toBe("complete");
+    } finally {
+      upstream.close();
+      upstream.closeAllConnections();
+    }
+  },
+  15000,
+);
+
+test.each([false, true])(
+  "Pi checkpoints exhausted model retries and resumes without regenerating (tools=%s)",
+  async (hasTool) => {
+    let resume = false;
+    const requests: any[] = [];
+    const upstream = createServer(async (req, res) => {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      requests.push(JSON.parse(raw));
+      if (!resume && (!hasTool || requests.length > 1)) {
+        res.writeHead(503);
+        res.end('{"error":{"message":"temporary fixture-secret outage"}}');
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.end(
+        responseEvents(
+          !resume
+            ? {
+                type: "function_call",
+                id: "fc_saved",
+                call_id: "call_saved",
+                name: "web_fetch",
+                arguments: '{"query":"source"}',
+                status: "completed",
+              }
+            : responseText,
+        ),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      upstream.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      const input = {
+        ...responsesInput(
+          `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+        ),
+        durableCheckpoints: true,
+      };
+      const first = await responseWorker(input);
+      expect(first.code).toBe(1);
+      expect(requests).toHaveLength(hasTool ? 4 : 3);
+      expect(first.events.at(-1)).toMatchObject({
+        type: "error",
+        canContinue: true,
+      });
+      const checkpoints = first.events.filter(
+        (event) => event.type === "checkpoint",
+      );
+      const last = checkpoints.at(-1);
+      expect(last.canContinue).toBe(true);
+      expect(JSON.stringify(checkpoints)).not.toContain("fixture-secret");
+      expect(
+        last.entries.some((entry: any) => entry.type === "context_edit"),
+      ).toBe(true);
+      resume = true;
+      const continued = await responseWorker({
+        ...input,
+        prompt: "",
+        mode: "continue",
+        entries: last.entries,
+      } as ReturnType<typeof responsesInput>);
+      expect(continued.code).toBe(0);
+      expect(
+        continued.events.filter((event) => event.type === "tool"),
+      ).toHaveLength(0);
+      const wire = requests.at(-1).input;
+      expect(
+        wire.filter(
+          (item: any) =>
+            item.role === "user" &&
+            JSON.stringify(item).includes("搜索并读取来源"),
+        ),
+      ).toHaveLength(1);
+      expect(
+        wire.filter((item: any) => item.type === "function_call_output"),
+      ).toHaveLength(hasTool ? 1 : 0);
+      expect(continued.events.at(-1).type).toBe("complete");
+    } finally {
+      upstream.close();
+      upstream.closeAllConnections();
+    }
+  },
+  15000,
+);
+
+test.each(["reject", "cancel"] as const)(
+  "Pi waits for durable checkpoint acknowledgement and stops on %s",
+  async (reply) => {
+    let requests = 0;
+    const upstream = createServer(async (req, res) => {
+      for await (const _chunk of req) {
+        /* consume */
+      }
+      requests++;
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.end(responseEvents(responseText));
+    });
+    await new Promise<void>((resolve) =>
+      upstream.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      const result = await responseWorker(
+        {
+          ...responsesInput(
+            `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+          ),
+          durableCheckpoints: true,
+        } as ReturnType<typeof responsesInput>,
+        undefined,
+        [],
+        reply,
+      );
+      expect(result.code).toBe(1);
+      expect(requests).toBe(0);
+      expect(result.events.at(-1)).toMatchObject({
+        type: "error",
+        canContinue: false,
+      });
+      expect(result.events.some((event) => event.type === "complete")).toBe(
+        false,
+      );
+    } finally {
+      upstream.close();
+      upstream.closeAllConnections();
+    }
+  },
+  15000,
+);
+
+test("Pi cancellation interrupts native model retry backoff without another request", async () => {
+  let requests = 0;
+  const upstream = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+      /* consume */
+    }
+    requests++;
+    res.writeHead(503);
+    res.end('{"error":{"message":"unavailable"}}');
+  });
+  await new Promise<void>((resolve) =>
+    upstream.listen(0, "127.0.0.1", resolve),
+  );
+  try {
+    const result = await responseWorker(
+      {
+        ...responsesInput(
+          `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+        ),
+        durableCheckpoints: true,
+      } as ReturnType<typeof responsesInput>,
+      "retry",
+    );
+    expect(result.code).toBe(1);
+    expect(requests).toBe(1);
+    expect(result.events.at(-1)).toMatchObject({
+      type: "error",
+      canContinue: false,
+    });
+    expect(result.events.some((event) => event.type === "complete")).toBe(
+      false,
+    );
+  } finally {
+    upstream.close();
+    upstream.closeAllConnections();
+  }
+});
+
+test("Pi refuses continuation from a completed answer or an unresolved tool call", async () => {
+  let requests = 0;
+  const upstream = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+      /* consume */
+    }
+    requests++;
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end(
+      responseEvents(
+        requests === 1
+          ? {
+              type: "function_call",
+              id: "fc_uncertain",
+              call_id: "call_uncertain",
+              name: "web_fetch",
+              arguments: '{"query":"source"}',
+              status: "completed",
+            }
+          : responseText,
+      ),
+    );
+  });
+  await new Promise<void>((resolve) =>
+    upstream.listen(0, "127.0.0.1", resolve),
+  );
+  try {
+    const input = responsesInput(
+      `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+    );
+    const first = await responseWorker(input);
+    expect(first.code).toBe(0);
+    const complete = first.events.at(-1).entries as FileEntry[];
+    const uncertain = complete.filter(
+      (entry) =>
+        entry.type !== "message" ||
+        (entry.message.role !== "toolResult" &&
+          !(
+            entry.message.role === "assistant" &&
+            entry.message.stopReason === "stop"
+          )),
+    );
+    for (const entries of [complete, uncertain]) {
+      const result = await responseWorker({
+        ...input,
+        mode: "continue",
+        entries,
+      } as ReturnType<typeof responsesInput>);
+      expect(result.code).toBe(1);
+      expect(result.events.at(-1)).toMatchObject({
+        type: "error",
+        canContinue: false,
+      });
+    }
+    expect(requests).toBe(2);
+  } finally {
+    upstream.close();
+    upstream.closeAllConnections();
+  }
+});
+
+test("Pi invalidates the prior safe checkpoint before dispatching a tool with uncertain completion", async () => {
+  let requests = 0;
+  const upstream = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+      /* consume */
+    }
+    requests++;
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end(
+      responseEvents({
+        type: "function_call",
+        id: "fc_pending",
+        call_id: "call_pending",
+        name: "web_fetch",
+        arguments: '{"query":"source"}',
+        status: "completed",
+      }),
+    );
+  });
+  await new Promise<void>((resolve) =>
+    upstream.listen(0, "127.0.0.1", resolve),
+  );
+  try {
+    const result = await responseWorker(
+      {
+        ...responsesInput(
+          `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+        ),
+        durableCheckpoints: true,
+      } as ReturnType<typeof responsesInput>,
+      "tool",
+    );
+    expect(requests).toBe(1);
+    expect(result.events.at(-1)).toMatchObject({
+      type: "error",
+      canContinue: false,
+    });
+    const toolIndex = result.events.findIndex((event) => event.type === "tool");
+    const beforeTool = result.events
+      .slice(0, toolIndex)
+      .filter((event) => event.type === "checkpoint");
+    expect(beforeTool[0].canContinue).toBe(true);
+    expect(beforeTool.at(-1).canContinue).toBe(false);
+    expect(
+      result.events.filter((event) => event.type === "checkpoint").at(-1)
+        .canContinue,
+    ).toBe(false);
+    expect(
+      beforeTool
+        .at(-1)
+        .entries.some((entry: any) =>
+          entry.message?.content?.some?.(
+            (part: any) => part.id === "call_pending|fc_pending",
+          ),
+        ),
+    ).toBe(true);
+  } finally {
+    upstream.close();
+    upstream.closeAllConnections();
+  }
+});
+
+test("short BYOK keys do not rewrite entry IDs, model names, or normal message content", async () => {
+  const requests: any[] = [];
+  const upstream = createServer(async (req, res) => {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    requests.push(JSON.parse(raw));
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end(
+      responseEvents({
+        ...responseText,
+        content: [
+          { type: "output_text", text: "valid identity id", annotations: [] },
+        ],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) =>
+    upstream.listen(0, "127.0.0.1", resolve),
+  );
+  try {
+    const input = {
+      ...responsesInput(
+        `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+      ),
+      key: "id",
+      prompt: "identity id evidence",
+      durableCheckpoints: true,
+    };
+    input.model.id = "model-id";
+    input.model.provider = "provider-id";
+    const first = await responseWorker(input);
+    expect(first.code).toBe(0);
+    const entries = first.events.at(-1).entries as FileEntry[];
+    expect(
+      entries.every(
+        (entry) => typeof entry.id === "string" && entry.id.length > 0,
+      ),
+    ).toBe(true);
+    const branch = SessionManager.inMemory(root, {}, entries).getBranch();
+    expect(branch).toHaveLength(entries.length - 1);
+    expect(branch.find((entry) => entry.type === "model_change")).toMatchObject(
+      { modelId: "model-id", provider: "provider-id" },
+    );
+    const messages = SessionManager.inMemory(
+      root,
+      {},
+      entries,
+    ).buildSessionProjection().messages;
+    expect(
+      messages.find((message) => message.role === "user")?.content,
+    ).toEqual([{ type: "text", text: "identity id evidence" }]);
+    expect(
+      messages.find((message) => message.role === "assistant")?.content,
+    ).toEqual([
+      expect.objectContaining({ type: "text", text: "valid identity id" }),
+    ]);
+    const resumed = await responseWorker({ ...input, entries } as ReturnType<
+      typeof responsesInput
+    >);
+    expect(resumed.code).toBe(0);
+    expect(requests[1].model).toBe("model-id");
+    expect(
+      requests[1].input.filter((item: any) => item.role === "user"),
+    ).toHaveLength(2);
+    expect(JSON.stringify(requests[1].input)).toContain("valid identity id");
+    expect(JSON.stringify(entries)).not.toContain("[redacted]");
+  } finally {
+    upstream.close();
+    upstream.closeAllConnections();
+  }
+});

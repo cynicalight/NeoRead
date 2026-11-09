@@ -12,6 +12,8 @@ import {
   createProvider,
   InMemoryCredentialStore,
   InMemoryModelsStore,
+  isRetryableAssistantError,
+  isContextOverflow,
   type Api,
   type Model,
   type ImageContent,
@@ -27,6 +29,8 @@ export interface AgentRequest {
   version: 1;
   runId: string;
   prompt: string;
+  mode?: "prompt" | "continue";
+  durableCheckpoints?: boolean;
   system: string;
   model: Model<Api>;
   key: string;
@@ -45,6 +49,46 @@ export type ToolResult = {
   content: ({ type: "text"; text: string } | ImageContent)[];
   details: undefined;
 };
+export interface AgentCheckpoint {
+  entries: FileEntry[];
+  canContinue: boolean;
+}
+export class AgentRunError extends Error {
+  constructor(
+    message: string,
+    readonly canContinue: boolean,
+  ) {
+    super(message);
+  }
+}
+
+// 不把中断在工具执行过程中的状态当作可续接模型请求，避免重跑结果未知的工具。
+function canContinueSession(manager: SessionManager): boolean {
+  const messages = manager.buildSessionProjection().messages;
+  const pending = new Set<string>();
+  for (const message of messages) {
+    if (
+      message.role === "assistant" &&
+      message.stopReason !== "error" &&
+      message.stopReason !== "aborted"
+    )
+      for (const part of message.content)
+        if (part.type === "toolCall") pending.add(part.id);
+    if (message.role === "toolResult") pending.delete(message.toolCallId);
+  }
+  if (pending.size) return false;
+  const last = messages.at(-1);
+  return (
+    !!last &&
+    (last.role === "user" ||
+      last.role === "custom" ||
+      last.role === "toolResult" ||
+      (last.role === "assistant" &&
+        isRetryableAssistantError(last) &&
+        !isContextOverflow(last)))
+  );
+}
+
 export type AgentEvent = { type: string; [key: string]: unknown };
 
 // Pi 1.3 兼容缺失/进行中的终态；NeoRead 只接受明确 completed，避免保存不完整回答。
@@ -87,8 +131,15 @@ export async function runAgent(
     toolCallID?: string,
   ) => Promise<ToolResult>,
   signal: AbortSignal,
+  saveCheckpoint?: (checkpoint: AgentCheckpoint) => Promise<void>,
 ) {
-  if (input.version !== 1 || !input.runId || !input.model || !input.prompt)
+  if (
+    input.version !== 1 ||
+    !input.runId ||
+    !input.model ||
+    (!input.prompt && input.mode !== "continue") ||
+    (input.mode !== undefined && !["prompt", "continue"].includes(input.mode))
+  )
     throw new Error("不兼容的 Agent 请求");
   const model = input.model;
   if (
@@ -105,6 +156,29 @@ export async function runAgent(
     allowModelNetwork: false,
     signal,
   });
+  let checkpointBarrier = Promise.resolve();
+  let checkpointFailure: Error | undefined;
+  const native =
+    model.api === "anthropic-messages"
+      ? anthropicMessagesApi()
+      : model.api === "openai-responses"
+        ? responsesApi()
+        : openAICompletionsApi();
+  // SDK 在自己的重试/压缩循环中发起下一次请求；只在请求边界等待宿主持久化。
+  const withCheckpoint = <T extends StreamOptions>(options?: T) => ({
+    ...options,
+    onPayload: async (payload: unknown, currentModel: Model<Api>) => {
+      await checkpointBarrier;
+      signal.throwIfAborted();
+      return options?.onPayload?.(payload, currentModel);
+    },
+  });
+  const api: ProviderStreams = {
+    stream: (model, context, options) =>
+      native.stream(model, context, withCheckpoint(options)),
+    streamSimple: (model, context, options) =>
+      native.streamSimple(model, context, withCheckpoint(options)),
+  };
   const provider = createProvider({
     id: model.provider,
     name: "NeoRead",
@@ -118,12 +192,7 @@ export async function runAgent(
         }),
       },
     },
-    api:
-      model.api === "anthropic-messages"
-        ? anthropicMessagesApi()
-        : model.api === "openai-responses"
-          ? responsesApi()
-          : openAICompletionsApi(),
+    api,
   });
   modelRuntime.registerNativeProvider(provider);
   await modelRuntime.setRuntimeApiKey(
@@ -152,9 +221,27 @@ export async function runAgent(
     label: tool.name,
     description: tool.description,
     parameters: Type.Unsafe(tool.schema),
-    execute: async (id, args, abort) => callTool(tool.name, args, abort, id),
+    execute: async (id, args, abort) => {
+      // 工具执行前先使旧 checkpoint 不可续接，进程中断不能重跑结果未知的工具。
+      checkpoint(false);
+      await checkpointBarrier;
+      signal.throwIfAborted();
+      abort?.throwIfAborted();
+      return callTool(tool.name, args, abort, id);
+    },
   }));
   const manager = SessionManager.inMemory(process.cwd(), {}, input.entries);
+  if (input.mode === "continue") {
+    if (!input.entries?.length || !canContinueSession(manager))
+      throw new AgentRunError("当前记录没有可安全继续的模型请求", false);
+    const last = manager.buildSessionProjection().entries.at(-1);
+    if (
+      last?.sourceEntry.type === "message" &&
+      last.sourceEntry.message.role === "assistant" &&
+      last.sourceEntry.message.stopReason === "error"
+    )
+      manager.appendContextEdit(last.sourceEntry.id, null);
+  }
   const { session } = await createAgentSession({
     cwd: process.cwd(),
     agentDir: process.cwd(),
@@ -164,7 +251,13 @@ export async function runAgent(
     sessionManager: manager,
     thinkingLevel: input.effort,
     settingsManager: SettingsManager.inMemory({
-      retry: { enabled: false, provider: { maxRetries: 0 } },
+      retry: {
+        enabled: true,
+        maxRetries: 2,
+        baseDelayMs: 500,
+        maxAgentDelayMs: 2000,
+        provider: { maxRetries: 0 },
+      },
       cacheWarming: "off",
       compaction: {
         enabled: true,
@@ -177,6 +270,35 @@ export async function runAgent(
     customTools: tools,
     noTools: "builtin",
   });
+  const snapshot = (): FileEntry[] => {
+    const entries = JSON.parse(
+      JSON.stringify([manager.getHeader(), ...manager.getEntries()]),
+    ) as FileEntry[];
+    // 上游错误可能回显凭据；只清理 SDK 错误文案，不改会话 ID、正文或工具结果。
+    if (input.key)
+      for (const entry of entries)
+        if (
+          entry.type === "message" &&
+          entry.message.role === "assistant" &&
+          entry.message.errorMessage
+        )
+          entry.message.errorMessage = entry.message.errorMessage
+            .split(input.key)
+            .join("[redacted]");
+    return entries;
+  };
+  const checkpoint = (
+    canContinue = !signal.aborted && canContinueSession(manager),
+  ) => {
+    if (!input.durableCheckpoints || !saveCheckpoint || checkpointFailure)
+      return;
+    const value = { entries: snapshot(), canContinue };
+    checkpointBarrier = checkpointBarrier.then(() => saveCheckpoint(value));
+    void checkpointBarrier.catch(() => {
+      if (!signal.aborted) checkpointFailure = new Error("会话进度保存失败");
+      void session.abort();
+    });
+  };
   const maxToolRounds = 255;
   let rounds = 0;
   const stop = () => {
@@ -185,6 +307,25 @@ export async function runAgent(
   signal.addEventListener("abort", stop, { once: true });
   if (signal.aborted) stop();
   const unsubscribe = session.subscribe((event) => {
+    // message_end 的公开通知先于 SDK append；微任务排在同步持久化之后。
+    if (
+      event.type === "message_end" &&
+      (event.message.role === "user" || event.message.role === "custom")
+    )
+      queueMicrotask(() => checkpoint());
+    if (
+      event.type === "turn_end" ||
+      (event.type === "compaction_end" && event.result)
+    )
+      checkpoint();
+    if (event.type === "auto_retry_start")
+      emit({
+        type: "activity",
+        message: "模型连接暂时中断，正在继续当前请求",
+        attempt: event.attempt,
+        maxAttempts: event.maxAttempts,
+        delayMs: event.delayMs,
+      });
     if (event.type === "turn_start") ++rounds;
     if (
       event.type === "turn_end" &&
@@ -239,10 +380,21 @@ export async function runAgent(
   });
   try {
     signal.throwIfAborted();
-    await session.prompt(input.prompt, {
-      images: input.images,
-      expandPromptTemplates: false,
-    });
+    if (input.mode === "continue") {
+      await session.sendCustomMessage(
+        {
+          customType: "neoread_resume",
+          content: "继续完成上一条尚未完成的请求，沿用已有工具结果。",
+          display: false,
+        },
+        { triggerTurn: true },
+      );
+    } else {
+      await session.prompt(input.prompt, {
+        images: input.images,
+        expandPromptTemplates: false,
+      });
+    }
     await session.waitForIdle();
     signal.throwIfAborted();
     const last = session.messages.at(-1);
@@ -257,10 +409,35 @@ export async function runAgent(
       .map((part) => part.text)
       .join("");
     if (!text.trim()) throw new Error("模型未返回回答");
-    const entries = JSON.parse(
-      JSON.stringify([manager.getHeader(), ...manager.getEntries()]),
-    ) as FileEntry[];
-    return { text, entries };
+    await checkpointBarrier;
+    if (checkpointFailure) throw checkpointFailure;
+    return { text, entries: snapshot() };
+  } catch (error) {
+    const canContinue =
+      !signal.aborted && !checkpointFailure && canContinueSession(manager);
+    if (canContinue) {
+      const projected = manager.buildSessionProjection().entries;
+      const last = [...projected]
+        .reverse()
+        .find((entry) => entry.messages.length > 0);
+      if (
+        last?.sourceEntry.type === "message" &&
+        last.sourceEntry.message.role === "assistant" &&
+        last.sourceEntry.message.stopReason === "error"
+      )
+        manager.appendContextEdit(last.sourceEntry.id, null);
+    }
+    if (!signal.aborted) checkpoint(canContinue);
+    try {
+      await checkpointBarrier;
+    } catch {
+      /* 持久化失败不能宣称可续接。 */
+    }
+    throw new AgentRunError(
+      checkpointFailure?.message ??
+        (error instanceof Error ? error.message : "Agent 运行失败"),
+      canContinue && !checkpointFailure && !signal.aborted,
+    );
   } finally {
     signal.removeEventListener("abort", stop);
     unsubscribe();

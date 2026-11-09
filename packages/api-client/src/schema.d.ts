@@ -4794,6 +4794,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{id}/chat-sessions/{session}/runs/{run}/continue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Continue this run from its persisted Pi checkpoint without repeating the user message */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    session: string;
+                    run: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Continuation accepted; same logical run identity */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatRun"];
+                    };
+                };
+                /** @description No checkpoint, identity changed, active run, or other error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{id}/chat-sessions/{session}/runs/{run}/events": {
         parameters: {
             query?: never;
@@ -5656,6 +5705,8 @@ export interface components {
             /** @enum {unknown} */
             status: "running" | "completed" | "failed" | "cancelled" | "interrupted";
             error?: string;
+            /** @description A safe persisted checkpoint can continue this unanswered run. */
+            resumable?: boolean;
             startedAt: string;
             finishedAt?: string;
         };

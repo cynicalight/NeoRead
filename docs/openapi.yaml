@@ -5486,6 +5486,59 @@
               "summary": "Start a server-owned run; one active run per session, at most four globally",
             },
         },
+      "/api/documents/{id}/chat-sessions/{session}/runs/{run}/continue": {
+        "post": {
+          "summary": "Continue this run from its persisted Pi checkpoint without repeating the user message",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "path",
+              "name": "session",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "path",
+              "name": "run",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "202": {
+              "description": "Continuation accepted; same logical run identity",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ChatRun"
+                  }
+                }
+              }
+            },
+            "default": {
+              "description": "No checkpoint, identity changed, active run, or other error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "/api/documents/{id}/chat-sessions/{session}/runs/{run}/events":
         {
           "get":
@@ -7526,6 +7579,7 @@
                         ],
                     },
                   "error": { "type": "string" },
+                  "resumable": { "type": "boolean", "description": "A safe persisted checkpoint can continue this unanswered run." },
                   "startedAt": { "type": "string" },
                   "finishedAt": { "type": "string" },
                 },

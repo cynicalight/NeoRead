@@ -13,7 +13,11 @@ import {
   consumeTranslationStream,
   type TranslationEvent,
 } from "./translation-stream";
-import { consumeChatStream, type ChatStreamEvent } from "./chat-stream";
+import {
+  ChatStreamError,
+  consumeChatStream,
+  type ChatStreamEvent,
+} from "./chat-stream";
 export { ChatStreamError, type ChatStreamEvent } from "./chat-stream";
 import { consumeCiteEvents, type CiteEvent } from "./cite-events";
 export type { CiteEvent } from "./cite-events";
@@ -772,6 +776,21 @@ export const api = {
       body: JSON.stringify(input),
       signal: AbortSignal.timeout(30_000),
     }),
+  continueChatRun: (
+    id: string,
+    sessionId: string,
+    runId: string,
+    signal?: AbortSignal,
+  ) =>
+    request<ChatRun>(
+      `/api/documents/${id}/chat-sessions/${sessionId}/runs/${runId}/continue`,
+      {
+        method: "POST",
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
+          : AbortSignal.timeout(30_000),
+      },
+    ),
   cancelChatRun: (id: string, sessionId: string, runId: string) =>
     request<{ ok: boolean }>(
       `/api/documents/${id}/chat-sessions/${sessionId}/runs/${runId}/cancel`,
@@ -943,7 +962,14 @@ export async function watchChatRun(
   );
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || `读取运行失败 (${response.status})`);
+    const message = data.error || `读取运行失败 (${response.status})`;
+    if (
+      response.status !== 408 &&
+      response.status !== 429 &&
+      response.status < 500
+    )
+      throw new ChatStreamError(message, "provider");
+    throw new Error(message);
   }
   if (!response.body) throw new Error("没有收到运行事件");
   await consumeChatStream(response.body, signal, emit);

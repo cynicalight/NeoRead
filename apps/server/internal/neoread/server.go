@@ -228,6 +228,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/chat", s.chat)
 	mux.HandleFunc("GET /api/documents/{id}/chat-sessions/{session}/runs/{run}/events", s.sessionRunEvents)
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/runs/{run}/cancel", s.cancelSessionRun)
+	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/runs/{run}/continue", s.continueSessionRun)
 	mux.HandleFunc("POST /api/documents/{id}/codex-handoff", s.handoffCodex)
 	mux.HandleFunc("GET /api/providers", s.providers)
 	mux.HandleFunc("GET /api/documents/{id}/processing-usage", s.processingUsage)

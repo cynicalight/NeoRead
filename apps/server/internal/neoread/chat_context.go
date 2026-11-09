@@ -32,24 +32,28 @@ type chatEntry struct {
 
 // Private request metadata: never accepted from HTTP clients or documents.
 type chatInput struct {
-	nativeWebRefs   map[string]string
-	webCalls        int
-	webTransport    http.RoundTripper
-	WebSearch       bool
-	WebAPI          APIConnection
-	Tools           []ToolActivity
-	WebSources      []WebSource
-	toolMu          sync.Mutex
-	toolEvent       func(ToolActivity) error
-	piConversation  *documentConversation
-	piProvider      string
-	SessionID       string
-	server          *Server
-	ReadingLocation json.RawMessage
-	History         []Message
-	Summary         string
-	CurrentText     string
-	Agent           *documentAgent
+	piInvalidateCheckpoint func()
+	piRunID                string
+	piResume               *piCheckpoint
+	piCheckpoint           func(*piCheckpoint) error
+	nativeWebRefs          map[string]string
+	webCalls               int
+	webTransport           http.RoundTripper
+	WebSearch              bool
+	WebAPI                 APIConnection
+	Tools                  []ToolActivity
+	WebSources             []WebSource
+	toolMu                 sync.Mutex
+	toolEvent              func(ToolActivity) error
+	piConversation         *documentConversation
+	piProvider             string
+	SessionID              string
+	server                 *Server
+	ReadingLocation        json.RawMessage
+	History                []Message
+	Summary                string
+	CurrentText            string
+	Agent                  *documentAgent
 
 	DocumentID, Title, Question string
 	// Populated only for the legacy text/image adapters.

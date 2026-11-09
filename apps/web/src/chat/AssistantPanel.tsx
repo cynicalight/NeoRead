@@ -202,7 +202,11 @@ export function AssistantPanel({
               onClick={() =>
                 retryAction === "regenerate"
                   ? onRegenerate()
-                  : void session.retrySync()
+                  : retryAction === "continue"
+                    ? void session.continueRun()
+                    : retryAction === "reconnect"
+                      ? void session.reconnect()
+                      : void session.retrySync()
               }
             >
               {
@@ -210,6 +214,8 @@ export function AssistantPanel({
                   reload: "重新加载",
                   sync: "恢复回答",
                   regenerate: "重新生成",
+                  continue: "继续",
+                  reconnect: "重新连接",
                 }[retryAction]
               }
             </Button>
