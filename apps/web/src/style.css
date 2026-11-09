@@ -4252,9 +4252,10 @@ textarea.citation-preview {
 
 /* The note tab and expanded editor share one Markdown draft. */
 .paper-note-status {
-  min-height: 20px;
+  min-height: 15px;
   padding-inline: 4px;
-  font-size: 11px;
+  text-align: right;
+  font-size: 10px;
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
 }
@@ -4377,21 +4378,7 @@ textarea.paper-note-editor-input {
   background: var(--muted);
   border-radius: 6px;
 }
-@media (prefers-reduced-motion: no-preference) {
-  .paper-note button,
-  .paper-note-dialog button {
-    transition:
-      transform 150ms ease,
-      background-color 150ms ease;
-  }
-  .paper-note button:not(.paper-note-toggle):active,
-  .paper-note-dialog button:active {
-    transform: scale(0.97);
-  }
-  .paper-note button:not(.paper-note-toggle):hover,
-  .paper-note-dialog button:hover {
-    transform: scale(1.02);
-  }
+:root:not([data-reduced-motion="true"]) {
   .paper-note-rich,
   .paper-note-editor-input {
     animation: paper-tag-enter 150ms ease;
@@ -4400,7 +4387,7 @@ textarea.paper-note-editor-input {
       box-shadow 150ms ease;
   }
 }
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduced-motion="true"] {
   .paper-note-dialog,
   .paper-note-dialog *,
   .paper-note,
