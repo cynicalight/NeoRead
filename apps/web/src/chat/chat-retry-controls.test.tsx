@@ -49,7 +49,9 @@ const question: ChatInput = {
 };
 const button = (text: string) =>
   Array.from(host.querySelectorAll("button")).find(
-    (element) => element.textContent === text,
+    (element) =>
+      element.textContent === text ||
+      element.getAttribute("aria-label") === text,
   );
 
 it("renders PDF activity as a running trace without duplicating it beside partial output", async () => {

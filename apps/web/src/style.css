@@ -1215,7 +1215,8 @@ kbd {
 }
 .chat-message.assistant:hover .chat-message-actions,
 .chat-message.assistant:focus-within .chat-message-actions,
-.chat-message-actions[data-copied] {
+.chat-message-actions[data-copied],
+.chat-message-actions[data-status] {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1227,13 +1228,18 @@ kbd {
 }
 /* After the copied hold, stay hidden until the pointer leaves the answer. */
 @media (hover: hover) {
-  .chat-message.assistant .chat-message-actions[data-dismissed] {
+  .chat-message.assistant
+    .chat-message-actions[data-dismissed]:not([data-status]) {
     opacity: 0;
     pointer-events: none;
   }
 }
 .chat-message-actions button {
   color: inherit;
+}
+.chat-action-status {
+  min-width: 0;
+  line-height: 1.4;
 }
 .chat-copy-button {
   transition: transform 120ms ease;

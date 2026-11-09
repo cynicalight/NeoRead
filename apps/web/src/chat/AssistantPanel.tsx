@@ -85,6 +85,7 @@ export function AssistantPanel({
   const scroll = useChatScroll(state.pending?.key);
   const pending = state.pending;
   const retryAction = chatRetryAction(state);
+  const regenerable = retryAction === "regenerate";
   return (
     <div className="chat-thread">
       <ScrollArea className="chat-scroll" viewportRef={scroll.viewportRef}>
@@ -184,41 +185,39 @@ export function AssistantPanel({
                 {answer?.fallback && (
                   <p className="chat-status">{answer.fallback}</p>
                 )}
-                {answer?.notice && !waiting && !answer.activity && (
+                {answer?.notice && !waiting && !answer.activity && !regenerable && (
                   <p role="status" className="chat-status">
                     {answer.notice}
                   </p>
                 )}
-                {assistant && !!content && (
-                  <AnswerActions content={content} timestamp={timestamp} />
+                {assistant && (!!content || (answer && regenerable)) && (
+                  <AnswerActions
+                    content={content}
+                    timestamp={timestamp}
+                    onRegenerate={answer && regenerable ? onRegenerate : undefined}
+                    regenerateDisabled={state.busy || regenerateDisabled}
+                    status={answer && regenerable ? answer.notice : undefined}
+                  />
                 )}
                 {message && extras(message)}
               </div>
             );
           })}
-          {retryAction && (
+          {retryAction && retryAction !== "regenerate" && (
             <Button
               variant="ghost"
               size="sm"
-              disabled={
-                state.busy ||
-                (retryAction === "regenerate" && regenerateDisabled)
-              }
-              onClick={() =>
-                retryAction === "regenerate"
-                  ? onRegenerate()
-                  : retryAction === "continue"
-                    ? void session.continueRun()
-                    : retryAction === "reconnect"
-                      ? void session.reconnect()
-                      : void session.retrySync()
-              }
+              disabled={state.busy}
+              onClick={() => {
+                if (retryAction === "continue") void session.continueRun();
+                else if (retryAction === "reconnect") void session.reconnect();
+                else void session.retrySync();
+              }}
             >
               {
                 {
                   reload: "重新加载",
                   sync: "恢复回答",
-                  regenerate: "重新生成",
                   continue: "继续",
                   reconnect: "重新连接",
                 }[retryAction]
