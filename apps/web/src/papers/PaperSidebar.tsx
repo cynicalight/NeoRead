@@ -261,14 +261,18 @@ export function PaperSidebar({
     usePaperUI();
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [collapsedSections, setCollapsedSections] = useState<string[]>([]);
+  const collapsedSections = prefs.collapsedSections || [];
   const isOpen = (name: string) => !collapsedSections.includes(name);
   const toggleSection = (name: string) =>
-    setCollapsedSections((current) =>
-      current.includes(name)
-        ? current.filter((item) => item !== name)
-        : [...current, name],
-    );
+    void savePaperPreferences((p) => {
+      const items = p.collapsedSections || [];
+      return {
+        ...p,
+        collapsedSections: items.includes(name)
+          ? items.filter((item) => item !== name)
+          : [...items, name],
+      };
+    });
   const sectionToggle = (name: string) => (
     <SectionToggle
       label={name}

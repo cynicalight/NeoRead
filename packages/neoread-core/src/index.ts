@@ -191,6 +191,8 @@ export interface PaperLibraryPreferences {
   hidden?: string[];
   /** Categories whose subcategories are folded in the sidebar. */
   collapsed?: string[];
+  /** Folded sidebar sections, by heading ("置顶", "阅读", "分类", "最近阅读"). */
+  collapsedSections?: string[];
   /** A category also lists papers filed in its subcategories (default on). */
   subcategoryItems?: boolean;
   /** Paper pairs ("<id>:<id>", ids sorted) marked as not duplicates. */
