@@ -87,6 +87,7 @@ async function scrollDeck(
   reverse = false,
   dismissEarly = false,
   ready = true,
+  events = 3,
 ) {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -156,7 +157,7 @@ async function scrollDeck(
     );
     await tick(2);
     let firstInput = 0;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < events; i++) {
       await wheel(delta);
       if (i === 0) firstInput = distance();
       await tick(1);
@@ -206,15 +207,35 @@ async function scrollDeck(
   }
 }
 
-it("follows wheel input one to one without a CSS transition, then snaps to a card", async () => {
-  const slow = await scrollDeck(60);
-  const fast = await scrollDeck(240);
-  expect(slow.firstInput).toBeCloseTo(60);
-  expect(fast.firstInput).toBeCloseTo(240);
-  expect(slow.during).toBeCloseTo(180);
-  expect(fast.during).toBeCloseTo(720);
-  expect(fast.coasting).toBe(fast.during);
-  expect(Math.abs(fast.settled - fast.during)).toBeLessThan(54);
+const deckStep = () =>
+  Math.round(Math.min(124, Math.max(88, window.innerHeight * 0.14)));
+
+it("follows small trackpad deltas one to one without a CSS transition, then snaps forward", async () => {
+  const slow = await scrollDeck(10);
+  const fast = await scrollDeck(20);
+  expect(slow.firstInput).toBeCloseTo(10);
+  expect(fast.firstInput).toBeCloseTo(20);
+  expect(slow.during).toBeCloseTo(30);
+  expect(fast.during).toBeCloseTo(60);
+  // Any deliberate gesture lands on the next card instead of springing back.
+  expect(slow.settled).toBeCloseTo(deckStep());
+  expect(fast.settled).toBeCloseTo(deckStep());
+});
+
+it("eases mouse wheel notches instead of jumping a whole card per event", async () => {
+  const notches = await scrollDeck(100);
+  // The notch starts an animation; cards do not jump on the event itself.
+  expect(notches.firstInput).toBeCloseTo(0);
+  expect(notches.during).toBeGreaterThan(0);
+  expect(notches.during).toBeLessThan(300);
+  expect(notches.settled).toBeCloseTo(Math.round(300 / deckStep()) * deckStep());
+});
+
+it("moves one card for a single short wheel notch", async () => {
+  const notch = await scrollDeck(40, false, false, false, true, 1);
+  expect(notch.settled).toBeCloseTo(deckStep());
+  const back = await scrollDeck(-40, false, false, false, true, 1);
+  expect(back.settled).toBeCloseTo(-deckStep());
 });
 
 it("responds to reversal without finishing the previous queued travel", async () => {
@@ -224,8 +245,7 @@ it("responds to reversal without finishing the previous queued travel", async ()
 
 it("wraps a card from the top to the bottom without interpolating across the deck", async () => {
   const wrapped = await scrollDeck(600);
-  expect(wrapped.firstInput).toBeCloseTo(600);
-  expect(wrapped.during).toBeLessThan(0);
+  expect(wrapped.settled).toBeLessThan(0);
 });
 
 it("keeps wheel navigation immediate with reduced motion", async () => {

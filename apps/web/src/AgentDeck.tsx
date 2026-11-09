@@ -299,7 +299,7 @@ export function AgentDeck({
     }
   };
   const step = useStep();
-  const wheel = useRef({ direction: 0, lastInput: 0 });
+  const wheel = useRef({ direction: 0, lastInput: 0, start: 0 });
   const wheelTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -368,7 +368,7 @@ export function AgentDeck({
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
       frame.current = undefined;
       clearTimeout(wheelTimer.current);
-      wheel.current = { direction: 0, lastInput: 0 };
+      wheel.current = { direction: 0, lastInput: 0, start: 0 };
     };
   }, [open]);
   const animateTo = (target: number, immediate = false) => {
@@ -376,7 +376,9 @@ export function AgentDeck({
     const state = motion.current;
     state.target = target;
     const center = ((Math.round(target) % n) + n) % n;
-    setPos((current) => ({ center, prev: current.center }));
+    setPos((current) =>
+      current.center === center ? current : { center, prev: current.center },
+    );
     if (reducedMotion() || immediate) {
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
       frame.current = undefined;
@@ -416,7 +418,7 @@ export function AgentDeck({
   const move = (to: number) => {
     clearTimeout(wheelTimer.current);
     wheelTimer.current = undefined;
-    wheel.current = { direction: 0, lastInput: 0 };
+    wheel.current = { direction: 0, lastInput: 0, start: 0 };
     const state = motion.current;
     animateTo(Math.round(state.target + offset(to, state.target)));
   };
@@ -504,6 +506,10 @@ export function AgentDeck({
             const now = performance.now();
             const direction = Math.sign(event.deltaY);
             const state = motion.current;
+            let start =
+              wheelTimer.current === undefined
+                ? Math.round(state.target)
+                : wheel.current.start;
             // Reverse from the visible position instead of chasing queued travel.
             if (
               wheel.current.direction &&
@@ -512,17 +518,28 @@ export function AgentDeck({
             ) {
               state.target = state.value;
               state.velocity = 0;
+              start =
+                direction > 0 ? Math.floor(state.value) : Math.ceil(state.value);
             }
-            wheel.current = { direction, lastInput: now };
+            wheel.current = { direction, lastInput: now, start };
             const pixels =
               event.deltaY *
               (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? step : 1);
-            // Follow input immediately, including the
-            // trackpad's native momentum. Animate only the final card snap.
-            animateTo(state.target + pixels / step, true);
+            // Small trackpad deltas follow the finger directly. Mouse wheel
+            // notches arrive as large deltas and are eased so they don't jump.
+            animateTo(
+              state.target + pixels / step,
+              Math.abs(pixels) < step * 0.25 && frame.current === undefined,
+            );
             wheelTimer.current = setTimeout(() => {
               wheelTimer.current = undefined;
-              animateTo(Math.round(motion.current.target));
+              // Snap in the travel direction so a single notch never springs back.
+              const moved = motion.current.target - start;
+              const cards =
+                Math.abs(moved) < 0.02
+                  ? 0
+                  : Math.sign(moved) * Math.max(1, Math.round(Math.abs(moved)));
+              animateTo(start + cards);
               selectCentered();
             }, 140);
           }}
