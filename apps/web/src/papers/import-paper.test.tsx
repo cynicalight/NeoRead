@@ -222,10 +222,7 @@ it.each(["papers", "books"] as const)(
     });
     expect(document.body.textContent).toContain("检测到 PDF 过大");
     expect(api.resolveDocument).toHaveBeenCalledTimes(1);
-    const label =
-      library === "papers"
-        ? "确认是论文，仍然导入论文库"
-        : "不是论文，导入图书库";
+    const label = library === "papers" ? "仍导入论文库" : "导入图书库";
     const choice = Array.from(document.querySelectorAll("button")).find(
       (button) => button.textContent === label,
     )!;

@@ -48,10 +48,10 @@ export function LargePaperDialog({
             disabled={busy}
             onClick={() => onChoose("books")}
           >
-            不是论文，导入图书库
+            导入图书库
           </AlertDialogAction>
           <AlertDialogAction disabled={busy} onClick={() => onChoose("papers")}>
-            确认是论文，仍然导入论文库
+            仍导入论文库
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
