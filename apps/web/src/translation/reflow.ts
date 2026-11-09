@@ -7,26 +7,43 @@ import type {
 } from "@neoread/core";
 import { sentenceAnchor } from "@neoread/core";
 import { selectionContext } from "../readers/selection-context";
+import { searchRanges } from "./search-ranges";
 
+/** One reflowed source sentence. */
+export interface ReflowPart {
+  /** Extracted text, which quotes and PDF locations use. */
+  text: string;
+  /** The model's sentence with inline math restored as KaTeX, shown instead. */
+  display?: string;
+}
+// Unescaped inline KaTeX, as the translation prompt asks for.
+const katex = /(?<!\\)\$[^$]*[^\s$\\][^$]*(?<!\\)\$/;
 /**
  * Sentence parts shown for a reflowed source paragraph. A completed
  * translation supplies the extracted text of each sentence, so part `i`
- * hovers with translated sentence `i` and quotes still match the PDF text. Otherwise the extracted text
- * is split exactly as sentence hover splits untranslated source text.
+ * hovers with translated sentence `i` and quotes still match the PDF text.
+ * A sentence whose model text restores inline math shows that text instead.
+ * Otherwise the extracted text is split exactly as sentence hover splits
+ * untranslated source text.
  */
 export function reflowSourceParts(
   text: string,
   translation?: TranslationBlock,
-): string[] {
+): ReflowPart[] {
   const sentences =
     translation?.status === "complete" && translation.sentences.length
       ? translation.sentences
       : undefined;
-  if (!sentences) return segmentSentences(text).map((s) => s.source);
+  if (!sentences)
+    return segmentSentences(text).map((s) => ({ text: s.source }));
   const parts = sentences.map(sentenceAnchor);
   return parts.map((part, i) => {
     const next = parts[i + 1] ?? "";
-    return part + (next && needsSpace(part, next) ? " " : "");
+    const space = next && needsSpace(part, next) ? " " : "";
+    const source = sentences[i].source;
+    return katex.test(source) && !katex.test(part)
+      ? { text: part + space, display: source + space }
+      : { text: part + space };
   });
 }
 
@@ -98,29 +115,33 @@ export function reflowSourceSelection(
   range: Range,
   blocks: PDFBlock[],
 ): ReaderSelection | undefined {
-  const anchors: NonNullable<PDFLocation["sourceAnchors"]> = [];
+  const anchors: Array<
+    NonNullable<PDFLocation["sourceAnchors"]>[number] & {
+      display: string;
+      restored: boolean;
+    }
+  > = [];
   for (const node of host.querySelectorAll<HTMLElement>(
     "[data-reflow-source]",
   )) {
     if (!range.intersectsNode(node)) continue;
     const block = blocks.find((b) => b.id === node.dataset.reflowSource);
     if (!block) continue;
-    const clipped = document.createRange();
-    clipped.selectNodeContents(node);
-    if (range.compareBoundaryPoints(Range.START_TO_START, clipped) > 0)
-      clipped.setStart(range.startContainer, range.startOffset);
-    if (range.compareBoundaryPoints(Range.END_TO_END, clipped) < 0)
-      clipped.setEnd(range.endContainer, range.endOffset);
-    const source = clipped.toString().trim();
+    const source = selectedSource(node, range).trim();
     if (source)
       anchors.push({
         blockId: block.id,
         source,
         page: block.page,
         bounds: block.bounds,
+        ...selectedDisplay(node, range),
       });
   }
-  const text = range.toString().trim();
+  const text = (
+    anchors.some((a) => a.restored)
+      ? anchors.map((a) => a.display).join(" ")
+      : range.toString()
+  ).trim();
   if (!anchors.length || !text) return;
   const rect = range.getBoundingClientRect();
   return {
@@ -135,7 +156,71 @@ export function reflowSourceSelection(
       type: "pdf",
       page: anchors[0].page,
       quote: anchors.map((a) => a.source).join(" "),
-      sourceAnchors: anchors,
+      sourceAnchors: anchors.map(({ blockId, source, page, bounds }) => ({
+        blockId,
+        source,
+        page,
+        bounds,
+      })),
     },
   };
+}
+
+function clip(node: Node, range: Range) {
+  const clipped = document.createRange();
+  clipped.selectNodeContents(node);
+  if (range.compareBoundaryPoints(Range.START_TO_START, clipped) > 0)
+    clipped.setStart(range.startContainer, range.startOffset);
+  if (range.compareBoundaryPoints(Range.END_TO_END, clipped) < 0)
+    clipped.setEnd(range.endContainer, range.endOffset);
+  return clipped.toString();
+}
+const sentenceNodes = (node: HTMLElement) =>
+  Array.from(node.querySelectorAll<HTMLElement>("[data-source-sentence]"));
+/**
+ * Selected extracted text of one reflowed paragraph. Rendered KaTeX cannot be
+ * mapped back character by character, so a touched restored sentence
+ * contributes its whole extracted text.
+ */
+function selectedSource(node: HTMLElement, range: Range) {
+  const sentences = sentenceNodes(node);
+  if (!sentences.some((s) => s.dataset.anchor)) return clip(node, range);
+  return sentences
+    .filter((s) => range.intersectsNode(s))
+    .map((s) => s.dataset.anchor ?? clip(s, range))
+    .join("");
+}
+/** The same selection as read: restored sentences keep their KaTeX source. */
+function selectedDisplay(node: HTMLElement, range: Range) {
+  const touched = sentenceNodes(node).filter((s) => range.intersectsNode(s));
+  return {
+    restored: touched.some((s) => s.dataset.display),
+    display: touched
+      .map((s) => s.dataset.display ?? clip(s, range))
+      .join("")
+      .trim(),
+  };
+}
+
+/**
+ * Ranges of a saved quote in reflowed text. A quote that crosses a restored
+ * formula is not literal text there, so it marks the sentences it covers.
+ */
+export function reflowQuoteRanges(
+  host: HTMLElement,
+  blockId: string,
+  quote: string,
+): Range[] {
+  const found = searchRanges(reflowSourceRanges(host, blockId), quote);
+  const element = sourceElement(host, blockId);
+  if (found.length || !element?.querySelector("[data-anchor]")) return found;
+  const compact = (text: string) => text.replace(/\s/g, "").toLowerCase();
+  const needle = compact(quote);
+  if (!needle) return [];
+  return sentenceNodes(element).flatMap((s, i) => {
+    const text = compact(s.dataset.anchor ?? s.textContent ?? "");
+    return text && (needle.includes(text) || text.includes(needle))
+      ? reflowSourceRanges(host, blockId, i)
+      : [];
+  });
 }

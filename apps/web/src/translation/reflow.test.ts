@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { expect, it } from "vitest";
 import type { PDFBlock, TranslationBlock } from "@neoread/core";
-import { reflowSourceParts, reflowSourceSelection } from "./reflow";
+import {
+  reflowQuoteRanges,
+  reflowSourceParts,
+  reflowSourceSelection,
+} from "./reflow";
 
 const translated = (
   sentences: TranslationBlock["sentences"],
@@ -15,7 +19,7 @@ const translated = (
 it("splits untranslated text without changing it", () => {
   const text = "First sentence. Second one? Third.";
   const parts = reflowSourceParts(text);
-  expect(parts.join("")).toBe(text);
+  expect(parts.map((p) => p.text).join("")).toBe(text);
   expect(parts).toHaveLength(3);
 });
 
@@ -28,7 +32,7 @@ it("follows translated sentences using their extracted text", () => {
         { source: "Two.", target: "二" },
       ]),
     ),
-  ).toEqual(["Re- paired one. ", "Two."]);
+  ).toEqual([{ text: "Re- paired one. " }, { text: "Two." }]);
   // CJK sentences join without spaces.
   expect(
     reflowSourceParts(
@@ -38,11 +42,80 @@ it("follows translated sentences using their extracted text", () => {
         { source: "第二句。", target: "b" },
       ]),
     ),
-  ).toEqual(["第一句。", "第二句。"]);
+  ).toEqual([{ text: "第一句。" }, { text: "第二句。" }]);
   // Failed or pending translations fall back to the extracted text.
   expect(
     reflowSourceParts("A. B.", { ...translated([]), status: "pending" }),
-  ).toEqual(["A. ", "B."]);
+  ).toEqual([{ text: "A. " }, { text: "B." }]);
+});
+
+it("shows sentences whose model text restores inline math as KaTeX", () => {
+  expect(
+    reflowSourceParts(
+      "",
+      translated([
+        {
+          source: "Keys have dimension $d_k$.",
+          anchor: "Keys have dimension d .",
+          target: "键的维度为 $d_k$。",
+        },
+        { source: "It costs \\$5 and \\$6.", target: "花费 5 和 6。" },
+      ]),
+    ),
+  ).toEqual([
+    {
+      text: "Keys have dimension d . ",
+      display: "Keys have dimension $d_k$. ",
+    },
+    // Escaped dollar signs are not math.
+    { text: "It costs \\$5 and \\$6." },
+  ]);
+});
+
+const restored = () => {
+  const host = document.createElement("div");
+  host.innerHTML = `
+    <div data-reflow-source="a">
+      <span data-source-sentence="0">Plain start. </span><span data-source-sentence="1" data-anchor="Dim d k here." data-display="Dim $d_k$ here."><span>Dim dk here.</span></span>
+    </div>`;
+  document.body.append(host);
+  return host;
+};
+
+it("selects restored formulas by their whole extracted sentence", () => {
+  const host = restored();
+  const blocks = [
+    {
+      id: "a",
+      page: 1,
+      label: "text",
+      text: "",
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+    },
+  ] as PDFBlock[];
+  const [plain, , rendered] = host.querySelectorAll("span");
+  const range = document.createRange();
+  range.setStart(plain.firstChild!, 6);
+  range.setEnd(rendered.firstChild!, 3);
+  Object.assign(range, { getBoundingClientRect: () => new DOMRect() });
+  const selection = reflowSourceSelection(host, range, blocks)!;
+  expect(selection.text).toBe("start. Dim $d_k$ here.");
+  expect(selection.location).toMatchObject({
+    quote: "start. Dim d k here.",
+    sourceAnchors: [{ blockId: "a", source: "start. Dim d k here." }],
+  });
+  host.remove();
+});
+
+it("marks restored sentences that a saved quote covers", () => {
+  const host = restored();
+  expect(
+    reflowQuoteRanges(host, "a", "start.").map((r) => r.toString()),
+  ).toEqual(["start."]);
+  expect(
+    reflowQuoteRanges(host, "a", "Dim d k").map((r) => r.toString()),
+  ).toEqual(["Dim dk here."]);
+  host.remove();
 });
 
 it("turns a reflowed source selection into per-paragraph source anchors", () => {

@@ -61,9 +61,15 @@ func translationBatches(m translationInput, items []TranslationBlock, target int
 }
 func translationPrompt(doc Document, m translationInput, batch translationBatch, instructions string) string {
 	frontMatter := m.translationFrontMatter()
-	sourceRule := `原文由 PDF 文字提取得到，可能有少量提取错误：单词内部多出空格（如 "A GENT" 应为 "AGENT"）、行末连字符拆开的单词、错位的数学斜体字母或上下标。sentences.source 默认逐字复制原文；只在能确定是这类提取错误时做最小修正，例如合并被拆开的单词。不确定时保持原样，不要润色、改写或调整语序，公式和符号保持原样。译文按修正后的正确含义翻译。`
+	sourceRule := `原文由 PDF 文字提取得到，可能有少量提取错误：单词内部多出空格（如 "A GENT" 应为 "AGENT"）、行末连字符拆开的单词、错位的数学斜体字母或上下标。sentences.source 默认逐字复制原文；只在能确定是这类提取错误时做最小修正，例如合并被拆开的单词。不确定时保持原样，不要润色、改写或调整语序。
+行内数学是例外：sentences.source 中的行内数学（变量、下标、上标、运算符等）必须与译文一样写成 $...$ KaTeX，并把被提取打散或挪到别处的下标、上标放回原位，例如 "symbol representations ( x , ..., x ) to a sequence 1 n of" 写成 "symbol representations $(x_1, ..., x_n)$ to a sequence of"。无法确定的符号照抄原文。公式以外的文字仍逐字复制。译文按修正后的正确含义翻译。`
+	// PDF source sentences restore inline math as an explicit exception to the
+	// verbatim rule, so reflowed source text can render it; their anchors still
+	// locate the extracted text.
+	sourceMath := ""
 	if doc.Type == "epub" {
 		sourceRule = "原文直接来自 EPUB 正文。sentences.source 必须逐字保留，禁止修正、改写、增删或重排原文。"
+		sourceMath = "sentences.source 仍按原文复制，不写成 LaTeX。"
 	}
 	data, _ := json.Marshal(struct {
 		Title       string           `json:"title"`
@@ -76,7 +82,7 @@ func translationPrompt(doc Document, m translationInput, batch translationBatch,
 每行格式：{"blockId":"原样复制该段 blockId","sourceHash":"原样复制该段 sourceHash","sentences":[{"source":"该句原文","target":"该句中文译文"}]}。
 blockId 和 sourceHash 必须与同一个输入段落严格对应。不能合并、拆分或遗漏段落。sentences 按顺序完整覆盖该段 source，不能改写措辞、增补或遗漏原文；一句原文可以对应多句中文。保留术语、数值、公式和代码。图题仅翻译图题，不补写图表或图片内部内容。
 ` + sourceRule + `
-译文 target 中的行内数学（变量、下标、上标、集合、运算符等）一律写成 KaTeX 可解析的 LaTeX，用 $...$ 包裹，例如 $T_i$、$MVSG(s, \ll)$、$O(n\log n)$。原文中被提取打散的下标（如 "𝑇 … 𝑖"）在能确定时还原为 $T_i$；不确定时照抄原文符号，不要猜。不要使用 Unicode 数学斜体或上下标字符代替 LaTeX。普通文本中的美元符号写成 \$。不要输出 $$ 独立公式：独立公式块已由公式图片单独转换。字符串在 JSON 中，反斜杠必须转义：\ll 写作 \\ll，\$ 写作 \\$。sentences.source 仍按原文复制，不写成 LaTeX。
+译文 target 中的行内数学（变量、下标、上标、集合、运算符等）一律写成 KaTeX 可解析的 LaTeX，用 $...$ 包裹，例如 $T_i$、$MVSG(s, \ll)$、$O(n\log n)$。原文中被提取打散的下标（如 "𝑇 … 𝑖"）在能确定时还原为 $T_i$；不确定时照抄原文符号，不要猜。不要使用 Unicode 数学斜体或上下标字符代替 LaTeX。普通文本中的美元符号写成 \$。不要输出 $$ 独立公式：独立公式块已由公式图片单独转换。字符串在 JSON 中，反斜杠必须转义：\ll 写作 \\ll，\$ 写作 \\$。` + sourceMath + `
 字符串内部的换行必须写为 JSON 转义，物理换行仅用于分隔完整 JSON 对象。标题、作者、frontMatter、contextBefore、contextAfter 仅为参考上下文，不为它们额外输出行。只翻译 paragraphs 列出的段落。
 ` + translationStyle(instructions) + `输入资料：
 ` + string(data)

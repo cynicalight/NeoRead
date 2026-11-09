@@ -20,6 +20,7 @@ import { searchRanges } from "./search-ranges";
 import { overlap } from "../readers/pdf-reading";
 import {
   hasReflowSource,
+  reflowQuoteRanges,
   reflowSourceRanges,
   segmentSentences,
 } from "./reflow";
@@ -245,10 +246,9 @@ export function useSentenceMarks(
         for (const passage of reflowed)
           for (const source of passage.sources)
             marks.push(
-              ...searchRanges(
-                reflowSourceRanges(host, passage.blockId),
-                source,
-              ).map((range) => ({ annotation, range })),
+              ...reflowQuoteRanges(host, passage.blockId, source).map(
+                (range) => ({ annotation, range }),
+              ),
             );
         // Ordinary source marks live in the PDF text layer; reflowed text
         // finds their quote in the paragraphs under the saved rectangles.
@@ -263,10 +263,9 @@ export function useSentenceMarks(
                 location.rects.some((r) => overlap(r, block.bounds) > 0))
             )
               marks.push(
-                ...searchRanges(
-                  reflowSourceRanges(host, block.id),
-                  location.quote,
-                ).map((range) => ({ annotation, range })),
+                ...reflowQuoteRanges(host, block.id, location.quote).map(
+                  (range) => ({ annotation, range }),
+                ),
               );
         if (passages?.length && !reflowed.length)
           marks.push(

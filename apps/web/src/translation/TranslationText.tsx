@@ -146,36 +146,50 @@ export function ReflowSource({
   if (!text.trim()) return null;
   return (
     <div className="reflow-source" data-reflow-source={block.id}>
-      {reflowSourceParts(text, translation).map((part, i) => (
-        <span key={i} className="reflow-sentence" data-source-sentence={i}>
-          {markdownSource.test(part) ? (
-            <MessageMarkdown
-              content={part}
-              blockId={block.id}
-              onCitation={onCitation}
-            />
-          ) : onCitation ? (
-            readingLinkTokens(part).map((token, k) =>
-              token.label ? (
-                <a
-                  key={k}
-                  href={citationHref(block.id, token.label)}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    onCitation(block.id, token.label!);
-                  }}
-                >
-                  {token.text}
-                </a>
-              ) : (
-                token.text
-              ),
-            )
-          ) : (
-            part
-          )}
-        </span>
-      ))}
+      {reflowSourceParts(text, translation).map(
+        ({ text: part, display }, i) => (
+          <span
+            key={i}
+            className="reflow-sentence"
+            data-source-sentence={i}
+            data-anchor={display ? part : undefined}
+            data-display={display}
+          >
+            {display ? (
+              <MessageMarkdown
+                content={display}
+                blockId={block.id}
+                onCitation={onCitation}
+              />
+            ) : markdownSource.test(part) ? (
+              <MessageMarkdown
+                content={part}
+                blockId={block.id}
+                onCitation={onCitation}
+              />
+            ) : onCitation ? (
+              readingLinkTokens(part).map((token, k) =>
+                token.label ? (
+                  <a
+                    key={k}
+                    href={citationHref(block.id, token.label)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      onCitation(block.id, token.label!);
+                    }}
+                  >
+                    {token.text}
+                  </a>
+                ) : (
+                  token.text
+                ),
+              )
+            ) : (
+              part
+            )}
+          </span>
+        ),
+      )}
     </div>
   );
 }
