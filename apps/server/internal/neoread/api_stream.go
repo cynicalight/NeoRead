@@ -62,10 +62,8 @@ type completionRequest struct {
 	Tools            bool
 	Model, Effort    string
 	SupportedEfforts []string
-	ReasoningSink    func(string)
 	// MaxOutput is the model catalog output limit; zero retains the protocol default.
 	MaxOutput int
-	History   []completionMessage
 }
 
 func completionContent(in AIInput) any {
@@ -184,8 +182,7 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 		ctx, cancel = context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
 	}
-	messages := append([]completionMessage{{Role: "system", Content: in.systemPrompt()}}, req.History...)
-	messages = append(messages, completionMessage{Role: "user", Content: completionContent(in)})
+	messages := []completionMessage{{Role: "system", Content: in.systemPrompt()}, {Role: "user", Content: completionContent(in)}}
 	payload := map[string]any{"model": req.Model, "messages": messages, "stream": true, "n": 1, "stream_options": map[string]bool{"include_usage": true}}
 	rule.apply(payload, endpoint.Protocol, req.Effort, trace.Resolved)
 	applyOutputLimit(payload, endpoint.Protocol, req.MaxOutput)
@@ -210,13 +207,13 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 		return GenerateResult{}, generationError(ErrorProtocol, "API 未返回 SSE 流；此连接只支持 Chat Completions 流式协议")
 	}
 	trace.Stage = "stream"
-	return readCompletionStreamWithConnection(ctx, response.Body, c, req.ReasoningSink, emit)
+	return readCompletionStreamWithConnection(ctx, response.Body, c, emit)
 }
 
 func readCompletionStream(ctx context.Context, r io.Reader, emit func(ProviderEvent) error) (GenerateResult, error) {
-	return readCompletionStreamWithConnection(ctx, r, APIConnection{}, nil, emit)
+	return readCompletionStreamWithConnection(ctx, r, APIConnection{}, emit)
 }
-func readCompletionStreamWithConnection(ctx context.Context, r io.Reader, c APIConnection, reasoningSink func(string), emit func(ProviderEvent) error) (GenerateResult, error) {
+func readCompletionStreamWithConnection(ctx context.Context, r io.Reader, c APIConnection, emit func(ProviderEvent) error) (GenerateResult, error) {
 	var text strings.Builder
 	finished := false
 	model := ""
@@ -289,9 +286,6 @@ func readCompletionStreamWithConnection(ctx context.Context, r io.Reader, c APIC
 				return false, generationError(ErrorCapability, "API 返回了不支持的工具调用")
 			}
 			if choice.Delta.Reasoning != "" {
-				if reasoningSink != nil {
-					reasoningSink(choice.Delta.Reasoning)
-				}
 				if emit != nil {
 					if err := emit(ProviderEvent{Reasoning: choice.Delta.Reasoning}); err != nil {
 						return false, err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -182,7 +183,7 @@ func TestAPIModelCheckIsPerModel(t *testing.T) {
 	}
 }
 
-func TestAPITranslationSessionSpansBatches(t *testing.T) {
+func TestAPITranslationBatchesAreIndependent(t *testing.T) {
 	s := testServer(t)
 	upstream, calls := fakeAPI(t, func(n int, _ apiCall) string {
 		if n == 2 {
@@ -194,61 +195,22 @@ func TestAPITranslationSessionSpansBatches(t *testing.T) {
 	passModels(&config, map[string]bool{"deepseek-flash": true})
 	service, sessions := s.translationService(config)
 	defer sessions.close()
-	session := service.connections["api"].Adapter
-	if session != sessions.api {
-		t.Fatal("translation does not use the worker's API session")
+	adapter := service.connections["api"].Adapter
+	if _, ok := adapter.(apiAgentAdapter); !ok {
+		t.Fatalf("translation wraps the API adapter: %T", adapter)
 	}
 	for i, prompt := range []string{"batch-1", "batch-2", "batch-3"} {
-		_, err := session.Stream(t.Context(), GenerateRequest{AIInput{Prompt: prompt}}, nil)
+		_, err := adapter.Stream(t.Context(), GenerateRequest{AIInput{Prompt: prompt}}, nil)
 		if (i == 1) != (err != nil) {
 			t.Fatalf("batch %d: %v", i+1, err)
 		}
 	}
 	got := calls()
-	roles := func(c apiCall) string {
-		parts := []string{}
-		for _, m := range c.Messages {
-			text, _ := m.Content.(string)
-			if m.Role == "system" {
-				text = "-"
-			}
-			parts = append(parts, m.Role+":"+text)
+	for i, call := range got {
+		text, _ := call.Messages[len(call.Messages)-1].Content.(string)
+		if len(call.Messages) != 2 || call.Messages[0].Role != "system" || text != fmt.Sprintf("batch-%d", i+1) || call.Model != "deepseek-flash" {
+			t.Fatalf("call %d carried history: %+v", i+1, call.Messages)
 		}
-		return strings.Join(parts, " ")
-	}
-	want := []string{
-		"system:- user:batch-1",
-		"system:- user:batch-1 assistant:answer-1 user:batch-2",
-		// The failed second turn is dropped; the first one stays in the session.
-		"system:- user:batch-1 assistant:answer-1 user:batch-3",
-	}
-	for i := range want {
-		if roles(got[i]) != want[i] || got[i].Model != "deepseek-flash" {
-			t.Fatalf("call %d: %s (%s)", i+1, roles(got[i]), got[i].Model)
-		}
-	}
-	sessions.close()
-	if sessions.api.history != nil {
-		t.Fatal("closed session kept history")
-	}
-}
-
-func TestAPITranslationHistoryTrimsOldestTurns(t *testing.T) {
-	s := &apiTranslationSession{}
-	turn := strings.Repeat("x", apiTranslationHistoryBytes/8)
-	for i := 0; i < 8; i++ {
-		s.record(turn, turn+string(rune('a'+i)))
-	}
-	if s.size > apiTranslationHistoryBytes || len(s.history)%2 != 0 || s.history[0].Role != "user" {
-		t.Fatalf("history not trimmed to whole turns: %d bytes, %d messages", s.size, len(s.history))
-	}
-	if last := s.history[len(s.history)-1].Content.(string); !strings.HasSuffix(last, "h") {
-		t.Fatal("latest turn was dropped")
-	}
-	huge := strings.Repeat("y", apiTranslationHistoryBytes)
-	s.record(huge, "z")
-	if len(s.history) != 2 || s.history[1].Content != "z" {
-		t.Fatal("an oversized latest turn must stay as the only context")
 	}
 }
 

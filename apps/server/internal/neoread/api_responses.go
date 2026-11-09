@@ -15,7 +15,7 @@ func streamResponses(ctx context.Context, c APIConnection, req completionRequest
 	for _, im := range in.images() {
 		content = append(content, map[string]any{"type": "input_image", "image_url": imageData(im)})
 	}
-	input := append(responsesHistory(req.History), map[string]any{"role": "user", "content": content})
+	input := []any{map[string]any{"role": "user", "content": content}}
 	return requestResponses(ctx, c, responsesPayload(req.Model, payload, in.systemPrompt(), input), emit)
 }
 
@@ -30,6 +30,7 @@ func responsesPayload(model string, payload map[string]any, instructions string,
 	return out
 }
 
+// responsesHistory 把不支持工具的文档问答记录转成 Responses 输入。
 func responsesHistory(history []completionMessage) []any {
 	input := []any{}
 	for _, m := range history {

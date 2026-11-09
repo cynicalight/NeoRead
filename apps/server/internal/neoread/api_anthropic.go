@@ -20,9 +20,7 @@ func streamAnthropic(ctx context.Context, c APIConnection, req completionRequest
 		}
 		content = parts
 	}
-	messages := append([]completionMessage(nil), req.History...)
-	messages = append(messages, completionMessage{Role: "user", Content: content})
-	payload["messages"] = messages
+	payload["messages"] = []completionMessage{{Role: "user", Content: content}}
 	payload["system"] = in.systemPrompt()
 	delete(payload, "n")
 	delete(payload, "stream_options")

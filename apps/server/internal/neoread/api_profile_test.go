@@ -173,46 +173,6 @@ func TestProviderModelBoundaries(t *testing.T) {
 	}
 }
 
-func TestKimiTranslationRetainsReasoningOnlyAfterCompletion(t *testing.T) {
-	original := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = original })
-	calls := 0
-	http.DefaultTransport = apiRoundTripper(func(req *http.Request) (*http.Response, error) {
-		calls++
-		var payload struct {
-			Messages []completionMessage `json:"messages"`
-		}
-		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
-			t.Fatal(err)
-		}
-		if calls > 1 {
-			if len(payload.Messages) != 4 || payload.Messages[2].Reasoning != "private reasoning" {
-				t.Fatalf("missing preserved reasoning: %+v", payload.Messages)
-			}
-		}
-		wire := "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"private reasoning\"}}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
-		if calls == 2 {
-			wire = strings.ReplaceAll(wire, "data: [DONE]\n\n", "")
-		}
-		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(wire))}, nil
-	})
-	adapter := apiAgentAdapter{conn: APIConnection{URL: "https://api.moonshot.ai/v1"}, text: apiModelChoice{"kimi-k3", "high"}, catalog: func(context.Context) ([]AgentModel, error) { return nil, fmt.Errorf("catalog unavailable") }}
-	session := apiTranslationSession{apiAgentAdapter: adapter}
-	if _, err := session.Stream(t.Context(), GenerateRequest{AIInput{Prompt: "batch1"}}, nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := session.Stream(t.Context(), GenerateRequest{AIInput{Prompt: "batch2"}}, nil); err == nil {
-		t.Fatal("incomplete response accepted")
-	}
-	if len(session.history) != 2 || session.history[1].Reasoning != "private reasoning" {
-		t.Fatal("failed turn entered history")
-	}
-	session.close()
-	if len(session.history) != 0 || session.size != 0 {
-		t.Fatal("history not released")
-	}
-}
-
 func TestClaudeFableAndMythosEffort(t *testing.T) {
 	for _, model := range []string{"claude-fable-5-1", "claude-mythos-5-1", "claude-fable-5", "claude-mythos-5"} {
 		for _, level := range []string{"low", "medium", "high", "xhigh", "max"} {

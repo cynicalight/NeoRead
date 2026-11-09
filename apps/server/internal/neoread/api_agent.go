@@ -182,62 +182,6 @@ func (a apiAgentAdapter) Stream(ctx context.Context, req GenerateRequest, emit f
 	return streamCompletion(ctx, a.conn, completion, req.Input, emit)
 }
 
-// History beyond this size is trimmed from the oldest turns, down to half of
-// it, so most batches reuse the provider's cached prompt prefix. One batch
-// round trip is roughly 40–60 KB, so the budget keeps several recent batches
-// and fits a 128K-token context window.
-const apiTranslationHistoryBytes = 256 << 10
-
-// apiTranslationSession keeps one conversation across the batches of a
-// translation worker, like the Codex thread does. A failed turn is not
-// recorded and the earlier history is kept for the next batch.
-type apiTranslationSession struct {
-	apiAgentAdapter
-	history []completionMessage
-	size    int
-}
-
-func (s *apiTranslationSession) Stream(ctx context.Context, req GenerateRequest, emit func(ProviderEvent) error) (GenerateResult, error) {
-	completion, err := s.resolve(ctx, len(req.Input.images()) > 0)
-	if err != nil {
-		return GenerateResult{}, err
-	}
-	completion.History = s.history
-	var reasoning strings.Builder
-	if reasoningRule(resolveAPIEndpoint(s.conn), completion.Model, completion.SupportedEfforts).Preserve {
-		completion.ReasoningSink = func(part string) { reasoning.WriteString(part) }
-	}
-	result, err := streamCompletion(ctx, s.conn, completion, req.Input, emit)
-	if err != nil {
-		return result, err
-	}
-	s.record(req.Input.Prompt, result.Text)
-	s.history[len(s.history)-1].Reasoning = reasoning.String()
-	s.size += reasoning.Len()
-	s.trim()
-	return result, nil
-}
-
-func (s *apiTranslationSession) record(prompt, answer string) {
-	s.history = append(s.history, completionMessage{Role: "user", Content: prompt}, completionMessage{Role: "assistant", Content: answer})
-	s.size += len(prompt) + len(answer)
-	s.trim()
-}
-func (s *apiTranslationSession) trim() {
-	if s.size <= apiTranslationHistoryBytes {
-		return
-	}
-	// Keep at least the latest turn, even when it alone exceeds the budget.
-	for len(s.history) > 2 && s.size > apiTranslationHistoryBytes/2 {
-		s.size -= len(s.history[0].Content.(string)) + len(s.history[1].Content.(string)) + len(s.history[1].Reasoning)
-		s.history = s.history[2:]
-	}
-}
-
-func (s *apiTranslationSession) close() {
-	s.history, s.size = nil, 0
-}
-
 // apiCatalog binds model discovery to one endpoint snapshot. The cache key
 // covers the URL and key, so an edited connection never reuses another list.
 func (s *Server) apiCatalog(c APIConnection) func(context.Context) ([]AgentModel, error) {

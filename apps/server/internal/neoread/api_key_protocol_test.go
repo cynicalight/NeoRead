@@ -48,8 +48,8 @@ func TestAPIProtocolValidationAndLegacyDisplay(t *testing.T) {
 	}
 }
 
-// Responses translation batches preserve successful batch history.
-func TestAPIKeyResponsesTranslationSession(t *testing.T) {
+// Responses translation sends each batch independently.
+func TestAPIKeyResponsesTranslation(t *testing.T) {
 	var mu sync.Mutex
 	var bodies []map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,10 +70,9 @@ func TestAPIKeyResponsesTranslationSession(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 	adapter := apiAgentAdapter{conn: APIConnection{URL: upstream.URL + "/v1", Key: "sk-test", Protocol: "responses"}, text: apiModelChoice{"gpt-test", "high"}, catalog: func(context.Context) ([]AgentModel, error) { return nil, fmt.Errorf("catalog unavailable") }}
-	session := &apiTranslationSession{apiAgentAdapter: adapter}
 	var metrics []ModelTokens
 	for _, prompt := range []string{"batch-1", "batch-2"} {
-		result, err := session.Stream(t.Context(), GenerateRequest{AIInput{Prompt: prompt, SystemPrompt: "translate"}}, func(e ProviderEvent) error {
+		result, err := adapter.Stream(t.Context(), GenerateRequest{AIInput{Prompt: prompt, SystemPrompt: "translate"}}, func(e ProviderEvent) error {
 			metrics = append(metrics, e.Metrics...)
 			return nil
 		})
@@ -85,8 +84,8 @@ func TestAPIKeyResponsesTranslationSession(t *testing.T) {
 		t.Fatalf("first request: %+v", bodies)
 	}
 	input, _ := bodies[1]["input"].([]any)
-	if len(input) != 3 || !strings.Contains(jsonText(input[1]), `"type":"output_text"`) || !strings.Contains(jsonText(input[1]), "译文") {
-		t.Fatalf("history missing: %s", jsonText(input))
+	if len(input) != 1 || !strings.Contains(jsonText(input[0]), "batch-2") || strings.Contains(jsonText(bodies[1]), "译文") {
+		t.Fatalf("batch carried history: %s", jsonText(input))
 	}
 	if len(metrics) == 0 || metrics[0].Tokens == nil || metrics[0].Tokens.TotalTokens != 12 {
 		t.Fatalf("usage not reported: %+v", metrics)
