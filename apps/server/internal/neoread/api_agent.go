@@ -120,6 +120,7 @@ func (a apiAgentAdapter) resolve(ctx context.Context, vision bool) (completionRe
 		if m.ID == req.Model {
 			req.ContextWindow = m.ContextWindow
 			req.SupportedEfforts = m.SupportedEfforts
+			req.MaxOutput = m.MaxOutputTokens
 		}
 	}
 	return req, nil

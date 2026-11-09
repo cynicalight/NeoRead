@@ -91,3 +91,23 @@ func TestAPIKeyResponsesTranslation(t *testing.T) {
 		t.Fatalf("usage not reported: %+v", metrics)
 	}
 }
+
+// API requests include the catalog output limit.
+func TestAPIKeyCatalogOutputLimit(t *testing.T) {
+	var body map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, responsesTestWire("ok"))
+	}))
+	t.Cleanup(upstream.Close)
+	adapter := apiAgentAdapter{conn: APIConnection{URL: upstream.URL, Key: "sk-test", Protocol: "responses"}, text: apiModelChoice{"gpt-test", "high"}, catalog: func(context.Context) ([]AgentModel, error) {
+		return []AgentModel{{ID: "gpt-test", MaxOutputTokens: 4096}}, nil
+	}}
+	if _, err := adapter.Stream(t.Context(), GenerateRequest{AIInput{Prompt: "hi"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if body["max_output_tokens"] != float64(4096) {
+		t.Fatalf("output limit not sent: %s", jsonText(body))
+	}
+}
