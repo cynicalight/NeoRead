@@ -5534,10 +5534,11 @@ export interface components {
         };
         APIConnection: {
             /**
-             * @default auto
+             * @description openai is Chat Completions. Responses return the protocol in use; auto is accepted only for configurations saved before the explicit choice.
+             * @default openai
              * @enum {string}
              */
-            protocol: "auto" | "openai" | "anthropic";
+            protocol: "openai" | "responses" | "anthropic" | "auto";
             url: string;
             model: string;
             key?: string;

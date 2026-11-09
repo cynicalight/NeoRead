@@ -258,7 +258,7 @@ it("saves the API endpoint and key, then tests the new connection", async () => 
     expect.objectContaining({
       api: {
         url: "https://api.deepseek.com",
-        protocol: "auto",
+        protocol: "openai",
         model: "",
         key: "sk-test",
         hasKey: false,

@@ -4,9 +4,9 @@
 
 ## 地址与协议
 
-`APIConnection.protocol` 支持 `auto`（默认）、`openai`（Chat Completions）、`anthropic`（Messages）。老配置缺省等价于 auto。
+`APIConnection.protocol` 由用户在 `openai`（Chat Completions）、`responses`（OpenAI Responses）、`anthropic`（Messages）中选择。老配置的空值或 `auto` 仍按地址推断，设置页显示推断结果，原样保存时不改写旧值，以免检测结果失效。
 
-自动识别仅匹配 HTTPS 官方主机和已知 API 根路径，不根据模型名、域名子串或中转返回的模型归属切换厂商。非官方地址默认 OpenAI Chat Completions；手动选择 Anthropic Messages 后使用对应认证和请求格式。中转地址保持用户提供的根路径，不自动添加 `/v1`。不支持 Responses 协议的专用端点、Azure 或 Vertex 专用认证。
+自动识别仅匹配 HTTPS 官方主机和已知 API 根路径，不根据模型名、域名子串或中转返回的模型归属切换厂商。非官方地址默认 OpenAI Chat Completions；手动选择 Responses 或 Anthropic Messages 后使用对应认证和请求格式。OpenAI 官方地址的 Responses 沿用 Chat Completions 的强度档位，写入 `reasoning.effort`；其他厂商的专用规则只适用于 Chat Completions。中转地址保持用户提供的根路径，不自动添加 `/v1`。Responses 暂不支持 Go 直连的文档工具轮次（工具检测只覆盖 Chat Completions），不支持 Azure 或 Vertex 专用认证。
 
 | 厂商        | 自动识别入口                                                               | 强度处理与官方依据                                                                                                                                                                                                                                                                                                                                                  |
 | ----------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -7037,8 +7037,9 @@
                   "protocol":
                     {
                       "type": "string",
-                      "enum": ["auto", "openai", "anthropic"],
-                      "default": "auto",
+                      "description": "openai is Chat Completions. Responses return the protocol in use; auto is accepted only for configurations saved before the explicit choice.",
+                      "enum": ["openai", "responses", "anthropic", "auto"],
+                      "default": "openai",
                     },
                   "url": { "type": "string" },
                   "model": { "type": "string" },

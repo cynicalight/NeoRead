@@ -766,8 +766,8 @@ export interface AICapability {
   error?: string;
 }
 export interface APIConnection {
-  /** Auto detects official endpoints; other addresses use OpenAI Chat Completions. */
-  protocol?: "auto" | "openai" | "anthropic";
+  /** openai is Chat Completions. "auto" only appears in configurations saved before the explicit choice. */
+  protocol?: "openai" | "responses" | "anthropic" | "auto";
   url: string;
   model: string;
   key?: string;

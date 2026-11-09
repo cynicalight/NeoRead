@@ -5,10 +5,21 @@ import { Input } from "@neoread/ui/components/input";
 
 import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
 const protocols = {
-  auto: "默认使用 OpenAI 格式",
   openai: "OpenAI Chat Completions",
+  responses: "OpenAI Responses",
   anthropic: "Anthropic Messages",
 } as const;
+type Protocol = keyof typeof protocols;
+const tabLabels: Record<Protocol, string> = {
+  openai: "Chat",
+  responses: "Responses",
+  anthropic: "Anthropic",
+};
+const isProtocol = (value: unknown): value is Protocol =>
+  typeof value === "string" && value in protocols;
+// The server reports the protocol in use; a legacy or empty value falls back to Chat Completions.
+const savedProtocol = (connection: APIConnection): Protocol =>
+  isProtocol(connection.protocol) ? connection.protocol : "openai";
 const DEFAULT_API_URL = "https://api.deepseek.com";
 
 /** Endpoint, protocol and key of the "api" agent. A saved key is
@@ -23,11 +34,10 @@ export function APIAgentForm({
   onSave: (connection: APIConnection) => Promise<void>;
 }) {
   const [url, setURL] = useState(connection.url || DEFAULT_API_URL);
-  const [protocol, setProtocol] = useState<
-    NonNullable<APIConnection["protocol"]>
-  >(connection.protocol ?? "auto");
+  const [protocol, setProtocol] = useState<Protocol>(savedProtocol(connection));
   useEffect(
-    () => setProtocol(connection.protocol ?? "auto"),
+    () => setProtocol(savedProtocol(connection)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [connection.protocol],
   );
   const [key, setKey] = useState("");
@@ -37,7 +47,7 @@ export function APIAgentForm({
   const changed =
     url.trim() !== connection.url ||
     key.trim() !== "" ||
-    protocol !== (connection.protocol ?? "auto");
+    protocol !== savedProtocol(connection);
   const save = async () => {
     setSaving(true);
     try {
@@ -85,8 +95,7 @@ export function APIAgentForm({
       <Tabs
         value={protocol}
         onValueChange={(value) => {
-          if (value === "auto" || value === "openai" || value === "anthropic")
-            setProtocol(value);
+          if (isProtocol(value)) setProtocol(value);
         }}
       >
         <TabsList aria-labelledby={`${id}-protocol`} className="w-full">
@@ -98,11 +107,7 @@ export function APIAgentForm({
               title={label}
               disabled={disabled || saving}
             >
-              {value === "auto"
-                ? "自动（OpenAI）"
-                : value === "openai"
-                  ? "OpenAI"
-                  : "Anthropic"}
+              {tabLabels[value as Protocol]}
             </TabsTrigger>
           ))}
         </TabsList>
