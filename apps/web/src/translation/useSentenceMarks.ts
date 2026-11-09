@@ -1,3 +1,9 @@
+import {
+  clearFormulaMarks,
+  formulaAwareRects,
+  formulaHighlightRules,
+  markFormulas,
+} from "./formula-highlight";
 import { annotationsAtPoint, annotationsInRects } from "./annotation-hover";
 import { SentenceHover } from "./sentence-hover";
 import { useEffect, useId, useRef } from "react";
@@ -87,7 +93,7 @@ export function useSentenceMarks(
     const rectsOf = (range: Range) => {
       let rects = geometry.get(range);
       if (!rects) {
-        rects = Array.from(range.getClientRects());
+        rects = formulaAwareRects([range]);
         geometry.set(range, rects);
       }
       return rects;
@@ -193,6 +199,7 @@ export function useSentenceMarks(
         latest.current;
       names.forEach((name) => registry.delete(name));
       registry.delete(searchName);
+      clearFormulaMarks(host, prefix);
       names = [];
       marks = translatedAnnotationRanges(host, annotations, translations);
       for (const annotation of annotations) {
@@ -296,12 +303,23 @@ export function useSentenceMarks(
             `::highlight(${name}) { ${kind === "underline" ? `text-decoration: underline 2px ${color};` : `background-color: ${color}66;`} }`,
           );
           rules.push(`.textLayer ::highlight(${name}) { color: transparent; }`);
+          rules.push(
+            ...formulaHighlightRules(
+              name,
+              kind === "underline"
+                ? { underline: color }
+                : { background: `${color}66` },
+            ),
+          );
         }
         groups.get(name)!.push(mark.range);
       }
       rules.push(
         `::highlight(${searchName}) { background-color: color-mix(in srgb, var(--primary) 25%, transparent); }`,
         `.textLayer ::highlight(${searchName}) { color: transparent; }`,
+        ...formulaHighlightRules(searchName, {
+          background: "color-mix(in srgb, var(--primary) 25%, transparent)",
+        }),
       );
       const css = rules.join("\n");
       if (style.textContent !== css) style.textContent = css;
@@ -309,6 +327,7 @@ export function useSentenceMarks(
         const highlight = new Highlight(...ranges);
         highlight.priority = 1;
         registry.set(name, highlight);
+        markFormulas(host, name, ranges);
         names.push(name);
       }
       if (searchQuery.trim() && searchResults.length) {
@@ -367,6 +386,7 @@ export function useSentenceMarks(
           const highlight = new Highlight(...ranges);
           highlight.priority = 2;
           registry.set(searchName, highlight);
+          markFormulas(host, searchName, ranges);
         }
       }
       if (pointer.current && activeRanges.length && leaveTimer === undefined)
@@ -657,6 +677,7 @@ export function useSentenceMarks(
       hover.destroy();
       names.forEach((name) => registry.delete(name));
       registry.delete(searchName);
+      clearFormulaMarks(host, prefix);
       style.remove();
     };
   }, [root, engine, linked, mode, prefix]);

@@ -1,3 +1,4 @@
+import { markFormulas } from "./formula-highlight";
 // Keep the browser's selection for dragging, keyboard selection and copying.
 // A custom highlight paints text-sized backgrounds without selection line fill.
 export function installTranslationSelectionHighlight(host: HTMLElement) {
@@ -9,6 +10,7 @@ export function installTranslationSelectionHighlight(host: HTMLElement) {
   const clear = () => {
     if (highlight && registry.get(name) === highlight) registry.delete(name);
     highlight = undefined;
+    markFormulas(host, name, []);
     host.removeAttribute("data-compact-selection");
   };
   const update = () => {
@@ -28,6 +30,8 @@ export function installTranslationSelectionHighlight(host: HTMLElement) {
     // Active selection remains visible over saved annotation backgrounds.
     highlight.priority = 1;
     registry.set(name, highlight);
+    // A selection touching a formula selects it whole.
+    markFormulas(host, name, [range]);
     host.setAttribute("data-compact-selection", "");
   };
   document.addEventListener("selectionchange", update);

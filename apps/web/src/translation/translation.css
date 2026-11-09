@@ -151,6 +151,17 @@
   background-color: rgba(59, 130, 246, 0.3);
   background-color: color-mix(in srgb, AccentColor 30%, transparent);
 }
+/* A selection touching a formula paints the formula's whole box (see
+   formula-highlight.ts); the more specific selector keeps it above marks. */
+.translation-document
+  .katex[data-formula-highlight~="neoread-translation-selection"] {
+  background-color: rgba(59, 130, 246, 0.3);
+  background-color: color-mix(in srgb, AccentColor 30%, transparent);
+  border-radius: 2px;
+}
+.translation-document .katex ::highlight(neoread-translation-selection) {
+  background-color: transparent;
+}
 .translation-document[data-compact-selection]::selection,
 .translation-document[data-compact-selection] ::selection {
   background-color: transparent;
