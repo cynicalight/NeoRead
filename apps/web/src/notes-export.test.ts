@@ -53,7 +53,7 @@ it("exports chosen parts in reading order with answers", () => {
       "## 论文笔记",
       "Main idea",
       "## 批注",
-      "### 第 1 页 · 划线 [↗](neoread://open?id=p&annotation=h)\n\n> key claim",
+      "### 第 1 页 · 高亮 [↗](neoread://open?id=p&annotation=h)\n\n> key claim",
       "### 第 2 页 · 问题 [↗](neoread://open?id=p&annotation=q)\n\n> line two\n> line three\n\n**问：** Why?\n\n**AI 答：**\n\nBecause **softmax**.",
       "## 书签",
       "- [第 3 页](neoread://open?id=p&annotation=b)",

@@ -154,3 +154,7 @@ API 厂商规则、实际强度映射、上游错误分类和请求关联字段�
 译文 PDF 导出记录 `pdf.translation_export.start / stage / failed / cancelled / download_requested / print_dialog_closed`，用 `requestId` 关联一次导出。阶段为读取 Markdown、排版、生成 PDF、请求下载，不记录文件名、正文或异常原文。桌面端 `download_requested` 表示已请求下载，不代表已经完成磁盘写入；网页端 `print_dialog_closed` 只表示打印窗口关闭，不代表用户保存了 PDF。取消会销毁桌面端的临时打印窗口；临时窗口禁用脚本、应用 preload 和外部资源请求，并在失败或超时后清理。失败终态使用固定 `errorCode` 和 `reasonCode` 分类：快照读取、模块加载、排版、保存、下载及未知异常。取消使用 `reasonCode=user_cancelled`，保持 info 级别。
 
 `pdf.render.failed` 记录阅读实例首次页面或局部高清渲染失败，`detail` 只包含固定的 `pipeline=object-colors/original` 和 `layer=page/detail`。不记录原始异常、文档文本或路径。每个实例最多一次，避免持续失败造成日志洪泛。对象级配色、画布替换与人工验收范围见 [PDF 对象级配色](pdf-object-colors.md)。
+
+### 通用文档导出
+
+`document.export.start / download_requested / print_dialog_closed / failed / cancelled` 覆盖导出弹窗的原文、译文和批注流程，以 `requestId` 关联，仅记录目标类别、格式和耗时。`markdown.pdf_export.*` 覆盖独立 Markdown 文档生成 PDF 的步骤。不记录文件名、正文或异常原文。打印窗口关闭只表示用户结束打印操作，不表示已保存文件。

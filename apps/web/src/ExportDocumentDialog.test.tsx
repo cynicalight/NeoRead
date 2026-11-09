@@ -2,155 +2,72 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { Annotation, Message } from "@neoread/core";
+import type { Annotation } from "@neoread/core";
 import { api } from "@neoread/api";
-import { downloadBlob, downloadText } from "./download";
-import { copyText } from "./chat/clipboard";
-import { exportAnnotatedPDFWithToast } from "./annotated-pdf-export";
+import { downloadBlob } from "./download";
 import { exportTranslatedPDF } from "./translated-pdf-export";
+import { exportMarkdownFile, exportOriginal } from "./document-export";
 import { ExportDocumentDialog } from "./ExportDocumentDialog";
 import { paper } from "./papers/fixtures";
-
-vi.mock("@neoread/api", () => ({
-  api: {
-    documentNote: vi.fn(),
-    saveDocumentNote: vi.fn(async (_id: string, body: string) => ({ body })),
-    translations: vi.fn(),
-    exportTranslation: vi.fn(),
-  },
-}));
+vi.mock("@neoread/api", () => ({ api: { exportTranslation: vi.fn() } }));
 vi.mock("./download", () => ({
   downloadBlob: vi.fn(),
-  downloadText: vi.fn(),
   fileTitle: (title: string) => title,
 }));
-vi.mock("./chat/clipboard", () => ({ copyText: vi.fn(async () => true) }));
-vi.mock("./annotated-pdf-export", () => ({
-  exportAnnotatedPDFWithToast: vi.fn(async () => {}),
-}));
 vi.mock("./translated-pdf-export", () => ({ exportTranslatedPDF: vi.fn() }));
-
+vi.mock("./document-export", async (original) => ({
+  ...(await original<typeof import("./document-export")>()),
+  exportMarkdownFile: vi.fn(),
+  exportOriginal: vi.fn(),
+}));
+const doc = paper({ id: "doc", title: "论文" });
+const annotations: Annotation[] = (
+  ["note", "underline", "highlight", "question"] as const
+).map((kind, i) => ({
+  id: String(i),
+  documentId: doc.id,
+  kind,
+  location: { type: "pdf", page: 1 },
+  quote: `${kind}-quote`,
+  note: `${kind}-note`,
+  color: "#fff",
+  createdAt: "",
+}));
 let root: Root, host: HTMLDivElement;
 const close = vi.fn();
-const doc = paper({ id: "doc", title: "示例" });
-const annotation: Annotation = {
-  id: "a",
-  documentId: "doc",
-  kind: "note",
-  location: { type: "pdf", page: 1 },
-  quote: "引用原文",
-  note: "批注内容",
-  color: "#fff",
-  createdAt: "2026-10-18",
-};
-const messages: Message[] = [
-  {
-    id: "m",
-    documentId: "doc",
-    role: "assistant",
-    content: "独立对话",
-    createdAt: "2026-10-18",
-  },
-];
-const button = (label: string) =>
-  [...document.querySelectorAll("button")].find(
-    (b) => b.textContent?.trim() === label,
+const activeDialog = () =>
+  [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1)!;
+const button = (text: string) =>
+  [...activeDialog().querySelectorAll<HTMLButtonElement>("button")].find(
+    (el) => el.textContent?.trim() === text,
   )!;
-const checkbox = (label: string) =>
-  [...document.querySelectorAll("label")]
-    .find((node) => node.textContent?.startsWith(label))!
-    .querySelector<HTMLElement>('[role="checkbox"]')!;
 const mount = async () =>
   act(async () =>
     root.render(
       <ExportDocumentDialog
         document={doc}
-        annotations={[annotation]}
-        messages={messages}
+        annotations={annotations}
+        messages={[]}
         onClose={close}
       />,
     ),
   );
 beforeEach(() => {
+  vi.resetAllMocks();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("PointerEvent", MouseEvent);
   const storage = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),
-    clear: () => storage.clear(),
   });
-  vi.clearAllMocks();
-  vi.mocked(exportTranslatedPDF).mockReset();
-  localStorage.clear();
-  vi.mocked(api.documentNote).mockResolvedValue({
-    body: "论文笔记正文",
-    updatedAt: "2026-10-18",
-  });
-  vi.mocked(api.translations).mockResolvedValue([
-    {
-      blockId: "b",
-      sourceHash: "h",
-      status: "complete",
-      sentences: [{ source: "source", target: "译文正文" }],
-    },
-  ]);
-  vi.mocked(api.exportTranslation).mockResolvedValue(new Blob(["export"]));
+  vi.mocked(exportMarkdownFile).mockResolvedValue("download");
+  vi.mocked(exportOriginal).mockResolvedValue("download");
+  vi.mocked(exportTranslatedPDF).mockResolvedValue({ delivery: "download" });
+  vi.mocked(api.exportTranslation).mockResolvedValue(new Blob(["译文"]));
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-});
-
-it("exports Markdown-rendered translated PDF independently of note selections", async () => {
-  localStorage.setItem("neoread.notes-export", JSON.stringify(["notes"]));
-  vi.mocked(exportTranslatedPDF).mockResolvedValue({
-    delivery: "download",
-  });
-  await mount();
-  await act(async () => button("导出译文 PDF").click());
-  expect(exportTranslatedPDF).toHaveBeenCalledWith(
-    doc,
-    expect.any(AbortSignal),
-    expect.any(Function),
-  );
-  expect(document.body.textContent).toContain("已开始下载译文 PDF");
-  expect(document.body.textContent).not.toContain("保留原文");
-  expect(api.exportTranslation).not.toHaveBeenCalled();
-  expect(exportAnnotatedPDFWithToast).not.toHaveBeenCalled();
-  expect(close).not.toHaveBeenCalled();
-});
-
-it("aborts translated PDF export when the dialog is closed", async () => {
-  let finish!: (
-    result: Awaited<ReturnType<typeof exportTranslatedPDF>>,
-  ) => void;
-  vi.mocked(exportTranslatedPDF).mockImplementation(
-    (_doc, _signal, progress) => {
-      progress({ phase: "saving" });
-      return new Promise((resolve) => {
-        finish = resolve;
-      });
-    },
-  );
-  await mount();
-  await act(async () => button("导出译文 PDF").click());
-  const signal = vi.mocked(exportTranslatedPDF).mock.calls[0][1];
-  expect(document.querySelector("progress")?.hasAttribute("value")).toBe(false);
-  expect(button("导出译文 PDF").disabled).toBe(true);
-  await act(async () => button("取消").click());
-  expect(signal.aborted).toBe(true);
-  expect(close).toHaveBeenCalledOnce();
-  await act(async () => finish({ delivery: "download" }));
-  expect(document.body.textContent).not.toContain("已开始下载译文 PDF");
-});
-
-it("keeps PDF export errors visible and allows a retry", async () => {
-  vi.mocked(exportTranslatedPDF).mockRejectedValue(new Error("字体加载失败"));
-  await mount();
-  await act(async () => button("导出译文 PDF").click());
-  expect(document.body.textContent).toContain("字体加载失败");
-  expect(button("导出译文 PDF").disabled).toBe(false);
-  expect(close).not.toHaveBeenCalled();
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -158,249 +75,121 @@ afterEach(async () => {
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
 });
-
-it("combines translation and selected notes in one Markdown download", async () => {
+it("keeps only the four annotation kinds and separates original and translation", async () => {
   await mount();
-  await act(async () => button("导出").click());
-  const [id, format, signal, notes] = vi.mocked(api.exportTranslation).mock
-    .calls[0];
-  expect([id, format]).toEqual(["doc", "markdown"]);
-  expect(signal).toBeInstanceOf(AbortSignal);
-  expect(notes).toContain("论文笔记正文");
-  expect(notes).toContain("批注内容");
-  expect(notes).not.toContain("# 示例");
-  expect(notes).not.toContain("独立对话");
-  expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "示例-导出.md");
-  expect(downloadText).not.toHaveBeenCalled();
-  expect(close).toHaveBeenCalledOnce();
+  expect(
+    [...document.querySelectorAll('[role="checkbox"]')].map((el) =>
+      el.getAttribute("aria-label"),
+    ),
+  ).toEqual(["批注", "划线", "高亮", "问题"]);
+  for (const text of [
+    "论文信息",
+    "论文笔记",
+    "AI 对话",
+    "书签",
+    "包含译文中的原文图片",
+    "保存为 Markdown",
+    "按 Markdown 默认字号",
+  ])
+    expect(document.body.textContent).not.toContain(text);
+  expect(button("导出原文")).toBeTruthy();
+  expect(button("导出译文")).toBeTruthy();
 });
-
-it("includes only checked content in a ZIP and copies Markdown even with images checked", async () => {
-  localStorage.setItem(
-    "neoread.notes-export",
-    JSON.stringify(["translation", "chat"]),
-  );
+it.each(["Markdown", "PDF"])(
+  "exports only selected annotations as %s",
+  async (label) => {
+    await mount();
+    for (const name of ["批注", "高亮", "问题"])
+      await act(async () =>
+        document.querySelector<HTMLElement>(`[aria-label="${name}"]`)!.click(),
+      );
+    await act(async () => button(label).click());
+    expect(exportMarkdownFile).toHaveBeenCalledWith(
+      expect.stringContaining("underline-quote"),
+      "论文-批注",
+      label === "PDF" ? "pdf" : "markdown",
+      expect.any(AbortSignal),
+    );
+    const markdown = vi.mocked(exportMarkdownFile).mock.calls[0][0];
+    for (const excluded of ["note-quote", "highlight-quote", "question-quote"])
+      expect(markdown).not.toContain(excluded);
+    expect(close).toHaveBeenCalledOnce();
+  },
+);
+it("disables annotation formats when no kinds are selected", async () => {
   await mount();
-  await act(async () => checkbox("包含译文中的原文图片").click());
-  const blob = Object.assign(new Blob(), { text: async () => "译文与对话" });
-  vi.mocked(api.exportTranslation).mockResolvedValue(blob);
-  await act(async () => button("复制").click());
-  expect(api.exportTranslation).toHaveBeenLastCalledWith(
-    "doc",
-    "markdown",
-    expect.any(AbortSignal),
-    expect.stringContaining("独立对话"),
-  );
-  expect(copyText).toHaveBeenCalledWith("译文与对话", "已复制 Markdown");
-  await act(async () => button("导出").click());
-  expect(api.exportTranslation).toHaveBeenLastCalledWith(
-    "doc",
-    "zip",
-    expect.any(AbortSignal),
-    expect.stringContaining("独立对话"),
-  );
-  const notes = vi.mocked(api.exportTranslation).mock.lastCall![3]!;
-  expect(notes).not.toContain("论文笔记正文");
-  expect(notes).not.toContain("批注内容");
-  expect(downloadBlob).toHaveBeenCalledWith(blob, "示例-导出.zip");
+  for (const checkbox of document.querySelectorAll<HTMLElement>(
+    '[role="checkbox"]',
+  ))
+    await act(async () => checkbox.click());
+  expect(button("Markdown").disabled).toBe(true);
+  expect(button("PDF").disabled).toBe(true);
+  expect(button("导出原文").disabled).toBe(false);
 });
-
-it("preserves old note preferences and exports notes without calling translation export", async () => {
-  localStorage.setItem("neoread.notes-export", JSON.stringify(["paperNote"]));
-  await mount();
-  expect(checkbox("译文").getAttribute("aria-checked")).toBe("false");
-  await act(async () => button("导出").click());
-  expect(api.exportTranslation).not.toHaveBeenCalled();
-  expect(downloadText).toHaveBeenCalledWith(
-    "# 示例\n\n## 论文笔记\n\n论文笔记正文\n",
-    "示例-导出.md",
-    "text/markdown",
-  );
-});
-
-it("does not retain ZIP mode after translation is unchecked and disables an empty selection", async () => {
-  localStorage.setItem(
-    "neoread.notes-export",
-    JSON.stringify(["translation", "paperNote"]),
-  );
-  await mount();
-  await act(async () => checkbox("包含译文中的原文图片").click());
-  await act(async () => checkbox("译文").click());
-  expect(document.body.textContent).not.toContain("包含译文中的原文图片");
-  await act(async () => button("复制").click());
-  expect(api.exportTranslation).not.toHaveBeenCalled();
-  expect(copyText).toHaveBeenCalledWith(
-    expect.stringContaining("论文笔记正文"),
-    "已复制 Markdown",
-  );
-  await act(async () => checkbox("论文笔记").click());
-  expect(button("复制").disabled).toBe(true);
-  expect(button("导出").disabled).toBe(true);
-});
-
-it("blocks missing selected notes instead of silently exporting an incomplete file", async () => {
-  vi.mocked(api.documentNote).mockRejectedValueOnce(new Error("unavailable"));
-  await mount();
-  expect(button("导出").disabled).toBe(true);
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    "笔记读取失败",
-  );
-  await act(async () => button("重试读取").click());
-  expect(button("导出").disabled).toBe(false);
-  await act(async () => button("导出").click());
-  expect(api.exportTranslation).toHaveBeenLastCalledWith(
-    "doc",
-    "markdown",
-    expect.any(AbortSignal),
-    expect.stringContaining("论文笔记正文"),
-  );
-});
-
-it("allows notes-only export after a translation read failure", async () => {
-  vi.mocked(api.translations).mockRejectedValueOnce(new Error("unavailable"));
-  await mount();
-  expect(button("导出").disabled).toBe(true);
-  await act(async () => checkbox("译文").click());
-  await act(async () => button("导出").click());
-  expect(downloadText).toHaveBeenCalledOnce();
-  expect(api.exportTranslation).not.toHaveBeenCalled();
-});
-
-it("keeps notes export available when there are no completed translations", async () => {
-  vi.mocked(api.translations).mockResolvedValueOnce([]);
-  await mount();
-  expect(checkbox("译文").getAttribute("aria-checked")).toBe("false");
-  expect(checkbox("译文").getAttribute("aria-disabled")).toBe("true");
-  await act(async () => button("导出").click());
-  expect(downloadText).toHaveBeenCalledWith(
-    expect.stringContaining("批注内容"),
-    "示例-导出.md",
-    "text/markdown",
-  );
-  expect(api.exportTranslation).not.toHaveBeenCalled();
-});
-
-it("keeps a failed export open for retry", async () => {
-  await mount();
-  vi.mocked(api.exportTranslation).mockRejectedValueOnce(
-    new Error("无法打包译文图片"),
-  );
-  await act(async () => button("导出").click());
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    "无法打包译文图片",
-  );
-  expect(downloadBlob).not.toHaveBeenCalled();
-  expect(close).not.toHaveBeenCalled();
-  await act(async () => button("导出").click());
-  expect(downloadBlob).toHaveBeenCalledOnce();
-});
-
-it("cancels an in-flight export and ignores its late response", async () => {
-  await mount();
-  let resolve!: (blob: Blob) => void;
+it.each(["Markdown", "PDF"])(
+  "opens original format selection and exports %s without annotations",
+  async (label) => {
+    await mount();
+    await act(async () => button("导出原文").click());
+    await act(async () => button(label).click());
+    expect(exportOriginal).toHaveBeenCalledWith(
+      doc,
+      label === "PDF" ? "pdf" : "markdown",
+      expect.any(AbortSignal),
+    );
+    expect(exportMarkdownFile).not.toHaveBeenCalled();
+    expect(api.exportTranslation).not.toHaveBeenCalled();
+  },
+);
+it.each(["Markdown", "PDF"])(
+  "opens translation format selection and exports %s",
+  async (label) => {
+    await mount();
+    await act(async () => button("导出译文").click());
+    await act(async () => button(label).click());
+    if (label === "PDF")
+      expect(exportTranslatedPDF).toHaveBeenCalledWith(
+        doc,
+        expect.any(AbortSignal),
+        expect.any(Function),
+      );
+    else {
+      expect(api.exportTranslation).toHaveBeenCalledWith(
+        doc.id,
+        "markdown",
+        expect.any(AbortSignal),
+      );
+      expect(downloadBlob).toHaveBeenCalledOnce();
+    }
+    expect(exportOriginal).not.toHaveBeenCalled();
+    expect(exportMarkdownFile).not.toHaveBeenCalled();
+  },
+);
+it("cancels a format request and prevents its late download", async () => {
+  let finish!: (blob: Blob) => void;
   vi.mocked(api.exportTranslation).mockImplementationOnce(
     () =>
-      new Promise((done) => {
-        resolve = done;
+      new Promise((resolve) => {
+        finish = resolve;
       }),
   );
-  await act(async () => button("导出").click());
-  expect(button("正在导出…").disabled).toBe(true);
+  await mount();
+  await act(async () => button("导出译文").click());
+  await act(async () => button("Markdown").click());
   const signal = vi.mocked(api.exportTranslation).mock.calls[0][2]!;
   await act(async () => button("取消").click());
   expect(signal.aborted).toBe(true);
-  await act(async () => resolve(new Blob(["late response"])));
+  await act(async () => finish(new Blob(["late"])));
   expect(downloadBlob).not.toHaveBeenCalled();
-  expect(close).toHaveBeenCalledOnce();
+  expect(close).not.toHaveBeenCalled();
+  expect(button("导出原文")).toBeTruthy();
 });
-
-it("exports only selected annotation kinds into the original PDF", async () => {
-  localStorage.setItem("neoread.notes-export", JSON.stringify(["notes"]));
+it("keeps an export error visible and allows retry", async () => {
+  vi.mocked(exportOriginal).mockRejectedValueOnce(new Error("正文尚未解析"));
   await mount();
-  await act(async () => button("导出 PDF").click());
-  expect(exportAnnotatedPDFWithToast).toHaveBeenCalledWith(doc, ["note"]);
-  await act(async () => checkbox("批注").click());
-  expect(button("导出 PDF").disabled).toBe(false);
-});
-
-it("reads the shared draft without writing on open and flushes at actual export", async () => {
-  const { getPaperNote } = await import("./paper-note-state");
-  const note = getPaperNote(doc.id);
-  const release = note.subscribe(() => {});
-  await note.load();
-  note.edit("draft before dialog");
-  await mount();
-  expect(api.saveDocumentNote).not.toHaveBeenCalled();
-  note.edit("newer draft after dialog");
-  await act(async () => button("导出").click());
-  expect(api.exportTranslation).toHaveBeenLastCalledWith(
-    doc.id,
-    "markdown",
-    expect.any(AbortSignal),
-    expect.stringContaining("newer draft after dialog"),
-  );
-  release();
-});
-
-it("blocks stale exports on save failure and exports the last saved note on a later attempt", async () => {
-  const { getPaperNote } = await import("./paper-note-state");
-  const note = getPaperNote(doc.id);
-  const release = note.subscribe(() => {});
-  await note.load();
-  await mount();
-  note.edit("must not lose this draft");
-  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
-  await act(async () => button("导出").click());
-  expect(api.exportTranslation).not.toHaveBeenCalled();
-  expect(downloadBlob).not.toHaveBeenCalled();
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    "offline",
-  );
-  await act(async () => button("导出").click());
-  expect(api.exportTranslation).toHaveBeenLastCalledWith(
-    doc.id,
-    "markdown",
-    expect.any(AbortSignal),
-    expect.stringContaining("论文笔记正文"),
-  );
-  release();
-});
-
-it("can explicitly export the saved version after a draft save failure", async () => {
-  const { getPaperNote } = await import("./paper-note-state");
-  const note = getPaperNote(doc.id);
-  const release = note.subscribe(() => {});
-  await note.load();
-  note.edit("unsaved draft");
-  await mount();
-  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
-  await act(async () => button("导出").click());
-  expect(api.exportTranslation).not.toHaveBeenCalled();
-  await act(async () => button("使用已保存笔记").click());
-  await act(async () => button("导出").click());
-  expect(api.exportTranslation).toHaveBeenLastCalledWith(
-    doc.id,
-    "markdown",
-    expect.any(AbortSignal),
-    expect.stringContaining("论文笔记正文"),
-  );
-  expect(note.getSnapshot().body).toBe("论文笔记正文");
-  await note.flush();
-  release();
-});
-it("allows exporting other parts while an unselected paper note cannot be saved", async () => {
-  const { getPaperNote } = await import("./paper-note-state");
-  const note = getPaperNote(doc.id);
-  const release = note.subscribe(() => {});
-  await note.load();
-  note.edit("failed draft");
-  vi.mocked(api.saveDocumentNote).mockRejectedValueOnce(new Error("offline"));
-  await expect(note.flush()).rejects.toThrow("offline");
-  await mount();
-  await act(async () => checkbox("论文笔记").click());
-  await act(async () => button("导出").click());
-  expect(api.exportTranslation).toHaveBeenCalled();
-  expect(note.getSnapshot().body).toBe("论文笔记正文");
-  await note.flush();
-  release();
+  await act(async () => button("导出原文").click());
+  await act(async () => button("Markdown").click());
+  expect(activeDialog().textContent).toContain("正文尚未解析");
+  expect(button("Markdown").disabled).toBe(false);
+  expect(close).not.toHaveBeenCalled();
 });

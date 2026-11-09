@@ -416,9 +416,10 @@ export const api = {
       `/api/documents/${encodeURIComponent(id)}/epub-chapter?href=${encodeURIComponent(href)}`,
       { signal },
     ),
-  epubBlocks: (id: string) =>
+  epubBlocks: (id: string, signal?: AbortSignal) =>
     request<import("@neoread/core").EPUBReadingBlock[]>(
       `/api/documents/${id}/epub-blocks`,
+      { signal },
     ),
   translations: (id: string, signal?: AbortSignal) =>
     request<import("@neoread/core").TranslationBlock[]>(
