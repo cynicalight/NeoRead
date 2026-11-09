@@ -782,6 +782,13 @@ export function Workspace({
         ?.scrollIntoView({ block: "start" }),
     );
   };
+  const updateSearchQuery = (value: string) => {
+    searchSerial.current++;
+    setQuery(value);
+    setResults([]);
+    setSearchedQuery("");
+    setSearching(false);
+  };
   const search = async () => {
     if (!adapter) return;
     const serial = ++searchSerial.current;
@@ -1279,19 +1286,31 @@ export function Workspace({
                   }}
                   className="flex shrink-0 gap-1"
                 >
-                  <Input
-                    aria-label="搜索文档"
-                    ref={searchInput}
-                    placeholder="搜索文档内容…"
-                    value={query}
-                    onChange={(e) => {
-                      searchSerial.current++;
-                      setQuery(e.target.value);
-                      setResults([]);
-                      setSearchedQuery("");
-                      setSearching(false);
-                    }}
-                  />
+                  <div className="relative min-w-0 flex-1">
+                    <Input
+                      aria-label="搜索文档"
+                      ref={searchInput}
+                      className="pr-8"
+                      placeholder="搜索文档内容…"
+                      value={query}
+                      onChange={(e) => updateSearchQuery(e.target.value)}
+                    />
+                    {query && (
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label="清空搜索"
+                        className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground"
+                        onClick={() => {
+                          updateSearchQuery("");
+                          searchInput.current?.focus();
+                        }}
+                      >
+                        <X className="size-3.5" />
+                      </Button>
+                    )}
+                  </div>
                   <Button
                     size="icon"
                     variant="secondary"
