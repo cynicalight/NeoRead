@@ -2,7 +2,15 @@ import { FormulaRow } from "./FormulaRow";
 import type { PDFBlock, TranslationBlock } from "@neoread/core";
 import { blockImageURL } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { reflowSourceParts } from "./reflow";
 import { ReadingLinkNavigation } from "../reading-links";
 import { ErrorBoundary } from "../ErrorBoundary";
 const FormulaFragment = lazy(() => import("./FormulaFragment"));
@@ -87,6 +95,63 @@ export function TranslationText(props: TranslationTextProps) {
   );
 }
 type TranslationTextProps = Parameters<typeof TranslationContent>[0];
+type DisplayBlock = Pick<
+  PDFBlock,
+  "id" | "label" | "text" | "image" | "caption"
+> &
+  Partial<PDFBlock>;
+const preservedLabels = [
+  "reference",
+  "reference_content",
+  "display_formula",
+  "inline_formula",
+  "formula_number",
+  "header",
+  "footer",
+  "number",
+];
+/**
+ * Formulas, references and similar blocks already show their original
+ * content in place of a translation; reflowed text must not repeat them.
+ */
+export function showsOriginal(block: DisplayBlock) {
+  const asset =
+    !!block.image ||
+    ["algorithm", "table", "chart", "image"].includes(block.label);
+  return (
+    ["display_formula", "inline_formula"].includes(block.label) ||
+    preservedLabels.includes(block.label) ||
+    (asset && !block.caption)
+  );
+}
+
+// Extracted PDF text carries inline math as Markdown; other text stays plain.
+const markdownSource = /\$|\\\(|\\\[/;
+/** A reflowed source paragraph whose sentences hover with their translation. */
+export function ReflowSource({
+  block,
+  translation,
+}: {
+  block: DisplayBlock;
+  translation?: TranslationBlock;
+}) {
+  const text = block.image ? block.caption || block.text : block.text;
+  if (!text.trim()) return null;
+  return (
+    <div className="reflow-source" data-reflow-source={block.id}>
+      {reflowSourceParts(text, translation).map((part, i) => (
+        <span key={i} className="reflow-sentence" data-source-sentence={i}>
+          {markdownSource.test(part) ? (
+            <MessageMarkdown content={part} />
+          ) : (
+            part
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function TranslationContent({
   block,
   translation,
@@ -98,10 +163,12 @@ function TranslationContent({
   onCitation,
   imageURL,
   renderImage,
+  source,
+  showTranslation = true,
+  markTranslation = false,
 }: {
   // PDF blocks and EPUB paragraphs share these fields.
-  block: Pick<PDFBlock, "id" | "label" | "text" | "image" | "caption"> &
-    Partial<PDFBlock>;
+  block: DisplayBlock;
   translation?: TranslationBlock;
   documentId: string;
   /** Requests this block; also used for blocks that were never requested. */
@@ -114,6 +181,15 @@ function TranslationContent({
   imageURL?: string;
   /** Replaces the low-resolution layout crop with a render sized for display. */
   renderImage?: (blockId: string, width: number) => Promise<string>;
+  /** Reflowed source text, shown between the image and the translation. */
+  source?: ReactNode;
+  /** Reflowed source-only reading hides the translation of text blocks. */
+  showTranslation?: boolean;
+  /**
+   * Marks only the translated sentences as the translation block, so
+   * selection offsets exclude reflowed source text in the same paragraph.
+   */
+  markTranslation?: boolean;
 }) {
   const formula = ["display_formula", "inline_formula"].includes(block.label);
   const idle = translation?.status === "idle";
@@ -178,21 +254,12 @@ function TranslationContent({
       </div>
     );
   const preserve =
-    [
-      "reference",
-      "reference_content",
-      "display_formula",
-      "inline_formula",
-      "formula_number",
-      "header",
-      "footer",
-      "number",
-    ].includes(block.label) ||
-    (asset && !block.caption);
+    preservedLabels.includes(block.label) || (asset && !block.caption);
   return (
     <>
       {image}
-      {preserve ? (
+      {!preserve && source}
+      {!preserve && !showTranslation ? null : preserve ? (
         !asset && (
           <MessageMarkdown
             content={block.text}
@@ -201,7 +268,10 @@ function TranslationContent({
           />
         )
       ) : translation?.status === "complete" ? (
-        <div className="translation-sentences">
+        <div
+          className="translation-sentences"
+          data-translation-block={markTranslation ? block.id : undefined}
+        >
           {translation.sentences.map((sentence, i) => (
             <div
               key={i}

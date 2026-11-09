@@ -111,6 +111,7 @@ vi.mock("../ReaderView", () => ({
   },
 }));
 import { PDFReadingView } from "./PDFReadingView";
+import { EPUBBlockOverlay } from "../readers/epub-block-focus";
 let root: Root, host: HTMLDivElement;
 const events = { location: vi.fn(), selection: vi.fn() };
 beforeEach(async () => {
@@ -1145,4 +1146,112 @@ it("strips legacy cross-side links when preparing a mark without losing its posi
     "p1-b1",
     "parallel",
   );
+});
+
+const reflowed = { ...defaultTheme, textReflow: true };
+it("reflows source and translation paragraphs in one column for every mode", async () => {
+  await renderView(reflowed);
+  const sources = () =>
+    Array.from(
+      host.querySelectorAll(
+        '[data-reflow-source="p1-b1"] [data-source-sentence]',
+      ),
+      (n) => n.textContent,
+    );
+  expect(sources()).toEqual(["First sentence. ", "Second sentence."]);
+  expect(host.querySelector("[data-sentence]")).toBeNull();
+  expect(host.querySelector('[aria-label="交换原文和译文"]')).toBeNull();
+  expect(host.querySelector('[aria-label="取消同步效果"]')).toBeNull();
+  expect(host.querySelector(".translation-source")?.hasAttribute("inert")).toBe(
+    true,
+  );
+  await click("原文译文");
+  expect(sources()).toHaveLength(2);
+  // Only the translation counts as the translated block for selections.
+  expect(host.querySelector("[data-translation-block]")?.textContent).toBe(
+    "第一句。第二句。",
+  );
+  expect(host.querySelector('[aria-label="交换原文和译文"]')).toBeNull();
+  await click("仅译文");
+  expect(sources()).toEqual([]);
+  expect(host.querySelectorAll("[data-sentence]")).toHaveLength(2);
+  expect(adapter.setTheme).not.toHaveBeenCalledWith(
+    expect.objectContaining({ zoom: "width" }),
+  );
+  expect(adapter.followBlock).not.toHaveBeenCalled();
+  expect(adapter.destroy).not.toHaveBeenCalled();
+});
+it("selects reflowed source text as a PDF source mark", async () => {
+  await renderView(reflowed);
+  const sentence = host.querySelector('[data-source-sentence="1"]')!;
+  const range = document.createRange();
+  range.selectNodeContents(sentence);
+  Object.assign(range, {
+    getBoundingClientRect: () => new DOMRect(0, 0, 100, 20),
+  });
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  await act(async () =>
+    sentence.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
+  );
+  expect(events.selection).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      text: "Second sentence.",
+      location: {
+        type: "pdf",
+        page: 1,
+        quote: "Second sentence.",
+        sourceAnchors: [
+          expect.objectContaining({
+            blockId: "p1-b1",
+            source: "Second sentence.",
+          }),
+        ],
+      },
+    }),
+  );
+  expect(fixture.ready!.getSelection()?.location).not.toHaveProperty(
+    "translation",
+  );
+});
+it("offers paragraph actions and focuses reflowed paragraphs only when enabled", async () => {
+  const blockAction = vi.fn();
+  Object.assign(events, { blockAction });
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 300, 40),
+  );
+  const focus = vi
+    .spyOn(EPUBBlockOverlay.prototype, "focus")
+    .mockResolvedValue(true);
+  try {
+    await renderView(reflowed);
+    const sentence = host.querySelector('[data-source-sentence="0"]')!;
+    const press = async () => {
+      await act(async () => {
+        sentence.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+        sentence.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+    await act(async () =>
+      sentence.dispatchEvent(new MouseEvent("pointermove", { bubbles: true })),
+    );
+    const copy = host.querySelector<HTMLButtonElement>(
+      '[data-block-action="copy"]',
+    );
+    expect(copy?.getAttribute("aria-label")).toBe("复制此段");
+    await act(async () => copy!.click());
+    expect(blockAction).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "p1-b1" }),
+      "copy",
+    );
+    await press();
+    expect(focus).not.toHaveBeenCalled();
+    await renderView({ ...reflowed, reflowBlockFocus: true });
+    await press();
+    expect(focus).toHaveBeenCalledWith("p1-b1");
+  } finally {
+    delete (events as { blockAction?: unknown }).blockAction;
+  }
 });

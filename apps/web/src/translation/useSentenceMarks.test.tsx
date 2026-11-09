@@ -68,6 +68,7 @@ const engine = {
 function App({
   linked = true,
   epub = false,
+  reflow = false,
   annotations = [],
   translations = [t],
   searchQuery = "",
@@ -75,6 +76,8 @@ function App({
 }: {
   linked?: boolean;
   epub?: boolean;
+  /** Reflowed PDF text: source and translation share one paragraph. */
+  reflow?: boolean;
   annotations?: Annotation[];
   translations?: TranslationBlock[];
   searchQuery?: string;
@@ -93,6 +96,19 @@ function App({
     searchQuery,
     searchResults,
   );
+  if (reflow)
+    return (
+      <div ref={ref}>
+        <section data-reflow-block="p1-b1">
+          <div data-reflow-source="p1-b1">
+            <span data-source-sentence="0">Original sentence.</span>
+          </div>
+          <div data-translation-block="p1-b1">
+            {translations.length > 0 && <div data-sentence="0">翻译句子。</div>}
+          </div>
+        </section>
+      </div>
+    );
   return (
     <div ref={ref}>
       {epub ? (
@@ -551,4 +567,44 @@ it("segments untranslated EPUB source and rejects mismatched translation anchors
   );
   await pointer("[data-sentence]", "pointermove", 205);
   expect(texts(hover())).toEqual(["翻译句子。"]);
+});
+
+it("links reflowed PDF source sentences with their translations", async () => {
+  await act(async () => root.render(<App reflow />));
+  await pointer("[data-source-sentence]", "pointermove", 10);
+  expect(texts(hover())).toEqual(["Original sentence.", "翻译句子。"]);
+  await pointer("[data-sentence]", "pointermove", 210);
+  expect(texts(hover())).toEqual(["Original sentence.", "翻译句子。"]);
+  await act(async () => root.render(<App reflow linked={false} />));
+  await pointer("[data-source-sentence]", "pointermove", 10);
+  expect(texts(hover())).toEqual(["Original sentence."]);
+});
+it("draws saved PDF source marks on reflowed text instead of the text layer", async () => {
+  const a: Annotation = {
+    id: "source",
+    documentId: "doc",
+    kind: "highlight",
+    quote: "sentence",
+    note: "",
+    color: "#6cc58c",
+    createdAt: "",
+    location: {
+      type: "pdf",
+      page: 1,
+      quote: "sentence",
+      rects: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }],
+    },
+  };
+  await act(async () =>
+    root.render(<App reflow translations={[]} annotations={[a]} />),
+  );
+  const mark = [...registry.entries()].find(([name]) =>
+    name.includes("-highlight-"),
+  );
+  expect(texts(mark?.[1])).toEqual(["sentence"]);
+  // The marked words open their note, as in the PDF text layer.
+  await pointer("[data-source-sentence]", "pointermove", 10);
+  expect(events.annotationHover).toHaveBeenLastCalledWith(
+    expect.objectContaining({ ids: ["source"] }),
+  );
 });

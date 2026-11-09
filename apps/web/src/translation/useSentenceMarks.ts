@@ -17,6 +17,12 @@ import { sourcePassage, translatedSentenceRanges } from "./sentence-links";
 import { blockRange, resolveEPUBLocation } from "../readers/epub-web-location";
 import { epubSentenceSlice } from "./epub-links";
 import { searchRanges } from "./search-ranges";
+import { overlap } from "../readers/pdf-reading";
+import {
+  hasReflowSource,
+  reflowSourceRanges,
+  segmentSentences,
+} from "./reflow";
 
 type Mark = { annotation: Annotation; range: Range };
 const hit = (range: Range, x: number, y: number) =>
@@ -101,7 +107,10 @@ export function useSentenceMarks(
       const key = `${t.blockId}:${i}`;
       if (!cache.has(key)) {
         const block = latest.current.blocks.find((b) => b.id === t.blockId);
-        if (block && "location" in block) {
+        // Reflowed PDF text renders each source sentence as its own element.
+        if (hasReflowSource(host, t.blockId)) {
+          cache.set(key, reflowSourceRanges(host, t.blockId, i));
+        } else if (block && "location" in block) {
           const slice = epubSentenceSlice(block, t.sentences, [i]);
           // A failed alignment must not highlight the entire paragraph.
           const range = slice
@@ -229,7 +238,37 @@ export function useSentenceMarks(
               : [];
           },
         );
-        if (passages?.length)
+        // Reflowed text has no PDF text layer; find the saved quote in it.
+        const reflowed = (passages ?? []).filter((p) =>
+          hasReflowSource(host, p.blockId),
+        );
+        for (const passage of reflowed)
+          for (const source of passage.sources)
+            marks.push(
+              ...searchRanges(
+                reflowSourceRanges(host, passage.blockId),
+                source,
+              ).map((range) => ({ annotation, range })),
+            );
+        // Ordinary source marks live in the PDF text layer; reflowed text
+        // finds their quote in the paragraphs under the saved rectangles.
+        const location = annotation.location;
+        if (!passages?.length && location.quote?.trim())
+          for (const block of blocks)
+            if (
+              "page" in block &&
+              block.page === location.page &&
+              hasReflowSource(host, block.id) &&
+              (!location.rects?.length ||
+                location.rects.some((r) => overlap(r, block.bounds) > 0))
+            )
+              marks.push(
+                ...searchRanges(
+                  reflowSourceRanges(host, block.id),
+                  location.quote,
+                ).map((range) => ({ annotation, range })),
+              );
+        if (passages?.length && !reflowed.length)
           marks.push(
             ...(engine.sentenceRanges?.(passages) ?? []).map((range) => ({
               annotation,
@@ -375,10 +414,39 @@ export function useSentenceMarks(
       );
       if (direct.annotations.length) hover.clear(true);
       const translated = target.closest<HTMLElement>("[data-sentence]");
+      const reflowed = target.closest<HTMLElement>("[data-source-sentence]");
       let t: TranslationBlock | undefined,
         index = -1,
         fromTranslation = false;
-      if (translated) {
+      if (reflowed) {
+        const blockId = reflowed.closest<HTMLElement>("[data-reflow-source]")
+          ?.dataset.reflowSource;
+        const block = blocks.find((b) => b.id === blockId);
+        t = translations.find(
+          (t) => t.blockId === blockId && t.status === "complete",
+        );
+        if (!t && block?.text)
+          t = {
+            blockId: block.id,
+            sourceHash: "",
+            status: "complete",
+            sentences: segmentSentences(
+              block.image
+                ? (block as { caption?: string }).caption || block.text
+                : block.text,
+            ),
+          };
+        index = Number(reflowed.dataset.sourceSentence);
+        if (
+          t &&
+          !sourceRanges(t, index).some((r) =>
+            containsPoint(r, event.clientX, event.clientY),
+          )
+        ) {
+          deferClear();
+          return;
+        }
+      } else if (translated) {
         const blockId = translated.closest<HTMLElement>(
           "[data-translation-block]",
         )?.dataset.translationBlock;
@@ -422,12 +490,7 @@ export function useSentenceMarks(
             blockId: block.id,
             sourceHash: "",
             status: "complete",
-            sentences: Array.from(
-              new Intl.Segmenter(undefined, {
-                granularity: "sentence",
-              }).segment(block.text),
-              (s) => ({ source: s.segment, target: "" }),
-            ),
+            sentences: segmentSentences(block.text),
           };
         }
         if (t)
@@ -544,7 +607,7 @@ export function useSentenceMarks(
       });
     };
     const textSelector =
-      ".textLayer, [data-epub-block], [data-translation-block]";
+      ".textLayer, [data-epub-block], [data-translation-block], [data-reflow-block]";
     const containsText = (node: Node) =>
       node instanceof Element &&
       (node.matches(textSelector) || !!node.querySelector(textSelector));

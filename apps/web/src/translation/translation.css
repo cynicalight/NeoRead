@@ -410,7 +410,21 @@
 .epub-reflow[data-reflow-mode="translation"] .epub-reflow-translation {
   margin-top: 0;
 }
-.epub-reflow-translation .translation-pending {
+.epub-reflow-translation .translation-pending,
+.pdf-reading[data-reflow] .translation-pending {
   min-height: 0;
   justify-content: flex-start;
+}
+/* The block overlay positions its boxes inside the scrolling column. */
+.pdf-reading[data-reflow] .translation-document {
+  position: relative;
+  padding-top: 32px;
+}
+.reflow-source {
+  font-family: var(--reflow-source-font, inherit);
+  font-size: var(--reflow-source-size, 1em);
+  font-weight: var(--reflow-source-weight, inherit);
+}
+.pdf-reading[data-reflow][data-reading-mode="parallel"] .reflow-source {
+  margin-bottom: 0.35em;
 }
