@@ -56,6 +56,32 @@ it("keeps the line breaks the rendered text has", () => {
   }
 });
 
+it("leaves out text the selection's container hides", () => {
+  // jsdom has no layout; stand in for innerText skipping display:none.
+  const shown = (node: Node): string =>
+    node instanceof Element && getComputedStyle(node).display === "none"
+      ? ""
+      : node.nodeType === Node.TEXT_NODE
+        ? node.textContent!
+        : [...node.childNodes].map(shown).join("");
+  Object.defineProperty(HTMLElement.prototype, "innerText", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return shown(this);
+    },
+  });
+  try {
+    document.body.innerHTML =
+      '<style>.only [data-run] { display: none }</style><div class="only"><p><span data-run>source </span>one <span class="markdown-math" data-tex="x"><span class="katex">x</span></span></p><p><span data-run>hidden </span>two</p></div>';
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector(".only")!);
+    expect(texText(range)).toBe("one $x$two");
+    expect(document.querySelector(".only")!.children).toHaveLength(2);
+  } finally {
+    delete (HTMLElement.prototype as { innerText?: string }).innerText;
+  }
+});
+
 it("puts TeX on the clipboard only for selections with formulas", () => {
   const p = host();
   dispose = installTeXCopy(document);

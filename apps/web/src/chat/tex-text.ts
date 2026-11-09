@@ -23,11 +23,16 @@ export function texText(range: Range): string {
         : `$${math.dataset.tex}$`,
     );
   // Rendered off screen, innerText keeps the paragraph and line breaks that
-  // textContent drops.
+  // textContent drops. Inside the selection's own container, CSS that hides
+  // part of it (reflow translation-only source) still applies.
   const box = document.createElement("div");
   box.style.cssText = "position:fixed;left:-99999px;top:0";
   box.append(copy);
-  document.body.append(box);
+  const root = whole.commonAncestorContainer;
+  (root.nodeType === Node.ELEMENT_NODE
+    ? (root as Element)
+    : (root.parentElement ?? document.body)
+  ).append(box);
   const text = box.innerText ?? box.textContent ?? "";
   box.remove();
   return text;
