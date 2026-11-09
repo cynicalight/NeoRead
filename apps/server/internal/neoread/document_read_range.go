@@ -98,7 +98,10 @@ func documentReadActivity(c *documentCorpus, q documentReadRequest, indices []in
 				Page int `json:"page"`
 			}
 			_ = json.Unmarshal(c.Passages[indices[len(indices)-1]].Location, &last)
-			return fmt.Sprintf("正在阅读第 %d—%d 页 · 顺序阅读全文", location.Page, last.Page)
+			if location.Page != last.Page {
+				target = fmt.Sprintf("第 %d—%d 页", location.Page, last.Page)
+			}
+			return "正在阅读" + target + " · 顺序阅读全文"
 		}
 		return "正在阅读" + target + " · 顺序阅读全文"
 	}
@@ -107,7 +110,10 @@ func documentReadActivity(c *documentCorpus, q documentReadRequest, indices []in
 			Page int `json:"page"`
 		}
 		_ = json.Unmarshal(c.Passages[indices[len(indices)-1]].Location, &last)
-		return fmt.Sprintf("正在阅读第 %d—%d 页 · 阅读连续原文", location.Page, last.Page)
+		if location.Page != last.Page {
+			target = fmt.Sprintf("第 %d—%d 页", location.Page, last.Page)
+		}
+		return "正在阅读" + target + " · 阅读连续原文"
 	}
 	if q.Section != "" {
 		return "正在阅读" + target + " · 阅读章节原文"

@@ -25,6 +25,8 @@ it("shows the same concise document reading record for API and Codex", async () 
     await act(async () => host.querySelector("button")!.click());
     for (const version of [
       tool,
+      { ...tool, target: "正在阅读第2-2页 · 阅读连续原文" },
+      { ...tool, target: "正在阅读第 2 – 2 页 · 阅读连续原文" },
       { ...tool, tool: "neoread_document/read_passage", title: "调用工具" },
     ]) {
       await act(async () => root.render(<ToolActivities tools={[version]} />));

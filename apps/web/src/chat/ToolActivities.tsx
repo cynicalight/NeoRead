@@ -63,7 +63,7 @@ function displayTarget(tool: ToolActivity) {
   if (!tool.target || documentTools.has(tool.target)) return undefined;
   return tool.target
     .split(" · ")[0]
-    .replace(/第 (\d+)—(\d+) 页/g, (match, first, last) =>
+    .replace(/第\s*(\d+)\s*[-–—]\s*(\d+)\s*页/g, (match, first, last) =>
       first === last ? `第 ${first} 页` : match,
     );
 }
