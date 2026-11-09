@@ -95,7 +95,7 @@ export function SessionPicker({
               {current?.title ?? "加载会话…"}
             </SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent align="start" alignItemWithTrigger={false}>
             {sessions.map((s) => (
               <SelectItem key={s.id} value={s.id}>
                 <span className="max-w-44 truncate">{s.title}</span>
