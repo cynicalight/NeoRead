@@ -891,7 +891,7 @@ export function Settings({
                     <span id="journal-rank-filter-label">指标筛选</span>
                     <Tabs
                       value={journalRank.filterMode}
-                      className="min-w-0 flex-1"
+                      className="ml-auto w-1/2 min-w-fit"
                       onValueChange={(value) => {
                         if (value !== "include" && value !== "exclude") return;
                         void saveJournalRank({
