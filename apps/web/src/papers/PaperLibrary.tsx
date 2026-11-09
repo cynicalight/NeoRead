@@ -1560,27 +1560,29 @@ function PaperRow({
   );
   const title = (
     <p className="paper-row-title" title={doc.title}>
+      <span className="paper-row-title-text">
+        {colors.length > 0 && (
+          <span
+            className="paper-row-colors"
+            role="img"
+            aria-label={colors.map((c) => c.name).join("、")}
+            title={colors.map((c) => c.name).join("、")}
+          >
+            {colors.map((c) => (
+              <span
+                key={c.name}
+                className="color-dot"
+                style={{ background: c.color }}
+              />
+            ))}
+          </span>
+        )}
+        {doc.favorite && (
+          <Star className="mr-1 inline size-3 fill-current text-amber-500" />
+        )}
+        {doc.title}
+      </span>
       {disclosure}
-      {colors.length > 0 && (
-        <span
-          className="paper-row-colors"
-          role="img"
-          aria-label={colors.map((c) => c.name).join("、")}
-          title={colors.map((c) => c.name).join("、")}
-        >
-          {colors.map((c) => (
-            <span
-              key={c.name}
-              className="color-dot"
-              style={{ background: c.color }}
-            />
-          ))}
-        </span>
-      )}
-      {doc.favorite && (
-        <Star className="mr-1 inline size-3 fill-current text-amber-500" />
-      )}
-      {doc.title}
     </p>
   );
   const dropHint = drop.armed && (

@@ -3251,13 +3251,20 @@ body[data-resizing] * {
   flex: 1;
   min-width: 0;
 }
-.paper-row-title,
+.paper-row-title-text,
 .paper-row-byline {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.paper-row-title-text {
+  min-width: 0;
+}
 .paper-row-title {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
   font-size: 14px;
   font-weight: 500;
   line-height: 1.45;
@@ -3674,7 +3681,8 @@ textarea.paper-title-input {
 }
 .paper-attachment-toggle.paper-attachment-toggle {
   display: inline-flex;
-  margin: -3px 3px -3px -4px;
+  flex-shrink: 0;
+  margin-block: -3px;
   vertical-align: middle;
 }
 :is(
