@@ -393,6 +393,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
       return;
     event.preventDefault();
     this.viewport.cancelAnimation();
+    this.navigation.cancelMotion();
     this.wheelScale = undefined;
     if (command === "width") {
       this.navigation.stop();

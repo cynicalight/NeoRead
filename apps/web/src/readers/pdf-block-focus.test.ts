@@ -3,13 +3,18 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PDFPageProxy } from "pdfjs-dist";
 import type { PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
 import type { PDFBlock } from "@neoread/core";
+const motion = vi.hoisted(() => ({ reduced: false }));
+vi.mock("../motion", () => ({ reducedMotion: () => motion.reduced }));
 vi.mock("pdfjs-dist", () => ({
   Util: { transform: (_a: number[], b: number[]) => b },
 }));
 import { PDFReadingNavigation } from "./pdf-navigation";
 import { PDFViewport } from "./pdf-viewport";
 import { PDFResizeObserver } from "./pdf-resize";
-beforeEach(() => vi.useFakeTimers());
+beforeEach(() => {
+  motion.reduced = false;
+  vi.useFakeTimers();
+});
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -57,10 +62,21 @@ function setup() {
       bounds: { x: 0.5, y: 0.95, width: 0.1, height: 0.02 },
     },
   ];
+  const element = document.createElement("div");
+  element.getBoundingClientRect = () =>
+    new DOMRect(
+      30 - host.scrollLeft,
+      50 - host.scrollTop,
+      1000 * scale,
+      2600 * scale,
+    );
+  host.append(element);
+  let geometryReads = 0;
   const nodes = [0, 1].map((n) => {
     const node = document.createElement("div");
-    node.getBoundingClientRect = () =>
-      new DOMRect(
+    node.getBoundingClientRect = () => {
+      geometryReads++;
+      const rect = new DOMRect(
         30 +
           (host.classList.contains("pdf-block-reading") ? size.width / 2 : 0) -
           host.scrollLeft,
@@ -71,6 +87,26 @@ function setup() {
         1000 * scale,
         1200 * scale,
       );
+      const transform = element.style.transform.match(
+        /translate\(([-+.\de]+)px, ([-+.\de]+)px\) scale\(([-+.\de]+)\)/,
+      );
+      if (!transform) return rect;
+      const origin = element.style.transformOrigin.split(" ").map(parseFloat);
+      const base = element.getBoundingClientRect();
+      const ratio = Number(transform[3]);
+      return new DOMRect(
+        base.left +
+          origin[0] +
+          (rect.left - base.left - origin[0]) * ratio +
+          Number(transform[1]),
+        base.top +
+          origin[1] +
+          (rect.top - base.top - origin[1]) * ratio +
+          Number(transform[2]),
+        rect.width * ratio,
+        rect.height * ratio,
+      );
+    };
     return node;
   });
   const focus = vi.fn(),
@@ -80,6 +116,7 @@ function setup() {
       ({ getViewport: () => ({ width: 750, height: 900 }) }) as PDFPageProxy,
   );
   const viewer = {
+    viewer: element,
     currentPageNumber: 1,
     refresh: vi.fn(),
     get currentScale() {
@@ -111,7 +148,19 @@ function setup() {
       block.bounds.height * r.height,
     );
   };
-  return { nav, host, size, viewer, page, blocks, focus, rect, anchor };
+  return {
+    nav,
+    host,
+    size,
+    viewer,
+    page,
+    blocks,
+    focus,
+    rect,
+    anchor,
+    element,
+    geometryReads: () => geometryReads,
+  };
 }
 async function finish(p: Promise<unknown>) {
   await vi.advanceTimersByTimeAsync(500);
@@ -189,7 +238,8 @@ it.each([false, true])(
       s.notify();
       await vi.advanceTimersByTimeAsync(144);
       expect(s.adapt).not.toHaveBeenCalled();
-      expect(s.viewer.currentScale).toBeGreaterThan(0.25);
+      expect(s.viewer.currentScale).toBe(0.25);
+      expect(s.rect("a").width).toBeGreaterThan(100);
       expect(await finish(first)).toBe(true);
       expect(s.viewer.currentScale).toBe(1.42);
       centered(s, "a");
@@ -206,13 +256,16 @@ it("still interrupts focus and adapts to an actual panel width change", async ()
   try {
     const pending = s.nav.focusBlock("a");
     await vi.advanceTimersByTimeAsync(80);
-    const before = s.viewer.currentScale;
     s.size.width = 400;
     s.notify();
     expect(await finish(pending)).toBe(false);
     expect(s.adapt).toHaveBeenCalledOnce();
+    const calls = vi.mocked(s.viewer.updateScale).mock.calls;
+    expect(calls).toHaveLength(2);
+    const settledScale =
+      Math.round(0.25 * calls[0][0]!.scaleFactor! * 100) / 100;
     expect(s.viewer.currentScale).toBe(
-      Math.round(((before * 400) / 600) * 100) / 100,
+      Math.round(((settledScale * 400) / 600) * 100) / 100,
     );
   } finally {
     s.destroy();
@@ -230,8 +283,9 @@ it("smoothly scales and centers from the first click without a mode or an initia
       before.left + before.width / 2,
     );
     await vi.advanceTimersByTimeAsync(96);
-    expect(s.viewer.currentScale).toBeGreaterThan(1);
-    expect(s.viewer.currentScale).toBeLessThan(1.5);
+    expect(s.viewer.currentScale).toBe(1);
+    expect(s.rect("a").width).toBeGreaterThan(before.width);
+    expect(s.rect("a").width).toBeLessThan(400 * 1.42);
     await finish(pending);
     expect(s.viewer.currentScale).toBe(1.42);
     centered(s, "a");
@@ -366,10 +420,13 @@ it("coalesces focus zoom into one final redraw and does not redraw on an identic
     const pending = s.nav.focusBlock("a");
     await vi.advanceTimersByTimeAsync(128);
     expect(s.viewer.refresh).not.toHaveBeenCalled();
-    for (const [options] of vi.mocked(s.viewer.updateScale).mock.calls)
-      expect(options?.drawingDelay).toBe(300);
+    expect(s.viewer.updateScale).not.toHaveBeenCalled();
     await finish(pending);
     expect(s.viewer.refresh).toHaveBeenCalledTimes(1);
+    expect(s.viewer.updateScale).toHaveBeenCalledExactlyOnceWith({
+      scaleFactor: 1.42,
+      drawingDelay: 300,
+    });
     vi.mocked(s.viewer.updateScale).mockClear();
     await finish(s.nav.focusBlock("a"));
     expect(s.viewer.updateScale).not.toHaveBeenCalled();
@@ -390,3 +447,85 @@ it("keeps a wide source-only block within the reading viewport", async () => {
   await finish(s.nav.focusBlock("b", "source"));
   expect(s.rect("b").width).toBeLessThanOrEqual(368);
 });
+
+it("does not read page geometry or update PDF layout during intermediate focus frames", async () => {
+  const s = setup();
+  try {
+    const pending = s.nav.focusBlock("a");
+    await vi.advanceTimersByTimeAsync(16);
+    const reads = s.geometryReads();
+    const top = s.host.scrollTop,
+      left = s.host.scrollLeft;
+    await vi.advanceTimersByTimeAsync(160);
+    expect(s.geometryReads()).toBe(reads);
+    expect(s.viewer.updateScale).not.toHaveBeenCalled();
+    expect(s.host.scrollTop).toBe(top);
+    expect(s.host.scrollLeft).toBe(left);
+    expect(s.element.style.transform).toContain("scale(");
+    await finish(pending);
+    expect(s.viewer.updateScale).toHaveBeenCalledTimes(1);
+    expect(s.element.style.transform).toBe("");
+    expect(s.element.style.willChange).toBe("");
+    centered(s, "a");
+  } finally {
+    s.nav.destroy();
+  }
+});
+
+it("commits the visible intermediate scale once on wheel interruption and clears the visual transform", async () => {
+  const s = setup();
+  try {
+    const pending = s.nav.focusBlock("a");
+    await vi.advanceTimersByTimeAsync(96);
+    const visible = s.rect("a");
+    s.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 20 }));
+    expect(s.viewer.updateScale).toHaveBeenCalledTimes(1);
+    expect(s.viewer.currentScale).toBeGreaterThan(1);
+    expect(s.viewer.currentScale).toBeLessThan(1.42);
+    expect(s.rect("a").width).toBeCloseTo(visible.width, -1);
+    expect(s.rect("a").left).toBeCloseTo(visible.left, -1);
+    expect(s.rect("a").top).toBeCloseTo(visible.top, -1);
+    expect(s.element.style.transform).toBe("");
+    expect(await finish(pending)).toBe(false);
+    expect(s.viewer.updateScale).toHaveBeenCalledTimes(1);
+  } finally {
+    s.nav.destroy();
+  }
+});
+
+it("applies reduced motion in one frame without a visual transform", async () => {
+  motion.reduced = true;
+  const s = setup();
+  try {
+    const pending = s.nav.focusBlock("a");
+    await vi.advanceTimersByTimeAsync(16);
+    expect(await pending).toBe(true);
+    expect(s.viewer.updateScale).toHaveBeenCalledTimes(1);
+    expect(s.element.style.transform).toBe("");
+    centered(s, "a");
+  } finally {
+    s.nav.destroy();
+  }
+});
+
+it.each(["page", "anchor"])(
+  "settles focus before a %s navigation takes over",
+  async (kind) => {
+    const s = setup();
+    try {
+      const pending = s.nav.focusBlock("a");
+      await vi.advanceTimersByTimeAsync(96);
+      const next =
+        kind === "page"
+          ? s.nav.goTo(2)
+          : s.nav.follow({ blockId: "b", fraction: 0.5 });
+      expect(s.element.style.transform).toBe("");
+      expect(s.viewer.updateScale).toHaveBeenCalledTimes(1);
+      await finish(next);
+      expect(await pending).toBe(false);
+      expect(s.viewer.updateScale).toHaveBeenCalledTimes(1);
+    } finally {
+      s.nav.destroy();
+    }
+  },
+);

@@ -149,7 +149,7 @@ export class PDFViewport {
     const before = this.size,
       anchor = this.anchor,
       scroll = this.scroll;
-    const oldScale = this.viewer.currentScale;
+    let oldScale = this.viewer.currentScale;
     const oldPage = anchor?.page.getBoundingClientRect();
     const oldPoint =
       anchor && oldPage
@@ -159,6 +159,12 @@ export class PDFViewport {
           }
         : undefined;
     updateInsets();
+    // Canceling focus commits its visual zoom. Resize from that scale rather
+    // than applying a ratio calculated against the pre-animation geometry.
+    if (this.viewer.currentScale !== oldScale) {
+      this.basis.scale *= this.viewer.currentScale / oldScale;
+      oldScale = this.viewer.currentScale;
+    }
     if (fitWidth) this.viewer.currentScaleValue = "page-width";
     else {
       // Use a fixed basis so rounding/clamping cannot accumulate over repeated drags.
