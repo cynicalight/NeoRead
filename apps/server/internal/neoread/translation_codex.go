@@ -27,6 +27,8 @@ func (a *translationCodexAdapter) close() {
 
 // translationSessions are the per-worker conversations that persist across
 // batches. Close discards them when the worker ends. API batches are independent.
+// Codex reuses a thread to avoid starting a new agent thread for every batch.
+// Its prior batch history is a cost of that reuse, not required translation context.
 type translationSessions struct {
 	codex *translationCodexAdapter
 }
