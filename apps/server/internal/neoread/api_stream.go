@@ -63,7 +63,9 @@ type completionRequest struct {
 	Model, Effort    string
 	SupportedEfforts []string
 	ReasoningSink    func(string)
-	History          []completionMessage
+	// MaxOutput is the model catalog output limit; zero retains the protocol default.
+	MaxOutput int
+	History   []completionMessage
 }
 
 func completionContent(in AIInput) any {
@@ -75,6 +77,19 @@ func completionContent(in AIInput) any {
 		parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]string{"url": imageData(im)}})
 	}
 	return parts
+}
+
+// applyOutputLimit writes the catalog output limit using the selected protocol.
+func applyOutputLimit(payload map[string]any, protocol string, limit int) {
+	if limit <= 0 {
+		return
+	}
+	switch protocol {
+	case "responses":
+		payload["max_output_tokens"] = limit
+	default:
+		payload["max_tokens"] = limit
+	}
 }
 
 // apiRequest sends one authenticated request to the configured endpoint.
@@ -140,8 +155,11 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 	}
 	if trace.Resolved != "" {
 		trace.EffortField = "reasoning_effort"
-		if endpoint.Protocol == "anthropic" {
+		switch endpoint.Protocol {
+		case "anthropic":
 			trace.EffortField = "output_config.effort"
+		case "responses":
+			trace.EffortField = "reasoning.effort"
 		}
 		if rule.Mode == "budget" {
 			trace.EffortField = "thinking.budget_tokens"
@@ -170,8 +188,12 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 	messages = append(messages, completionMessage{Role: "user", Content: completionContent(in)})
 	payload := map[string]any{"model": req.Model, "messages": messages, "stream": true, "n": 1, "stream_options": map[string]bool{"include_usage": true}}
 	rule.apply(payload, endpoint.Protocol, req.Effort, trace.Resolved)
-	if endpoint.Protocol == "anthropic" {
+	applyOutputLimit(payload, endpoint.Protocol, req.MaxOutput)
+	switch endpoint.Protocol {
+	case "anthropic":
 		return streamAnthropic(ctx, c, req, in, payload, emit)
+	case "responses":
+		return streamResponses(ctx, c, req, in, payload, emit)
 	}
 	body, _ := json.Marshal(payload)
 	response, e := apiRequest(ctx, c, "POST", "/chat/completions", body)

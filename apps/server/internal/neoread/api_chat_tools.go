@@ -237,11 +237,18 @@ func toolCompletion(ctx context.Context, c APIConnection, req completionRequest,
 	endpoint := resolveAPIEndpoint(c)
 	rule := reasoningRule(endpoint, req.Model, req.SupportedEfforts)
 	rule.apply(payload, endpoint.Protocol, req.Effort, rule.resolve(req.Effort))
-	if endpoint.Protocol == "anthropic" {
+	applyOutputLimit(payload, endpoint.Protocol, req.MaxOutput)
+	switch endpoint.Protocol {
+	case "anthropic":
 		if len(tools) > 0 {
 			return toolCompletionResult{}, generationError(ErrorCapability, "Messages API 暂未适配文档工具调用")
 		}
 		return anthropicDocumentCompletion(ctx, c, payload, messages, callbacks...)
+	case "responses":
+		if len(tools) > 0 {
+			return toolCompletionResult{}, generationError(ErrorCapability, "Responses API 暂未适配文档工具调用")
+		}
+		return responsesDocumentCompletion(ctx, c, payload, messages, callbacks...)
 	}
 	body, _ := json.Marshal(payload)
 	response, err := apiRequest(ctx, c, "POST", "/chat/completions", body)

@@ -239,32 +239,14 @@ func readAnthropicStream(ctx context.Context, r io.Reader, c APIConnection, emit
 // The Messages adapter currently supports text generation, so document chat
 // uses the shared pre-retrieval path and persists the same active window.
 func anthropicDocumentCompletion(ctx context.Context, c APIConnection, payload map[string]any, messages []toolCompletionMessage, callbacks ...toolStreamCallbacks) (toolCompletionResult, error) {
-	var system []string
-	var history []completionMessage
-	for _, m := range messages {
-		text, ok := m.Content.(string)
-		if !ok || len(m.Calls) > 0 || m.CallID != "" || len(m.PageImages) > 0 {
-			return toolCompletionResult{}, generationError(ErrorCapability, "Messages API 暂未适配文档工具消息")
-		}
-		if m.Role == "system" {
-			system = append(system, text)
-		} else {
-			history = append(history, completionMessage{Role: m.Role, Content: text})
-		}
+	system, history, err := textDocumentMessages(messages, "Messages API")
+	if err != nil {
+		return toolCompletionResult{}, err
 	}
-	payload["system"], payload["messages"] = strings.Join(system, "\n\n"), history
+	payload["system"], payload["messages"] = system, history
 	delete(payload, "n")
 	delete(payload, "stream_options")
-	var response toolCompletionResult
-	result, err := requestAnthropic(ctx, c, payload, func(event ProviderEvent) error {
-		for _, metric := range event.Metrics {
-			response.Model, response.Tokens = metric.Model, metric.Tokens
-		}
-		if len(callbacks) > 0 && callbacks[0].Draft != nil && event.Text != "" {
-			return callbacks[0].Draft(event.Text, false)
-		}
-		return nil
-	})
-	response.Text = result.Text
-	return response, err
+	return textDocumentCompletion(func(emit func(ProviderEvent) error) (GenerateResult, error) {
+		return requestAnthropic(ctx, c, payload, emit)
+	}, callbacks...)
 }

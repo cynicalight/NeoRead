@@ -195,4 +195,13 @@ func TestNativeStreamsPreserveLongAnswers(t *testing.T) {
 			t.Fatalf("Messages answer clipped: %d %v", len(result.Text), err)
 		}
 	})
+	for _, protocol := range []string{"responses"} {
+		t.Run(protocol, func(t *testing.T) {
+			wire := "data: " + jsonText(map[string]any{"type": "response.output_text.delta", "delta": answer}) + "\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+			result, err := readResponsesStream(t.Context(), strings.NewReader(wire), APIConnection{}, nil)
+			if err != nil || result.Text != answer {
+				t.Fatalf("%s answer clipped: %d %v", protocol, len(result.Text), err)
+			}
+		})
+	}
 }

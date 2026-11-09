@@ -513,10 +513,14 @@ func newPiRequest(c APIConnection, req completionRequest) (piRequest, string, in
 	rule := reasoningRule(endpoint, req.Model, req.SupportedEfforts)
 	payload := map[string]any{}
 	rule.apply(payload, endpoint.Protocol, req.Effort, rule.resolve(req.Effort))
+	applyOutputLimit(payload, endpoint.Protocol, req.MaxOutput)
 	request := piRequest{Version: 1, RunID: id(), Key: c.Key, Effort: "off", Payload: payload, Endpoint: endpoint.Base + path, Tools: []map[string]any{}}
 	request.Model = map[string]any{"id": req.Model, "name": req.Model, "api": api, "provider": "neoread-api", "baseUrl": endpoint.Base, "reasoning": false, "input": []string{"text", "image"}, "contextWindow": window, "maxTokens": min(8192, window/4), "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "compat": map[string]any{"supportsStore": false, "supportsDeveloperRole": false, "supportsReasoningEffort": false, "maxTokensField": "max_tokens"}}
 	if api == "anthropic-messages" {
 		delete(request.Model, "compat")
+	}
+	if req.MaxOutput > 0 {
+		request.Model["maxTokens"] = req.MaxOutput
 	}
 	return request, path, window
 }
