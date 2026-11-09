@@ -7,7 +7,7 @@ import (
 
 func TestTranslationPromptAsksForKaTeXInlineMath(t *testing.T) {
 	prompt := translationPrompt(Document{Title: "t"}, layoutManifest{Pages: 1}, translationBatch{}, "")
-	for _, rule := range []string{"KaTeX", "$T_i$", `\\ll`, `\\$`, "不要输出 $$", "行内数学是例外", "$(x_1, ..., x_n)$", "source 里对应位置也必须写成同样的 $...$"} {
+	for _, rule := range []string{"KaTeX", `\\ll`, `\\$`, "不要输出 $$", "行内数学是例外", "source 与 target 中对应的数学须写成相同的 $...$", "恢复可确定的上下标", "相邻公式间保留空格"} {
 		if !strings.Contains(prompt, rule) {
 			t.Fatalf("prompt lacks %q", rule)
 		}
@@ -18,7 +18,7 @@ func TestTranslationPromptAsksForKaTeXInlineMath(t *testing.T) {
 	}
 	// EPUB source is verbatim, so it never carries LaTeX.
 	epub := translationPrompt(Document{Title: "t", Type: "epub"}, layoutManifest{Pages: 1}, translationBatch{}, "")
-	if !strings.Contains(epub, "sentences.source 仍按原文复制，不写成 LaTeX") || strings.Contains(epub, "行内数学是例外") {
+	if !strings.Contains(epub, "sentences.source 必须逐字保留") || !strings.Contains(epub, "source 不写成 LaTeX") || strings.Contains(epub, "行内数学是例外") {
 		t.Fatal("EPUB prompt must keep source verbatim")
 	}
 }

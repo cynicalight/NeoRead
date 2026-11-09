@@ -166,7 +166,7 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 		ctx, cancel = context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
 	}
-	messages := append([]completionMessage{{Role: "system", Content: readerSystemPrompt}}, req.History...)
+	messages := append([]completionMessage{{Role: "system", Content: in.systemPrompt()}}, req.History...)
 	messages = append(messages, completionMessage{Role: "user", Content: completionContent(in)})
 	payload := map[string]any{"model": req.Model, "messages": messages, "stream": true, "n": 1, "stream_options": map[string]bool{"include_usage": true}}
 	rule.apply(payload, endpoint.Protocol, req.Effort, trace.Resolved)

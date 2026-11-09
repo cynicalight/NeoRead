@@ -38,7 +38,7 @@ func invokeCLI(ctx context.Context, root, provider, model string, in AIInput, de
 	if provider == "codex" {
 		return invokeCodex(ctx, work, model, in, delta, metrics...)
 	}
-	args := append(claudeArgs(), "--append-system-prompt", readerSystemPrompt)
+	args := append(claudeArgs(), "--append-system-prompt", in.systemPrompt())
 	if in.Effort != "" {
 		args = append(args, "--effort", in.Effort)
 	}
@@ -153,7 +153,7 @@ func runClaudeProcess(ctx context.Context, work string, args, env []string, inpu
 // are advertised; the isolated profile disables all model tools and subagents.
 func invokeKimi(ctx context.Context, work, model string, in AIInput, delta func(string), metrics ...func([]ModelTokens)) (string, error) {
 	profile := filepath.Join(work, "neoread.md")
-	if e := os.WriteFile(profile, []byte("---\nname: reader\ndescription: NeoRead document assistant\ntools: []\nsubagents: []\n---\n"+readerSystemPrompt+"\n"), 0600); e != nil {
+	if e := os.WriteFile(profile, []byte("---\nname: reader\ndescription: NeoRead document assistant\ntools: []\nsubagents: []\n---\n"+in.systemPrompt()+"\n"), 0600); e != nil {
 		return "", e
 	}
 	args := []string{"--agent-file", profile, "--skills-dir", work}

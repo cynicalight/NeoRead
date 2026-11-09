@@ -358,6 +358,9 @@ func (s *codexSession) generate(ctx context.Context, in AIInput, delta func(stri
 			return "", err
 		}
 		instructions := s.baseInstructions
+		if in.SystemPrompt != "" {
+			instructions = in.SystemPrompt
+		}
 		if instructions == "" {
 			instructions = readerSystemPrompt
 		}

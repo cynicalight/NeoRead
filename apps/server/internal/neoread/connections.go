@@ -80,8 +80,10 @@ type AIInput struct {
 	Chat          *chatInput
 	Effort        string
 	Prompt        string
-	Image         []byte
-	Images        [][]byte
+	// Set only by internal tasks; HTTP callers cannot supply system instructions.
+	SystemPrompt string
+	Image        []byte
+	Images       [][]byte
 }
 
 func (in AIInput) images() [][]byte {
