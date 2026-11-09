@@ -41,7 +41,7 @@ it("keeps real execution states and saved web evidence accessible", async () => 
         />,
       ),
     );
-    expect(host.textContent).toContain("已完成");
+    expect(host.textContent).not.toContain("已完成");
     expect(host.textContent).toContain("Evidence snapshot");
     expect(
       host.querySelectorAll('a[href="https://example.com/docs"]').length,
@@ -88,7 +88,8 @@ it("preserves tool details across updates and parent folding, and distinguishes 
       ),
     );
     expect(detail.getAttribute("aria-expanded")).toBe("true");
-    expect(detail.textContent).toContain("失败");
+    expect(detail.textContent).not.toContain("失败");
+    expect(detail.querySelector("svg.lucide-circle-x")).not.toBeNull();
     expect(
       detail
         .querySelector('[data-slot="trace-line"]')

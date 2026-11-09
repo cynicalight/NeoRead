@@ -117,7 +117,7 @@ for (const provider of ["codex", "api"])
             expect(state.pending?.phase).toBe("saved");
             expect(observed).toContain("completed");
             expect(host.textContent).toContain("读取网页");
-            expect(host.textContent).toContain("已完成");
+            expect(host.textContent).not.toContain("已完成");
             expect(
               host.querySelector(
                 'a[href="https://api-docs.deepseek.com/zh-cn/guides/search/"]',

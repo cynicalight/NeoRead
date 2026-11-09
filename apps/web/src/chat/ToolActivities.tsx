@@ -23,14 +23,17 @@ import {
 } from "@neoread/ui/components/trace";
 import { openExternalLink } from "../reading-links";
 
-const states = {
+// Completed and failed rows carry their state in a unique icon; no text.
+const states: Record<ToolActivity["status"], string | undefined> = {
   running: "执行中",
-  completed: "已完成",
-  failed: "失败",
+  completed: undefined,
+  failed: undefined,
   cancelled: "已取消",
   unavailable: "此网址无法读取",
   deferred: "暂未取得结果",
-} as const;
+};
+const rowTitle = (tool: ToolActivity) =>
+  [states[tool.status], tool.title, tool.target].filter(Boolean).join(" · ");
 const traceStatus = (status: ToolActivity["status"]) =>
   status === "running" ? "running" : status === "failed" ? "error" : undefined;
 function ToolIcon({ tool }: { tool: ToolActivity }) {
@@ -98,16 +101,13 @@ export function ToolActivities({
             {tools.map((tool) => (
               <TraceCollapsible key={tool.id}>
                 <TraceCollapsibleTrigger
-                  title={`${states[tool.status]} · ${tool.title}${tool.target ? ` · ${tool.target}` : ""}`}
+                  title={rowTitle(tool)}
                 >
                   <TraceLine status={traceStatus(tool.status)}>
                     <TraceIcon>
                       <ToolIcon tool={tool} />
                     </TraceIcon>
-                    <TraceTitle>
-                      {states[tool.status]} · {tool.title}
-                      {tool.target ? ` · ${tool.target}` : ""}
-                    </TraceTitle>
+                    <TraceTitle>{rowTitle(tool)}</TraceTitle>
                     {duration(tool) && (
                       <TraceDescription>{duration(tool)}</TraceDescription>
                     )}
