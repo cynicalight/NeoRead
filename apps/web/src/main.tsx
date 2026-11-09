@@ -7,6 +7,7 @@ import "./style.css";
 import { installDiagnostics } from "./diagnostics";
 import { installMotionPreference } from "./motion";
 import { installScrollbars } from "./scrollbars";
+import { installTeXCopy } from "./chat/tex-text";
 import { migrateReaderPreferences } from "./legacy-preferences";
 import { initialDesktopTheme } from "./appearance";
 import { useReaderStore } from "./store";
@@ -25,6 +26,8 @@ const removeMotion = installMotionPreference(document);
 if (import.meta.hot) import.meta.hot.dispose(removeMotion);
 const removeScrollbars = installScrollbars(document);
 if (import.meta.hot) import.meta.hot.dispose(removeScrollbars);
+const removeTeXCopy = installTeXCopy(document);
+if (import.meta.hot) import.meta.hot.dispose(removeTeXCopy);
 const token =
   new URLSearchParams(location.hash.slice(1)).get("token") ||
   sessionStorage.getItem("neoread-session") ||

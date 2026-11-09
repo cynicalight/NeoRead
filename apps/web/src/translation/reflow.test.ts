@@ -76,7 +76,7 @@ const restored = () => {
   const host = document.createElement("div");
   host.innerHTML = `
     <div data-reflow-source="a">
-      <span data-source-sentence="0">Plain start. </span><span data-source-sentence="1" data-anchor="Dim d k here." data-display="Dim $d_k$ here."><span>Dim dk here.</span></span>
+      <span data-source-sentence="0">Plain start. </span><span data-source-sentence="1" data-anchor="Dim d k here."><span>Dim <span class="markdown-math" data-tex="d_k"><span class="katex">dk</span></span> here.</span></span>
     </div>`;
   document.body.append(host);
   return host;
@@ -93,13 +93,14 @@ it("selects restored formulas by their whole extracted sentence", () => {
       bounds: { x: 0, y: 0, width: 1, height: 1 },
     },
   ] as PDFBlock[];
-  const [plain, , rendered] = host.querySelectorAll("span");
+  const plain = host.querySelector("span")!;
   const range = document.createRange();
   range.setStart(plain.firstChild!, 6);
-  range.setEnd(rendered.firstChild!, 3);
+  range.setEnd(host.querySelector(".katex")!.firstChild!, 1);
   Object.assign(range, { getBoundingClientRect: () => new DOMRect() });
   const selection = reflowSourceSelection(host, range, blocks)!;
-  expect(selection.text).toBe("start. Dim $d_k$ here.");
+  // A partly selected formula reads whole as TeX.
+  expect(selection.text).toBe("start. Dim $d_k$");
   expect(selection.location).toMatchObject({
     quote: "start. Dim d k here.",
     sourceAnchors: [{ blockId: "a", source: "start. Dim d k here." }],
@@ -114,7 +115,7 @@ it("marks restored sentences that a saved quote covers", () => {
   ).toEqual(["start."]);
   expect(
     reflowQuoteRanges(host, "a", "Dim d k").map((r) => r.toString()),
-  ).toEqual(["Dim dk here."]);
+  ).toEqual(["Dim ", "dk", " here."]);
   host.remove();
 });
 

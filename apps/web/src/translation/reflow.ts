@@ -8,6 +8,7 @@ import type {
 import { sentenceAnchor } from "@neoread/core";
 import { selectionContext } from "../readers/selection-context";
 import { searchRanges } from "./search-ranges";
+import { texText } from "../chat/tex-text";
 
 /** One reflowed source sentence. */
 export interface ReflowPart {
@@ -115,12 +116,7 @@ export function reflowSourceSelection(
   range: Range,
   blocks: PDFBlock[],
 ): ReaderSelection | undefined {
-  const anchors: Array<
-    NonNullable<PDFLocation["sourceAnchors"]>[number] & {
-      display: string;
-      restored: boolean;
-    }
-  > = [];
+  const anchors: NonNullable<PDFLocation["sourceAnchors"]> = [];
   for (const node of host.querySelectorAll<HTMLElement>(
     "[data-reflow-source]",
   )) {
@@ -134,14 +130,10 @@ export function reflowSourceSelection(
         source,
         page: block.page,
         bounds: block.bounds,
-        ...selectedDisplay(node, range),
       });
   }
-  const text = (
-    anchors.some((a) => a.restored)
-      ? anchors.map((a) => a.display).join(" ")
-      : range.toString()
-  ).trim();
+  // Read text keeps restored formulas as TeX; anchors keep extracted text.
+  const text = texText(range).trim();
   if (!anchors.length || !text) return;
   const rect = range.getBoundingClientRect();
   return {
@@ -156,12 +148,7 @@ export function reflowSourceSelection(
       type: "pdf",
       page: anchors[0].page,
       quote: anchors.map((a) => a.source).join(" "),
-      sourceAnchors: anchors.map(({ blockId, source, page, bounds }) => ({
-        blockId,
-        source,
-        page,
-        bounds,
-      })),
+      sourceAnchors: anchors,
     },
   };
 }
@@ -189,17 +176,6 @@ function selectedSource(node: HTMLElement, range: Range) {
     .filter((s) => range.intersectsNode(s))
     .map((s) => s.dataset.anchor ?? clip(s, range))
     .join("");
-}
-/** The same selection as read: restored sentences keep their KaTeX source. */
-function selectedDisplay(node: HTMLElement, range: Range) {
-  const touched = sentenceNodes(node).filter((s) => range.intersectsNode(s));
-  return {
-    restored: touched.some((s) => s.dataset.display),
-    display: touched
-      .map((s) => s.dataset.display ?? clip(s, range))
-      .join("")
-      .trim(),
-  };
 }
 
 /**

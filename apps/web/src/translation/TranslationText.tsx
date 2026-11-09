@@ -153,7 +153,6 @@ export function ReflowSource({
             className="reflow-sentence"
             data-source-sentence={i}
             data-anchor={display ? part : undefined}
-            data-display={display}
           >
             {display ? (
               <MessageMarkdown

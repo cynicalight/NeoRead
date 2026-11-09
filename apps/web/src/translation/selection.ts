@@ -10,6 +10,7 @@ import type {
   TranslationLocation,
 } from "@neoread/core";
 import { sentenceAnchor } from "@neoread/core";
+import { texText } from "../chat/tex-text";
 
 export function translatedSelection(
   host: HTMLElement,
@@ -109,7 +110,7 @@ export function translatedSelection(
     rect = range.getBoundingClientRect();
   const selection: ReaderSelection = {
     context: selectionContext(range, host),
-    text: range.toString().trim(),
+    text: texText(range).trim(),
     anchor: {
       x: (rect.left + rect.right) / 2,
       top: rect.top,
