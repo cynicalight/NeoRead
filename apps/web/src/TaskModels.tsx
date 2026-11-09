@@ -49,8 +49,10 @@ export function taskChoice(config: AIConfig, task: ModelTask) {
 export function TaskModels({
   disabled,
   onAPIModelsLoaded,
+  refreshKey = 0,
 }: {
   disabled: boolean;
+  refreshKey?: number;
   onAPIModelsLoaded?: (models: AgentModel[]) => void;
 }) {
   const {
@@ -101,7 +103,7 @@ export function TaskModels({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [provider, revision, openPicker, onAPIModelsLoaded]);
+  }, [provider, revision, openPicker, onAPIModelsLoaded, refreshKey]);
   if (!config || !provider) return null;
   const models = catalog.provider === provider ? catalog.models : [];
 

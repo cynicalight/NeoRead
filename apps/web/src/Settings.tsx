@@ -130,6 +130,7 @@ export function Settings({
   const [loading, setLoading] = useState(false);
   // Whether a detection has finished since the dialog opened.
   const [probed, setProbed] = useState(false);
+  const [modelRefresh, setModelRefresh] = useState(0);
   const [apiModels, setAPIModels] = useState<AgentModel[]>([]);
   const [apiModelsError, setAPIModelsError] = useState("");
   const [apiDetails, setAPIDetails] = useState(false);
@@ -287,7 +288,7 @@ export function Settings({
     if (refreshing.current) return;
     refreshing.current = true;
     // Reopening refreshes metadata silently; preserve the last confirmed UI.
-    if (force || !probed) setLoading(true);
+    if (force) setLoading(true);
     try {
       const before = useReaderStore.getState().aiConfig;
       const [providers, loadedConfig] = await Promise.all([
@@ -347,7 +348,6 @@ export function Settings({
         checked.current.add(JSON.stringify(["api", model.id]));
       const firstStage = (id: string): "text" | "vision" =>
         !force && config.capabilities[id]?.pendingVision ? "vision" : "text";
-      setLoading(false);
       await checkAll(
         [...pending, ...modelChecks.map(({ id }) => `api:${id}`)],
         firstStage,
@@ -360,6 +360,7 @@ export function Settings({
       refreshing.current = false;
       setLoading(false);
       setProbed(true);
+      setModelRefresh((n) => n + 1);
     }
   };
   useEffect(() => {
@@ -526,7 +527,8 @@ export function Settings({
         ? "没有图片理解能力"
         : "没有通过文本推理检测的模型";
     }
-    if (loading || testing.has(name)) return "正在检测，请稍候";
+    if (loading || (testing.has(name) && !config?.capabilities[name]))
+      return "正在检测，请稍候";
     if (!installed) return "未安装 CLI";
     if (!cliReady(name, "text")) return "文本推理未通过检测";
     return cliReady(name, "vision") ? "" : "没有图片理解能力";
@@ -542,7 +544,14 @@ export function Settings({
           ? "pending"
           : "failed";
     }
-    if (loading || testing.has(name)) return "pending";
+    if (loading || (testing.has(name) && !config?.capabilities[name]))
+      return "pending";
+    if (!probed && !providers.length)
+      return config?.capabilities[name]
+        ? cliReady(name, "text") && cliReady(name, "vision")
+          ? "ready"
+          : "failed"
+        : "pending";
     if (!installed) return "missing";
     return agentBlocker(name) ? "failed" : "ready";
   };
@@ -563,9 +572,13 @@ export function Settings({
         pendingAgent.current = null;
         try {
           const latest = await api.aiConfig();
-          if (latest.primary !== next)
-            setAIConfig(await api.saveAIConfig({ ...latest, primary: next }));
+          setAIConfig(
+            latest.primary === next
+              ? latest
+              : await api.saveAIConfig({ ...latest, primary: next }),
+          );
           rememberCard(next);
+          setModelRefresh((n) => n + 1);
         } catch (e) {
           toast.error((e as Error).message);
         }
@@ -1158,7 +1171,7 @@ export function Settings({
                 <AgentDeck
                   items={deckItems}
                   disabled={!config}
-                  front={deckFront}
+                  front={config?.primary || deckFront}
                   open={deckOpen}
                   onOpenChange={setDeckOpen}
                   panel={
@@ -1355,10 +1368,8 @@ export function Settings({
                   usable={(id) => agentStatus(id) === "ready"}
                   onPick={pickCard}
                   onDetail={openDetail}
-                  onRefresh={() => {
-                    void refresh(true);
-                  }}
-                  refreshing={loading || testing.size > 0}
+                  onRefresh={() => void refresh(true)}
+                  refreshing={loading}
                   loadCalls={(id, signal) =>
                     recentAgentCalls(id, documents, signal)
                   }
@@ -1369,6 +1380,7 @@ export function Settings({
                   <div data-tour="task-models">
                     <TaskModels
                       disabled={saving || testing.size > 0}
+                      refreshKey={modelRefresh}
                       onAPIModelsLoaded={setAPIModels}
                     />
                   </div>

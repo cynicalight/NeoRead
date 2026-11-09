@@ -218,3 +218,31 @@ it.each(["codex", "claude", "kimi"])(
     ).toHaveLength(2);
   },
 );
+
+it("reloads the catalog after detection while retaining the selected model", async () => {
+  await act(async () =>
+    root.render(<TaskModels disabled={false} refreshKey={0} />),
+  );
+  vi.mocked(api.agentModels).mockClear();
+  let resolve!: (models: AgentModel[]) => void;
+  vi.mocked(api.agentModels).mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  await act(async () =>
+    root.render(<TaskModels disabled={false} refreshKey={1} />),
+  );
+  expect(api.agentModels).toHaveBeenCalledTimes(1);
+  expect(api.agentModels).toHaveBeenCalledWith(
+    "claude",
+    expect.any(AbortSignal),
+    false,
+    true,
+  );
+  expect(trigger("问答模型").textContent).toContain("Opus");
+  expect(useReaderStore.getState().aiConfig?.primary).toBe("claude");
+  await act(async () => resolve(models));
+  expect(api.saveAIConfig).not.toHaveBeenCalled();
+});

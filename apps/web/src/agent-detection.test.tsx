@@ -172,7 +172,7 @@ it("resumes an interrupted vision check without repeating text", async () => {
   expect(host.querySelector('[aria-label="文本推理：已通过"]')).not.toBeNull();
 });
 
-it("defaults the card stack to Codex and preserves a saved choice", async () => {
+it("keeps the configured agent in front instead of a stale presentation preference", async () => {
   const saved = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => saved.get(key) ?? null,
@@ -193,7 +193,7 @@ it("defaults the card stack to Codex and preserves a saved choice", async () => 
     host
       .querySelector('.agent-stack-card[data-depth="0"]')
       ?.getAttribute("data-agent"),
-  ).toBe("api");
+  ).toBe("codex");
   localStorage.removeItem("neoread.agent-deck-front");
 });
 
