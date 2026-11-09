@@ -8,8 +8,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"os"
 	"neoread.local/server/internal/runtimeenv"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -35,6 +35,7 @@ type piRequest struct {
 type piEvent struct {
 	Version int                                                  `json:"version"`
 	RunID   string                                               `json:"runId"`
+	Status  string                                               `json:"status"`
 	Type    string                                               `json:"type"`
 	Text    string                                               `json:"text"`
 	Reset   bool                                                 `json:"reset"`
@@ -177,6 +178,9 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 	if endpoint.Protocol == "anthropic" {
 		api, path = "anthropic-messages", "/messages"
 	}
+	if endpoint.Protocol == "responses" {
+		api, path = "openai-responses", "/responses"
+	}
 	window := req.ContextWindow
 	if window <= 0 {
 		window = defaultDocumentContextTokens
@@ -299,7 +303,7 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 				if tokens.TotalTokens == 0 {
 					tokens = nil
 				}
-				if err := in.UsageSink(UsageCall{ID: id(), Provider: in.UsageProvider, StartedAt: now(), FinishedAt: now(), Status: "complete", Models: []ModelTokens{{Model: e.Model, Tokens: tokens}}}); err != nil {
+				if err := in.UsageSink(UsageCall{ID: id(), Provider: in.UsageProvider, StartedAt: now(), FinishedAt: now(), Status: piUsageStatus(e.Status), Models: []ModelTokens{{Model: e.Model, Tokens: tokens}}}); err != nil {
 					return generationError(ErrorSave, "无法保存调用统计")
 				}
 			}
@@ -391,4 +395,13 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 		return a.finishDocumentAnswer(ctx, result, emit)
 	}
 	return result, nil
+}
+
+func piUsageStatus(status string) string {
+	switch status {
+	case "failed", "cancelled":
+		return status
+	default:
+		return "complete"
+	}
 }
