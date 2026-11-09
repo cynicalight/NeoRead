@@ -8,8 +8,7 @@ const pending = new Map<
   { resolve: (value: ToolResult) => void; reject: (error: Error) => void }
 >();
 let started = false,
-  runId = "",
-  counter = 0;
+  runId = "";
 const send = (event: Record<string, unknown>) =>
   process.stdout.write(JSON.stringify({ version: 1, runId, ...event }) + "\n");
 const close = () => {
@@ -49,11 +48,13 @@ lines.on("line", (line) => {
           const payload = JSON.parse(body);
           for (const field of [
             "reasoning_effort",
+            "reasoning",
             "thinking",
             "output_config",
             "reasoning_split",
             "max_tokens",
             "max_completion_tokens",
+            "max_output_tokens",
           ])
             delete payload[field];
           Object.assign(payload, input.payload);
@@ -69,9 +70,11 @@ lines.on("line", (line) => {
       void runAgent(
         input,
         send,
-        async (name, args, signal) => {
+        async (name, args, signal, toolCallID) => {
           signal?.throwIfAborted();
-          const id = String(++counter);
+          if (!toolCallID || pending.has(toolCallID))
+            throw new Error("工具调用编号无效");
+          const id = toolCallID;
           return new Promise<ToolResult>((resolve, reject) => {
             pending.set(id, { resolve, reject });
             send({ type: "tool", id, name, args });

@@ -15,8 +15,11 @@ import {
   type Api,
   type Model,
   type ImageContent,
+  type ProviderStreams,
+  type StreamOptions,
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { Type } from "typebox";
 
@@ -44,6 +47,35 @@ export type ToolResult = {
 };
 export type AgentEvent = { type: string; [key: string]: unknown };
 
+// Pi 1.3 兼容缺失/进行中的终态；NeoRead 只接受明确 completed，避免保存不完整回答。
+function responsesApi(): ProviderStreams {
+  const native = openAIResponsesApi();
+  const checkedOptions = <T extends StreamOptions>(options?: T) => ({
+    ...options,
+    maxRetries: 0,
+    onProviderStreamEvent: async (event: unknown, model: Model<Api>) => {
+      const value = event as { type?: string; response?: { status?: string } };
+      if (
+        value.type === "response.completed" &&
+        value.response?.status !== "completed"
+      )
+        throw new Error("Responses 未返回有效完成状态");
+      if (
+        value.type === "response.incomplete" &&
+        value.response?.status !== "incomplete"
+      )
+        throw new Error("Responses 返回无效中止状态");
+      await options?.onProviderStreamEvent?.(event, model);
+    },
+  });
+  return {
+    stream: (model, context, options) =>
+      native.stream(model, context, checkedOptions(options)),
+    streamSimple: (model, context, options) =>
+      native.streamSimple(model, context, checkedOptions(options)),
+  };
+}
+
 /** The host owns the accepted entry tree. No user configuration or files are discovered. */
 export async function runAgent(
   input: AgentRequest,
@@ -52,13 +84,18 @@ export async function runAgent(
     name: string,
     args: unknown,
     signal?: AbortSignal,
+    toolCallID?: string,
   ) => Promise<ToolResult>,
   signal: AbortSignal,
 ) {
   if (input.version !== 1 || !input.runId || !input.model || !input.prompt)
     throw new Error("不兼容的 Agent 请求");
   const model = input.model;
-  if (!["openai-completions", "anthropic-messages"].includes(model.api))
+  if (
+    !["openai-completions", "openai-responses", "anthropic-messages"].includes(
+      model.api,
+    )
+  )
     throw new Error("不支持的模型协议");
   const modelRuntime = await ModelRuntime.create({
     credentials: new InMemoryCredentialStore(),
@@ -84,7 +121,9 @@ export async function runAgent(
     api:
       model.api === "anthropic-messages"
         ? anthropicMessagesApi()
-        : openAICompletionsApi(),
+        : model.api === "openai-responses"
+          ? responsesApi()
+          : openAICompletionsApi(),
   });
   modelRuntime.registerNativeProvider(provider);
   await modelRuntime.setRuntimeApiKey(
@@ -113,7 +152,7 @@ export async function runAgent(
     label: tool.name,
     description: tool.description,
     parameters: Type.Unsafe(tool.schema),
-    execute: async (_id, args, abort) => callTool(tool.name, args, abort),
+    execute: async (id, args, abort) => callTool(tool.name, args, abort, id),
   }));
   const manager = SessionManager.inMemory(process.cwd(), {}, input.entries);
   const { session } = await createAgentSession({
@@ -129,7 +168,8 @@ export async function runAgent(
       cacheWarming: "off",
       compaction: {
         enabled: true,
-        reserveTokens: Math.min(8192, Math.floor(model.contextWindow / 4)),
+        // SDK 使用严格 >；预留 20% 向上取整，使整数用量超过 80% 时压缩。
+        reserveTokens: Math.ceil(model.contextWindow * 0.2),
         keepRecentTokens: Math.min(12000, Math.floor(model.contextWindow / 3)),
       },
     }),
@@ -195,7 +235,17 @@ export async function runAgent(
     }
     if (event.type === "message_end" && event.message.role === "assistant") {
       const m = event.message;
-      emit({ type: "usage", model: m.model, usage: m.usage });
+      emit({
+        type: "usage",
+        model: m.model,
+        usage: m.usage,
+        status:
+          m.stopReason === "aborted"
+            ? "cancelled"
+            : m.stopReason === "error" || m.stopReason === "length"
+              ? "failed"
+              : "complete",
+      });
       if (m.content.some((part) => part.type === "toolCall"))
         emit({ type: "draft", reset: true, text: "" });
     }
