@@ -5415,6 +5415,58 @@
                     },
                 },
             },
+          "delete":
+            {
+              "summary": "Delete an idle session with its transcript, runs and provider conversations",
+              "parameters":
+                [
+                  {
+                    "in": "path",
+                    "name": "id",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                  {
+                    "in": "path",
+                    "name": "session",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                ],
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Deleted",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "required": ["ok"],
+                                  "properties": { "ok": { "type": "boolean" } },
+                                },
+                            },
+                        },
+                    },
+                  "404": { "description": "Session is missing" },
+                  "409": { "description": "Session has an active run" },
+                  "default":
+                    {
+                      "description": "Error",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
         },
       "/api/documents/{id}/chat-sessions/{session}/messages":
         {

@@ -781,6 +781,11 @@ export const api = {
       `/api/documents/${id}/chat-sessions/${sessionId}`,
       { method: "PATCH", body: JSON.stringify(patch) },
     ),
+  deleteChatSession: (id: string, sessionId: string) =>
+    request<{ ok: boolean }>(
+      `/api/documents/${id}/chat-sessions/${sessionId}`,
+      { method: "DELETE" },
+    ),
   sessionMessages: (id: string, sessionId: string, signal?: AbortSignal) =>
     request<Message[]>(
       `/api/documents/${id}/chat-sessions/${sessionId}/messages`,
