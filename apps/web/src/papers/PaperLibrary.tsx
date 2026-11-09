@@ -1817,9 +1817,9 @@ function PaperRow({
             </div>
             {title}
             {authorLine}
-            <PaperProcessing job={job} />
             <div className="paper-card-meta">
               {status}
+              <PaperProcessing job={job} />
               {more}
             </div>
           </>
