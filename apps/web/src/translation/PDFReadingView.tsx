@@ -48,7 +48,11 @@ import {
   showsOriginal,
   TranslationText,
 } from "./TranslationText";
-import { reflowBlockText, reflowSourceSelection } from "./reflow";
+import {
+  reflowBlockText,
+  reflowSourceSelection,
+  restoredSource,
+} from "./reflow";
 import { copyText } from "../chat/clipboard";
 import { EPUBBlockOverlay } from "../readers/epub-block-focus";
 import { blockImageCache } from "./block-images";
@@ -928,6 +932,18 @@ export function PDFReadingView({
                   if (mode === "parallel") hover("source", block?.id);
                 },
                 blockAction: (block, action) => {
+                  // The page shows extracted text; copying gives the source
+                  // with the formulas its translation restored.
+                  if (action === "copy" && !block.image) {
+                    const translation = state.current.translations.find(
+                      (t) => t.blockId === block.id,
+                    );
+                    void copyText(
+                      restoredSource(block.text, translation),
+                      "已复制",
+                    );
+                    return;
+                  }
                   if (action !== "translate") {
                     events.blockAction?.(block, action);
                     return;

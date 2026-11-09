@@ -49,14 +49,22 @@ export function reflowSourceParts(
 }
 
 /**
- * A reflowed paragraph as copied: its source with restored formulas as TeX, a
- * blank line, then its translation.
+ * A source paragraph with the inline formulas its translation restored, as
+ * TeX; the same text reflow shows, whether or not reflow is on.
  */
-export function reflowBlockText(text: string, translation?: TranslationBlock) {
-  const source = reflowSourceParts(text, translation)
+export function restoredSource(text: string, translation?: TranslationBlock) {
+  return reflowSourceParts(text, translation)
     .map((part) => part.display ?? part.text)
     .join("")
     .trim();
+}
+
+/**
+ * A reflowed paragraph as copied: its restored source, a blank line, then its
+ * translation.
+ */
+export function reflowBlockText(text: string, translation?: TranslationBlock) {
+  const source = restoredSource(text, translation);
   const target =
     translation?.status === "complete"
       ? translation.sentences

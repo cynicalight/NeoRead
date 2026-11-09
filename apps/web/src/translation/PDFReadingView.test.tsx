@@ -1271,3 +1271,49 @@ it("offers paragraph actions and focuses reflowed paragraphs only when enabled",
     delete (events as { blockAction?: unknown }).blockAction;
   }
 });
+it("copies a PDF paragraph with the formulas its translation restored", async () => {
+  const blockAction = vi.fn();
+  Object.assign(events, { blockAction });
+  try {
+    await act(async () =>
+      fixture.push!({
+        event: "snapshot",
+        data: [
+          {
+            blockId: "p1-b1",
+            sourceHash: "hash",
+            status: "complete",
+            sentences: [
+              {
+                source: "First $x_1$.",
+                anchor: "First sentence.",
+                target: "第一 $x_1$。",
+              },
+              { source: "Second sentence.", target: "第二句。" },
+            ],
+          },
+        ],
+      } as never),
+    );
+    vi.mocked(copyText).mockClear();
+    await act(async () =>
+      fixture.events!.blockAction?.(
+        {
+          id: "p1-b1",
+          page: 1,
+          label: "text",
+          text: "First sentence. Second sentence.",
+          bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.3 },
+        },
+        "copy",
+      ),
+    );
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith(
+      "First $x_1$. Second sentence.",
+      "已复制",
+    );
+    expect(blockAction).not.toHaveBeenCalled();
+  } finally {
+    delete (events as { blockAction?: unknown }).blockAction;
+  }
+});
