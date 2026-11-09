@@ -3,6 +3,7 @@ package neoread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 )
@@ -16,7 +17,7 @@ func (a *documentAgent) toolFailure(ctx context.Context, err error) (json.RawMes
 	a.mu.Lock()
 	fatal := a.fatal
 	a.mu.Unlock()
-	if ctx.Err() != nil || a.ctx.Err() != nil || fatal != nil {
+	if ctx.Err() != nil || a.ctx.Err() != nil || fatal != nil || errors.Is(err, errDocumentAttemptEnded) || errorKind(err) == ErrorSave {
 		return nil, err
 	}
 	slog.WarnContext(ctx, "document.tool.failed", "requestId", requestID(ctx), "errorCode", errorKind(err))

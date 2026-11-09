@@ -938,3 +938,100 @@ test.each([
   },
   15000,
 );
+
+test.each([65, 256])(
+  "Pi completes %i tool rounds and treats its 255-round budget as advice",
+  async (toolRounds) => {
+    let requests = 0;
+    const observations: {
+      round: number;
+      adviceCount: number;
+      tools: string[];
+      resultCount: number;
+    }[] = [];
+    const upstream = createServer(async (req, res) => {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const body = JSON.parse(raw);
+      requests++;
+      observations.push({
+        round: requests,
+        adviceCount: body.input.filter(
+          (item: any) =>
+            item.role === "user" &&
+            JSON.stringify(item.content).includes("本轮工具调用已接近预算"),
+        ).length,
+        tools: body.tools.map((tool: any) => tool.name),
+        resultCount: body.input.filter(
+          (item: any) => item.type === "function_call_output",
+        ).length,
+      });
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.end(
+        responseEvents(
+          requests <= toolRounds
+            ? {
+                type: "function_call",
+                id: `fc_${requests}`,
+                call_id: `call_${requests}`,
+                name: "web_search",
+                arguments: '{"query":"next evidence"}',
+                status: "completed",
+              }
+            : responseText,
+        ),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      upstream.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      const input = responsesInput(
+        `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+      );
+      input.model.contextWindow = 1000000;
+      const result = await responseWorker(input);
+      expect({
+        code: result.code,
+        errors: result.events.filter((event) => event.type === "error"),
+      }).toEqual({ code: 0, errors: [] });
+      expect(requests).toBe(toolRounds + 1);
+      expect(
+        result.events.filter((event) => event.type === "tool"),
+      ).toHaveLength(toolRounds);
+      expect(result.events.at(-1)).toMatchObject({
+        type: "complete",
+        text: "查证结果是 42 [W1]。",
+      });
+      expect(
+        observations
+          .filter((entry) => entry.round <= 255)
+          .every((entry) => entry.adviceCount === 0),
+      ).toBe(true);
+      if (toolRounds === 256) {
+        // 第 255 次工具完成后才提醒；下一次工具仍真正执行并回填。
+        expect(observations.slice(255)).toEqual([
+          {
+            round: 256,
+            adviceCount: 1,
+            tools: ["web_search", "web_fetch"],
+            resultCount: 255,
+          },
+          {
+            round: 257,
+            adviceCount: 1,
+            tools: ["web_search", "web_fetch"],
+            resultCount: 256,
+          },
+        ]);
+        expect(
+          result.events.filter((event) => event.type === "tool").at(-1).id,
+        ).toBe("call_256|fc_256");
+      }
+    } finally {
+      upstream.close();
+      upstream.closeAllConnections();
+    }
+  },
+  15000,
+);

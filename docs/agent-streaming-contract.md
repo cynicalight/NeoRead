@@ -268,7 +268,7 @@ NEOREAD_TEST_STREAM_PROVIDER=kimi go test ./internal/neoread -run '^TestLiveAgen
 
 运行由 Go 服务管理，不依赖发起 POST 或订阅 SSE 的连接。最多同时运行四个会话，每个会话同时只运行一次；超过上限返回 429，同会话重复运行返回 409，均不保存新问题。切换文档、会话、侧栏或断开事件连接不会取消运行。前端按 session 保存独立的消息、思考、候选文本和取消状态，重新进入会话时查询服务端并订阅现有 run，不自动重新 POST。停止应用会取消并等待所有文档任务；重新打开时把残留 running 记录核对为已完成或已中断，由用户显式继续未回答的问题。
 
-自有 Agent 通过 `apps/agent` 的 pi SDK worker 执行模型与工具循环。Go 用私有临时目录启动进程，通过版本化 JSONL stdio 传入配置、已接受的 pi entries 和允许的工具清单；密钥不放入命令行。worker 使用内存凭据、内存 SessionManager 和显式 ResourceLoader，不发现用户 pi 配置、skills、extensions、AGENTS.md 或默认 shell/文件工具。读取工具仍在 Go 中绑定当前文档、版本、权限、预算和审计。API 连接与推理强度规则沿用 NeoRead，禁止跨源请求和跟随重定向；CLI 后端继续使用自身协议与登录。
+自有 Agent 通过 `apps/agent` 的 pi SDK worker 执行模型与工具循环。Go 用私有临时目录启动进程，通过版本化 JSONL stdio 传入配置、已接受的 pi entries 和允许的工具清单；密钥不放入命令行。worker 使用内存凭据、内存 SessionManager 和显式 ResourceLoader，不发现用户 pi 配置、skills、extensions、AGENTS.md 或默认 shell/文件工具。读取工具仍在 Go 中绑定当前文档、版本、权限、预算和审计。Pi 第 255 轮通过 steering 提醒模型优先补充必要证据并尽快完成，不直接终止或禁用工具；可恢复的工具参数和执行错误回填模型，取消、失效文档/尝试及不可关联的协议错误仍为失败。API 连接与推理强度规则沿用 NeoRead，禁止跨源请求和跟随重定向；CLI 后端继续使用自身协议与登录。
 
 每次运行使用独立 worker；Codex 同样使用独立运行缓存，已提交的原生 thread 可在下一轮恢复。pi 的 `prompt` 完成且 `waitForIdle` 收敛、worker 正常退出、最终答案完成来源记录解析后，Go 才在同一事务提交答案和 continuation。未匹配到已读来源的编号不导致失败，仅不生成跳转元数据；缺少正常终态、取消、超时、来源标记格式错误或保存失败都不覆盖此前的 continuation。`done` 只在答案持久化后发送。运行事件也存入 SQLite，便于重新订阅已结束的 run；临时草稿不作为成功 assistant 消息保存。
 

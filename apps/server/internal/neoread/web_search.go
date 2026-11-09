@@ -191,7 +191,7 @@ func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name st
 		URL   string `json:"url"`
 	}
 	if strictToolArguments(args, &q) != nil || name == "web_search" && (q.URL != "" || strings.TrimSpace(q.Query) == "" || utf8.RuneCountInString(q.Query) > 128) || name == "web_fetch" && (q.Query != "" || q.URL == "" || len(q.URL) > 8192) {
-		return nil, generationError(ErrorProtocol, "网页工具参数无效")
+		return json.RawMessage(`{"error":"invalid_arguments","message":"Check the tool schema and use valid arguments or available evidence."}`), nil
 	}
 	requestCtx, cancelRequest := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancelRequest()
@@ -203,7 +203,7 @@ func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name st
 		v.URL = q.URL
 	}
 	if e := c.recordTool(v); e != nil {
-		return nil, e
+		return nil, generationError(ErrorSave, "无法保存工具执行状态")
 	}
 	defer func() {
 		if v.Status == "running" {
@@ -216,8 +216,8 @@ func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name st
 		if ctx.Err() != nil {
 			v.Status = "cancelled"
 		}
-		if e := c.recordTool(v); err == nil {
-			err = e
+		if e := c.recordTool(v); e != nil && err == nil {
+			err = generationError(ErrorSave, "无法保存工具执行状态")
 		}
 	}()
 	failed := func(e error) (json.RawMessage, error) {
@@ -239,9 +239,8 @@ func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name st
 	}
 	if name == "web_search" {
 		if c.webSourceBudgetFull("") {
-			v.Status = "failed"
-			v.Detail = "网页来源预算已满，请使用已保存的来源"
-			return json.RawMessage(`{"shouldFinish":true,"error":"web_source_budget_exhausted","message":"Web source limit reached. Use saved sources where useful, prioritize essential evidence and complete the answer promptly; disclose gaps."}`), nil
+			v.Status, v.Detail = "deferred", "已保留本轮网页来源"
+			return json.RawMessage(`{"shouldFinish":true,"reason":"web_source_budget_exhausted","budgetNotice":"Web source storage is full. Use saved sources where useful, prioritize essential evidence and complete the answer promptly; disclose gaps."}`), nil
 		}
 		data, e := deepSeekWebRequest(requestCtx, conn, "search", map[string]any{"query": q.Query, "count": 5, "need_content": false}, c.webTransport)
 		if e != nil {
@@ -286,9 +285,8 @@ func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name st
 		return failed(e)
 	}
 	if c.webSourceBudgetFull(q.URL) {
-		v.Status = "failed"
-		v.Detail = "网页来源预算已满，请使用已保存的来源"
-		return json.RawMessage(`{"shouldFinish":true,"error":"web_source_budget_exhausted","message":"Web source limit reached. Use saved sources where useful, prioritize essential evidence and complete the answer promptly; disclose gaps."}`), nil
+		v.Status, v.Detail = "deferred", "已保留本轮网页来源"
+		return json.RawMessage(`{"shouldFinish":true,"reason":"web_source_budget_exhausted","budgetNotice":"Web source storage is full. Use saved sources where useful, prioritize essential evidence and complete the answer promptly; disclose gaps."}`), nil
 	}
 	data, e := deepSeekWebRequest(requestCtx, conn, "fetch", map[string]string{"url": q.URL}, c.webTransport)
 	if e != nil {

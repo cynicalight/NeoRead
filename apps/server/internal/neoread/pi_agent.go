@@ -323,7 +323,7 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 		if isWebTool(name) {
 			raw, err := in.Chat.callWebTool(ctx, in.Chat.WebAPI, name, args)
 			if err != nil {
-				if ctx.Err() != nil {
+				if ctx.Err() != nil || errors.Is(err, context.Canceled) || errorKind(err) == ErrorSave {
 					return nil, err
 				}
 				slog.WarnContext(ctx, "web.tool.failed", "requestId", requestID(ctx), "errorCode", errorKind(err))
@@ -342,7 +342,7 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 		v.Target = ""
 		v.Status = "completed"
 		if err != nil {
-			v.Detail = err.Error()
+			v.Detail = "文档工具暂未取得结果"
 			v.Status = "failed"
 		}
 		if ctx.Err() != nil {

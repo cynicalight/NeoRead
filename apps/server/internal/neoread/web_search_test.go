@@ -253,7 +253,7 @@ func TestWebSourceBudgetIsNotReportedAsNoResults(t *testing.T) {
 		t.Fatal(string(raw), c.Tools, err)
 	}
 	raw, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"other docs"}`))
-	if err != nil || !strings.Contains(string(raw), `"shouldFinish":true`) || count != 1 || c.Tools[1].Status != "failed" {
+	if err != nil || !strings.Contains(string(raw), `"shouldFinish":true`) || count != 1 || c.Tools[1].Status != "deferred" {
 		t.Fatal(string(raw), c.Tools, err, count)
 	}
 	err = c.codexToolEvent("item/completed", json.RawMessage(`{"item":{"id":"native","type":"webSearch","query":"other docs","results":[{"title":"New","url":"https://example.com/new"}]}}`))
@@ -433,7 +433,7 @@ func TestPiWebProtocolErrorLetsModelFinish(t *testing.T) {
  const p=JSON.parse(init.body),tools=p.messages.filter(m=>m.role==='tool');
  if(init.body.includes('search-secret'))throw new Error('search key leaked to model');
  if(!p.tools?.some(t=>t.function.name==='web_search'))throw new Error('web tool missing');
- if(tools.length && !tools.at(-1).content.includes('web_tool_failed'))throw new Error('missing budget notice');
+ if(tools.length){const result=JSON.parse(tools.at(-1).content);if(result.status!=='temporarily_unavailable'||result.reason!=='service_unavailable')throw new Error('missing recoverable failure result');}
  const call=tools.length===0?{name:'web_search',arguments:JSON.stringify({query:'official docs'})}:null;
  const delta=call?{tool_calls:[{index:0,id:'tool-'+tools.length,type:'function',function:call}]}:{content:'See [Official](https://1.1.1.1/docs).'};
  let out='';for(const choice of [{delta,finish_reason:null},{delta:{},finish_reason:call?'tool_calls':'stop'}])out+='data: '+JSON.stringify({id:'test',object:'chat.completion.chunk',model:'test',choices:[{index:0,...choice}]})+'\n\n';
@@ -456,7 +456,7 @@ func TestPiWebProtocolErrorLetsModelFinish(t *testing.T) {
 	})}
 	result, err := streamPiChat(t.Context(), APIConnection{URL: "https://model.example/v1", Key: "model-secret"}, completionRequest{Model: "test", Tools: true, ContextWindow: 64000}, AIInput{Prompt: chat.Question, Chat: chat}, nil)
 	if err != nil || !strings.Contains(result.Text, "https://1.1.1.1/docs") || len(calls) != 1 {
-		t.Fatal("model should finish after receiving budget notice", err, result.Text, calls)
+		t.Fatal("model should finish after receiving recoverable failure", err, result.Text, calls)
 	}
 	if err := s.saveDocumentAgentAnswer(t.Context(), a, result.Text, "api"); err != nil {
 		t.Fatal("final answer was not saved", err)
