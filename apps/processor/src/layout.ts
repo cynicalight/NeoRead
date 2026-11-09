@@ -148,14 +148,40 @@ function readingLines(spans: TextSpan[]): TextSpan[][] {
   // PDF content streams can list columns out of order. Sort only inside one
   // detected region.
   const lines: TextSpan[][] = [];
+  // A radical's glyph can sit above the baseline of its operand, overlapping
+  // the preceding line. Place it after the ordinary lines have been formed.
+  const radical = (s: TextSpan) => s.text.trim() === "√";
   for (const span of [...spans]
-    .filter((s) => !small(s))
+    .filter((s) => !small(s) && !radical(s))
     .sort((a, b) => a.bounds.y - b.bounds.y)) {
     const line = lines.find((l) => sameLine(l[0], span));
     if (line) line.push(span);
     else lines.push([span]);
   }
-  for (const span of spans.filter(small)) {
+  for (const span of spans.filter(radical)) {
+    const right = span.bounds.x + span.bounds.width;
+    const candidates = lines
+      .flatMap((line) =>
+        line.flatMap((other) => {
+          const gap = other.bounds.x - right;
+          const overlap =
+            Math.min(
+              span.bounds.y + span.bounds.height,
+              other.bounds.y + other.bounds.height,
+            ) - Math.max(span.bounds.y, other.bounds.y);
+          return gap >= -span.bounds.width * 0.25 &&
+            gap <= span.bounds.width &&
+            overlap >= Math.min(span.bounds.height, other.bounds.height) * 0.1
+            ? [{ line, gap: Math.abs(gap) }]
+            : [];
+        }),
+      )
+      .sort((a, b) => a.gap - b.gap);
+    const line = candidates[0]?.line ?? lines.find((l) => sameLine(l[0], span));
+    if (line) line.push(span);
+    else lines.push([span]);
+  }
+  for (const span of spans.filter((s) => small(s) && !radical(s))) {
     const centre = span.bounds.y + span.bounds.height / 2;
     const line = lines.find(
       (l) =>
