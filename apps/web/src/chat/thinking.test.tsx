@@ -61,3 +61,28 @@ it("respects manual folding while reasoning streams and after completion", async
     vi.unstubAllGlobals();
   }
 });
+
+it("hides thinking that is only line breaks", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(<Thinking text={"\n\n\n"} active={false} />),
+    );
+    expect(host.textContent).toBe("");
+    await act(async () =>
+      root.render(<Thinking text={"\n\n核对原文\n"} active={false} />),
+    );
+    await act(async () => host.querySelector("button")!.click());
+    expect(
+      host.querySelector('[data-slot="trace-collapsible-content"]')
+        ?.textContent ?? host.textContent,
+    ).toContain("核对原文");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});

@@ -98,7 +98,12 @@ export function AssistantPanel({
               content = answer
                 ? answer.content + (answer.draft || "")
                 : (message?.content ?? "");
-            const reasoning = answer?.reasoning ?? message?.reasoning ?? "";
+            // Reasoning of only line breaks has nothing to show.
+            const reasoning = (
+              answer?.reasoning ??
+              message?.reasoning ??
+              ""
+            ).trim();
             const waiting =
               answer?.phase === "generating" &&
               !content &&

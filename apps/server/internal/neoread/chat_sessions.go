@@ -232,8 +232,17 @@ func sessionTitle(question string) string {
 	return string(runes)
 }
 
+// visibleReasoning drops reasoning with no visible text; some providers stream
+// thinking that is only line breaks.
+func visibleReasoning(reasoning string) string {
+	if strings.TrimSpace(reasoning) == "" {
+		return ""
+	}
+	return reasoning
+}
+
 func (s *Store) saveChatAnswer(ctx context.Context, chat *chatInput, text, reasoning string) error {
-	message := Message{ID: id(), CreatedAt: now(), DocumentID: chat.DocumentID, SessionID: chat.SessionID, Role: "assistant", Content: text, Reasoning: reasoning, Tools: chat.toolSnapshot(), WebSources: chat.webSourcesSnapshot()}
+	message := Message{ID: id(), CreatedAt: now(), DocumentID: chat.DocumentID, SessionID: chat.SessionID, Role: "assistant", Content: text, Reasoning: visibleReasoning(reasoning), Tools: chat.toolSnapshot(), WebSources: chat.webSourcesSnapshot()}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
