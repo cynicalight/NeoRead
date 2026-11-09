@@ -4,6 +4,7 @@ import { act, type ReactNode, type WheelEventHandler } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { AgentDeck, type DeckItem } from "./AgentDeck";
+import { toast } from "sonner";
 
 vi.mock("@neoread/ui/components/dialog", () => ({
   Dialog: ({ open, children }: { open: boolean; children: ReactNode }) =>
@@ -51,6 +52,7 @@ it("centres a focused guide target without selecting the provider", async () => 
           refreshing={false}
           loadCalls={async () => []}
           onPanelClose={() => {}}
+          onFallback={() => {}}
           usable={() => true}
         />,
       ),
@@ -73,6 +75,216 @@ it("centres a focused guide target without selecting the provider", async () => 
     )!;
     await act(async () => dismiss.click());
     expect(openChange).toHaveBeenCalledWith(false);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it.each([true, false])(
+  "checks the centered card on close (usable: %s)",
+  async (ready) => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    useReaderStore.getState().setTheme({ reducedMotion: true });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const pick = vi.fn(() => true);
+    const fallback = vi.fn();
+    const warning = vi
+      .spyOn(toast, "warning")
+      .mockImplementation(() => "toast");
+    const close = vi.fn();
+    const items: DeckItem[] = ["codex", "api"].map((id) => ({
+      id,
+      title: id,
+      icon: null,
+      status: id === "api" && !ready ? "missing" : "ready",
+      selected: id === "codex",
+      tour: "agent-card",
+    }));
+    try {
+      await act(async () =>
+        root.render(
+          <AgentDeck
+            items={items}
+            front="codex"
+            open
+            onOpenChange={close}
+            onPick={pick}
+            onFallback={fallback}
+            onDetail={() => true}
+            onRefresh={() => {}}
+            refreshing={false}
+            loadCalls={async () => []}
+            onPanelClose={() => {}}
+            usable={(id) => id !== "api" || ready}
+          />,
+        ),
+      );
+      await act(async () =>
+        host
+          .querySelector<HTMLElement>(
+            '[data-agent="api"] [data-slot="agent-select"]',
+          )!
+          .focus(),
+      );
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('[aria-label="收起"]')!.click(),
+      );
+      expect(close).toHaveBeenCalledWith(false);
+      if (ready) {
+        expect(pick).toHaveBeenCalledWith("api");
+        expect(fallback).not.toHaveBeenCalled();
+        expect(warning).not.toHaveBeenCalled();
+      } else {
+        expect(pick).not.toHaveBeenCalled();
+        expect(fallback).toHaveBeenCalledWith("codex");
+        expect(warning).toHaveBeenCalledOnce();
+      }
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+it("keeps the selected agent when the saved front card is stale", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  useReaderStore.getState().setTheme({ reducedMotion: true });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const pick = vi.fn(() => true);
+  const items: DeckItem[] = ["codex", "api"].map((id) => ({
+    id,
+    title: id,
+    icon: null,
+    status: "ready",
+    selected: id === "codex",
+    tour: "agent-card",
+  }));
+  try {
+    await act(async () =>
+      root.render(
+        <AgentDeck
+          items={items}
+          front="api"
+          open
+          onOpenChange={() => {}}
+          onPick={pick}
+          onFallback={() => {}}
+          onDetail={() => true}
+          onRefresh={() => {}}
+          refreshing={false}
+          loadCalls={async () => []}
+          onPanelClose={() => {}}
+          usable={() => true}
+        />,
+      ),
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="收起"]')!.click(),
+    );
+    expect(pick).toHaveBeenCalledWith("codex");
+    expect(pick).not.toHaveBeenCalledWith("api");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("does not open the deck while the agent configuration is loading", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const openChange = vi.fn();
+  const items: DeckItem[] = [
+    {
+      id: "codex",
+      title: "Codex",
+      icon: null,
+      status: "ready",
+      tour: "agent-card",
+    },
+  ];
+  try {
+    await act(async () =>
+      root.render(
+        <AgentDeck
+          items={items}
+          front="codex"
+          open={false}
+          disabled
+          onOpenChange={openChange}
+          onPick={() => true}
+          onFallback={() => {}}
+          onDetail={() => true}
+          onRefresh={() => {}}
+          refreshing={false}
+          loadCalls={async () => []}
+          onPanelClose={() => {}}
+          usable={() => true}
+        />,
+      ),
+    );
+    const button = host.querySelector<HTMLButtonElement>(
+      '[aria-label="展开 Agent 卡片"]',
+    )!;
+    expect(button.disabled).toBe(true);
+    await act(async () => button.click());
+    expect(openChange).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("follows a refreshed selection before the user navigates", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  useReaderStore.getState().setTheme({ reducedMotion: true });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const pick = vi.fn(() => true);
+  const render = (selected: string) =>
+    root.render(
+      <AgentDeck
+        items={["codex", "api"].map((id) => ({
+          id,
+          title: id,
+          icon: null,
+          status: "ready" as const,
+          selected: id === selected,
+          tour: "agent-card" as const,
+        }))}
+        front="codex"
+        open
+        onOpenChange={() => {}}
+        onPick={pick}
+        onFallback={() => {}}
+        onDetail={() => true}
+        onRefresh={() => {}}
+        refreshing={false}
+        loadCalls={async () => []}
+        onPanelClose={() => {}}
+        usable={() => true}
+      />,
+    );
+  try {
+    await act(async () => render("codex"));
+    await act(async () => render("api"));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="收起"]')!.click(),
+    );
+    expect(pick).toHaveBeenCalledWith("api");
+    expect(pick).not.toHaveBeenCalledWith("codex");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -151,6 +363,7 @@ async function scrollDeck(
           refreshing={false}
           loadCalls={async () => []}
           onPanelClose={() => {}}
+          onFallback={() => {}}
           usable={() => ready}
         />,
       ),
@@ -228,7 +441,9 @@ it("eases mouse wheel notches instead of jumping a whole card per event", async 
   expect(notches.firstInput).toBeCloseTo(0);
   expect(notches.during).toBeGreaterThan(0);
   expect(notches.during).toBeLessThan(300);
-  expect(notches.settled).toBeCloseTo(Math.round(300 / deckStep()) * deckStep());
+  expect(notches.settled).toBeCloseTo(
+    Math.round(300 / deckStep()) * deckStep(),
+  );
 });
 
 it("moves one card for a single short wheel notch", async () => {

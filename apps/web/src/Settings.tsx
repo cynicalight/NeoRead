@@ -1157,6 +1157,7 @@ export function Settings({
                 </div>
                 <AgentDeck
                   items={deckItems}
+                  disabled={!config}
                   front={deckFront}
                   open={deckOpen}
                   onOpenChange={setDeckOpen}
@@ -1350,6 +1351,7 @@ export function Settings({
                   onPanelClose={() => {
                     setAPIDetails(false);
                   }}
+                  onFallback={rememberCard}
                   usable={(id) => agentStatus(id) === "ready"}
                   onPick={pickCard}
                   onDetail={openDetail}
