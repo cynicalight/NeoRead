@@ -704,7 +704,73 @@ kbd {
   min-width: 180px;
 }
 .assistant-sidebar {
+  --assistant-header-height: 112px;
+  position: relative;
   min-width: 250px;
+}
+/* Shared by all three tabs: keep controls crisp while the surface and blur
+   fade independently over the content below each tab’s toolbar. */
+.assistant-sidebar::before,
+.assistant-sidebar::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--assistant-header-height);
+  z-index: 1;
+  pointer-events: none;
+}
+.assistant-sidebar::before {
+  background: linear-gradient(
+    to bottom,
+    var(--background) 0%,
+    var(--background) 38%,
+    color-mix(in srgb, var(--background) 82%, transparent) 56%,
+    color-mix(in srgb, var(--background) 38%, transparent) 76%,
+    transparent 100%
+  );
+  backdrop-filter: blur(16px);
+  mask-image: linear-gradient(to bottom, #000 42%, #0009 70%, transparent);
+}
+.assistant-sidebar::after {
+  backdrop-filter: blur(4px);
+  mask-image: linear-gradient(to bottom, #000 55%, #000b 78%, transparent);
+}
+.assistant-sidebar > [data-slot="tabs"] > .panel-tabs {
+  z-index: 2;
+  border-bottom: 0;
+  background: transparent;
+}
+.assistant-sidebar .notes-header,
+.assistant-sidebar .paper-note-toolbar {
+  position: relative;
+  z-index: 2;
+}
+.assistant-sidebar:has(> [data-slot="tabs"] > .notes-panel:not([hidden])) {
+  --assistant-header-height: 156px;
+}
+.notes-header {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 8px 15px 12px;
+}
+.notes-header .notes-filter.notes-filter {
+  margin-bottom: 0;
+}
+.notes-header .notes-search {
+  padding: 0;
+}
+.notes-header .notes-search > svg {
+  top: 8px;
+  left: 10px;
+}
+/* Keep both filter and search controls fixed over scrolling annotations. */
+.assistant-sidebar .notes-header + [data-slot="scroll-area"] {
+  margin-top: -92px;
+}
+.assistant-sidebar .notes-list {
+  padding-top: 92px;
 }
 .neoread-sidebar[data-open="false"] {
   opacity: 0;

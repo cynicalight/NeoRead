@@ -318,35 +318,35 @@ export function NotesPanel({
   const byId = new Map(messages.map((m) => [m.id, m]));
   return (
     <div className="notes-panel">
-      <div className="notes-search">
-        <Search aria-hidden="true" />
-        <Input
-          type="search"
-          aria-label="搜索批注内容"
-          placeholder="搜索批注内容"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
+      <div className="notes-header">
+        <Tabs
+          value={filter}
+          onValueChange={(value) => setFilter(value as NotesFilter)}
+        >
+          <TabsList aria-label="筛选记录" className="notes-filter">
+            {(Object.keys(filterLabels) as NotesFilter[]).map((key) => (
+              <TabsTrigger key={key} value={key} className="px-2 text-xs">
+                {filterLabels[key]}
+                {key !== "all" && counts[key] > 0 && (
+                  <small className="text-muted-foreground">{counts[key]}</small>
+                )}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <div className="notes-search">
+          <Search aria-hidden="true" />
+          <Input
+            type="search"
+            aria-label="搜索批注内容"
+            placeholder="搜索批注内容"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="notes-list">
-          <Tabs
-            value={filter}
-            onValueChange={(value) => setFilter(value as NotesFilter)}
-          >
-            <TabsList aria-label="筛选记录" className="notes-filter">
-              {(Object.keys(filterLabels) as NotesFilter[]).map((key) => (
-                <TabsTrigger key={key} value={key} className="px-2 text-xs">
-                  {filterLabels[key]}
-                  {key !== "all" && counts[key] > 0 && (
-                    <small className="text-muted-foreground">
-                      {counts[key]}
-                    </small>
-                  )}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
           {facets.colors.length > 0 && (
             <div className="notes-facets">
               <ToggleGroup
