@@ -21,6 +21,7 @@ vi.mock("@neoread/api", () => ({
     annotations: vi.fn(async () => []),
     messages: vi.fn(async () => []),
     paperAttachments: vi.fn(async () => []),
+    removePaperAttachment: vi.fn(async () => {}),
     snapshotStatus: vi.fn(async () => ({ available: false })),
     journalRankConfig: vi.fn(async () => ({
       enabled: true,
@@ -1797,6 +1798,34 @@ it("expands and collapses attachment children with the keyboard", async () => {
   });
   expect(host.querySelector("[data-attachment-row]")).toBeNull();
   expect(document.activeElement).toBe(row(docs[0].title));
+});
+
+it("removes an attachment from the detail menu without dismissing the paper", async () => {
+  vi.mocked(api.paperAttachments).mockResolvedValue([supplement]);
+  await act(async () => usePaperUI.setState({ selectedId: "a" }));
+  await act(async () => button("附件菜单 Supplementary material").click());
+  const item = menuItem("移除附件…");
+  // Native pointerdown precedes the menu click, including clicks on its icon.
+  await press(item.querySelector("svg")!, "pointerdown");
+  expect(usePaperUI.getState().selectedId).toBe("a");
+  await act(async () => item.click());
+  const dialog = document.querySelector('[role="alertdialog"]')!;
+  expect(dialog).not.toBeNull();
+  await press(
+    dialog.querySelector('[data-slot="alert-dialog-description"]')!,
+    "pointerdown",
+  );
+  expect(usePaperUI.getState().selectedId).toBe("a");
+  const confirm = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "移除附件",
+  )!;
+  await press(confirm, "pointerdown");
+  await act(async () => confirm.click());
+  expect(api.removePaperAttachment).toHaveBeenCalledExactlyOnceWith("a", "supp");
+  expect(useAttachments.getState().items.a).toEqual([]);
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  expect(usePaperUI.getState().selectedId).toBe("a");
+  expect(host.querySelector(".paper-detail")).not.toBeNull();
 });
 
 it("opens attachment rename and removal from the child context menu", async () => {

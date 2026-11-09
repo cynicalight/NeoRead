@@ -387,14 +387,15 @@ export function PaperLibrary({
   const [libraryBody, setLibraryBody] = useState<HTMLDivElement | null>(null);
   const clickIntent = useClickIntent(selectedId);
   useEffect(() => {
-    // Pressing on empty library space closes the detail panel.
+    // Nested menus/dialogs portal into the library too; only empty library
+    // space should close the detail panel.
     const main = mainRef.current;
     if (!main || !selectedId) return;
     const away = (e: PointerEvent) => {
       if (
         e.button === 0 &&
         !(e.target as Element).closest(
-          '[data-paper-id], [data-attachment-row], .detail-sheet, button, a, input, textarea, select, label, [role="button"], [role="separator"], [role="tab"], [contenteditable="true"]',
+          '[data-base-ui-portal], [data-paper-id], [data-attachment-row], .detail-sheet, button, a, input, textarea, select, label, [role="button"], [role="separator"], [role="tab"], [contenteditable="true"]',
         )
       )
         ui.select(null);
