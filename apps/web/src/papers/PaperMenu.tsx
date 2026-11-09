@@ -49,10 +49,6 @@ import {
 import { paperLink } from "./format";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
 import { reparseDocument } from "../reparse-document";
-import {
-  exportTranslatedPDFWithToast,
-  exportTranslatedMarkdownWithToast,
-} from "../translated-pdf-export";
 import { CitationMenuItems } from "./CitationMenu";
 import {
   categoryTree,
@@ -89,6 +85,7 @@ const kits = {
 
 export interface PaperMenuActions {
   open: (doc: Document) => void;
+  export: (doc: Document) => void;
   move: (doc: Document) => void;
   trash: (docs: Document[]) => void;
   newCategory: (docs: Document[]) => void;
@@ -283,19 +280,13 @@ export function PaperMenuItems({
                 : "在文件夹中显示"}
             </K.Item>
           )}
-          {kind === "context" && one.type === "pdf" && (
-            <K.Item onClick={() => void exportTranslatedMarkdownWithToast(one)}>
+          {kind === "context" && (
+            <K.Item onClick={() => actions.export(one)}>
               <FileDown />
-              导出译文 Markdown
+              导出…
             </K.Item>
           )}
-          {kind === "context" && one.type === "pdf" && (
-            <K.Item onClick={() => void exportTranslatedPDFWithToast(one)}>
-              <FileDown />
-              导出译文 PDF
-            </K.Item>
-          )}
-          {one.type === "pdf" && (
+          {kind === "dropdown" && one.type === "pdf" && (
             <K.Item onClick={() => void exportAnnotatedPDFWithToast(one)}>
               <FileDown />
               导出带批注的 PDF

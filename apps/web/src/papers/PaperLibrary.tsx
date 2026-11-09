@@ -139,6 +139,7 @@ import {
 import { usePaperUI } from "./state";
 import { PaperDetail } from "./PaperDetail";
 import { DetailSheet, useClickIntent } from "../DetailSheet";
+import { ExportDocumentDialog } from "../ExportDocumentDialog";
 import { PaperMenuItems, type PaperMenuActions } from "./PaperMenu";
 import { CategoryDialog } from "./CategoryDialog";
 import { CitationDialog } from "./CitationDialog";
@@ -240,6 +241,7 @@ export function PaperLibrary({
       reverse,
     ],
   );
+  const [exportDocument, setExportDocument] = useState<Document | null>(null);
   const [merging, setMerging] = useState<Document[] | null>(null);
   const [tagging, setTagging] = useState<string[] | null>(null);
   const [journalRankConfig, setJournalRankConfig] =
@@ -529,6 +531,7 @@ export function PaperLibrary({
     return result;
   };
   const actions: PaperMenuActions = {
+    export: setExportDocument,
     open: openDocument,
     addAttachment: (doc, kind) => {
       useAttachments.setState({ selected: null });
@@ -1262,6 +1265,13 @@ export function PaperLibrary({
               ))}
           </DetailSheet>
         </div>
+      )}
+      {exportDocument && (
+        <ExportDocumentDialog
+          key={exportDocument.id}
+          document={exportDocument}
+          onClose={() => setExportDocument(null)}
+        />
       )}
       {exporting && (
         <CitationDialog

@@ -9,7 +9,9 @@ import { exportTranslatedPDF } from "./translated-pdf-export";
 import { exportMarkdownFile, exportOriginal } from "./document-export";
 import { ExportDocumentDialog } from "./ExportDocumentDialog";
 import { paper } from "./papers/fixtures";
-vi.mock("@neoread/api", () => ({ api: { exportTranslation: vi.fn() } }));
+vi.mock("@neoread/api", () => ({
+  api: { exportTranslation: vi.fn(), annotations: vi.fn(), messages: vi.fn() },
+}));
 vi.mock("./download", () => ({
   downloadBlob: vi.fn(),
   fileTitle: (title: string) => title,
@@ -49,13 +51,25 @@ const selectFormat = async (label: string) => {
     )
       await act(async () => button(format).click());
 };
-const mount = async () =>
+const selectTarget = async (label: string) => {
+  for (const target of ["批注", "原文", "译文"])
+    if (
+      (button(target).getAttribute("aria-pressed") === "true") !==
+      (target === label)
+    )
+      await act(async () => button(target).click());
+};
+const exportTarget = async (label: string) => {
+  await selectTarget(label);
+  await act(async () => button("导出").click());
+};
+const mount = async (load = false) =>
   act(async () =>
     root.render(
       <ExportDocumentDialog
         document={doc}
-        annotations={annotations}
-        messages={[]}
+        annotations={load ? undefined : annotations}
+        messages={load ? undefined : []}
         onClose={close}
       />,
     ),
@@ -73,6 +87,8 @@ beforeEach(() => {
   vi.mocked(exportOriginal).mockResolvedValue("download");
   vi.mocked(exportTranslatedPDF).mockResolvedValue({ delivery: "download" });
   vi.mocked(api.exportTranslation).mockResolvedValue(new Blob(["译文"]));
+  vi.mocked(api.annotations).mockResolvedValue(annotations);
+  vi.mocked(api.messages).mockResolvedValue([]);
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -85,6 +101,7 @@ afterEach(async () => {
 });
 it("keeps only the four annotation kinds and separates original and translation", async () => {
   await mount();
+  await selectTarget("批注");
   expect(
     [...document.querySelectorAll('[role="checkbox"]')].map((el) =>
       el.getAttribute("aria-label"),
@@ -100,19 +117,20 @@ it("keeps only the four annotation kinds and separates original and translation"
     "按 Markdown 默认字号",
   ])
     expect(document.body.textContent).not.toContain(text);
-  expect(button("导出原文")).toBeTruthy();
-  expect(button("导出译文")).toBeTruthy();
+  expect(button("原文")).toBeTruthy();
+  expect(button("译文")).toBeTruthy();
 });
 it.each(["Markdown", "PDF"])(
   "exports only selected annotations as %s",
   async (label) => {
     await mount();
+    await selectTarget("批注");
     for (const name of ["批注", "高亮", "问题"])
       await act(async () =>
         document.querySelector<HTMLElement>(`[aria-label="${name}"]`)!.click(),
       );
     await selectFormat(label);
-    await act(async () => button("导出批注").click());
+    await exportTarget("批注");
     expect(exportMarkdownFile).toHaveBeenCalledWith(
       expect.stringContaining("underline-quote"),
       "论文-批注",
@@ -127,19 +145,21 @@ it.each(["Markdown", "PDF"])(
 );
 it("disables annotation formats when no kinds are selected", async () => {
   await mount();
+  await selectTarget("批注");
   for (const checkbox of document.querySelectorAll<HTMLElement>(
     '[role="checkbox"]',
   ))
     await act(async () => checkbox.click());
-  expect(button("导出批注").disabled).toBe(true);
-  expect(button("导出原文").disabled).toBe(false);
+  expect(button("导出").disabled).toBe(true);
+  await selectTarget("原文");
+  expect(button("导出").disabled).toBe(false);
 });
 it.each(["Markdown", "PDF"])(
   "exports original as %s without annotations",
   async (label) => {
     await mount();
     await selectFormat(label);
-    await act(async () => button("导出原文").click());
+    await exportTarget("原文");
     expect(exportOriginal).toHaveBeenCalledWith(
       doc,
       label === "PDF" ? "pdf" : "markdown",
@@ -152,7 +172,7 @@ it.each(["Markdown", "PDF"])(
 it.each(["Markdown", "PDF"])("exports translation as %s", async (label) => {
   await mount();
   await selectFormat(label);
-  await act(async () => button("导出译文").click());
+  await exportTarget("译文");
   if (label === "PDF")
     expect(exportTranslatedPDF).toHaveBeenCalledWith(
       doc,
@@ -179,7 +199,7 @@ it("cancels a format request and prevents its late download", async () => {
       }),
   );
   await mount();
-  await act(async () => button("导出译文").click());
+  await exportTarget("译文");
   await selectFormat("Markdown");
   const signal = vi.mocked(api.exportTranslation).mock.calls[0][2]!;
   await act(async () =>
@@ -191,12 +211,12 @@ it("cancels a format request and prevents its late download", async () => {
   await act(async () => finish(new Blob(["late"])));
   expect(downloadBlob).not.toHaveBeenCalled();
   expect(close).toHaveBeenCalledOnce();
-  expect(button("导出原文")).toBeTruthy();
+  expect(button("原文")).toBeTruthy();
 });
 it("keeps an export error visible and allows retry", async () => {
   vi.mocked(exportOriginal).mockRejectedValueOnce(new Error("正文尚未解析"));
   await mount();
-  await act(async () => button("导出原文").click());
+  await exportTarget("原文");
   await selectFormat("Markdown");
   expect(activeDialog().textContent).toContain("正文尚未解析");
   expect(button("Markdown").disabled).toBe(false);
@@ -219,7 +239,7 @@ it("selects both formats inline and closes only after both finish", async () => 
   expect(button("PDF").getAttribute("aria-pressed")).toBe("true");
   expect(exportOriginal).not.toHaveBeenCalled();
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
-  await act(async () => button("导出原文").click());
+  await exportTarget("原文");
   expect(vi.mocked(exportOriginal).mock.calls.map((call) => call[1])).toEqual([
     "markdown",
     "pdf",
@@ -231,8 +251,7 @@ it("selects both formats inline and closes only after both finish", async () => 
 it("disables all exports when all formats are deselected", async () => {
   await mount();
   await act(async () => button("Markdown").click());
-  for (const label of ["导出批注", "导出原文", "导出译文"])
-    expect(button(label).disabled).toBe(true);
+  expect(button("导出").disabled).toBe(true);
 });
 it("cancels the batch without starting the remaining format", async () => {
   let finish!: (blob: Blob) => void;
@@ -244,7 +263,7 @@ it("cancels the batch without starting the remaining format", async () => {
   );
   await mount();
   await act(async () => button("PDF").click());
-  await act(async () => button("导出译文").click());
+  await exportTarget("译文");
   await act(async () =>
     activeDialog()
       .querySelector<HTMLButtonElement>('[data-slot="dialog-close"]')!
@@ -254,4 +273,59 @@ it("cancels the batch without starting the remaining format", async () => {
   expect(downloadBlob).not.toHaveBeenCalled();
   expect(exportTranslatedPDF).not.toHaveBeenCalled();
   expect(close).toHaveBeenCalledOnce();
+});
+
+it("exports all selected contents in both formats with one action", async () => {
+  await mount(true);
+  await act(async () => button("批注").click());
+  await act(async () => button("译文").click());
+  await act(async () => button("PDF").click());
+  await act(async () => button("导出").click());
+  expect(exportOriginal).toHaveBeenCalledTimes(2);
+  expect(exportMarkdownFile).toHaveBeenCalledTimes(2);
+  expect(api.annotations).toHaveBeenCalledExactlyOnceWith(
+    doc.id,
+    expect.any(AbortSignal),
+  );
+  expect(api.messages).toHaveBeenCalledExactlyOnceWith(
+    doc.id,
+    expect.any(AbortSignal),
+  );
+  expect(api.exportTranslation).toHaveBeenCalledOnce();
+  expect(exportTranslatedPDF).toHaveBeenCalledOnce();
+  expect(close).toHaveBeenCalledOnce();
+});
+it("does not export after closing while annotation data is loading", async () => {
+  let finish!: (value: Annotation[]) => void;
+  vi.mocked(api.annotations).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await mount(true);
+  await exportTarget("批注");
+  const signal = vi.mocked(api.annotations).mock.calls[0][1]!;
+  await act(async () =>
+    activeDialog()
+      .querySelector<HTMLButtonElement>('[data-slot="dialog-close"]')!
+      .click(),
+  );
+  expect(signal.aborted).toBe(true);
+  await act(async () => finish(annotations));
+  expect(exportMarkdownFile).not.toHaveBeenCalled();
+});
+it("keeps data loading failures retryable", async () => {
+  vi.mocked(api.annotations).mockRejectedValueOnce(new Error("读取批注失败"));
+  await mount(true);
+  await exportTarget("批注");
+  expect(activeDialog().textContent).toContain("读取批注失败");
+  expect(exportMarkdownFile).not.toHaveBeenCalled();
+  await act(async () => button("导出").click());
+  expect(exportMarkdownFile).toHaveBeenCalledOnce();
+});
+it("requires at least one content selection", async () => {
+  await mount();
+  await act(async () => button("原文").click());
+  expect(button("导出").disabled).toBe(true);
 });

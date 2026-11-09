@@ -13,19 +13,13 @@ import { useAttachments } from "./attachments";
 import * as attachments from "./attachments";
 import { paper } from "./fixtures";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
-import {
-  exportTranslatedPDFWithToast,
-  exportTranslatedMarkdownWithToast,
-} from "../translated-pdf-export";
-vi.mock("../translated-pdf-export", () => ({
-  exportTranslatedPDFWithToast: vi.fn(async () => {}),
-  exportTranslatedMarkdownWithToast: vi.fn(async () => {}),
-}));
 vi.mock("../annotated-pdf-export", () => ({
   exportAnnotatedPDFWithToast: vi.fn(async () => 1),
 }));
 vi.mock("@neoread/api", () => ({
   api: {
+    annotations: vi.fn(async () => []),
+    messages: vi.fn(async () => []),
     paperAttachments: vi.fn(async () => []),
     snapshotStatus: vi.fn(async () => ({ available: false })),
     journalRankConfig: vi.fn(async () => ({
@@ -2566,7 +2560,7 @@ it("does not look up the AI title if applying it fails", async () => {
   expect(api.lookupMetadata).not.toHaveBeenCalled();
 });
 
-it("exports the context-clicked paper translation without opening citation actions", async () => {
+it("opens the shared export dialog for the context-clicked paper", async () => {
   await act(async () =>
     row(docs[1].title).dispatchEvent(
       new MouseEvent("contextmenu", {
@@ -2578,24 +2572,36 @@ it("exports the context-clicked paper translation without opening citation actio
     ),
   );
   expect(menuItem("引用")).toBeUndefined();
-  await act(async () => menuItem("导出译文 PDF").click());
-  expect(exportTranslatedPDFWithToast).toHaveBeenCalledExactlyOnceWith(docs[1]);
-  expect(open).not.toHaveBeenCalled();
-});
-
-it("exports the context-clicked paper translation as Markdown", async () => {
-  await act(async () =>
-    row(docs[1].title).dispatchEvent(
-      new MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        clientX: 10,
-        clientY: 10,
-      }),
-    ),
+  expect(menuItem("导出译文 PDF")).toBeUndefined();
+  expect(menuItem("导出译文 Markdown")).toBeUndefined();
+  expect(menuItem("导出带批注的 PDF")).toBeUndefined();
+  await act(async () => menuItem("导出…").click());
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog).toBeTruthy();
+  expect(dialog.querySelector('[aria-label="导出内容"]')?.textContent).toBe(
+    "批注原文译文",
   );
-  await act(async () => menuItem("导出译文 Markdown").click());
-  expect(exportTranslatedMarkdownWithToast).toHaveBeenCalledExactlyOnceWith(
-    docs[1],
+  expect(dialog.querySelector('[aria-label="导出格式"]')?.textContent).toBe(
+    "MarkdownPDF",
+  );
+  expect(open).not.toHaveBeenCalled();
+  // The clicked document must be used even while another paper is selected.
+  const toggles = [...dialog.querySelectorAll<HTMLButtonElement>("button")];
+  await act(async () =>
+    toggles.find((el) => el.textContent === "批注")!.click(),
+  );
+  await act(async () =>
+    toggles.find((el) => el.textContent === "原文")!.click(),
+  );
+  await act(async () =>
+    toggles.find((el) => el.textContent === "导出")!.click(),
+  );
+  expect(api.annotations).toHaveBeenCalledWith(
+    docs[1].id,
+    expect.any(AbortSignal),
+  );
+  expect(api.messages).toHaveBeenCalledWith(
+    docs[1].id,
+    expect.any(AbortSignal),
   );
 });
