@@ -236,7 +236,6 @@ export function TaskModels({
                       value={m.id}
                       label={m.name}
                       aria-label={m.name}
-                      className="[&>span:first-child]:items-center"
                     >
                       <ProviderIcon provider={provider} model={m} size={20} />
                       {m.name}
