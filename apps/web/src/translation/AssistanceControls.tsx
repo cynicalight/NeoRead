@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, FileSearch, Pause, RotateCcw, Languages } from "lucide-react";
-import type { EPUBLocation, LibraryMode, Processing } from "@neoread/core";
+import type { Processing } from "@neoread/core";
 import { api } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
 import {
@@ -14,27 +14,19 @@ import {
   AlertDialogCancel,
 } from "@neoread/ui/components/alert-dialog";
 import { toast } from "sonner";
-import type { PageRange } from "./chapters";
 
-type Action = "start" | "pause" | "resume" | "chapter";
+type Action = "start" | "pause" | "resume";
 
 /**
- * Papers translate the whole document with start, pause and resume. Books
- * translate the current chapter on request; the server caps each request.
+ * Papers translate the whole document with start, pause and resume. Books use
+ * BookChapterControls, bound to the current chapter.
  */
 export function AssistanceControls({
   documentId,
   processing,
-  library = "papers",
-  chapter,
-  epubChapter,
 }: {
   documentId: string;
   processing?: Processing;
-  library?: LibraryMode;
-  /** The chapter at the reading position, read when the button is pressed. */
-  chapter?: () => PageRange | undefined;
-  epubChapter?: () => EPUBLocation | undefined;
 }) {
   const [saved, setSaved] = useState<Processing>();
   const [busy, setBusy] = useState(false);
@@ -64,11 +56,7 @@ export function AssistanceControls({
   }, [documentId]);
   const complete = job?.status === "complete";
   const paperParsing =
-    library === "papers" &&
-    !epubChapter &&
-    job?.phase === "learning" &&
-    !job.retranslating &&
-    !complete;
+    job?.phase === "learning" && !job.retranslating && !complete;
   const parsingPending = paperParsing && job.status !== "failed";
   const [action, label]: [Action, string] =
     job?.enabled && job.status === "failed"
@@ -76,16 +64,11 @@ export function AssistanceControls({
       : job?.enabled && !complete
         ? ["pause", "暂停翻译"]
         : !job?.enabled
-          ? epubChapter &&
-            (!job?.startedAt || job.translating?.status === "complete")
-            ? ["chapter", "翻译本章"]
-            : job?.startedAt && !job.manualTranslation
-              ? ["resume", "继续翻译"]
-              : ["start", "翻译"]
-          : library === "books"
-            ? ["chapter", "翻译本章"]
-            : ["start", "翻译完成"];
-  const finished = complete && action !== "chapter";
+          ? job?.startedAt && !job.manualTranslation
+            ? ["resume", "继续翻译"]
+            : ["start", "翻译"]
+          : ["start", "翻译完成"];
+  const finished = complete;
   const actionLabel = paperParsing
     ? job.status === "failed"
       ? "重试解析"
@@ -97,39 +80,14 @@ export function AssistanceControls({
         ? "暂停重译"
         : "继续重译"
       : label;
-  const run = async () => {
-    if (action !== "chapter") return api.setAssistance(documentId, action);
-    if (epubChapter) {
-      const location = epubChapter();
-      if (!location?.href) throw new Error("正文仍在加载，请稍后再试");
-      await api.translateEPUBChapter(documentId, location);
-      return api.assistance(documentId);
-    }
-    const range = chapter?.();
-    if (!range) return undefined;
-    const result = await api.translateRange(
-      documentId,
-      range.fromPage,
-      range.toPage,
-    );
-    if (result.parsing) toast("正在解析本章，完成后开始翻译");
-    return api.assistance(documentId);
-  };
+  const run = () => api.setAssistance(documentId, action);
   return (
     <div className="assistance-controls">
       <Button
         variant="ghost"
         size="sm"
         disabled={busy || !job || finished || parsingPending}
-        title={
-          action === "chapter"
-            ? "翻译当前完整章节，复用已完成译文"
-            : job?.enabled
-              ? job.detail
-              : epubChapter
-                ? "继续已请求章节的翻译"
-                : "使用当前 AI 连接翻译全文与公式"
-        }
+        title={job?.enabled ? job.detail : "使用当前 AI 连接翻译全文与公式"}
         onClick={async () => {
           const operation = ++serial.current;
           setBusy(true);
@@ -156,7 +114,7 @@ export function AssistanceControls({
         )}
         {actionLabel}
       </Button>
-      {finished && library === "papers" && !epubChapter && (
+      {finished && (
         <AlertDialog open={confirming} onOpenChange={setConfirming}>
           <AlertDialogTrigger
             render={

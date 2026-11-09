@@ -6,6 +6,7 @@ import { readerLayout, updateReaderLayout } from "../neoread-layout";
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -27,7 +28,8 @@ import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
 import { Button } from "@neoread/ui/components/button";
 import { toast } from "sonner";
 import { ReaderView } from "../ReaderView";
-import { AssistanceControls } from "./AssistanceControls";
+import { BookChapterControls } from "./BookChapterControls";
+import { useChapterTranslation } from "./chapterTranslation";
 import { TranslationPanes } from "./TranslationPanes";
 import { TranslationText } from "./TranslationText";
 import { translatedSelection } from "./selection";
@@ -42,6 +44,19 @@ import { translationFont } from "../appearance";
 import "./translation.css";
 
 type Mode = "source" | "parallel" | "translation";
+/** Scroll settling after a pinned jump or click does not move the anchor. */
+const pinHold = 800;
+/** Only what locates the chapter; offsets would refetch on every scroll. */
+const blockAnchor = (block: EPUBReadingBlock): EPUBLocation => ({
+  type: "epub",
+  href: block.location.href,
+  blockId: block.id,
+});
+function chapterAnchor(location: EPUBLocation): EPUBLocation {
+  return location.blockId
+    ? { type: "epub", href: location.href, blockId: location.blockId }
+    : { type: "epub", href: location.href, locator: location.locator };
+}
 export function EPUBReadingView({
   document: doc,
   active = true,
@@ -87,6 +102,41 @@ export function EPUBReadingView({
     doc.progress?.type === "epub" ? doc.progress : { type: "epub", href: "" },
   );
   const side = useRef<"source" | "translation">("source");
+  // The paragraph whose chapter the toolbar describes. A click, selection,
+  // jump or paragraph request pins it; afterwards scrolling moves it to the
+  // paragraph at the middle of the view.
+  const [anchor, setAnchor] = useState<EPUBLocation | undefined>(() =>
+    doc.progress?.type === "epub" ? chapterAnchor(doc.progress) : undefined,
+  );
+  const pinnedAt = useRef(0);
+  const driftTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const placeAnchor = (location: EPUBLocation) => {
+    const next = chapterAnchor(location);
+    setAnchor((current) =>
+      current?.href === next.href &&
+      current.blockId === next.blockId &&
+      current.locator === next.locator
+        ? current
+        : next,
+    );
+  };
+  const pinAnchor = (location: EPUBLocation) => {
+    if (!location.href) return;
+    pinnedAt.current = performance.now();
+    clearTimeout(driftTimer.current);
+    placeAnchor(location);
+  };
+  const driftAnchor = (location: EPUBLocation) => {
+    if (
+      !location.href ||
+      focusMotion.current.moving ||
+      performance.now() - pinnedAt.current < pinHold
+    )
+      return;
+    clearTimeout(driftTimer.current);
+    driftTimer.current = setTimeout(() => placeAnchor(location), 200);
+  };
+  useEffect(() => () => clearTimeout(driftTimer.current), []);
   const navigating = useRef(false);
   const syncTarget = useRef<EPUBLocation | undefined>(undefined);
   const pendingFollow = useRef<ReadingAnchor | undefined>(undefined);
@@ -101,6 +151,22 @@ export function EPUBReadingView({
   const pressedBlock = useRef<{ id: string; x: number; y: number }>(undefined);
   // An explicit block focus owns both panes until its motion settles.
   const focusMotion = useRef({ operation: 0, moving: false });
+  const translationRevision = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const t of translations)
+      counts[t.status] = (counts[t.status] ?? 0) + 1;
+    return Object.entries(counts).sort().join();
+  }, [translations]);
+  const {
+    status: chapterStatus,
+    stale: chapterStale,
+    refresh: refreshChapter,
+  } = useChapterTranslation(
+    doc.id,
+    anchor && { location: anchor },
+    `${processing?.updatedAt ?? ""}|${translationRevision}`,
+    active,
+  );
   const live = useRef({
     mode,
     blocks,
@@ -257,6 +323,7 @@ export function EPUBReadingView({
     motion.moving = true;
     setFocusedBlock(id);
     updateLocation(block.location);
+    pinAnchor(blockAnchor(block));
     const current = live.current.mode;
     const cancelled = () => operation !== motion.operation;
     void Promise.all([
@@ -345,6 +412,7 @@ export function EPUBReadingView({
     )
       location = resolved;
     updateLocation(location);
+    pinAnchor(location);
     setChapter(location.href.split("#")[0]);
     const block = epubBlocksAt(location, live.current.blocks)[0];
     if (block) follow(block.id);
@@ -472,6 +540,7 @@ export function EPUBReadingView({
     selection.current = value.selection;
     live.current.events.selection(value.selection);
     updateLocation(value.selection.location);
+    pinAnchor(value.selection.location);
     if (!live.current.reflow) void syncSource(value.selection.location);
   };
   const scroll = () => {
@@ -504,6 +573,7 @@ export function EPUBReadingView({
             ?.goTo(block.location)
             .catch((e) => toast.error(e.message));
         updateLocation(block.location);
+        driftAnchor(blockAnchor(block));
         if (live.current.mode === "parallel" && node) {
           const rect = node.getBoundingClientRect();
           const anchor = {
@@ -556,15 +626,26 @@ export function EPUBReadingView({
     });
   };
   const retry = (id = "") => {
-    void api.translate(doc.id, id).catch((e) => toast.error(e.message));
+    const block = live.current.blocks.find((b) => b.id === id);
+    if (block) pinAnchor(blockAnchor(block));
+    void api
+      .translate(doc.id, id)
+      .then(refreshChapter)
+      .catch((e) => toast.error(e.message));
   };
   const toolbar = (
     <div className="translation-toolbar">
-      <AssistanceControls
+      <BookChapterControls
         documentId={doc.id}
         processing={processing}
-        library="books"
-        epubChapter={() => position.current}
+        status={chapterStatus}
+        stale={chapterStale}
+        onRequest={async () => {
+          const location = anchor ?? position.current;
+          if (!location.href) throw new Error("正文仍在加载，请稍后再试");
+          await api.translateEPUBChapter(doc.id, location);
+        }}
+        onChange={refreshChapter}
       />
       <Tabs value={mode} onValueChange={(value) => changeMode(value as Mode)}>
         <TabsList>
@@ -587,6 +668,7 @@ export function EPUBReadingView({
         const initial = adapter.getLocation();
         if (initial?.type === "epub") {
           position.current = initial;
+          if (initial.href) placeAnchor(initial);
           setChapter(initial.href.split("#")[0]);
         }
         const overrides: Partial<ReaderAdapter> = {
@@ -661,6 +743,7 @@ export function EPUBReadingView({
             return;
           position.current = location;
           setChapter(location.href.split("#")[0]);
+          driftAnchor(location);
           live.current.events.location(location, percent);
         },
         epubBlockHover: (id) => {
@@ -692,6 +775,7 @@ export function EPUBReadingView({
           selection.current = value;
           live.current.events.selection(value);
           if (value?.location.type === "epub") {
+            pinAnchor(value.location);
             const matches = epubBlocksAt(value.location, live.current.blocks);
             if (matches[0] && live.current.mode === "parallel")
               follow(matches[0].id);

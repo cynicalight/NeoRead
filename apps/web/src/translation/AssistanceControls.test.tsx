@@ -13,8 +13,6 @@ vi.mock("@neoread/api", () => ({
   api: {
     assistance: vi.fn(async () => undefined),
     setAssistance: vi.fn(),
-    translateRange: vi.fn(),
-    translateEPUBChapter: vi.fn(),
     aiConfig: vi.fn(async () => ({ primary: "codex" })),
   },
 }));
@@ -163,48 +161,6 @@ it("offers continuation when an interrupted retranslation still has readable old
   expect(host.querySelector('[aria-label="重新翻译"]')).toBeNull();
 });
 
-it("a book translates the current chapter instead of the whole document", async () => {
-  const ready: Processing = {
-    ...paused,
-    enabled: true,
-    phase: "ready",
-    status: "complete",
-    startedAt: "2026-10-07T00:00:01Z",
-  };
-  vi.mocked(api.translateRange).mockResolvedValue({
-    queued: 12,
-    characters: 50000,
-    nextPage: 0,
-    parsing: false,
-  });
-  vi.mocked(api.assistance)
-    .mockResolvedValueOnce(ready)
-    .mockResolvedValueOnce({
-      ...ready,
-      phase: "translating",
-      status: "queued",
-      updatedAt: "2026-10-07T00:00:02Z",
-    });
-  await act(async () =>
-    root.render(
-      <AssistanceControls
-        documentId="book"
-        processing={ready}
-        library="books"
-        chapter={() => ({ fromPage: 20, toPage: 45 })}
-      />,
-    ),
-  );
-  expect(host.textContent).toContain("翻译本章");
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>("button")!.click(),
-  );
-  expect(api.translateRange).toHaveBeenCalledWith("book", 20, 45);
-  expect(api.setAssistance).not.toHaveBeenCalled();
-  expect(toast).not.toHaveBeenCalled();
-  expect(host.textContent).toContain("暂停翻译");
-});
-
 it("a failed paper job offers a retry", async () => {
   await render(1, { ...paused, enabled: true, status: "failed" });
   expect(host.textContent).toContain("重试翻译");
@@ -218,37 +174,6 @@ it("a failed paper job offers a retry", async () => {
     host.querySelector<HTMLButtonElement>("button")!.click(),
   );
   expect(api.setAssistance).toHaveBeenCalledWith("book", "resume");
-});
-
-it("EPUB legacy jobs request a chapter without restarting old whole-book work", async () => {
-  const location = { type: "epub" as const, href: "a.xhtml#two" };
-  const job: Processing = {
-    ...paused,
-    startedAt: "2026-10-08T00:00:00Z",
-    translating: { status: "complete", detail: "请按章节翻译" },
-  };
-  vi.mocked(api.translateEPUBChapter).mockResolvedValue({
-    queued: 2,
-    characters: 80,
-    hasMore: false,
-  });
-  await act(async () =>
-    root.render(
-      <AssistanceControls
-        documentId="book"
-        processing={job}
-        library="books"
-        epubChapter={() => location}
-      />,
-    ),
-  );
-  expect(host.textContent).toContain("翻译本章");
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>("button")!.click(),
-  );
-  expect(api.translateEPUBChapter).toHaveBeenCalledWith("book", location);
-  expect(api.setAssistance).not.toHaveBeenCalled();
-  expect(api.translateRange).not.toHaveBeenCalled();
 });
 
 it("offers manual translation after local parsing instead of resuming a translation", async () => {

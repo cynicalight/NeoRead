@@ -66,10 +66,14 @@ import { numberedReference } from "../readers/pdf-citations";
 import "./translation.css";
 
 import { AssistanceControls } from "./AssistanceControls";
-import { chapterRange, headingPages } from "./chapters";
+import { BookChapterControls } from "./BookChapterControls";
+import { chapterRange, chapterTitle, headingPages } from "./chapters";
+import { useChapterTranslation } from "./chapterTranslation";
 import { searchPDFBlocks } from "./pdf-search";
 
 type Mode = "source" | "parallel" | "translation";
+/** Scroll settling after a pinned jump or click does not move the chapter. */
+const pinHold = 800;
 export function PDFReadingView({
   document: doc,
   active = true,
@@ -151,7 +155,27 @@ export function PDFReadingView({
       : undefined,
   );
   const originalReading = useRef<PDFReadingAnchor | undefined>(undefined);
+  // The page whose chapter the book toolbar describes. A click or jump pins
+  // it; afterwards scrolling moves it to the paragraph mid-view.
+  const [chapterPage, setChapterPage] = useState(
+    doc.progress?.type === "pdf" ? doc.progress.page : 1,
+  );
+  const pinnedAt = useRef(0);
+  const pageTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const pinPage = (page: number) => {
+    pinnedAt.current = performance.now();
+    clearTimeout(pageTimer.current);
+    setChapterPage(page);
+  };
+  const driftPage = (page: number) => {
+    if (performance.now() - pinnedAt.current < pinHold) return;
+    clearTimeout(pageTimer.current);
+    pageTimer.current = setTimeout(() => setChapterPage(page), 200);
+  };
+  useEffect(() => () => clearTimeout(pageTimer.current), []);
   const recordReading = (anchor: PDFReadingAnchor) => {
+    const block = state.current?.blocks.find((b) => b.id === anchor.blockId);
+    if (block) driftPage(block.page);
     reading.current = anchor;
     if (state.current.reflow) reflowReading.current = anchor;
     else originalReading.current = anchor;
@@ -346,6 +370,7 @@ export function PDFReadingView({
     motion.moving = true;
     setFocusedBlock(block.id);
     const anchor = { blockId: block.id, fraction: 0.5 };
+    pinPage(block.page);
     recordReading(anchor);
     // Both panels center their own geometry; a tall translation must not shift
     // a short original away from its center (or vice versa).
@@ -426,6 +451,7 @@ export function PDFReadingView({
   };
   const go = async (location: DocumentLocation) => {
     input(mode === "translation" || reflow ? "translation" : "source");
+    if (location.type === "pdf") pinPage(location.page);
     if (!reflow) await engine?.goTo(location);
     if (location.type !== "pdf") return;
     const block = locationBlock(location);
@@ -900,25 +926,62 @@ export function PDFReadingView({
       </TooltipContent>
     </Tooltip>
   );
+  const book = doc.library === "books";
+  const pageCount =
+    engine?.getPageCount?.() || Math.max(1, ...blocks.map((b) => b.page));
+  const bookChapter = useMemo(
+    () =>
+      book
+        ? chapterRange(
+            outline.current,
+            chapterPage,
+            pageCount,
+            headingPages(blocks),
+          )
+        : undefined,
+    // The outline ref is filled when the engine becomes ready.
+    [book, chapterPage, pageCount, blocks, engine],
+  );
+  const chapterRevision = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const t of translations)
+      counts[t.status] = (counts[t.status] ?? 0) + 1;
+    return Object.entries(counts).sort().join();
+  }, [translations]);
+  const {
+    status: chapterStatus,
+    stale: chapterStale,
+    refresh: refreshChapter,
+  } = useChapterTranslation(
+    doc.id,
+    bookChapter,
+    `${processing?.updatedAt ?? ""}|${blocks.length}|${chapterRevision}`,
+    active && book,
+  );
   const toolbar = (
     <div className="translation-toolbar">
       {!autoCenterHost && !reflow && autoCenterButton}
-      <AssistanceControls
-        documentId={doc.id}
-        processing={processing}
-        library={doc.library}
-        chapter={() => {
-          const location = facade.current?.getLocation();
-          if (location?.type !== "pdf") return undefined;
-          return chapterRange(
-            outline.current,
-            location.page,
-            engine?.getPageCount?.() ||
-              Math.max(1, ...blocks.map((b) => b.page)),
-            headingPages(blocks),
-          );
-        }}
-      />
+      {book ? (
+        <BookChapterControls
+          documentId={doc.id}
+          processing={processing}
+          status={chapterStatus}
+          stale={chapterStale}
+          title={bookChapter && chapterTitle(outline.current, bookChapter)}
+          onRequest={async () => {
+            if (!bookChapter) return;
+            const result = await api.translateRange(
+              doc.id,
+              bookChapter.fromPage,
+              bookChapter.toPage,
+            );
+            if (result.parsing) toast("正在解析本章，完成后开始翻译");
+          }}
+          onChange={refreshChapter}
+        />
+      ) : (
+        <AssistanceControls documentId={doc.id} processing={processing} />
+      )}
       <Tabs value={mode} onValueChange={(v) => changeMode(v as Mode)}>
         <TabsList>
           <TabsTrigger value="source">仅原文</TabsTrigger>
@@ -982,6 +1045,13 @@ export function PDFReadingView({
                     void focusBlock(block, "source");
                 },
                 location: (location, percentage) => {
+                  // Unparsed pages have no paragraphs to report mid-view.
+                  if (
+                    location.type === "pdf" &&
+                    side.current === "source" &&
+                    !state.current.blocks.some((b) => b.page === location.page)
+                  )
+                    driftPage(location.page);
                   if (
                     state.current.mode !== "translation" &&
                     !state.current.reflow &&
