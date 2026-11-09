@@ -335,8 +335,13 @@ func TestToolActivityBudgetDoesNotInterrupt(t *testing.T) {
 			t.Fatal(i, err)
 		}
 	}
-	if len(c.Tools) != 256 || c.Tools[255].Status != "completed" {
-		t.Fatal("record limit or retained activity state is incorrect", len(c.Tools))
+	if len(c.Tools) != 300 {
+		t.Fatal("tool activity history was truncated", len(c.Tools))
+	}
+	for i, activity := range c.Tools {
+		if activity.ID != fmt.Sprint(i) || activity.Status != "completed" {
+			t.Fatalf("activity %d lost its identity or completion state: %+v", i, activity)
+		}
 	}
 }
 
