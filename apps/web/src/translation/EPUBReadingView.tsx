@@ -655,9 +655,10 @@ export function EPUBReadingView({
             hover("source", id ?? undefined);
         },
         epubBlockFocus: (id) => {
-          // Reflowed text has one column; focus there is an opt-in setting.
+          // Clicking a paragraph focuses it unless the setting is off.
+          if (theme.blockFocus === false) return;
           if (!live.current.reflow) focusBlock(id, "source");
-          else if (theme.reflowBlockFocus === true)
+          else
             void engine.current
               ?.focusBlock?.(id, "source")
               .catch((e) => toast.error((e as Error).message));
@@ -861,7 +862,8 @@ export function EPUBReadingView({
                           ) > 5))
                     )
                       return;
-                    focusBlock(block.id, "translation");
+                    if (theme.blockFocus !== false)
+                      focusBlock(block.id, "translation");
                   }}
                   onKeyDown={(event) => {
                     if (

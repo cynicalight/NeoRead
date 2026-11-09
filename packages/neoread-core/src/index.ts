@@ -419,8 +419,8 @@ export interface ReaderTheme {
   linkTranslationAnnotations?: boolean;
   /** Source and translation paragraphs alternate in one reflowed text column. */
   textReflow?: boolean;
-  /** In reflowed text, clicking a paragraph centers and outlines it. */
-  reflowBlockFocus?: boolean;
+  /** Clicking a paragraph centers and outlines it, with or without reflow. */
+  blockFocus?: boolean;
   translationFontWeight?: "normal" | "bold";
   /** The highlight palette, in order; the defaults apply when unset. */
   highlightColors?: HighlightColor[];
@@ -464,7 +464,7 @@ export const defaultTheme: ReaderTheme = {
   pdfTranslationMargin: 48,
   linkTranslationAnnotations: true,
   textReflow: false,
-  reflowBlockFocus: false,
+  blockFocus: true,
   epubFlow: "scroll",
 };
 export type PDFBlockAction =

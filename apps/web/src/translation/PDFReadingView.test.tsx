@@ -456,6 +456,19 @@ it("supports explicit block focus in source and parallel modes", async () => {
   expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "parallel");
 });
 
+it("ignores paragraph clicks when click focus is off", async () => {
+  await renderView({ ...defaultTheme, blockFocus: false });
+  vi.mocked(adapter.focusBlock!).mockClear();
+  await act(async () =>
+    fixture.events!.blockFocus?.({
+      id: "p1-b1",
+      page: 1,
+      bounds: { x: 0, y: 0 },
+    } as PDFBlock),
+  );
+  expect(adapter.focusBlock).not.toHaveBeenCalled();
+});
+
 it("focuses the paragraph containing a saved annotation like clicking it", async () => {
   await renderView(defaultTheme, [
     {
@@ -1219,7 +1232,7 @@ it("selects reflowed source text as a PDF source mark", async () => {
     "translation",
   );
 });
-it("offers paragraph actions and focuses reflowed paragraphs only when enabled", async () => {
+it("offers paragraph actions and focuses reflowed paragraphs unless disabled", async () => {
   const blockAction = vi.fn();
   Object.assign(events, { blockAction });
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(
@@ -1229,7 +1242,7 @@ it("offers paragraph actions and focuses reflowed paragraphs only when enabled",
     .spyOn(EPUBBlockOverlay.prototype, "focus")
     .mockResolvedValue(true);
   try {
-    await renderView(reflowed);
+    await renderView({ ...reflowed, blockFocus: false });
     const sentence = host.querySelector('[data-source-sentence="0"]')!;
     const press = async () => {
       await act(async () => {
@@ -1264,7 +1277,7 @@ it("offers paragraph actions and focuses reflowed paragraphs only when enabled",
     );
     await press();
     expect(focus).not.toHaveBeenCalled();
-    await renderView({ ...reflowed, reflowBlockFocus: true });
+    await renderView(reflowed);
     await press();
     expect(focus).toHaveBeenCalledWith("p1-b1");
   } finally {

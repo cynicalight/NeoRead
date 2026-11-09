@@ -229,11 +229,11 @@ it("captures translated selections inside a source paragraph", async () => {
     }),
   );
 });
-it("focuses a clicked paragraph only when the setting is on", async () => {
-  await renderView();
+it("focuses a clicked paragraph unless the setting is off", async () => {
+  await renderView({ ...reflowed, blockFocus: false });
   await act(async () => fixture.events!.epubBlockFocus!("p1"));
   expect(adapter.focusBlock).not.toHaveBeenCalled();
-  await renderView({ ...reflowed, reflowBlockFocus: true });
+  await renderView();
   await act(async () => fixture.events!.epubBlockFocus!("p1"));
   expect(adapter.focusBlock).toHaveBeenCalledWith("p1", "source");
 });

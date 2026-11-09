@@ -480,7 +480,7 @@ export function PDFReadingView({
       host,
       () => {},
       (id) => {
-        if (state.current.theme.reflowBlockFocus === true) void value.focus(id);
+        if (state.current.theme.blockFocus !== false) void value.focus(id);
       },
       () => state.current.blocks,
       (block, action) => {
@@ -903,7 +903,8 @@ export function PDFReadingView({
                 ...events,
                 selection: sourceSelection,
                 blockFocus: (block) => {
-                  void focusBlock(block, "source");
+                  if (state.current.theme.blockFocus !== false)
+                    void focusBlock(block, "source");
                 },
                 location: (location, percentage) => {
                   if (
@@ -1159,7 +1160,7 @@ export function PDFReadingView({
                             ) > 5))
                       )
                         return;
-                      focusTranslation(block);
+                      if (theme.blockFocus !== false) focusTranslation(block);
                     }}
                     onKeyDown={(event) => {
                       if (

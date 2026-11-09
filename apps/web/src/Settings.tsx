@@ -1057,18 +1057,16 @@ export function Settings({
                   }
                 />
               </label>
-              {theme.textReflow === true && (
-                <label className="flex items-center justify-between gap-4 text-sm">
-                  <span>点击段落聚焦</span>
-                  <Switch
-                    aria-label="点击段落聚焦"
-                    checked={theme.reflowBlockFocus === true}
-                    onCheckedChange={(checked) =>
-                      setTheme({ reflowBlockFocus: !!checked })
-                    }
-                  />
-                </label>
-              )}
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>点击段落聚焦</span>
+                <Switch
+                  aria-label="点击段落聚焦"
+                  checked={theme.blockFocus !== false}
+                  onCheckedChange={(checked) =>
+                    setTheme({ blockFocus: !!checked })
+                  }
+                />
+              </label>
             </section>
             <section>
               <HighlightColorsEditor />
