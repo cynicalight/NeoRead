@@ -384,6 +384,8 @@ export interface ReaderTheme {
   readerLayout?: Partial<ReaderLayout>;
   /** Opt in to copying text selections and selected annotations. */
   autoCopySelection?: boolean;
+  /** Remembered library navigation sidebar width, in CSS pixels. */
+  librarySidebarWidth?: number;
   autoTranslatePDF?: boolean;
   /** 0 means manual only; otherwise auto translate papers up to this many pages. */
   autoTranslateMaxPages?: number;

@@ -13,6 +13,7 @@ import { useAttachments } from "./attachments";
 import * as attachments from "./attachments";
 import { paper } from "./fixtures";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
+import { LibrarySidebarResizer } from "../LibrarySidebarResizer";
 vi.mock("../annotated-pdf-export", () => ({
   exportAnnotatedPDFWithToast: vi.fn(async () => 1),
 }));
@@ -147,6 +148,53 @@ beforeEach(async () => {
   root = createRoot(host);
   await act(async () => root.render(<Harness />));
 });
+it.each(["unmount", "capture loss"])(
+  "finishes sidebar resizing on %s and removes its global drag state",
+  async (reason) => {
+    await act(async () => {
+      useReaderStore.setState({
+        theme: {
+          ...useReaderStore.getState().theme,
+          librarySidebarWidth: undefined,
+        },
+      });
+      root.render(
+        <div>
+          <aside />
+          <LibrarySidebarResizer />
+        </div>,
+      );
+    });
+    const handle = host.querySelector<HTMLButtonElement>(
+      '[aria-label="调整书库侧栏宽度"]',
+    )!;
+    (handle.previousElementSibling as HTMLElement).getBoundingClientRect = () =>
+      new DOMRect(0, 0, 210, 600);
+    await act(async () => {
+      handle.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          clientX: 210,
+        }),
+      );
+      handle.dispatchEvent(new MouseEvent("pointermove", { clientX: 230 }));
+    });
+    expect(document.body.hasAttribute("data-resizing")).toBe(true);
+    await act(async () => {
+      if (reason === "unmount") root.render(<div />);
+      else handle.dispatchEvent(new Event("lostpointercapture"));
+    });
+    expect(document.body.hasAttribute("data-resizing")).toBe(false);
+    expect(useReaderStore.getState().theme.librarySidebarWidth).toBe(230);
+    await act(async () => {
+      handle.dispatchEvent(new MouseEvent("pointermove", { clientX: 300 }));
+      handle.dispatchEvent(new Event("pointerup"));
+    });
+    expect(useReaderStore.getState().theme.librarySidebarWidth).toBe(230);
+  },
+);
+
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();

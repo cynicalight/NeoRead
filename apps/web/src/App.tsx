@@ -60,6 +60,7 @@ import { TrashView } from "./TrashView";
 import { useCardZoom } from "./useCardZoom";
 import { PaperLibrary } from "./papers/PaperLibrary";
 import { PaperSidebar } from "./papers/PaperSidebar";
+import { LibrarySidebarResizer } from "./LibrarySidebarResizer";
 import { usePaperUI } from "./papers/state";
 import { ImportPaperDialog } from "./papers/ImportPaperDialog";
 import { LibraryModeSwitcher, libraryModes } from "./LibraryModeSwitcher";
@@ -695,6 +696,7 @@ export function App() {
                 </Button>
               </div>
             </aside>
+            {nav && <LibrarySidebarResizer />}
             {papers ? (
               <PaperLibrary
                 openDocuments={theme.documentTabs ? openDocuments : undefined}
