@@ -28,15 +28,11 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 - **引用导出**：支持 GB/T 7714、APA、BibTeX 和 RIS，可复制单篇引用或批量导出。
 - **回收站**：删除后保留原文件、批注和对话，可撤销或恢复；确认彻底删除后才移除数据。
 
-<img width="2594" height="1796" alt="image-paper-lib" src="https://github.com/user-attachments/assets/c288d52f-eee1-4a8e-bf37-d7c8e49f2f9e" />
-
-<img width="2594" height="1796" alt="image-paper-lib-detail" src="https://github.com/user-attachments/assets/553e7b02-bb16-48a3-8c7e-b0bcc17e6ddc" />
-
-<img width="2594" height="1796" alt="image-book-lib" src="https://github.com/user-attachments/assets/28f238d3-c223-49c8-8c9b-5309e8e09a03" />
-
-<img width="2594" height="1796" alt="image-book-lib-detail" src="https://github.com/user-attachments/assets/5e76feeb-115d-44db-b04f-95cb7a603b09" />
-
-
+| 论文库 | 论文详情 |
+| --- | --- |
+| <img src="https://github.com/user-attachments/assets/c288d52f-eee1-4a8e-bf37-d7c8e49f2f9e" alt="论文库" /> | <img src="https://github.com/user-attachments/assets/553e7b02-bb16-48a3-8c7e-b0bcc17e6ddc" alt="论文详情" /> |
+| 图书库 | 图书详情 |
+| <img src="https://github.com/user-attachments/assets/28f238d3-c223-49c8-8c9b-5309e8e09a03" alt="图书库" /> | <img src="https://github.com/user-attachments/assets/5e76feeb-115d-44db-b04f-95cb7a603b09" alt="图书详情" /> |
 
 **阅读与翻译**
 
@@ -84,11 +80,11 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 
 ## 截图
 
-以下截图来自应用本身，使用项目自带的示例文档；图片会跟随 GitHub 的浅色 / 深色外观。
+以下截图来自应用本身。
 
 | 书库                                                                                                                                                                                                                         | Agent 设置                                                                                                     |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| <picture> <source media="(prefers-color-scheme: dark)" srcset="website/assets/screenshots/library-dark.webp" /> <img src="website/assets/screenshots/library-light.webp" alt="书库，PDF 封面上显示后台处理进度" /></picture> | <img src="website/assets/screenshots/settings-dark.webp" alt="Agent 设置：Codex、Claude Code 与 Kimi Code" /> |
+| <img src="https://github.com/user-attachments/assets/28f238d3-c223-49c8-8c9b-5309e8e09a03" alt="图书库" /> | <img src="website/assets/screenshots/settings-dark.webp" alt="Agent 设置：Codex、Claude Code 与 Kimi Code" /> |
 
 ## 快速开始
 
