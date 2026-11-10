@@ -4,7 +4,7 @@
 
 <h1 align="center">NeoRead</h1>
 
-<p align="center"><a href="README.md">简体中文</a> | <b>English</b> | <a href="https://cynicalight.github.io/NeoRead/">Website</a></p>
+<p align="center"><a href="README.md">简体中文</a> | <b>English</b> | <a href="https://neoread.app/">Website</a></p>
 
 A local-first EPUB / PDF reader for books and papers, with side-by-side translations, annotations, and AI assistance grounded in the text you are reading.
 

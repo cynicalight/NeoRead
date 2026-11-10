@@ -4,7 +4,7 @@
 
 <h1 align="center">NeoRead</h1>
 
-<p align="center"><b>简体中文</b> | <a href="README.en.md">English</a> | <a href="https://cynicalight.github.io/NeoRead/">官网</a></p>
+<p align="center"><b>简体中文</b> | <a href="README.en.md">English</a> | <a href="https://neoread.app/">官网</a></p>
 
 一个本地优先的 EPUB / PDF AI 阅读器，用于阅读电子书与论文、对照译文、记录批注，以及结合原文向 AI 提问。
 
@@ -14,7 +14,7 @@
 
 NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库分开管理，提供目录、搜索、双语对照、批注与 AI 助读。文档、阅读进度和笔记保存在本机。AI 功能可以通过已登录的 Claude Code、Codex CLI 或 Kimi Code CLI 调用，无需在 NeoRead 中另填 API Key；也可以填写 API 地址和 Key，接入 OpenAI 或 Anthropic 兼容接口。
 
-可从[官网](https://cynicalight.github.io/NeoRead/)了解项目，或在 [GitHub Releases](https://github.com/cynicalight/NeoRead/releases) 下载安装包：macOS（Apple Silicon）DMG 与 Windows x64 EXE。Intel Mac 安装包暂停构建，Linux 不提供安装包，也可以从源码运行。安装包没有受系统信任的开发者证书，首次运行可能需要允许系统安全提示。流程与验证范围见[安装包与发版说明](docs/releasing.md)。
+可从[官网](https://neoread.app/)了解项目，或在 [GitHub Releases](https://github.com/cynicalight/NeoRead/releases) 下载安装包：macOS（Apple Silicon）DMG 与 Windows x64 EXE。Intel Mac 安装包暂停构建，Linux 不提供安装包，也可以从源码运行。安装包没有受系统信任的开发者证书，首次运行可能需要允许系统安全提示。流程与验证范围见[安装包与发版说明](docs/releasing.md)。
 
 ## 功能
 
