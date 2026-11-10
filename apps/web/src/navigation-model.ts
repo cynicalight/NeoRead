@@ -8,6 +8,8 @@ import type {
 } from "@neoread/core";
 
 export interface NavigationItem extends TOCItem {
+  /** Present only for nodes backed by a personal bookmark annotation. */
+  bookmarkId?: string;
   kind: "heading" | "bookmark";
   originalLabel: string;
   parentId: string | null;
@@ -215,6 +217,7 @@ export function buildNavigation(
           : fallback;
     nodes.push({
       id,
+      bookmarkId: a.id,
       label: edit.label ?? originalLabel,
       originalLabel,
       kind: edit.kind ?? "bookmark",
