@@ -43,10 +43,9 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 - **阅读记录**：书签、高亮、下划线、问题批注、批注标签、论文笔记与阅读位置恢复；悬停即可预览批注，支持按颜色和标签筛选、搜索笔记、撤销批注改动、摘录批注、Markdown 导出及桌面 `neoread://` 链接。PDF 内部引用支持悬停预览和返回阅读位置。
 - **阅读偏好**：双击选中整句，可选开启选中文字自动复制；可自定义高亮颜色和译文字体；界面支持浅色、深色、纸张与跟随系统，桌面窗口外观同步切换。
 
-<img width="2594" height="1796" alt="reflow-mode" src="https://github.com/user-attachments/assets/6650744d-fdfa-493b-bb01-7e78c62e8b2b" />
-
-<img width="2594" height="1796" alt="markdown-note" src="https://github.com/user-attachments/assets/8381af34-c060-46fa-bd79-1bb2bb08fe47" />
-
+| PDF 重排阅读 | 论文笔记 |
+| --- | --- |
+| <img src="https://github.com/user-attachments/assets/6650744d-fdfa-493b-bb01-7e78c62e8b2b" alt="PDF 重排阅读" /> | <img src="https://github.com/user-attachments/assets/8381af34-c060-46fa-bd79-1bb2bb08fe47" alt="论文 Markdown 笔记" /> |
 
 **AI 助读**
 
@@ -54,8 +53,9 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 - **在 Codex 中继续**：完成 Codex 文档阅读对话后，从 Agent 顶栏打开独立的 Codex App 对话，保留已有上下文并附带原文和聊天快照。关闭 NeoRead 后也可继续阅读；两边后续消息不自动同步。
 - **两种接入方式**：检测本机 Claude Code / Codex CLI / Kimi Code CLI 的安装与登录状态，通过官方 CLI 使用已有账户；或在设置中配置 API 连接，支持 OpenAI Chat Completions 与 Anthropic Messages 协议。问答与翻译可分别选择模型和思考强度。
 
-<img width="1061" height="846" alt="ai-reference" src="https://github.com/user-attachments/assets/c5f659e9-64af-4027-979c-7b58577f61c0" />
-
+| AI 回答引用 |
+| --- |
+| <img src="https://github.com/user-attachments/assets/c5f659e9-64af-4027-979c-7b58577f61c0" alt="AI 回答中的文献引用" /> |
 
 **桌面应用**
 
