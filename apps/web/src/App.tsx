@@ -11,6 +11,7 @@ import {
   FileText,
   Loader2,
   PanelLeft,
+  Pin,
   Command,
   X,
   Tags,
@@ -39,7 +40,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@neoread/ui/components/dialog";
-import { Toaster, toast } from "sonner";
+import { toast } from "sonner";
+import { Toaster } from "@neoread/ui/components/sonner";
 import { CiteHost } from "./cite/CiteHost";
 import {
   useReaderStore,
@@ -58,6 +60,7 @@ import { TrashView } from "./TrashView";
 import { useCardZoom } from "./useCardZoom";
 import { PaperLibrary } from "./papers/PaperLibrary";
 import { PaperSidebar } from "./papers/PaperSidebar";
+import { LibrarySidebarResizer } from "./LibrarySidebarResizer";
 import { usePaperUI } from "./papers/state";
 import { ImportPaperDialog } from "./papers/ImportPaperDialog";
 import { LibraryModeSwitcher, libraryModes } from "./LibraryModeSwitcher";
@@ -100,6 +103,10 @@ export function App() {
   const mode = libraryMode(libraryPreferences);
   const papers = mode === "papers";
   const documents = allDocuments.filter((d) => d.library === mode);
+  const pinnedBooks = (libraryPreferences.papers?.pinned || []).flatMap((key) => {
+    const doc = documents.find((d) => `doc:${d.id}` === key);
+    return doc ? [doc] : [];
+  });
   const resolvedTheme = useResolvedTheme(theme);
   const { jobs, error: processingError } = useProcessing();
   useUpdateProgress();
@@ -572,6 +579,26 @@ export function App() {
                 />
               ) : (
                 <nav className="space-y-1">
+                  {pinnedBooks.length > 0 && (
+                    <section className="paper-nav-section">
+                      <h3 className="paper-nav-heading">置顶</h3>
+                      {pinnedBooks.map((doc) => (
+                        <Button
+                          key={doc.id}
+                          variant="ghost"
+                          className="nav-item"
+                          title={doc.title}
+                          onClick={() => void openDocument(doc)}
+                        >
+                          <BookOpen className="size-4 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate text-left">
+                            {doc.title}
+                          </span>
+                          <Pin className="size-3 shrink-0 text-muted-foreground" />
+                        </Button>
+                      ))}
+                    </section>
+                  )}
                   {[
                     {
                       id: "all",
@@ -669,6 +696,7 @@ export function App() {
                 </Button>
               </div>
             </aside>
+            {nav && <LibrarySidebarResizer />}
             {papers ? (
               <PaperLibrary
                 openDocuments={theme.documentTabs ? openDocuments : undefined}
@@ -680,6 +708,7 @@ export function App() {
                 moveToBooks={(doc) => void moveDocument(doc, "books")}
                 navOpen={nav}
                 onToggleNav={() => setNav(!nav)}
+                onSettings={() => setSettings(true)}
               />
             ) : (
               <main

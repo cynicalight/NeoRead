@@ -13,7 +13,11 @@ import {
   consumeTranslationStream,
   type TranslationEvent,
 } from "./translation-stream";
-import { consumeChatStream, type ChatStreamEvent } from "./chat-stream";
+import {
+  ChatStreamError,
+  consumeChatStream,
+  type ChatStreamEvent,
+} from "./chat-stream";
 export { ChatStreamError, type ChatStreamEvent } from "./chat-stream";
 import { consumeCiteEvents, type CiteEvent } from "./cite-events";
 export type { CiteEvent } from "./cite-events";
@@ -121,6 +125,7 @@ export class RequestError extends Error {
     message: string,
     readonly code?: string,
     readonly pages?: number,
+    readonly status?: number,
   ) {
     super(message);
   }
@@ -142,6 +147,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       data.error || `请求失败 (${response.status})`,
       data.code,
       data.pages,
+      response.status,
     );
   }
   return response.status === 204 ? (undefined as T) : response.json();
@@ -185,6 +191,8 @@ export type ZoteroImportResult = components["schemas"]["ZoteroImportResult"];
 export type PaperAttachment = components["schemas"]["PaperAttachment"];
 export type PaperRefreshProgress =
   components["schemas"]["PaperRefreshProgress"];
+export type ChapterTranslationStatus =
+  paths["/api/documents/{id}/translations/chapter-status"]["post"]["responses"]["200"]["content"]["application/json"];
 
 export const api = {
   paperRefreshStatus: () =>
@@ -408,9 +416,10 @@ export const api = {
       `/api/documents/${encodeURIComponent(id)}/epub-chapter?href=${encodeURIComponent(href)}`,
       { signal },
     ),
-  epubBlocks: (id: string) =>
+  epubBlocks: (id: string, signal?: AbortSignal) =>
     request<import("@neoread/core").EPUBReadingBlock[]>(
       `/api/documents/${id}/epub-blocks`,
+      { signal },
     ),
   translations: (id: string, signal?: AbortSignal) =>
     request<import("@neoread/core").TranslationBlock[]>(
@@ -478,6 +487,33 @@ export const api = {
         }),
       },
     ),
+  /** Translation counts of the book chapter at an EPUB location or PDF range. */
+  chapterTranslationStatus: (
+    id: string,
+    chapter:
+      | { location: import("@neoread/core").EPUBLocation }
+      | { fromPage: number; toPage: number },
+    signal?: AbortSignal,
+  ) =>
+    request<ChapterTranslationStatus>(
+      `/api/documents/${id}/translations/chapter-status`,
+      {
+        method: "POST",
+        body: JSON.stringify(
+          "location" in chapter
+            ? {
+                location: {
+                  type: "epub",
+                  href: chapter.location.href,
+                  blockId: chapter.location.blockId,
+                  locator: chapter.location.locator,
+                },
+              }
+            : chapter,
+        ),
+        signal,
+      },
+    ),
   assistance: (id: string) =>
     request<Processing>(`/api/documents/${id}/assistance`),
   setAssistance: (
@@ -514,10 +550,16 @@ export const api = {
     request<Processing>(`/api/documents/${id}/processing`, { method: "POST" }),
   blocks: (id: string, signal?: AbortSignal) =>
     request<PDFBlock[]>(`/api/documents/${id}/blocks`, { signal }),
-  aiConfig: () => request<AIConfig>("/api/ai/config"),
-  agentModels: (provider: string, signal?: AbortSignal) =>
+  aiConfig: (signal?: AbortSignal) =>
+    request<AIConfig>("/api/ai/config", { signal }),
+  agentModels: (
+    provider: string,
+    signal?: AbortSignal,
+    refresh = false,
+    cacheOnly = false,
+  ) =>
     request<AgentModel[]>(
-      `/api/ai/models?provider=${encodeURIComponent(provider)}`,
+      `/api/ai/models?provider=${encodeURIComponent(provider)}${refresh ? "&refresh=true" : ""}${cacheOnly ? "&cached=true" : ""}`,
       { signal },
     ),
   saveAIConfig: (config: AIConfig) =>
@@ -740,6 +782,11 @@ export const api = {
       `/api/documents/${id}/chat-sessions/${sessionId}`,
       { method: "PATCH", body: JSON.stringify(patch) },
     ),
+  deleteChatSession: (id: string, sessionId: string) =>
+    request<{ ok: boolean }>(
+      `/api/documents/${id}/chat-sessions/${sessionId}`,
+      { method: "DELETE" },
+    ),
   sessionMessages: (id: string, sessionId: string, signal?: AbortSignal) =>
     request<Message[]>(
       `/api/documents/${id}/chat-sessions/${sessionId}/messages`,
@@ -764,6 +811,21 @@ export const api = {
       body: JSON.stringify(input),
       signal: AbortSignal.timeout(30_000),
     }),
+  continueChatRun: (
+    id: string,
+    sessionId: string,
+    runId: string,
+    signal?: AbortSignal,
+  ) =>
+    request<ChatRun>(
+      `/api/documents/${id}/chat-sessions/${sessionId}/runs/${runId}/continue`,
+      {
+        method: "POST",
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
+          : AbortSignal.timeout(30_000),
+      },
+    ),
   cancelChatRun: (id: string, sessionId: string, runId: string) =>
     request<{ ok: boolean }>(
       `/api/documents/${id}/chat-sessions/${sessionId}/runs/${runId}/cancel`,
@@ -809,6 +871,13 @@ export const api = {
       "/api/preferences/shortcuts",
       { method: "PUT", body: JSON.stringify(preferences) },
     ),
+  fontPreferences: () =>
+    request<{ families?: string[] }>("/api/preferences/fonts"),
+  saveFontPreferences: (preferences: { families: string[] }) =>
+    request<{ families: string[] }>("/api/preferences/fonts", {
+      method: "PUT",
+      body: JSON.stringify(preferences),
+    }),
   guidePreferences: () => request<GuidePreferences>("/api/preferences/guide"),
   saveGuidePreferences: (preferences: GuidePreferences) =>
     request<GuidePreferences>("/api/preferences/guide", {
@@ -928,7 +997,14 @@ export async function watchChatRun(
   );
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || `读取运行失败 (${response.status})`);
+    const message = data.error || `读取运行失败 (${response.status})`;
+    if (
+      response.status !== 408 &&
+      response.status !== 429 &&
+      response.status < 500
+    )
+      throw new ChatStreamError(message, "provider");
+    throw new Error(message);
   }
   if (!response.body) throw new Error("没有收到运行事件");
   await consumeChatStream(response.body, signal, emit);

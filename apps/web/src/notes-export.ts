@@ -75,7 +75,7 @@ export function notesMarkdown(
     out.push("## 批注");
     for (const a of marks) {
       const label = {
-        highlight: "划线",
+        highlight: "高亮",
         underline: "划线",
         note: "批注",
         question: "问题",

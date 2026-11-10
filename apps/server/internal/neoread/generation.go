@@ -116,6 +116,9 @@ func (s *Server) taskGenerationService(config AIConfig, task modelTask) *Generat
 		if p == "codex" {
 			adapter = codexChatAdapter{cli, &s.codexChat}
 		}
+		if p == "claude" {
+			adapter = claudeChatAdapter{cli}
+		}
 		if p == "text-api" {
 			adapter = apiAdapter{config.TextAPI}
 		}

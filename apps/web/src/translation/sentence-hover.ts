@@ -1,4 +1,5 @@
 import { reducedMotion } from "../motion";
+import { formulaAwareRects } from "./formula-highlight";
 /** Hover uses small composited layers; never animate inherited reader styles. */
 export class SentenceHover {
   private key = "";
@@ -43,6 +44,8 @@ export class SentenceHover {
     // Read all geometry before adding any DOM or starting animations.
     const hostBounds = this.host.getBoundingClientRect();
     const clips = new Map<Element, DOMRect>();
+    // A formula hovers as one box, painted once across its text runs.
+    const formulas = new Set<HTMLElement>();
     const boxes = ranges.flatMap((range) => {
       const element =
         range.startContainer.nodeType === Node.TEXT_NODE
@@ -55,7 +58,7 @@ export class SentenceHover {
         ) ?? this.host;
       if (!clips.has(pane)) clips.set(pane, pane.getBoundingClientRect());
       const clip = clips.get(pane)!;
-      return Array.from(range.getClientRects()).flatMap((rect) => {
+      return formulaAwareRects([range], formulas).flatMap((rect) => {
         const left = Math.max(rect.left, clip.left, hostBounds.left),
           top = Math.max(rect.top, clip.top, hostBounds.top);
         const right = Math.min(rect.right, clip.right, hostBounds.right),

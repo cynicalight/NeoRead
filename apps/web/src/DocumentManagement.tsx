@@ -112,7 +112,7 @@ export function LibraryFilterBar({
       {changed && (
         <Button
           size="icon-sm"
-          variant="ghost"
+          variant="destructive-ghost"
           aria-label="清除筛选"
           title="清除筛选"
           onClick={() => onChange({ ...initialFilters, sort: filters.sort })}

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { copyText } from "../chat/clipboard";
 import { useReaderStore } from "../store";
 import { ReadingLinkNavigation } from "../reading-links";
 import { act, useContext, useEffect } from "react";
@@ -47,6 +48,10 @@ vi.mock("@neoread/api", () => ({
     translate: vi.fn(async () => ({ queued: true })),
   },
   blockImageURL: () => "",
+}));
+vi.mock("../chat/clipboard", () => ({
+  copyText: vi.fn(async () => true),
+  copyImage: vi.fn(async () => true),
 }));
 vi.mock("../chat/MessageMarkdown", () => ({
   MessageMarkdown: ({
@@ -111,6 +116,7 @@ vi.mock("../ReaderView", () => ({
   },
 }));
 import { PDFReadingView } from "./PDFReadingView";
+import { EPUBBlockOverlay } from "../readers/epub-block-focus";
 let root: Root, host: HTMLDivElement;
 const events = { location: vi.fn(), selection: vi.fn() };
 beforeEach(async () => {
@@ -148,12 +154,13 @@ async function renderView(
   extraBlocks: PDFBlock[] = [],
   searchResults: SearchResult[] = [],
   sidebarsOpen = { left: true, right: true },
+  progress?: Document["progress"],
 ) {
   await act(async () =>
     root.render(
       <PDFReadingView
         sidebarsOpen={sidebarsOpen}
-        document={{ id: "doc", type: "pdf" } as Document}
+        document={{ id: "doc", type: "pdf", progress } as Document}
         theme={theme}
         annotations={[]}
         searchResults={searchResults}
@@ -189,6 +196,7 @@ it("uses repaired text for search and focuses the matching block", async () => {
   ).toBe(true);
   await act(async () => fixture.ready!.focusLocation!(results[0].location));
   expect(adapter.focusBlock).toHaveBeenCalledWith("p1-b1", "parallel");
+  expect(adapter.flashReference).not.toHaveBeenCalled();
 });
 
 it("retains PDF.js search on pages without parsed blocks", async () => {
@@ -448,6 +456,19 @@ it("supports explicit block focus in source and parallel modes", async () => {
     } as PDFBlock),
   );
   expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "parallel");
+});
+
+it("ignores paragraph clicks when click focus is off", async () => {
+  await renderView({ ...defaultTheme, blockFocus: false });
+  vi.mocked(adapter.focusBlock!).mockClear();
+  await act(async () =>
+    fixture.events!.blockFocus?.({
+      id: "p1-b1",
+      page: 1,
+      bounds: { x: 0, y: 0 },
+    } as PDFBlock),
+  );
+  expect(adapter.focusBlock).not.toHaveBeenCalled();
 });
 
 it("focuses the paragraph containing a saved annotation like clicking it", async () => {
@@ -1144,5 +1165,379 @@ it("strips legacy cross-side links when preparing a mark without losing its posi
   expect(adapter.focusBlock).toHaveBeenCalledExactlyOnceWith(
     "p1-b1",
     "parallel",
+  );
+});
+
+const reflowed = { ...defaultTheme, textReflow: true };
+it("reflows source and translation paragraphs in one column for every mode", async () => {
+  await renderView(reflowed);
+  const sources = () =>
+    Array.from(
+      host.querySelectorAll(
+        '[data-reflow-source="p1-b1"] [data-source-sentence]',
+      ),
+      (n) => n.textContent,
+    );
+  expect(sources()).toEqual(["First sentence. ", "Second sentence."]);
+  expect(host.querySelector("[data-sentence]")).toBeNull();
+  expect(host.querySelector('[aria-label="交换原文和译文"]')).toBeNull();
+  expect(host.querySelector('[aria-label="取消同步效果"]')).toBeNull();
+  expect(host.querySelector(".translation-source")?.hasAttribute("inert")).toBe(
+    true,
+  );
+  await click("原文译文");
+  expect(sources()).toHaveLength(2);
+  // Only the translation counts as the translated block for selections.
+  expect(host.querySelector("[data-translation-block]")?.textContent).toBe(
+    "第一句。第二句。",
+  );
+  expect(host.querySelector('[aria-label="交换原文和译文"]')).toBeNull();
+  await click("仅译文");
+  expect(sources()).toEqual([]);
+  expect(host.querySelectorAll("[data-sentence]")).toHaveLength(2);
+  expect(adapter.setTheme).not.toHaveBeenCalledWith(
+    expect.objectContaining({ zoom: "width" }),
+  );
+  expect(adapter.followBlock).not.toHaveBeenCalled();
+  expect(adapter.destroy).not.toHaveBeenCalled();
+});
+it("selects reflowed source text as a PDF source mark", async () => {
+  await renderView(reflowed);
+  const sentence = host.querySelector('[data-source-sentence="1"]')!;
+  const range = document.createRange();
+  range.selectNodeContents(sentence);
+  Object.assign(range, {
+    getBoundingClientRect: () => new DOMRect(0, 0, 100, 20),
+  });
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  await act(async () =>
+    sentence.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
+  );
+  expect(events.selection).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      text: "Second sentence.",
+      location: {
+        type: "pdf",
+        page: 1,
+        quote: "Second sentence.",
+        sourceAnchors: [
+          expect.objectContaining({
+            blockId: "p1-b1",
+            source: "Second sentence.",
+          }),
+        ],
+      },
+    }),
+  );
+  expect(fixture.ready!.getSelection()?.location).not.toHaveProperty(
+    "translation",
+  );
+});
+it("offers paragraph actions and focuses reflowed paragraphs unless disabled", async () => {
+  const blockAction = vi.fn();
+  Object.assign(events, { blockAction });
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 300, 40),
+  );
+  const focus = vi
+    .spyOn(EPUBBlockOverlay.prototype, "focus")
+    .mockResolvedValue(true);
+  try {
+    await renderView({ ...reflowed, blockFocus: false });
+    const sentence = host.querySelector('[data-source-sentence="0"]')!;
+    const press = async () => {
+      await act(async () => {
+        sentence.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+        sentence.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+    await act(async () =>
+      sentence.dispatchEvent(new MouseEvent("pointermove", { bubbles: true })),
+    );
+    const copy = host.querySelector<HTMLButtonElement>(
+      '[data-block-action="copy"]',
+    );
+    expect(copy?.getAttribute("aria-label")).toBe("复制此段");
+    await act(async () => copy!.click());
+    // Reflowed paragraphs copy their source and translation together.
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith(
+      expect.any(String),
+      "已复制",
+    );
+    expect(blockAction).not.toHaveBeenCalled();
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>('[data-block-action="explain"]')!
+        .click(),
+    );
+    expect(blockAction).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "p1-b1" }),
+      "explain",
+    );
+    await press();
+    expect(focus).not.toHaveBeenCalled();
+    await renderView(reflowed);
+    await press();
+    expect(focus).toHaveBeenCalledWith("p1-b1");
+  } finally {
+    delete (events as { blockAction?: unknown }).blockAction;
+  }
+});
+it("copies a PDF paragraph with the formulas its translation restored", async () => {
+  const blockAction = vi.fn();
+  Object.assign(events, { blockAction });
+  try {
+    await act(async () =>
+      fixture.push!({
+        event: "snapshot",
+        data: [
+          {
+            blockId: "p1-b1",
+            sourceHash: "hash",
+            status: "complete",
+            sentences: [
+              {
+                source: "First $x_1$.",
+                anchor: "First sentence.",
+                target: "第一 $x_1$。",
+              },
+              { source: "Second sentence.", target: "第二句。" },
+            ],
+          },
+        ],
+      } as never),
+    );
+    vi.mocked(copyText).mockClear();
+    await act(async () =>
+      fixture.events!.blockAction?.(
+        {
+          id: "p1-b1",
+          page: 1,
+          label: "text",
+          text: "First sentence. Second sentence.",
+          bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.3 },
+        },
+        "copy",
+      ),
+    );
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith(
+      "First $x_1$. Second sentence.",
+      "已复制",
+    );
+    expect(blockAction).not.toHaveBeenCalled();
+  } finally {
+    delete (events as { blockAction?: unknown }).blockAction;
+  }
+});
+it("does not move reflow text when the hidden PDF reports a position", async () => {
+  await renderView(reflowed);
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  const block = pane.querySelector<HTMLElement>('[data-reflow-block="p1-b1"]')!;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+  block.getBoundingClientRect = () =>
+    new DOMRect(0, 1500 - pane.scrollTop, 600, 200);
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0 }),
+  );
+  expect(pane.scrollTop).toBe(0);
+});
+
+it("restores the saved reflow paragraph after that paragraph arrives", async () => {
+  const progress = {
+    type: "pdf" as const,
+    page: 1,
+    reflowPosition: { page: 2, blockId: "p2-b1" },
+  };
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await renderView(reflowed, [], [], undefined, progress);
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      return this.dataset.reflowBlock === "p2-b1"
+        ? new DOMRect(0, 1500 - pane.scrollTop, 600, 200)
+        : new DOMRect(0, 0, 600, 600);
+    });
+  try {
+    await act(async () =>
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0 }),
+    );
+    expect(pane.scrollTop).toBe(0);
+    await renderView(
+      reflowed,
+      [
+        {
+          id: "p2-b1",
+          page: 2,
+          label: "text",
+          text: "Later paragraph",
+          bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+        },
+      ],
+      [],
+      undefined,
+      progress,
+    );
+    expect(pane.scrollTop).toBeCloseTo(1200);
+  } finally {
+    rect.mockRestore();
+  }
+});
+
+it("uses the chosen margin immediately without a PDF-derived column width", async () => {
+  await renderView({ ...reflowed, pdfTranslationMargin: 0 });
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  expect(pane.style.getPropertyValue("--reflow-margin")).toBe("0px");
+  expect(pane.hasAttribute("data-column")).toBe(false);
+  expect(pane.style.getPropertyValue("--pdf-column-width")).toBe("");
+});
+
+it("saves the visible reflow paragraph when the reader scrolls", async () => {
+  await renderView(reflowed);
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  const block = pane.querySelector<HTMLElement>('[data-reflow-block="p1-b1"]')!;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+  block.getBoundingClientRect = () => new DOMRect(0, 80, 600, 400);
+  events.location.mockClear();
+  await act(async () => {
+    pane.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 100 }));
+    pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+    await new Promise(requestAnimationFrame);
+  });
+  expect(events.location).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "pdf", page: 1, reflowBlockId: "p1-b1" }),
+    expect.any(Number),
+  );
+});
+
+it("returns to the latest reflow paragraph after switching modes or tabs", async () => {
+  const later = {
+    id: "p1-b2",
+    page: 1,
+    label: "text",
+    text: "Later",
+    bounds: { x: 0.1, y: 0.7, width: 0.3, height: 0.1 },
+  };
+  const progress = {
+    type: "pdf" as const,
+    page: 1,
+    reflowPosition: { page: 1, blockId: "p1-b1" },
+  };
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await renderView(reflowed, [later], [], undefined, progress);
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+  const node = pane.querySelector<HTMLElement>('[data-reflow-block="p1-b2"]')!;
+  node.getBoundingClientRect = () =>
+    new DOMRect(0, 1200 - pane.scrollTop, 600, 200);
+  vi.mocked(adapter.goTo).mockClear();
+  await act(async () =>
+    fixture.ready!.goTo({ type: "pdf", page: 1, reflowBlockId: "p1-b2" }),
+  );
+  expect(pane.scrollTop).toBe(900);
+  expect(adapter.goTo).not.toHaveBeenCalled();
+  await renderView(defaultTheme, [later], [], undefined, progress);
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("translation-document"))
+        return new DOMRect(0, 0, 600, 600);
+      if (this.dataset.reflowBlock === "p1-b2")
+        return new DOMRect(
+          0,
+          1200 -
+            (this.closest<HTMLElement>(".translation-document")?.scrollTop ??
+              0),
+          600,
+          200,
+        );
+      return new DOMRect(0, 0, 600, 200);
+    });
+  try {
+    await renderView(reflowed, [later], [], undefined, progress);
+    const restored = host.querySelector<HTMLElement>(".translation-document")!;
+    expect(restored.scrollTop).toBe(900);
+  } finally {
+    rect.mockRestore();
+  }
+  expect(events.location).toHaveBeenCalledWith(
+    expect.objectContaining({ reflowBlockId: "p1-b2" }),
+    expect.any(Number),
+  );
+});
+
+it("restores the non-reflow translation position after reading elsewhere in reflow", async () => {
+  const later = {
+    id: "p1-b2",
+    page: 1,
+    label: "text",
+    text: "Later",
+    bounds: { x: 0.1, y: 0.7, width: 0.3, height: 0.1 },
+  };
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("translation-document"))
+        return new DOMRect(0, 0, 600, 600);
+      const id = this.dataset.reflowBlock ?? this.dataset.translationBlock;
+      if (id)
+        return new DOMRect(
+          0,
+          (id === "p1-b1" ? 700 : 1500) -
+            (this.closest<HTMLElement>(".translation-document")?.scrollTop ??
+              0),
+          600,
+          200,
+        );
+      return new DOMRect(0, 0, 600, 200);
+    });
+  try {
+    await renderView(defaultTheme, [later]);
+    await click("仅译文");
+    await act(async () =>
+      fixture.ready!.goTo({ type: "pdf", page: 1, x: 0.1, y: 0.2 }),
+    );
+    await renderView(reflowed, [later]);
+    await act(async () =>
+      fixture.ready!.goTo({ type: "pdf", page: 1, reflowBlockId: "p1-b2" }),
+    );
+    await renderView(defaultTheme, [later]);
+    expect(
+      host.querySelector<HTMLElement>(".translation-document")!.scrollTop,
+    ).toBe(400);
+  } finally {
+    rect.mockRestore();
+  }
+});
+
+it("starts a first reflow session at its own first page, independently of the PDF", async () => {
+  const later = {
+    id: "p4-b1",
+    page: 4,
+    label: "text",
+    text: "Later",
+    bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+  };
+  const next = { ...later, id: "p2-b1", page: 2 };
+  await renderView(defaultTheme, [next, later]);
+  await act(async () =>
+    fixture.ready!.goTo({ type: "pdf", page: 4, x: 0.1, y: 0.2 }),
+  );
+  await renderView(reflowed, [next, later]);
+  expect(fixture.ready!.getLocation()).toMatchObject({
+    type: "pdf",
+    page: 1,
+    reflowBlockId: "p1-b1",
+  });
+  await act(async () => fixture.ready!.next());
+  expect(events.location).toHaveBeenLastCalledWith(
+    expect.objectContaining({ page: 2, reflowBlockId: "p2-b1" }),
+    expect.any(Number),
   );
 });

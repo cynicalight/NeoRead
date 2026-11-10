@@ -114,6 +114,38 @@ it("focuses a clicked block but not after a drag or text selection", () => {
   expect(onFocus).not.toHaveBeenCalled();
 });
 
+it("defers mouse focus and cancels it for a double click or a selection", () => {
+  vi.useFakeTimers();
+  try {
+    const paragraph = container.querySelector('[data-epub-block="p"]')!;
+    const click = (detail: number) => {
+      paragraph.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+      const event = new MouseEvent("click", { bubbles: true, detail });
+      paragraph.addEventListener("click", (e) => overlay.click(e as MouseEvent), { once: true });
+      paragraph.dispatchEvent(event);
+    };
+    click(1);
+    expect(onFocus).not.toHaveBeenCalled();
+    click(2);
+    vi.advanceTimersByTime(500);
+    expect(onFocus).not.toHaveBeenCalled();
+    click(1);
+    vi.advanceTimersByTime(149);
+    expect(onFocus).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onFocus).toHaveBeenCalledOnce();
+    onFocus.mockClear();
+    click(1);
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    window.getSelection()!.addRange(range);
+    vi.advanceTimersByTime(500);
+    expect(onFocus).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("centers a block, top-aligns a tall one, and removes the box", async () => {
   await overlay.focus("p");
   // The padded box (596, 48 high) sits at (400 - 48) / 2.
@@ -182,4 +214,19 @@ it("keeps the toolbar reachable across the box margin above the block", () => {
   at(section, 230, 580);
   expect(box()).toBeNull();
   expect(onHover).toHaveBeenLastCalledWith(null);
+});
+
+it("covers a reflowed translation placed after a mixed block's runs", () => {
+  const runs = container.querySelectorAll('[data-epub-run="m"]');
+  const translation = document.createElement("div");
+  translation.dataset.reflowBlock = "m";
+  translation.innerHTML = "<span>译文</span>";
+  runs[1].after(translation);
+  rect(runs[0], 100);
+  rect(runs[1], 140);
+  rect(translation, 180);
+  expect(epubBlockId(translation.firstElementChild)).toBe("m");
+  const box = epubBlockRect(container, "m")!;
+  expect(box.top + box.height).toBeGreaterThanOrEqual(220);
+  expect(box.top).toBeLessThanOrEqual(100);
 });

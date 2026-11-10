@@ -4,7 +4,7 @@
 
 <h1 align="center">NeoRead</h1>
 
-<p align="center"><b>简体中文</b> | <a href="README.en.md">English</a> | <a href="https://cynicalight.github.io/NeoRead/">官网</a></p>
+<p align="center"><b>简体中文</b> | <a href="README.en.md">English</a> | <a href="https://neoread.app/">官网</a></p>
 
 一个本地优先的 EPUB / PDF AI 阅读器，用于阅读电子书与论文、对照译文、记录批注，以及结合原文向 AI 提问。
 
@@ -14,7 +14,7 @@
 
 NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库分开管理，提供目录、搜索、双语对照、批注与 AI 助读。文档、阅读进度和笔记保存在本机。AI 功能可以通过已登录的 Claude Code、Codex CLI 或 Kimi Code CLI 调用，无需在 NeoRead 中另填 API Key；也可以填写 API 地址和 Key，接入 OpenAI 或 Anthropic 兼容接口。
 
-可从[官网](https://cynicalight.github.io/NeoRead/)了解项目，或在 [GitHub Releases](https://github.com/cynicalight/NeoRead/releases) 下载安装包：macOS（Apple Silicon）DMG 与 Windows x64 EXE。Intel Mac 安装包暂停构建，Linux 不提供安装包，也可以从源码运行。安装包没有受系统信任的开发者证书，首次运行可能需要允许系统安全提示。流程与验证范围见[安装包与发版说明](docs/releasing.md)。
+可从[官网](https://neoread.app/)了解项目，或在 [GitHub Releases](https://github.com/cynicalight/NeoRead/releases) 下载安装包：macOS（Apple Silicon）DMG 与 Windows x64 EXE。Intel Mac 安装包暂停构建，Linux 不提供安装包，也可以从源码运行。安装包没有受系统信任的开发者证书，首次运行可能需要允许系统安全提示。流程与验证范围见[安装包与发版说明](docs/releasing.md)。
 
 ## 功能
 
@@ -22,10 +22,17 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 
 - **图书库与论文库**：分别管理电子书和论文，可在两库间移动文档。图书库支持 EPUB / PDF；论文库只收 PDF，单个文件不超过 50 MB、150 页，超过 50 页时会先询问。
 - **论文信息**：编辑作者、年份、出处、DOI、arXiv、摘要等信息；在线补全不覆盖手动修改。支持嵌套分类、标签与智能标签分类、列表与可排序表格视图、阅读状态、批量操作、重复论文检测与合并、双向相关论文。
+- **书库侧栏**：拖动左侧导航与内容之间的分界线调整宽度，刷新或重新打开后保留；聚焦分界线时也可用左右方向键调整。
 - **期刊评级**：配置 easyScholar 密钥后，在论文标题旁显示期刊评级，可选择要显示的评级体系。
 - **多种收录方式**：通过编号、链接或标题导入；安装 [NeoRead Connector](docs/neoread-connector.md) Chrome 扩展后，可从论文页面或搜索结果收录 PDF、论文信息和离线网页快照；也可[从本机 Zotero 迁移](docs/zotero-migration.md) PDF、论文信息、分类、标签、笔记和可转换的批注。
 - **引用导出**：支持 GB/T 7714、APA、BibTeX 和 RIS，可复制单篇引用或批量导出。
 - **回收站**：删除后保留原文件、批注和对话，可撤销或恢复；确认彻底删除后才移除数据。
+
+| 论文库 | 论文详情 |
+| --- | --- |
+| <img src="https://github.com/user-attachments/assets/c288d52f-eee1-4a8e-bf37-d7c8e49f2f9e" alt="论文库" /> | <img src="https://github.com/user-attachments/assets/553e7b02-bb16-48a3-8c7e-b0bcc17e6ddc" alt="论文详情" /> |
+| 图书库 | 图书详情 |
+| <img src="https://github.com/user-attachments/assets/28f238d3-c223-49c8-8c9b-5309e8e09a03" alt="图书库" /> | <img src="https://github.com/user-attachments/assets/5e76feeb-115d-44db-b04f-95cb7a603b09" alt="图书详情" /> |
 
 **阅读与翻译**
 
@@ -36,11 +43,19 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 - **阅读记录**：书签、高亮、下划线、问题批注、批注标签、论文笔记与阅读位置恢复；悬停即可预览批注，支持按颜色和标签筛选、搜索笔记、撤销批注改动、摘录批注、Markdown 导出及桌面 `neoread://` 链接。PDF 内部引用支持悬停预览和返回阅读位置。
 - **阅读偏好**：双击选中整句，可选开启选中文字自动复制；可自定义高亮颜色和译文字体；界面支持浅色、深色、纸张与跟随系统，桌面窗口外观同步切换。
 
+| PDF 重排阅读 | 论文笔记 |
+| --- | --- |
+| <img src="https://github.com/user-attachments/assets/6650744d-fdfa-493b-bb01-7e78c62e8b2b" alt="PDF 重排阅读" /> | <img src="https://github.com/user-attachments/assets/8381af34-c060-46fa-bd79-1bb2bb08fe47" alt="论文 Markdown 笔记" /> |
+
 **AI 助读**
 
 - **问答与解释**：选区翻译与解释、多选区引用、EPUB 当前章节或 PDF 当前页总结、对话历史和生成取消。普通提问默认附带论文标题和摘要，可开启章节正文；引用选段提问时附带所在章节。回答中的出处可跳回原文并闪烁定位。
 - **在 Codex 中继续**：完成 Codex 文档阅读对话后，从 Agent 顶栏打开独立的 Codex App 对话，保留已有上下文并附带原文和聊天快照。关闭 NeoRead 后也可继续阅读；两边后续消息不自动同步。
 - **两种接入方式**：检测本机 Claude Code / Codex CLI / Kimi Code CLI 的安装与登录状态，通过官方 CLI 使用已有账户；或在设置中配置 API 连接，支持 OpenAI Chat Completions 与 Anthropic Messages 协议。问答与翻译可分别选择模型和思考强度。
+
+| AI 回答引用 |
+| --- |
+| <img src="https://github.com/user-attachments/assets/c5f659e9-64af-4027-979c-7b58577f61c0" alt="AI 回答中的文献引用" /> |
 
 **桌面应用**
 
@@ -65,11 +80,11 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 
 ## 截图
 
-以下截图来自应用本身，使用项目自带的示例文档；图片会跟随 GitHub 的浅色 / 深色外观。
+以下截图来自应用本身。
 
 | 书库                                                                                                                                                                                                                         | Agent 设置                                                                                                     |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| <picture> <source media="(prefers-color-scheme: dark)" srcset="website/assets/screenshots/library-dark.webp" /> <img src="website/assets/screenshots/library-light.webp" alt="书库，PDF 封面上显示后台处理进度" /></picture> | <img src="website/assets/screenshots/settings-light.webp" alt="Agent 设置：Codex、Claude Code 与 Kimi Code" /> |
+| <img src="https://github.com/user-attachments/assets/28f238d3-c223-49c8-8c9b-5309e8e09a03" alt="图书库" /> | <img src="website/assets/screenshots/settings-dark.webp" alt="Agent 设置：Codex、Claude Code 与 Kimi Code" /> |
 
 ## 快速开始
 
@@ -220,3 +235,8 @@ assets/            # Logo 源文件与应用图标
 感谢 [Readium](https://github.com/readium)、[PDF.js](https://github.com/mozilla/pdf.js)、[shadcn/ui](https://github.com/shadcn-ui/ui) 和 [Base UI](https://github.com/mui/base-ui)。shadcn 组件保留在 `packages/ui`，相关许可见 [packages/ui/LICENSE.md](packages/ui/LICENSE.md)。更多技术来源与归属见[第三方来源](docs/sources.md)。
 
 [项目范围](docs/spec.md) · [路线图](docs/roadmap.md) · [OpenAPI](docs/openapi.yaml) · [验证记录](docs/verification.md)
+
+## 交流群
+
+<img width="720" height="1088" alt="image" src="https://github.com/user-attachments/assets/a91dde2e-b202-45c8-88bd-639b83cd5245" />
+

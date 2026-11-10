@@ -388,6 +388,11 @@ it("uses TOC and internal fragment links and delegates external URLs", async () 
 it("expands FTS chapter hits into exact repeated occurrences and selects the requested occurrence", async () => {
   await open();
   const results = await reader.search("Same words");
+  expect(results.map((result) => result.excerpt)).toEqual([
+    "Same words.",
+    "Same words.",
+    "Same words.",
+  ]);
   expect(results.map((r) => (r.location as EPUBLocation).start)).toEqual([
     0, 12, 0,
   ]);
@@ -802,6 +807,33 @@ it("emits note hover independently of selection/click and clears it on leaving",
   expect(events.selection).not.toHaveBeenCalled();
   host.dispatchEvent(new MouseEvent("pointerleave"));
   expect(events.annotationHover).toHaveBeenLastCalledWith(null);
+  // Only the marked words open the note, not the rest of their sentence.
+  const lineBox = text.getBoundingClientRect();
+  Range.prototype.getClientRects = function (this: Range) {
+    return [
+      new DOMRect(
+        lineBox.left + this.startOffset * 10,
+        lineBox.top,
+        (this.endOffset - this.startOffset) * 10,
+        20,
+      ),
+    ] as unknown as DOMRectList;
+  };
+  await reader.highlight([annotation]);
+  const move = (x: number) =>
+    text.dispatchEvent(
+      new MouseEvent("pointermove", {
+        bubbles: true,
+        clientX: lineBox.left + x,
+        clientY: lineBox.top + 10,
+      }),
+    );
+  move(105); // "Same words|." — same sentence, outside the mark
+  expect(events.annotationHover).toHaveBeenLastCalledWith(null);
+  move(40);
+  expect(events.annotationHover).toHaveBeenLastCalledWith(
+    expect.objectContaining({ ids: ["note"] }),
+  );
 });
 
 it("opens from metadata without loading distant text and resolves an unloaded search hit on demand", async () => {
@@ -881,22 +913,57 @@ it("reports the fractional EPUB reading position at the viewport midpoint", asyn
   expect(events.epubReadingAnchor).toHaveBeenLastCalledWith("c", 0.5);
 });
 
-it("smoothly follows EPUB fractions and stops immediately when the user takes over", async () => {
+it("follows EPUB fractions immediately on every scroll frame", async () => {
   await open();
   await reader.goTo({ type: "epub", href: "b.xhtml" });
   host.scrollTop = 500;
-  vi.useFakeTimers();
-  const motion = reader.followBlock({ blockId: "c", fraction: 0.5 });
-  await vi.advanceTimersByTimeAsync(100);
-  expect(host.scrollTop).toBeGreaterThan(500);
-  expect(host.scrollTop).toBeLessThan(840);
-  host.dispatchEvent(new Event("wheel"));
-  const stopped = host.scrollTop;
-  await vi.advanceTimersByTimeAsync(300);
-  await motion;
-  expect(host.scrollTop).toBe(stopped);
-  const resumed = reader.followBlock({ blockId: "c", fraction: 0.75 });
-  await vi.advanceTimersByTimeAsync(300);
-  await resumed;
+  await reader.followBlock({ blockId: "c", fraction: 0.5 });
+  expect(host.scrollTop).toBeCloseTo(840);
+  await reader.followBlock({ blockId: "c", fraction: 0.75 });
   expect(host.scrollTop).toBeCloseTo(862);
+});
+
+it("measures reading progress on the visible translation when reflow hides the source", async () => {
+  await open();
+  await reader.goTo({ type: "epub", href: "b.xhtml" });
+  // Translation-only reflow hides the source runs: their ranges have no boxes.
+  Range.prototype.getBoundingClientRect = () => rect(0, 0);
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  host.scrollTop = 840;
+  events.location.mockClear();
+  host.dispatchEvent(new Event("wheel"));
+  host.dispatchEvent(new Event("scroll"));
+  await vi.waitFor(() => expect(events.location).toHaveBeenCalled());
+  // The midpoint is halfway down paragraph c, not at its end.
+  expect(reader.getLocation()).toMatchObject({
+    blockId: "c",
+    start: Math.round(c.text.length / 2),
+  });
+});
+
+it("goes to the visible translation of a paragraph whose source reflow hides", async () => {
+  await open();
+  await reader.goTo({ type: "epub", href: "b.xhtml" });
+  const source = host.querySelector<HTMLElement>('[data-epub-block="c"]')!;
+  const translation = document.createElement("div");
+  translation.dataset.reflowBlock = "c";
+  source.after(translation);
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function (
+    this: Element,
+  ) {
+    return (this === translation ? [rect(0)] : []) as unknown as DOMRectList;
+  });
+  translation.getBoundingClientRect = () => rect(700);
+  source.getBoundingClientRect = () => rect(0, 0);
+  const before = host.scrollTop;
+  await reader.goTo({
+    type: "epub",
+    href: "b.xhtml",
+    blockId: "c",
+    start: 0,
+    end: 1,
+  });
+  // Centred on the translation at 700, not on the hidden source at 0.
+  expect(host.scrollTop - before).toBe(400);
 });

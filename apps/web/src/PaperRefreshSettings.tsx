@@ -9,39 +9,55 @@ export function PaperRefreshSettings({ open }: { open: boolean }) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const running = useRef(false);
+  const revision = useRef(0);
+  const startPending = useRef(false);
   useEffect(() => {
     if (!open) return;
     let active = true;
+    let polling = false;
     const poll = async () => {
+      if (polling || startPending.current) return;
+      polling = true;
+      const current = revision.current;
       try {
         const next = await api.paperRefreshStatus();
-        if (!active) return;
+        if (!active || current !== revision.current) return;
         if (running.current && next.status !== "running")
           void refreshLibrary().catch(() => {});
         running.current = next.status === "running";
         setProgress(next);
         setError("");
       } catch {
-        if (active) setError("无法读取任务状态，请稍后重试。");
+        if (active && current === revision.current)
+          setError("无法读取任务状态，请稍后重试。");
+      } finally {
+        polling = false;
       }
     };
     void poll();
     const timer = window.setInterval(() => void poll(), 2000);
     return () => {
       active = false;
+      revision.current++;
       window.clearInterval(timer);
     };
   }, [open]);
   const start = async () => {
+    if (startPending.current) return;
+    startPending.current = true;
+    // Invalidate reads started before this mutation and pause polling until it settles.
+    const current = ++revision.current;
     setStarting(true);
     setError("");
     try {
       const next = await api.startPaperRefresh();
+      if (current !== revision.current) return;
       running.current = next.status === "running";
       setProgress(next);
     } catch {
-      setError("无法启动任务，请稍后重试。");
+      if (current === revision.current) setError("无法启动任务，请稍后重试。");
     } finally {
+      startPending.current = false;
       setStarting(false);
     }
   };

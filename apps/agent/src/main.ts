@@ -1,5 +1,10 @@
 import { createInterface } from "node:readline";
-import { runAgent, type AgentRequest, type ToolResult } from "./runtime";
+import {
+  runAgent,
+  AgentRunError,
+  type AgentRequest,
+  type ToolResult,
+} from "./runtime";
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const controller = new AbortController();
@@ -7,22 +12,28 @@ const pending = new Map<
   string,
   { resolve: (value: ToolResult) => void; reject: (error: Error) => void }
 >();
+const checkpointAcks = new Map<
+  string,
+  { resolve: () => void; reject: (error: Error) => void }
+>();
+let checkpointCounter = 0;
 let started = false,
-  runId = "",
-  counter = 0;
+  runId = "";
 const send = (event: Record<string, unknown>) =>
   process.stdout.write(JSON.stringify({ version: 1, runId, ...event }) + "\n");
 const close = () => {
   controller.abort();
   for (const entry of pending.values()) entry.reject(new Error("运行已取消"));
   pending.clear();
+  for (const ack of checkpointAcks.values())
+    ack.reject(new Error("运行已取消"));
+  checkpointAcks.clear();
 };
 process.on("SIGINT", close);
 process.on("SIGTERM", close);
 lines.on("close", close);
 lines.on("line", (line) => {
   try {
-    if (Buffer.byteLength(line) > 64 * 1024 * 1024) throw new Error("请求过大");
     const message = JSON.parse(line);
     if (message.type === "start" && !started) {
       started = true;
@@ -49,11 +60,13 @@ lines.on("line", (line) => {
           const payload = JSON.parse(body);
           for (const field of [
             "reasoning_effort",
+            "reasoning",
             "thinking",
             "output_config",
             "reasoning_split",
             "max_tokens",
             "max_completion_tokens",
+            "max_output_tokens",
           ])
             delete payload[field];
           Object.assign(payload, input.payload);
@@ -69,15 +82,27 @@ lines.on("line", (line) => {
       void runAgent(
         input,
         send,
-        async (name, args, signal) => {
+        async (name, args, signal, toolCallID) => {
           signal?.throwIfAborted();
-          const id = String(++counter);
+          if (!toolCallID || pending.has(toolCallID))
+            throw new Error("工具调用编号无效");
+          const id = toolCallID;
           return new Promise<ToolResult>((resolve, reject) => {
             pending.set(id, { resolve, reject });
             send({ type: "tool", id, name, args });
           });
         },
         controller.signal,
+        input.durableCheckpoints
+          ? async (checkpoint) => {
+              controller.signal.throwIfAborted();
+              const id = `checkpoint-${++checkpointCounter}`;
+              await new Promise<void>((resolve, reject) => {
+                checkpointAcks.set(id, { resolve, reject });
+                send({ type: "checkpoint", id, ...checkpoint });
+              });
+            }
+          : undefined,
       )
         .then((result) => {
           send({ type: "complete", ...result });
@@ -87,6 +112,7 @@ lines.on("line", (line) => {
             error instanceof Error ? error.message : "Agent 运行失败";
           send({
             type: "error",
+            canContinue: error instanceof AgentRunError && error.canContinue,
             message: input.key
               ? text.split(input.key).join("[redacted]")
               : text,
@@ -97,6 +123,12 @@ lines.on("line", (line) => {
           lines.close();
           process.stdin.destroy();
         });
+    } else if (message.type === "checkpointAck" && message.runId === runId) {
+      const ack = checkpointAcks.get(message.id);
+      if (!ack) throw new Error("进度确认编号不匹配");
+      checkpointAcks.delete(message.id);
+      if (message.error) ack.reject(new Error("会话进度保存失败"));
+      else ack.resolve();
     } else if (message.type === "toolResult" && message.runId === runId) {
       const entry = pending.get(message.id);
       if (!entry) throw new Error("工具结果编号不匹配");

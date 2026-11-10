@@ -60,10 +60,8 @@ it("waits for save completion after upload reaches 100 percent", async () => {
   vi.mocked(api.paperAttachments).mockResolvedValue([item("a")]);
   resolve(item("a"));
   await work;
-  expect(useAttachments.getState().uploads.paper?.entries[0].status).toBe(
-    "done",
-  );
-  expect(useAttachments.getState().uploads.paper?.running).toBe(false);
+  expect(useAttachments.getState().items.paper).toEqual([item("a")]);
+  expect(useAttachments.getState().uploads.paper).toBeUndefined();
 });
 it("preserves successful files and exposes failed files for retry", async () => {
   vi.mocked(api.addPaperAttachment)

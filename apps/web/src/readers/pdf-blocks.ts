@@ -1,4 +1,5 @@
 import { reducedMotion } from "../motion";
+import { DeferredBlockFocus } from "./deferred-block-focus";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { BlockActions } from "../BlockActions";
@@ -82,6 +83,7 @@ export class PDFBlockOverlay {
   private linked = document.createElement("div");
   private searchBlocks = new Map<string, HTMLDivElement>();
   private pressed?: { id: string; x: number; y: number };
+  private pendingFocus = new DeferredBlockFocus();
   constructor(
     private host: HTMLElement,
     private onAction: (
@@ -123,6 +125,8 @@ export class PDFBlockOverlay {
     host.addEventListener("click", this.click, true);
     host.addEventListener("pointerup", this.move);
     host.addEventListener("scroll", this.clear, { passive: true });
+    host.addEventListener("wheel", this.cancelPending, { passive: true });
+    host.addEventListener("keydown", this.cancelPending);
   }
   setBlocks(blocks: PDFBlock[]) {
     this.blocks = blocks.filter((b) => !isPDFPageDecoration(b));
@@ -182,8 +186,12 @@ export class PDFBlockOverlay {
     element.inert = false;
     if (element.parentElement !== page) page.append(element);
   }
+  private cancelPending = () => this.pendingFocus.cancel();
   private leave = () => this.dismiss(false);
-  clear = () => this.dismiss(true);
+  clear = () => {
+    this.pendingFocus.cancel();
+    this.dismiss(true);
+  };
   private dismiss(immediate: boolean) {
     this.pressed = undefined;
     this.hide(this.overlay, immediate);
@@ -194,6 +202,7 @@ export class PDFBlockOverlay {
     this.paintReadingFocus();
   }
   private press = (event: PointerEvent) => {
+    this.pendingFocus.cancel();
     this.pressed = undefined;
     if (
       (event.target as Element)?.closest(blockActionTarget) ||
@@ -220,15 +229,22 @@ export class PDFBlockOverlay {
     if (!block || block.id !== pressed.id) return;
     if ((event.target as Element)?.closest("a, button, input, [role=button]"))
       return;
+    if (!block.image) {
+      this.pendingFocus.schedule(event.detail, () => {
+        if (this.onFocus(block)) {
+          if (block.id === this.tourTarget.dataset.blockId)
+            this.tourTarget.dataset.demonstrated = "true";
+          this.clear();
+        }
+      });
+      return;
+    }
     if (this.onFocus(block)) {
-      if (block.id === this.tourTarget.dataset.blockId)
-        this.tourTarget.dataset.demonstrated = "true";
       event.preventDefault();
       event.stopPropagation();
       this.clear();
       return;
     }
-    if (!block.image) return;
     event.preventDefault();
     event.stopPropagation();
     this.onAction(block, "attach");
@@ -455,5 +471,7 @@ export class PDFBlockOverlay {
     this.host.removeEventListener("click", this.click, true);
     this.host.removeEventListener("pointerup", this.move);
     this.host.removeEventListener("scroll", this.clear);
+    this.host.removeEventListener("wheel", this.cancelPending);
+    this.host.removeEventListener("keydown", this.cancelPending);
   }
 }

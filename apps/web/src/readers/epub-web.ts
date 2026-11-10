@@ -1,8 +1,6 @@
+import { searchExcerpt } from "./search-excerpt";
 import { selectionContext } from "./selection-context";
-import {
-  annotationsInRects,
-  sentenceRectsAtPoint,
-} from "../translation/annotation-hover";
+import { annotationsAtPoint } from "../translation/annotation-hover";
 import { api } from "@neoread/api";
 import type {
   Annotation,
@@ -22,6 +20,7 @@ import type {
 } from "@neoread/core";
 import { toast } from "sonner";
 import { openExternalLink } from "../reading-links";
+import { sourceFont } from "../appearance";
 import { defaultTheme } from "@neoread/core";
 import { isSelectionToolbar, selectionAnchor } from "./selection-anchor";
 import { sentenceBounds } from "./sentence-selection";
@@ -30,7 +29,6 @@ import {
   blockRange,
   resolveEPUBLocation,
 } from "./epub-web-location";
-import { animatePDFScroll } from "./pdf-scroll";
 import { EPUBBlockOverlay, epubBlockRect } from "./epub-block-focus";
 import "./epub-web.css";
 
@@ -53,6 +51,9 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   private selection: ReaderSelection | null = null;
   private annotations: Annotation[] = [];
   private marks: { id: string; range: Range }[] = [];
+  /** Last range of each annotation that has note text. */
+  private noted: { range: Range; color: string }[] = [];
+  private noteLayer = document.createElement("div");
   private focus: EPUBLocation[] = [];
   private names: string[] = [];
   private prefix = `epub-web-${++sequence}`;
@@ -140,6 +141,8 @@ export class EPUBReaderAdapter implements ReaderAdapter {
           current.startContainer instanceof Element
             ? current.startContainer
             : current.startContainer.parentElement;
+        // Reflowed translations inside a source paragraph select themselves.
+        if (element?.closest("[data-translation-block]")) return;
         const id =
           element?.closest<HTMLElement>("[data-epub-run]")?.dataset.epubRun ??
           element?.closest<HTMLElement>("[data-epub-block]")?.dataset.epubBlock;
@@ -263,6 +266,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     if (typeof ResizeObserver !== "undefined") {
       this.resize = new ResizeObserver(() => {
         if (this.container.closest("[inert]")) return;
+        this.placeNotes();
         this.preserveAnchor();
         this.onScroll();
       });
@@ -456,15 +460,17 @@ export class EPUBReaderAdapter implements ReaderAdapter {
           (c) => c.node.getBoundingClientRect().bottom > top,
         ) ?? this.chapters.at(-1));
     if (!chapter?.loaded) return;
+    // Reflowed translations stand in for source the reader hides.
     const elements = Array.from(
-      chapter.node.querySelectorAll<HTMLElement>("[data-epub-block]"),
+      chapter.node.querySelectorAll<HTMLElement>(
+        "[data-epub-block], [data-reflow-block]",
+      ),
     );
     const element = atEnd
       ? elements.at(-1)
       : elements.find((n) => n.getBoundingClientRect().bottom > top);
-    const block = chapter.info.blocks.find(
-      (b) => b.id === element?.dataset.epubBlock,
-    );
+    const id = element?.dataset.epubBlock ?? element?.dataset.reflowBlock;
+    const block = chapter.info.blocks.find((b) => b.id === id);
     const before = chapter.info.blocks
       .slice(0, block ? chapter.info.blocks.indexOf(block) : 0)
       .reduce((n, b) => n + b.text.length, 0);
@@ -500,6 +506,18 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     );
   }
   private visibleOffset(block: EPUBReadingBlock, top: number) {
+    // Hidden source text has no geometry; measure its visible translation.
+    const whole = blockRange(this.container, {
+      block,
+      start: 0,
+      end: block.text.length,
+    });
+    if (whole?.getClientRects && !whole.getClientRects().length) {
+      const r = this.blockElement(block.id)?.getBoundingClientRect();
+      if (!r?.height) return 0;
+      const fraction = Math.max(0, Math.min(1, (top - r.top) / r.height));
+      return Math.round(fraction * block.text.length);
+    }
     let start = 0,
       end = block.text.length;
     while (start < end) {
@@ -735,9 +753,13 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     }
   }
   private blockElement(id: string) {
-    return Array.from(
-      this.container.querySelectorAll<HTMLElement>("[data-epub-block]"),
-    ).find((n) => n.dataset.epubBlock === id);
+    const nodes = Array.from(
+      this.container.querySelectorAll<HTMLElement>(
+        "[data-epub-block], [data-reflow-block]",
+      ),
+    ).filter((n) => (n.dataset.epubBlock ?? n.dataset.reflowBlock) === id);
+    // Reflowed translation-only text hides the source; use what is visible.
+    return nodes.find((n) => n.getClientRects().length) ?? nodes[0];
   }
   async next() {
     this.container.scrollTop += this.container.clientHeight * 0.85;
@@ -789,7 +811,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
         if (!first || !last) continue;
         results.push({
           id: `${first.block.id}:${start - first.start}`,
-          excerpt: text.slice(Math.max(0, start - 35), end + 60),
+          excerpt: searchExcerpt(text, start, end),
           location: {
             type: "epub",
             href: chapter.info.href,
@@ -906,17 +928,18 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       this.events.annotationHover?.(null);
       return;
     }
-    const rects = sentenceRectsAtPoint(target, event.clientX, event.clientY);
     const byId = new Map(this.annotations.map((a) => [a.id, a]));
     const ranges = this.marks.flatMap((mark) => {
       const annotation = byId.get(mark.id);
       return annotation ? [{ annotation, range: mark.range }] : [];
     });
-    const matches = annotationsInRects(
+    // Only the marked text itself opens the note, not the rest of its sentence.
+    const { annotations: matches, rects } = annotationsAtPoint(
       this.container,
       this.annotations,
       ranges,
-      rects,
+      event.clientX,
+      event.clientY,
     );
     this.events.annotationHover?.(
       matches.length
@@ -984,6 +1007,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   }
   private paint() {
     this.marks = [];
+    this.noted = [];
     for (const name of this.names) globalThis.CSS?.highlights?.delete(name);
     this.names = [];
     this.style.textContent = "";
@@ -1033,6 +1057,11 @@ export class EPUBReaderAdapter implements ReaderAdapter {
         }
       }
       add(ranges, annotation.color, annotation.kind === "underline");
+      if (annotation.note?.trim() && ranges.length)
+        this.noted.push({
+          range: ranges[ranges.length - 1]!,
+          color: annotation.color,
+        });
     }
     add(
       this.focus.flatMap((location) =>
@@ -1044,12 +1073,39 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       "#3b82f6",
     );
     this.style.textContent = rules.join("\n");
+    this.placeNotes();
     const key = [...new Set(unresolved)].sort().join(",");
     if (key && key !== this.unresolved)
       toast.error(
         `${new Set(unresolved).size} 条批注暂时无法定位，已保留在笔记中。`,
       );
     this.unresolved = key;
+  }
+  /** Marks the end of each annotation that has a note. */
+  private placeNotes() {
+    const layer = this.noteLayer;
+    const view = this.container.getBoundingClientRect();
+    const markers = this.noted.flatMap(({ range, color }) => {
+      const rect = Array.from(range.getClientRects?.() ?? [])
+        .filter((r) => r.width > 0 && r.height > 0)
+        .at(-1);
+      if (!rect) return [];
+      const marker = document.createElement("span");
+      marker.className = "neoread-note-marker";
+      marker.style.setProperty("--annotation-color", color);
+      marker.style.left = `${rect.right - view.left + this.container.scrollLeft}px`;
+      marker.style.top = `${rect.top - view.top + this.container.scrollTop}px`;
+      return [marker];
+    });
+    if (!markers.length) {
+      layer.replaceChildren();
+      layer.remove();
+      return;
+    }
+    layer.className = "epub-web-note-layer";
+    layer.setAttribute("aria-hidden", "true");
+    layer.replaceChildren(...markers);
+    if (layer.parentElement !== this.container) this.container.append(layer);
   }
   async focusEPUBLocations(locations: EPUBLocation[]) {
     this.focus = locations;
@@ -1074,18 +1130,17 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     const rect = epubBlockRect(this.container, anchor.blockId);
     if (!rect) return;
     const view = this.container.getBoundingClientRect();
-    await animatePDFScroll(
-      this.container,
-      this.container.scrollLeft,
+    // Scroll following runs every frame; an animation restarted each frame
+    // would not move until scrolling stopped.
+    this.container.scrollTop = Math.max(
+      0,
       this.container.scrollTop +
         rect.top -
         view.top +
         rect.height * anchor.fraction -
         this.container.clientHeight / 2,
-      cancelled,
-      () => {},
     );
-    if (!cancelled()) this.rememberAnchor();
+    this.rememberAnchor();
   }
   async focusBlock(blockId: string) {
     this.cancelBlockFocus();
@@ -1116,7 +1171,8 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     }[this.theme.mode];
     Object.assign(this.container.style, {
       fontSize: `${this.theme.fontSize}rem`,
-      fontFamily: this.theme.fontFamily,
+      fontFamily: sourceFont(this.theme.fontFamily),
+      fontWeight: this.theme.fontWeight === "bold" ? "600" : "",
       lineHeight: String(this.theme.lineHeight),
       backgroundColor: palette[0],
       color: palette[1],

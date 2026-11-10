@@ -1,133 +1,145 @@
-import { beforeEach, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Document } from "@neoread/core";
-import { PDFExportError, exportFailure } from "./translation/pdf-export-error";
 const mocks = vi.hoisted(() => ({
-  blocks: vi.fn(),
-  translations: vi.fn(),
-  engine: vi.fn(),
+  markdown: vi.fn(),
+  render: vi.fn(),
+  print: vi.fn(),
   log: vi.fn(),
   download: vi.fn(),
+  toast: {
+    loading: vi.fn(() => "export"),
+    success: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+  },
 }));
-vi.mock("@neoread/api", () => ({
-  api: { blocks: mocks.blocks, translations: mocks.translations },
-  publicationURL: () => "/private-document.pdf",
+vi.mock("@neoread/api", () => ({ api: { exportTranslation: mocks.markdown } }));
+vi.mock("./markdown-pdf", () => ({
+  markdownPrintHTML: mocks.render,
+  printMarkdownInBrowser: mocks.print,
 }));
-vi.mock("pdfjs-dist", () => ({
-  GlobalWorkerOptions: { workerSrc: "" },
-  getDocument: vi.fn(),
-}));
-vi.mock("./translation/pdf-export", () => ({ translatedPDF: mocks.engine }));
 vi.mock("./diagnostics", () => ({ reportDiagnostic: mocks.log }));
-vi.mock("./download", () => ({
-  downloadBlob: mocks.download,
+vi.mock("./download", async (original) => ({
+  ...(await original<typeof import("./download")>()),
+  saveExportBlob: mocks.download,
   fileTitle: () => "document",
 }));
-import { exportTranslatedPDF } from "./translated-pdf-export";
-const doc = {
-  id: "private-document",
-  type: "pdf",
-  title: "PRIVATE TITLE",
-} as Document;
-const secret =
-  "PRIVATE BODY token=secret https://private.example /Users/private/file.pdf";
+vi.mock("sonner", () => ({ toast: mocks.toast }));
+import {
+  exportTranslatedPDF,
+  exportTranslatedPDFWithToast,
+  exportTranslatedMarkdownWithToast,
+} from "./translated-pdf-export";
+const doc = { id: "private", type: "pdf", title: "PRIVATE" } as Document;
 beforeEach(() => {
-  vi.resetAllMocks();
-  mocks.blocks.mockResolvedValue([]);
-  mocks.translations.mockResolvedValue([]);
-  mocks.engine.mockResolvedValue({
-    bytes: new Uint8Array(),
-    translated: 1,
-    pages: 1,
-    issues: [],
-  });
-  vi.stubGlobal(
-    "fetch",
-    vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        arrayBuffer: async () => new ArrayBuffer(0),
-      }),
-  );
+  vi.clearAllMocks();
+  mocks.markdown.mockResolvedValue({ text: async () => "# 译文\n\n正文" });
+  mocks.render.mockReturnValue("<html>译文</html>");
+  window.neoreadDesktop = {
+    markdownPDF: vi.fn().mockResolvedValue(new Uint8Array([1, 2])),
+    cancelMarkdownPDF: vi.fn().mockResolvedValue(undefined),
+  } as unknown as NonNullable<Window["neoreadDesktop"]>;
 });
-it.each([
-  "snapshot",
-  "font_load",
-  "pdf_decode",
-  "encrypted_pdf",
-  "font_embed",
-  "layout",
-  "no_translated_blocks",
-  "save",
-  "download",
-] as const)(
-  "logs a controlled %s failure without exception contents",
+afterEach(() => {
+  delete window.neoreadDesktop;
+});
+it("renders the same Markdown export without opening the source PDF", async () => {
+  const signal = new AbortController().signal;
+  expect(await exportTranslatedPDF(doc, signal, vi.fn())).toEqual({
+    delivery: "download",
+  });
+  expect(mocks.markdown).toHaveBeenCalledWith(doc.id, "markdown", signal);
+  expect(mocks.render).toHaveBeenCalledWith("# 译文\n\n正文", "document-译文");
+  expect(window.neoreadDesktop!.markdownPDF).toHaveBeenCalledWith(
+    expect.any(String),
+    "<html>译文</html>",
+  );
+  expect(mocks.download).toHaveBeenCalledOnce();
+});
+it.each(["snapshot", "layout", "save", "download"])(
+  "redacts %s failures",
   async (reason) => {
-    const raw = new Error(secret);
-    if (reason === "snapshot") mocks.blocks.mockRejectedValue(raw);
-    else if (reason === "font_load") vi.mocked(fetch).mockRejectedValue(raw);
-    else if (reason === "download")
-      mocks.download.mockImplementation(() => {
-        throw raw;
+    const error = new Error("PRIVATE BODY token=secret");
+    if (reason === "snapshot") mocks.markdown.mockRejectedValueOnce(error);
+    if (reason === "layout")
+      mocks.render.mockImplementationOnce(() => {
+        throw error;
       });
-    else mocks.engine.mockRejectedValue(new PDFExportError(reason, raw));
+    if (reason === "save")
+      vi.mocked(window.neoreadDesktop!.markdownPDF!).mockRejectedValueOnce(
+        error,
+      );
+    if (reason === "download")
+      mocks.download.mockImplementationOnce(() => {
+        throw error;
+      });
     await expect(
       exportTranslatedPDF(doc, new AbortController().signal, vi.fn()),
-    ).rejects.toThrow(secret);
-    const events = mocks.log.mock.calls.map(([event]) => event);
-    const failures = events.filter(
-      (event) => event.event === "pdf.translation_export.failed",
-    );
+    ).rejects.toThrow(error.message);
+    const failures = mocks.log.mock.calls
+      .map(([e]) => e)
+      .filter((e) => e.event.endsWith("failed"));
     expect(failures).toHaveLength(1);
-    expect(failures[0]).toMatchObject({
-      level: "error",
-      requestId: events[0].requestId,
-    });
     expect(failures[0].detail).toContain(`reasonCode=${reason}`);
-    expect(failures[0].detail).toContain("errorCode=");
-    expect(JSON.stringify(events)).not.toMatch(
-      /PRIVATE|secret|private-document|private.example|Users/,
-    );
+    expect(JSON.stringify(mocks.log.mock.calls)).not.toMatch(/PRIVATE|secret/);
   },
 );
-it("recognizes only explicit encrypted-PDF error names during decoding", () => {
-  const error = new Error(secret);
-  error.name = "PasswordException";
-  expect(exportFailure(error, "pdf_decode").reason).toBe("encrypted_pdf");
-  expect(exportFailure(error, "font_embed").reason).toBe("font_embed");
-  expect(
-    exportFailure(new Error("PasswordException"), "pdf_decode").reason,
-  ).toBe("pdf_decode");
-});
-it("records cancellation as one informational terminal event", async () => {
+it("cancels native rendering and prevents late downloads", async () => {
   const controller = new AbortController();
-  mocks.engine.mockImplementation(() => {
-    controller.abort();
-    throw new Error(secret);
-  });
+  vi.mocked(window.neoreadDesktop!.markdownPDF!).mockImplementation(
+    async () => {
+      controller.abort();
+      return new Uint8Array([1]);
+    },
+  );
   await expect(
     exportTranslatedPDF(doc, controller.signal, vi.fn()),
   ).rejects.toMatchObject({ name: "AbortError" });
+  expect(window.neoreadDesktop!.cancelMarkdownPDF).toHaveBeenCalledOnce();
+  expect(mocks.download).not.toHaveBeenCalled();
   expect(mocks.log).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      level: "info",
-      event: "pdf.translation_export.cancelled",
-      detail: expect.stringContaining("reasonCode=user_cancelled"),
-    }),
+    expect.objectContaining({ event: "pdf.translation_export.cancelled" }),
   );
-  expect(
-    mocks.log.mock.calls.filter(([e]) => e.event.endsWith("failed")),
-  ).toHaveLength(0);
+});
+it("does not read content for an already cancelled request", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  await expect(
+    exportTranslatedPDF(doc, controller.signal, vi.fn()),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(mocks.markdown).not.toHaveBeenCalled();
+});
+it("reports browser print separately from a downloaded PDF", async () => {
+  delete window.neoreadDesktop;
+  await exportTranslatedPDFWithToast(doc);
+  expect(mocks.print).toHaveBeenCalledOnce();
+  expect(mocks.download).not.toHaveBeenCalled();
+  expect(mocks.toast.success).not.toHaveBeenCalled();
+  expect(mocks.toast.info).toHaveBeenCalledWith(
+    "打印窗口已关闭",
+    expect.any(Object),
+  );
+});
+it("reports menu export failure without an unhandled rejection", async () => {
+  mocks.markdown.mockRejectedValueOnce(new Error("译文读取失败"));
+  await exportTranslatedPDFWithToast(doc);
+  expect(mocks.toast.error).toHaveBeenCalledWith(
+    "译文读取失败",
+    expect.any(Object),
+  );
   expect(mocks.download).not.toHaveBeenCalled();
 });
-it("keeps successful downloads free of failure diagnostics", async () => {
-  await exportTranslatedPDF(doc, new AbortController().signal, vi.fn());
-  expect(mocks.log).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      event: "pdf.translation_export.download_requested",
-    }),
+
+it("downloads the Markdown snapshot without rendering it", async () => {
+  const blob = new Blob(["# 译文\n\n$x^2$"]);
+  mocks.markdown.mockResolvedValueOnce(blob);
+  await exportTranslatedMarkdownWithToast(doc);
+  expect(mocks.download).toHaveBeenCalledExactlyOnceWith(
+    blob,
+    "document-译文.md",
+    expect.any(AbortSignal),
   );
-  expect(
-    mocks.log.mock.calls.filter(([e]) => e.event.endsWith("failed")),
-  ).toHaveLength(0);
+  expect(mocks.render).not.toHaveBeenCalled();
+  expect(window.neoreadDesktop!.markdownPDF).not.toHaveBeenCalled();
 });

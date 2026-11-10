@@ -1,4 +1,4 @@
-import { api, chat, type ChatStreamEvent } from "@neoread/api";
+import { api, chat, RequestError, type ChatStreamEvent } from "@neoread/api";
 import type {
   ChatRun,
   ToolActivity,
@@ -39,6 +39,11 @@ export type PendingAnswer = {
   savedId?: string;
   error?: string;
   regenerationBlocked?: boolean;
+  run?: ChatRun;
+  resumable?: boolean;
+  reconnectable?: boolean;
+  runStatusUnconfirmed?: boolean;
+  continuationRejected?: boolean;
   controller: AbortController;
 };
 export type ChatSnapshot = {
@@ -52,7 +57,12 @@ export type ChatSnapshot = {
 };
 export interface ChatTransport {
   messages: typeof api.messages;
-  latestRun?: () => Promise<ChatRun | undefined>;
+  latestRun?: (signal?: AbortSignal) => Promise<ChatRun | undefined>;
+  continueRun?: (
+    run: ChatRun,
+    signal: AbortSignal,
+    emit: (event: ChatStreamEvent) => void,
+  ) => Promise<void>;
   resume?: (
     run: ChatRun,
     signal: AbortSignal,
@@ -87,7 +97,7 @@ const transport: ChatTransport = {
       );
     } finally {
       // The server records failed primary attempts even when a fallback succeeds.
-      void refreshAIConfig().catch(() => {});
+      if (!signal.aborted) void refreshAIConfig().catch(() => {});
     }
   },
 };
@@ -105,6 +115,7 @@ export class ChatSession {
   private listeners = new Set<() => void>();
   private serial = 0;
   private regeneration?: number;
+  private continuing?: number;
   private alive = true;
   private frame = 0;
   constructor(
@@ -231,6 +242,7 @@ export class ChatSession {
     input: ChatInput,
     replacing?: PendingAnswer,
     resumeRun?: ChatRun,
+    continuing = false,
   ) {
     const serial = ++this.serial;
     const controller = new AbortController();
@@ -238,7 +250,13 @@ export class ChatSession {
       key: replacing?.key ?? `request-${serial}`,
       content: "",
       phase: "generating",
-      notice: "正在阅读上下文…",
+      notice: continuing ? "正在从已保存的进度继续…" : "正在阅读上下文…",
+      run: resumeRun,
+      tools: continuing
+        ? replacing?.tools?.filter((tool) =>
+            ["completed", "unavailable", "deferred"].includes(tool.status),
+          )
+        : undefined,
       fallback: "",
       input,
       controller,
@@ -263,7 +281,7 @@ export class ChatSession {
         const tools = [...(pending.tools ?? [])];
         const index = tools.findIndex((t) => t.id === event.data.id);
         if (index < 0) {
-          if (tools.length < 256) tools.push(event.data);
+          tools.push(event.data);
         } else tools[index] = event.data;
         pending.tools = tools;
         this.flush();
@@ -318,7 +336,9 @@ export class ChatSession {
         pending.activity = undefined;
         terminal = true;
         pending.phase = "incomplete";
-        pending.notice = `${event.data.error}（回答未完成）`;
+        pending.notice = this.io.latestRun
+          ? "回答中断，正在检查可继续的进度…"
+          : `${event.data.error}（回答未完成）`;
       }
       if (event.event === "done") {
         pending.activity = undefined;
@@ -329,7 +349,9 @@ export class ChatSession {
       this.flush();
     };
     try {
-      if (resumeRun && this.io.resume)
+      if (continuing && resumeRun && this.io.continueRun)
+        await this.io.continueRun(resumeRun, controller.signal, emit);
+      else if (resumeRun && this.io.resume)
         await this.io.resume(resumeRun, controller.signal, emit);
       else
         await this.io.stream(this.documentId, input, controller.signal, emit);
@@ -347,9 +369,16 @@ export class ChatSession {
         pending.tools = pending.tools?.map((t) =>
           t.status === "running" ? { ...t, status: "failed" } : t,
         );
-        pending.phase = "unconfirmed";
+        pending.continuationRejected =
+          continuing && error instanceof RequestError && error.status === 409;
+        if (pending.continuationRejected) pending.resumable = false;
+        pending.phase = pending.continuationRejected
+          ? "incomplete"
+          : "unconfirmed";
         pending.error = (error as Error).message;
-        pending.notice = `${(error as Error).message}；完成状态未确认`;
+        pending.notice = pending.continuationRejected
+          ? pending.error
+          : `${(error as Error).message}；完成状态未确认`;
       }
     } finally {
       if (this.current(serial)) {
@@ -359,7 +388,10 @@ export class ChatSession {
           pending.reasoning = replacing.reasoning;
         }
         this.flush();
-        // Keep the single-request lock until this reconciliation ends. No automatic re-POST.
+        // Refresh checkpoint availability only after this attempt has ended.
+        await this.refreshRun(serial, pending);
+        if (!this.current(serial)) return;
+        // Keep the single-request lock until reconciliation ends; never re-POST automatically.
         await this.reconcile(serial, pending);
         if (this.current(serial)) this.publish({ busy: false });
       }
@@ -375,7 +407,11 @@ export class ChatSession {
         t.status === "running" ? { ...t, status: "cancelled" } : t,
       );
       pending.phase = "cancelled";
-      pending.notice = "已取消重新生成。";
+      pending.notice =
+        this.continuing === this.serial - 1
+          ? "已取消继续。"
+          : "已取消重新生成。";
+      this.continuing = undefined;
       this.publish({ busy: false });
       return;
     }
@@ -390,8 +426,11 @@ export class ChatSession {
     );
     pending.phase = "cancelled";
     pending.notice = "已停止；正在核对保存状态";
+    const serial = this.serial;
+    pending.controller.abort();
     if (this.io.cancel) {
       void this.io.cancel().catch((error: Error) => {
+        if (!this.current(serial) || this.active !== pending) return;
         pending.tools = pending.tools?.map((t) =>
           t.status === "running" ? { ...t, status: "failed" } : t,
         );
@@ -399,7 +438,7 @@ export class ChatSession {
         pending.notice = `停止状态未确认：${error.message}`;
         this.flush();
       });
-    } else pending.controller.abort();
+    }
     this.flush();
   }
   retrySync = async () => {
@@ -412,6 +451,8 @@ export class ChatSession {
     const serial = this.serial,
       pending = this.active;
     this.publish({ busy: true });
+    await this.refreshRun(serial, pending);
+    if (!this.current(serial)) return;
     await this.reconcile(serial, pending);
     if (this.current(serial)) this.publish({ busy: false });
   };
@@ -453,6 +494,112 @@ export class ChatSession {
       throw error;
     }
   };
+  private acceptsRun(
+    run: ChatRun | undefined,
+    pending: PendingAnswer,
+  ): run is ChatRun {
+    return (
+      !!run &&
+      run.documentId === this.documentId &&
+      (!this.sessionId || run.sessionId === this.sessionId) &&
+      run.userMessageId === pending.input.userMessageId
+    );
+  }
+  private async refreshRun(serial: number, pending: PendingAnswer) {
+    if (!this.io.latestRun || !this.current(serial)) return;
+    try {
+      const run = await this.io.latestRun(this.querySignal());
+      if (!this.current(serial) || this.active !== pending) return;
+      pending.runStatusUnconfirmed = false;
+      if (this.acceptsRun(run, pending)) {
+        // Checkpoint presence cannot override a definite rejection for this run.
+        // A different run has its own eligibility; an explicit reload rebuilds state too.
+        if (pending.run?.id !== run.id) pending.continuationRejected = false;
+        pending.run = run;
+        pending.resumable =
+          !pending.continuationRejected &&
+          !!run.resumable &&
+          !!this.io.continueRun;
+        pending.reconnectable =
+          run.status === "running" &&
+          !!this.io.resume &&
+          !pending.controller.signal.aborted;
+      } else {
+        pending.resumable = false;
+        pending.reconnectable = false;
+      }
+    } catch {
+      if (this.current(serial) && this.active === pending)
+        pending.runStatusUnconfirmed = true;
+    }
+  }
+  continueRun = () => this.resumePending(true);
+  reconnect = () => this.resumePending(false);
+  private async resumePending(continueFromCheckpoint: boolean) {
+    const pending = this.active;
+    if (
+      !this.alive ||
+      this.state.busy ||
+      !this.state.loaded ||
+      !pending ||
+      !pending.run ||
+      (!continueFromCheckpoint && !this.io.resume) ||
+      (continueFromCheckpoint &&
+        (!this.io.continueRun || pending.continuationRejected))
+    )
+      return;
+    const originalRun = pending.run;
+    const serial = ++this.serial;
+    this.regeneration = serial;
+    if (continueFromCheckpoint) this.continuing = serial;
+    this.publish({ busy: true });
+    try {
+      if (
+        !(await this.reconcile(serial, pending)) ||
+        !this.current(serial) ||
+        pending.savedId ||
+        pending.regenerationBlocked
+      )
+        return;
+      const run = await this.io.latestRun?.(this.querySignal());
+      if (!this.current(serial)) return;
+      if (!this.acceptsRun(run, pending) || run.id !== originalRun.id)
+        throw new Error("运行记录已变化，请重新读取对话。");
+      if (run.status === "running" && this.io.resume) {
+        this.regeneration = undefined;
+        await this.generate(
+          { ...pending.input, provider: run.provider },
+          pending,
+          run,
+        );
+      } else if (
+        continueFromCheckpoint &&
+        run.resumable &&
+        this.io.continueRun
+      ) {
+        this.regeneration = undefined;
+        await this.generate(
+          { ...pending.input, provider: run.provider },
+          pending,
+          run,
+          true,
+        );
+      } else {
+        pending.resumable = false;
+        pending.reconnectable = false;
+        throw new Error("当前运行没有可继续的进度，请重新读取对话状态。");
+      }
+    } catch (error) {
+      if (this.current(serial)) {
+        pending.notice = (error as Error).message;
+        this.flush();
+      }
+    } finally {
+      if (this.regeneration === serial) this.regeneration = undefined;
+      if (this.continuing === serial) this.continuing = undefined;
+      if (this.current(serial)) this.publish({ busy: false });
+    }
+  }
   private async reconcile(serial: number, pending: PendingAnswer) {
     try {
       const messages = await this.io.messages(
@@ -500,20 +647,29 @@ export class ChatSession {
       } else {
         pending.notice = pending.regenerationBlocked
           ? "这轮问题已有后续记录，无法重新生成。"
-          : pending.phase === "syncing"
-            ? "回答已保存，暂未读取到对应记录，请重试。"
-            : pending.phase === "cancelled"
-              ? "已停止，可重新生成。"
-              : pending.error
-                ? `${pending.error}（回答未完成，可重新生成）`
-                : "回答未完成，可重新生成。";
+          : pending.continuationRejected
+            ? pending.error || "当前运行无法继续，请重新生成。"
+            : pending.phase === "syncing"
+              ? "回答已保存，暂未读取到对应记录，请重试。"
+              : pending.runStatusUnconfirmed
+                ? "暂时无法确认运行状态，请恢复连接后继续。"
+                : pending.reconnectable
+                  ? "连接暂时中断，运行仍在继续，可重新连接。"
+                  : pending.resumable
+                    ? "回答已暂停，可从已保存的进度继续。"
+                    : pending.phase === "cancelled"
+                      ? "已停止，可重新生成。"
+                      : pending.error
+                        ? `${pending.error}（回答未完成，可重新生成）`
+                        : "回答未完成，可重新生成。";
       }
       this.publish({ messages, messageKeys });
       return true;
     } catch {
       if (!this.current(serial)) return false;
-      pending.notice =
-        pending.phase === "syncing"
+      pending.notice = pending.continuationRejected
+        ? pending.error || "当前运行无法继续，请重新生成。"
+        : pending.phase === "syncing"
           ? "回答已保存，暂时无法读取，请稍后重试。"
           : "暂时无法读取对话记录，请稍后重试。";
       this.publish({ pending: { ...pending } });
@@ -524,7 +680,7 @@ export class ChatSession {
 
 export function chatRetryAction(
   state: ChatSnapshot,
-): "reload" | "sync" | "regenerate" | undefined {
+): "reload" | "sync" | "regenerate" | "continue" | "reconnect" | undefined {
   if (state.loadError) return "reload";
   const pending = state.pending;
   if (
@@ -533,5 +689,9 @@ export function chatRetryAction(
     ["generating", "saved"].includes(pending.phase)
   )
     return;
+  if (pending.continuationRejected) return "regenerate";
+  if (pending.runStatusUnconfirmed) return "sync";
+  if (pending.reconnectable) return "reconnect";
+  if (pending.resumable) return "continue";
   return pending.phase === "syncing" ? "sync" : "regenerate";
 }

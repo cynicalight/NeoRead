@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { loadModelCatalog } from "./model-catalog";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -337,4 +338,75 @@ it("keeps the slider interactive during saving and persists the latest choice", 
   );
   expect(document.querySelector(".effort-title")?.textContent).toBe("Low");
   expect(useReaderStore.getState().aiModelSaving).toBe(false);
+});
+it("reads only cached models and does not reload on open or capability changes", async () => {
+  config = { ...config, primary: "codex", models: { codex: "model-a" } };
+  useReaderStore.setState({ aiConfig: config });
+  await render();
+  expect(api.agentModels).toHaveBeenCalledExactlyOnceWith(
+    "codex",
+    expect.any(AbortSignal),
+    false,
+    true,
+  );
+  const toggle = () =>
+    act(async () => {
+      (
+        host.querySelector(
+          '[aria-label="选择模型和 Effort"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+  await toggle();
+  expect(api.agentModels).toHaveBeenCalledTimes(1);
+  await act(async () =>
+    useReaderStore.setState({
+      aiConfig: {
+        ...config,
+        capabilities: {
+          codex: { text: true, vision: false, checkedAt: "updated" },
+        },
+      },
+    }),
+  );
+  expect(api.agentModels).toHaveBeenCalledTimes(1);
+  await toggle();
+  await toggle();
+  expect(api.agentModels).toHaveBeenCalledTimes(1);
+});
+
+it("receives a refreshed settings snapshot without fetching on picker open", async () => {
+  await render();
+  vi.mocked(api.agentModels).mockResolvedValueOnce([
+    { ...models[0], name: "Updated model" },
+  ]);
+  await act(async () => {
+    await loadModelCatalog("codex", undefined, true);
+  });
+  expect(host.textContent).toContain("Updated model");
+  expect(api.agentModels).toHaveBeenCalledTimes(2);
+  await open();
+  expect(api.agentModels).toHaveBeenCalledTimes(2);
+});
+
+it("keeps a published settings snapshot when an older cached read finishes", async () => {
+  let finish!: (models: AgentModel[]) => void;
+  vi.mocked(api.agentModels).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await render();
+  vi.mocked(api.agentModels).mockResolvedValueOnce([
+    { ...models[0], name: "New settings snapshot" },
+  ]);
+  await act(async () => {
+    await loadModelCatalog("codex", undefined, true);
+  });
+  await act(async () => finish(models));
+  expect(host.textContent).toContain("New settings snapshot");
+  expect(host.querySelector(".model-trigger-name")?.textContent).not.toBe(
+    "Model A",
+  );
 });

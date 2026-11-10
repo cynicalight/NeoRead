@@ -3,6 +3,7 @@ package neoread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 )
@@ -16,7 +17,7 @@ func (a *documentAgent) toolFailure(ctx context.Context, err error) (json.RawMes
 	a.mu.Lock()
 	fatal := a.fatal
 	a.mu.Unlock()
-	if ctx.Err() != nil || a.ctx.Err() != nil || fatal != nil {
+	if ctx.Err() != nil || a.ctx.Err() != nil || fatal != nil || errors.Is(err, errDocumentAttemptEnded) || errorKind(err) == ErrorSave {
 		return nil, err
 	}
 	slog.WarnContext(ctx, "document.tool.failed", "requestId", requestID(ctx), "errorCode", errorKind(err))
@@ -27,11 +28,7 @@ func (a *documentAgent) toolFailure(ctx context.Context, err error) (json.RawMes
 const documentToolCalls = 128
 const documentReadingRounds = 64
 
-// Transport ceiling, independent of the estimated token allowance.
-const documentEvidenceBytes = 2 << 20
-
 var errDocumentReadingBudget = generationError(ErrorLimit, "本轮检索已收束，请基于已有资料回答")
-var errDocumentToolContext = generationError(ErrorLimit, "API 工具上下文超过限制")
 var errDocumentAttemptEnded = generationError(ErrorCanceled, "文档工具尝试已结束")
 
 func (a *documentAgent) stopReading(reason string) {
@@ -48,8 +45,7 @@ func (a *documentAgent) readingStopped() bool {
 	return a.readingStop != ""
 }
 
-// Callers hold a.mu. Feedback is included before item sizing and refreshed
-// after reads so the model can decide when to finish.
+// Callers hold a.mu. These estimates only advise the model; they never trim results.
 func (a *documentAgent) readingBudget() any {
 	remaining := max(0, a.sourceTokenLimit()-a.evidenceTokens)
 	if a.continuous {
@@ -57,12 +53,11 @@ func (a *documentAgent) readingBudget() any {
 	}
 	budget := map[string]any{
 		"recommendedRemainingCalls": max(0, documentToolCalls-a.calls),
-		"remainingEvidenceBytes":    max(0, documentEvidenceBytes-a.bytes),
 		"estimatedRemainingTokens":  remaining,
 		"contextSource":             a.contextSource,
 		"runtimeUsedTokens":         a.runtimeUsedTokens,
 		"contextWindowTokens":       a.contextTokens,
-		"shouldFinish":              a.repeatedCalls >= 2 || a.calls >= documentToolCalls-2 || (!a.continuous && a.bytes >= documentEvidenceBytes-2400) || remaining < 1024 || a.readingRounds >= documentReadingRounds-2,
+		"shouldFinish":              a.repeatedCalls >= 2 || a.calls >= documentToolCalls-2 || remaining < 1024 || a.readingRounds >= documentReadingRounds-2,
 	}
 	if a.readingRounds > 0 {
 		budget["recommendedRemainingModelRounds"] = max(0, documentReadingRounds-a.readingRounds)

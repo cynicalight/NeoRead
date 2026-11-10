@@ -1,7 +1,7 @@
 import { useAnnotationUpdates } from "./useAnnotationUpdates";
 import { webSearchEnabled } from "./chat/web-search";
 import { NavigationTree } from "./NavigationTree";
-import { useShortcut } from "./shortcuts/shortcuts";
+import { label, useBindings, useShortcut } from "./shortcuts/shortcuts";
 import { registerTabCloseGuard } from "./document-tab-guards";
 import { useDocumentTheme } from "./useDocumentTheme";
 import {
@@ -10,9 +10,9 @@ import {
   updateReaderLayout,
 } from "./neoread-layout";
 import { SelectionTranslation } from "./SelectionTranslation";
+import { SearchResultText } from "./SearchResultText";
 import { LinkPreviewPanel } from "./LinkPreviewPanel";
 import { AnnotationHoverCard } from "./AnnotationHoverCard";
-import { AnnotationQuote } from "./AnnotationQuote";
 import {
   useCallback,
   useEffect,
@@ -25,7 +25,6 @@ import {
 } from "react";
 import {
   Languages,
-  ChartColumn,
   ArrowLeft,
   BookOpen,
   PanelLeft,
@@ -47,7 +46,6 @@ import {
   Type,
   Sun,
   Moon,
-  Check,
   CircleHelp,
 } from "lucide-react";
 import { api, blockImageURL } from "@neoread/api";
@@ -60,6 +58,7 @@ import {
   type ReaderAdapter,
   type ReaderSelection,
   type ReaderAnnotationTarget,
+  type SelectionAnchor,
   type TOCItem,
   type SearchResult,
   type ReaderTheme,
@@ -88,13 +87,6 @@ import {
   PopoverContent,
 } from "@neoread/ui/components/popover";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@neoread/ui/components/dialog";
-import {
   ResizablePanelGroup,
   ResizablePanel,
   usePanelRef,
@@ -107,7 +99,6 @@ import {
 } from "@neoread/ui/components/tooltip";
 import { toast } from "sonner";
 import { DocumentOverviewDialog } from "./DocumentOverview";
-import { ProcessingUsageDialog } from "./ProcessingUsage";
 import { ModelSelector } from "./ModelSelector";
 import { SourceReferences } from "./SourceReferences";
 import { ChatSession } from "./chat/chat-session";
@@ -138,8 +129,9 @@ import { EPUBReadingView } from "./translation/EPUBReadingView";
 import { PDFReadingView } from "./translation/PDFReadingView";
 import { useReaderStore } from "./store";
 import { scheduleProgress, flushProgress } from "./progress";
-import { Slider } from "@neoread/ui/components/slider";
-import { TranslationFontControls } from "./TranslationFontControls";
+import { pdfModeLocation, savePDFProgress } from "./pdf-progress";
+import { ReadingTextControls } from "./ReadingTextControls";
+import { translationFont } from "./appearance";
 import { AppearancePicker } from "./AppearancePicker";
 function IconButton({
   label,
@@ -194,8 +186,8 @@ export function Workspace({
     doc,
     active,
   );
-  const translationSize = theme.translationFontSize ?? 1;
   const assistantSize = theme.assistantFontScale ?? 1;
+  const assistantFamily = theme.assistantFontFamily ?? "sans-serif";
   const linkTarget = useReaderStore((s) => s.linkTarget);
   const [annotationsLoaded, setAnnotationsLoaded] = useState(false);
   const [blocks, setBlocks] = useState<PDFBlock[]>([]);
@@ -245,22 +237,30 @@ export function Workspace({
   };
   const [toc, setTOC] = useState<TOCItem[]>([]);
   const [location, setLocation] = useState<DocumentLocation | undefined>(
-    doc.progress,
+    doc.progress?.type === "pdf"
+      ? pdfModeLocation(doc.progress, theme.textReflow === true)
+      : doc.progress,
   );
   const lastReadingLocation = useRef(doc.progress);
+  const pdfProgress = useRef(
+    doc.progress?.type === "pdf" ? doc.progress : undefined,
+  );
   const resumeReading = useRef(false);
   useEffect(() => {
     if (!active) {
       resumeReading.current = true;
       return;
     }
-    if (resumeReading.current && adapter && lastReadingLocation.current) {
+    const position =
+      doc.type === "pdf"
+        ? pdfModeLocation(pdfProgress.current, theme.textReflow === true)
+        : lastReadingLocation.current;
+    if (resumeReading.current && adapter) {
       resumeReading.current = false;
-      void adapter
-        .goTo(lastReadingLocation.current)
-        .catch((e) => toast.error(e.message));
+      if (position)
+        void adapter.goTo(position).catch((e) => toast.error(e.message));
     }
-  }, [active, adapter]);
+  }, [active, adapter, doc.type, theme.textReflow]);
   const [translationSelection, setTranslationSelection] =
     useState<ReaderSelection | null>(null);
   const [selection, setSelection] = useState<ReaderSelection | null>(null);
@@ -328,7 +328,6 @@ export function Workspace({
     rightPanel,
   ]);
   const [overviewOpen, setOverviewOpen] = useState(false);
-  const [usageOpen, setUsageOpen] = useState(false);
   const [rightTab, setRightTab] = useState("ai");
   const [leftTab, setLeftTab] = useState("toc");
   const [query, setQuery] = useState("");
@@ -337,7 +336,8 @@ export function Workspace({
   const searchInput = useRef<HTMLInputElement>(null);
   const [searching, setSearching] = useState(false);
   const [note, setNote] = useState("");
-  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteAnchor, setNoteAnchor] = useState<SelectionAnchor | null>(null);
+  const noteOpen = !!noteAnchor;
   const [noteKind, setNoteKind] = useState<"note" | "question">("note");
   const palette = highlightPalette(useReaderStore((s) => s.theme));
   const [savedColor, setMarkColor] = useState<string>(() => {
@@ -489,6 +489,15 @@ export function Workspace({
   const [preparing, setSending] = useState(false);
   const sending = preparing || chat.busy;
   const [pageInput, setPageInput] = useState("");
+  useEffect(() => {
+    if (doc.type !== "pdf") return;
+    const position = pdfModeLocation(
+      pdfProgress.current,
+      theme.textReflow === true,
+    );
+    setLocation(position);
+    setPageInput(String(position?.page ?? 1));
+  }, [doc.id, doc.type, theme.textReflow]);
   const abort = useRef<AbortController | null>(null);
   const searchSerial = useRef(0);
   useEffect(() => {
@@ -508,9 +517,18 @@ export function Workspace({
       setAnnotations([]);
       setAnnotationsLoaded(false);
     },
+    active,
   );
   useShortcut("readerLeft", () => setLeft(!left), active);
   useShortcut("readerRight", () => setRight(!right), active);
+  const bindings = useBindings();
+  useShortcut(
+    "returnLocation",
+    () => {
+      if (returnLocation && !referenceBusy) void returnFromReference();
+    },
+    active && !!returnLocation,
+  );
   useShortcut(
     "search",
     () => {
@@ -585,8 +603,19 @@ export function Workspace({
     setLocation(next);
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
     if (next.type === "pdf") setPageInput(String(next.page));
-    scheduleProgress(doc.id, { progress: next, percentage: percent }, (e) =>
-      toast.error(e.message),
+    if (next.type === "pdf")
+      pdfProgress.current = savePDFProgress(
+        pdfProgress.current,
+        next,
+        theme.textReflow === true,
+      );
+    scheduleProgress(
+      doc.id,
+      {
+        progress: next.type === "pdf" ? pdfProgress.current! : next,
+        percentage: percent,
+      },
+      (e) => toast.error(e.message),
     );
   };
   const annotate = async (
@@ -627,7 +656,7 @@ export function Workspace({
       adapter?.clearSelection();
       if (kind === "bookmark")
         toast.success("已添加书签", { id: "neoread-annotation-save" });
-      setNoteOpen(false);
+      setNoteAnchor(null);
       setNoteSelection(null);
       setEditingAnnotation(null);
       setNote("");
@@ -672,14 +701,30 @@ export function Workspace({
     setSelection(next);
     selectionClipboard.selection(next);
   };
-  const editAnnotationNote = (annotation: Annotation) => {
+  const editAnnotationNote = (
+    annotation: Annotation,
+    anchor: SelectionAnchor,
+  ) => {
     setHoveredAnnotation(null);
     setNoteKind(annotation.kind === "question" ? "question" : "note");
     setEditingAnnotation(annotation);
     setNoteSelection({ text: annotation.quote, location: annotation.location });
     setNote(annotation.note);
-    setNoteOpen(true);
+    setNoteAnchor(anchor);
     adapter?.clearSelection();
+  };
+  // Removes only the note; the highlight stays and Cmd+Z restores the text.
+  const deleteAnnotationNote = async (annotation: Annotation) => {
+    if (annotationSaving.current) return;
+    annotationSaving.current = true;
+    try {
+      const saved = await api.updateAnnotationNote(doc.id, annotation.id, "");
+      setAnnotations((items) => applySavedAnnotation(items, saved));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      annotationSaving.current = false;
+    }
   };
   const askAnnotationAI = (annotation: Annotation) => {
     const quote = { text: annotation.quote, location: annotation.location };
@@ -766,6 +811,13 @@ export function Workspace({
         .querySelector(`[data-message-id="${CSS.escape(messageId)}"]`)
         ?.scrollIntoView({ block: "start" }),
     );
+  };
+  const updateSearchQuery = (value: string) => {
+    searchSerial.current++;
+    setQuery(value);
+    setResults([]);
+    setSearchedQuery("");
+    setSearching(false);
   };
   const search = async () => {
     if (!adapter) return;
@@ -1138,6 +1190,7 @@ export function Workspace({
               variant="outline"
               size="sm"
               disabled={referenceBusy}
+              title={`返回阅读位置（${label(bindings.returnLocation)}）`}
               onClick={() => void returnFromReference()}
             >
               <ArrowLeft className="size-3" />
@@ -1165,168 +1218,11 @@ export function Workspace({
               <h3 className="text-sm font-medium">阅读外观</h3>
               <div className="space-y-4">
                 <AppearancePicker theme={theme} setTheme={setTheme} />
-                <div className="flex items-center gap-3">
-                  <span className="shrink-0 text-sm">Agent 字号</span>
-                  <Slider
-                    className="reading-appearance-slider min-w-0 flex-1"
-                    thumbLabel="Agent 字号"
-                    min={80}
-                    max={160}
-                    step={5}
-                    value={[Math.round(assistantSize * 100)]}
-                    onValueChange={(value) =>
-                      setTheme({
-                        assistantFontScale:
-                          (Array.isArray(value) ? value[0] : value) / 100,
-                      })
-                    }
-                  />
-                  <span className="w-10 text-right text-xs tabular-nums">
-                    {Math.round(assistantSize * 100)}%
-                  </span>
-                </div>
-                {doc.type === "epub" ? (
-                  <>
-                    <div className="setting-row">
-                      <span>字号</span>
-                      <Button
-                        size="icon-xs"
-                        variant="outline"
-                        onClick={() =>
-                          setTheme({
-                            fontSize: Math.max(0.8, theme.fontSize - 0.1),
-                          })
-                        }
-                      >
-                        −
-                      </Button>
-                      <span>{Math.round(theme.fontSize * 100)}%</span>
-                      <Button
-                        size="icon-xs"
-                        variant="outline"
-                        onClick={() =>
-                          setTheme({
-                            fontSize: Math.min(2.4, theme.fontSize + 0.1),
-                          })
-                        }
-                      >
-                        +
-                      </Button>
-                    </div>
-                    <div className="setting-row">
-                      <span>行距</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setTheme({
-                            lineHeight:
-                              theme.lineHeight >= 2.2
-                                ? 1.4
-                                : Math.round((theme.lineHeight + 0.2) * 10) /
-                                  10,
-                          })
-                        }
-                      >
-                        {theme.lineHeight.toFixed(1)}
-                      </Button>
-                      <span>页边距</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setTheme({
-                            margin: theme.margin >= 64 ? 16 : theme.margin + 16,
-                          })
-                        }
-                      >
-                        {theme.margin}
-                      </Button>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setTheme({
-                            fontFamily:
-                              theme.fontFamily === "serif"
-                                ? "sans-serif"
-                                : "serif",
-                          })
-                        }
-                      >
-                        {theme.fontFamily === "serif"
-                          ? "宋体 / 衬线"
-                          : "黑体 / 无衬线"}
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3">
-                      <span className="shrink-0 text-sm">原文缩放</span>
-                      <Slider
-                        className="reading-appearance-slider min-w-0 flex-1"
-                        thumbLabel="原文缩放"
-                        min={50}
-                        max={300}
-                        step={5}
-                        value={[
-                          typeof theme.zoom === "number"
-                            ? Math.round(theme.zoom * 100)
-                            : 100,
-                        ]}
-                        onValueChange={(value) =>
-                          setTheme({
-                            zoom:
-                              (Array.isArray(value) ? value[0] : value) / 100,
-                          })
-                        }
-                      />
-                      <span className="w-10 text-right text-xs tabular-nums">
-                        {typeof theme.zoom === "number"
-                          ? `${Math.round(theme.zoom * 100)}%`
-                          : "自动"}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setTheme({ zoom: "width" })}
-                      >
-                        适宽
-                      </Button>
-                    </div>
-                  </>
-                )}
-                <div className="flex items-center gap-3">
-                  <span className="shrink-0 text-sm">译文字号</span>
-                  <Slider
-                    className="reading-appearance-slider min-w-0 flex-1"
-                    thumbLabel="译文字号"
-                    min={80}
-                    max={160}
-                    step={5}
-                    value={[Math.round(translationSize * 100)]}
-                    onValueChange={(value) =>
-                      setTheme({
-                        translationFontSize:
-                          (Array.isArray(value) ? value[0] : value) / 100,
-                      })
-                    }
-                  />
-                  <span className="w-10 text-right text-xs tabular-nums">
-                    {Math.round(translationSize * 100)}%
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setTheme({ translationFontSize: 1 })}
-                  >
-                    恢复
-                  </Button>
-                </div>
-                <TranslationFontControls theme={theme} setTheme={setTheme} />
+                <ReadingTextControls
+                  theme={theme}
+                  setTheme={setTheme}
+                  docType={doc.type}
+                />
               </div>
             </PopoverContent>
           </Popover>
@@ -1405,31 +1301,48 @@ export function Workspace({
                   outline={toc}
                   blocks={blocks}
                   annotations={annotations}
+                  deleting={deleting}
+                  onDeleteBookmark={removeAnnotation}
                   location={location}
                   go={move}
                 />
               </TabsContent>
-              <TabsContent value="search" className="min-h-0 flex-1 p-3">
+              <TabsContent
+                value="search"
+                className="relative flex min-h-0 flex-1 flex-col gap-3 p-3"
+              >
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
                     void search();
                   }}
-                  className="flex gap-1"
+                  className="flex shrink-0 gap-1"
                 >
-                  <Input
-                    aria-label="搜索文档"
-                    ref={searchInput}
-                    placeholder="搜索文档内容…"
-                    value={query}
-                    onChange={(e) => {
-                      searchSerial.current++;
-                      setQuery(e.target.value);
-                      setResults([]);
-                      setSearchedQuery("");
-                      setSearching(false);
-                    }}
-                  />
+                  <div className="relative min-w-0 flex-1">
+                    <Input
+                      aria-label="搜索文档"
+                      ref={searchInput}
+                      className="pr-8"
+                      placeholder="搜索文档内容…"
+                      value={query}
+                      onChange={(e) => updateSearchQuery(e.target.value)}
+                    />
+                    {query && (
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label="清空搜索"
+                        className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground"
+                        onClick={() => {
+                          updateSearchQuery("");
+                          searchInput.current?.focus();
+                        }}
+                      >
+                        <X className="size-3.5" />
+                      </Button>
+                    )}
+                  </div>
                   <Button
                     size="icon"
                     variant="secondary"
@@ -1439,29 +1352,39 @@ export function Workspace({
                     <Search />
                   </Button>
                 </form>
-                <p className="my-3 text-xs text-muted-foreground">
+                <ScrollArea className="min-h-0 flex-1">
+                  <div className="pb-12">
+                    {results.map((result) => (
+                      <Button
+                        key={result.id}
+                        variant="ghost"
+                        className="search-result"
+                        onClick={() => openSearchResult(result)}
+                      >
+                        <small>
+                          {locationLabel(result.location)}
+                          {result.side === "translation"
+                            ? " · 译文"
+                            : result.side === "source"
+                              ? " · 原文"
+                              : ""}
+                        </small>
+                        <span>
+                          <SearchResultText
+                            text={result.excerpt}
+                            query={searchedQuery}
+                          />
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                </ScrollArea>
+                <p
+                  role="status"
+                  className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1 text-xs whitespace-nowrap text-muted-foreground shadow-sm"
+                >
                   {searching ? "正在搜索…" : `${results.length} 个结果`}
                 </p>
-                <ScrollArea className="h-[calc(100%-90px)]">
-                  {results.map((result) => (
-                    <Button
-                      key={result.id}
-                      variant="ghost"
-                      className="search-result"
-                      onClick={() => openSearchResult(result)}
-                    >
-                      <small>
-                        {locationLabel(result.location)}
-                        {result.side === "translation"
-                          ? " · 译文"
-                          : result.side === "source"
-                            ? " · 原文"
-                            : ""}
-                      </small>
-                      <span>{result.excerpt}</span>
-                    </Button>
-                  ))}
-                </ScrollArea>
               </TabsContent>
             </Tabs>
           </aside>
@@ -1524,7 +1447,9 @@ export function Workspace({
                 pane={readingPane}
                 deleting={deleting.has(selectedAnnotation.id)}
                 onDelete={(id) => void removeAnnotation(id)}
-                onNote={editAnnotationNote}
+                onNote={(annotation) =>
+                  editAnnotationNote(annotation, annotationTarget.anchor)
+                }
                 onAskAI={askAnnotationAI}
                 onAnswer={(annotation) => void answerQuestion(annotation)}
                 onColor={(annotation, color) => void recolor(annotation, color)}
@@ -1553,7 +1478,7 @@ export function Workspace({
                     setEditingAnnotation(null);
                     setNoteSelection(selection);
                     setNote("");
-                    setNoteOpen(true);
+                    setNoteAnchor(selection.anchor!);
                     adapter?.clearSelection();
                   }}
                 >
@@ -1566,7 +1491,7 @@ export function Workspace({
                     setEditingAnnotation(null);
                     setNoteSelection(selection);
                     setNote("");
-                    setNoteOpen(true);
+                    setNoteAnchor(selection.anchor!);
                     adapter?.clearSelection();
                   }}
                 >
@@ -1638,21 +1563,22 @@ export function Workspace({
                   <BookOpen className="size-3.5" />
                   笔记
                 </TabsTrigger>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  title="聊天用量统计"
-                  aria-label="聊天用量统计"
-                  onClick={() => setUsageOpen(true)}
-                >
-                  <ChartColumn />
-                </Button>
               </TabsList>
               <TabsContent
                 value="ai"
                 className="ai-panel"
                 style={
-                  { "--assistant-font-scale": assistantSize } as CSSProperties
+                  {
+                    "--assistant-font-scale": assistantSize,
+                    // Unset variables leave the interface font and weight.
+                    ...(assistantFamily !== "sans-serif" && {
+                      "--assistant-font-family":
+                        translationFont(assistantFamily),
+                    }),
+                    ...(theme.assistantFontWeight === "bold" && {
+                      "--assistant-font-weight": 600,
+                    }),
+                  } as CSSProperties
                 }
               >
                 <SessionPicker
@@ -1898,7 +1824,32 @@ export function Workspace({
       <AnnotationHoverCard
         target={active && !selection && !noteOpen ? hoveredAnnotation : null}
         annotations={annotations}
+        editor={
+          active && noteAnchor
+            ? {
+                anchor: noteAnchor,
+                kind: noteKind,
+                editing: !!editingAnnotation,
+                initial: editingAnnotation?.note ?? "",
+                value: note,
+                saving: noteSaving,
+                canAnswer: !!provider,
+                onChange: setNote,
+                onSave: () => void annotate(noteKind, note),
+                onSaveAndAnswer: () =>
+                  void annotate("question", note).then((saved) => {
+                    if (saved) void answerQuestion(saved);
+                  }),
+                onClose: () => {
+                  setNoteAnchor(null);
+                  setNoteSelection(null);
+                  setEditingAnnotation(null);
+                },
+              }
+            : null
+        }
         onEdit={editAnnotationNote}
+        onDelete={(annotation) => void deleteAnnotationNote(annotation)}
       />
       <LinkPreviewPanel
         key={doc.id}
@@ -1920,89 +1871,6 @@ export function Workspace({
           onClose={() => setPreviewImage(undefined)}
         />
       )}
-      <Dialog
-        open={active && noteOpen}
-        onOpenChange={(open) => {
-          if (noteSaving) return;
-          setNoteOpen(open);
-          if (!open) {
-            setNoteSelection(null);
-            setEditingAnnotation(null);
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {noteKind === "question"
-                ? editingAnnotation
-                  ? "编辑问题"
-                  : "提问"
-                : editingAnnotation?.note.trim()
-                  ? "编辑批注"
-                  : "添加批注"}
-            </DialogTitle>
-            <DialogDescription className="sr-only">
-              {noteKind === "question"
-                ? "就当前选区提问"
-                : "为当前选区添加批注"}
-            </DialogDescription>
-          </DialogHeader>
-          <blockquote className="note-preview">
-            {noteSelection && (
-              <AnnotationQuote
-                quote={noteSelection.text}
-                location={noteSelection.location}
-              />
-            )}
-          </blockquote>
-          <Textarea
-            autoFocus
-            placeholder={
-              noteKind === "question" ? "想弄清楚什么？" : "批注内容…"
-            }
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-          {noteKind === "question" ? (
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => void annotate("question", note)}
-                disabled={noteSaving || !note.trim()}
-              >
-                <Check />
-                保存问题
-              </Button>
-              {!editingAnnotation && (
-                <Button
-                  className="flex-1"
-                  disabled={noteSaving || !note.trim() || !provider}
-                  onClick={() =>
-                    void annotate("question", note).then((saved) => {
-                      if (saved) void answerQuestion(saved);
-                    })
-                  }
-                >
-                  <Sparkles />
-                  保存并让 AI 回答
-                </Button>
-              )}
-            </div>
-          ) : (
-            <Button
-              onClick={() => void annotate("note", note)}
-              disabled={
-                noteSaving || (!note.trim() && !editingAnnotation?.note.trim())
-              }
-            >
-              <Check />
-              保存批注
-            </Button>
-          )}
-        </DialogContent>
-      </Dialog>
       {active && exportingNotes && (
         <ExportDocumentDialog
           key={`export-${doc.id}`}
@@ -2020,10 +1888,6 @@ export function Workspace({
         onNavigate={async (location) => {
           await adapter?.goTo(location);
         }}
-      />
-      <ProcessingUsageDialog
-        document={active && usageOpen ? doc : null}
-        onClose={() => setUsageOpen(false)}
       />
     </div>
   );

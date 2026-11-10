@@ -19,19 +19,22 @@ type completionToolCall struct {
 	} `json:"function"`
 }
 type toolCompletionMessage struct {
-	PageImages []documentPageImage  `json:"readerPageImages,omitempty"`
-	Reasoning  string               `json:"reasoning_content,omitempty"`
-	Role       string               `json:"role"`
-	Content    any                  `json:"content"`
-	Calls      []completionToolCall `json:"tool_calls,omitempty"`
-	CallID     string               `json:"tool_call_id,omitempty"`
+	// ResponsesOutput retains opaque protocol state in memory, never in generic JSON or logs.
+	ResponsesOutput []json.RawMessage    `json:"-"`
+	PageImages      []documentPageImage  `json:"readerPageImages,omitempty"`
+	Reasoning       string               `json:"reasoning_content,omitempty"`
+	Role            string               `json:"role"`
+	Content         any                  `json:"content"`
+	Calls           []completionToolCall `json:"tool_calls,omitempty"`
+	CallID          string               `json:"tool_call_id,omitempty"`
 }
 type toolCompletionResult struct {
-	Reasoning string
-	Text      string
-	Calls     []completionToolCall
-	Model     string
-	Tokens    *TokenCounts
+	ResponsesOutput []json.RawMessage
+	Reasoning       string
+	Text            string
+	Calls           []completionToolCall
+	Model           string
+	Tokens          *TokenCounts
 }
 
 func documentAPITools(vision ...bool) []any {
@@ -142,9 +145,6 @@ func readToolCompletionWithConnection(ctx context.Context, r io.Reader, c APICon
 			}
 			if choice.Delta.Reasoning != nil {
 				result.Reasoning += *choice.Delta.Reasoning
-				if len(result.Reasoning) > 256<<10 {
-					return false, generationError(ErrorLimit, "API 续接信息超过限制")
-				}
 				if len(callbacks) > 0 && callbacks[0].Reasoning != nil {
 					if err := callbacks[0].Reasoning(*choice.Delta.Reasoning); err != nil {
 						return false, err
@@ -158,9 +158,6 @@ func readToolCompletionWithConnection(ctx context.Context, r io.Reader, c APICon
 						return false, e
 					}
 				}
-				if len(result.Text) > 1<<20 {
-					return false, generationError(ErrorLimit, "API 中间说明过长")
-				}
 			}
 			if len(choice.Delta.Calls) > 0 && len(calls) == 0 {
 				if e := draft("", true); e != nil {
@@ -168,7 +165,7 @@ func readToolCompletionWithConnection(ctx context.Context, r io.Reader, c APICon
 				}
 			}
 			for _, part := range choice.Delta.Calls {
-				if part.Index == nil || *part.Index < 0 || *part.Index >= 16 {
+				if part.Index == nil || *part.Index < 0 {
 					return false, generationError(ErrorProtocol, "API 工具编号无效")
 				}
 				i := *part.Index
@@ -243,23 +240,17 @@ func toolCompletion(ctx context.Context, c APIConnection, req completionRequest,
 	endpoint := resolveAPIEndpoint(c)
 	rule := reasoningRule(endpoint, req.Model, req.SupportedEfforts)
 	rule.apply(payload, endpoint.Protocol, req.Effort, rule.resolve(req.Effort))
-	if endpoint.Protocol == "anthropic" {
+	applyOutputLimit(payload, endpoint.Protocol, req.MaxOutput)
+	switch endpoint.Protocol {
+	case "anthropic":
 		if len(tools) > 0 {
 			return toolCompletionResult{}, generationError(ErrorCapability, "Messages API 暂未适配文档工具调用")
 		}
 		return anthropicDocumentCompletion(ctx, c, payload, messages, callbacks...)
+	case "responses":
+		return responsesToolCompletion(ctx, c, payload, wire, tools, callbacks...)
 	}
 	body, _ := json.Marshal(payload)
-	bodyLimit := 4 << 20
-	for _, message := range messages {
-		if len(message.PageImages) > 0 {
-			bodyLimit = 48 << 20
-			break
-		} // 32 MiB pixels plus base64 expansion and metadata.
-	}
-	if len(body) > bodyLimit {
-		return toolCompletionResult{}, errDocumentToolContext
-	}
 	response, err := apiRequest(ctx, c, "POST", "/chat/completions", body)
 	if err != nil {
 		return toolCompletionResult{}, err
@@ -378,7 +369,7 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 		if err != nil {
 			return GenerateResult{}, err
 		}
-		assistant := toolCompletionMessage{Role: "assistant", Content: response.Text, Calls: response.Calls, Reasoning: response.Reasoning}
+		assistant := toolCompletionMessage{Role: "assistant", Content: response.Text, Calls: response.Calls, Reasoning: response.Reasoning, ResponsesOutput: response.ResponsesOutput}
 		messages = append(messages, assistant)
 		a.conversationEvents = append(a.conversationEvents, assistant)
 		if len(response.Calls) == 0 {
@@ -400,15 +391,11 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 			return GenerateResult{}, generationError(ErrorProtocol, "模型在工具已停用后仍请求调用")
 		}
 		var pageImages []documentPageImage
-		for callIndex, call := range response.Calls {
+		for _, call := range response.Calls {
 			if seen[call.ID] {
 				return GenerateResult{}, generationError(ErrorProtocol, "API 重复使用工具调用 ID")
 			}
 			seen[call.ID] = true
-			a.sourceTokens = min(16384, max(256, (a.inputTokenLimit()-conversationTokens(messages)-1024)/(len(response.Calls)-callIndex)))
-			if call.Function.Name == "read_pdf_pages" {
-				a.sourceTokens = max(0, (a.inputTokenLimit()-conversationTokens(messages)-2048-len(pageImages)*pageImageTokens)/(len(response.Calls)-callIndex))
-			}
 			var raw json.RawMessage
 			var e error
 			if call.InvalidArguments {

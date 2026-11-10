@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, ScanLine, RefreshCw, Languages } from "lucide-react";
 import type { Processing } from "@neoread/core";
 import { api } from "@neoread/api";
@@ -85,25 +85,36 @@ function coverPhase(job: Processing) {
       ? "ready"
       : "processing";
 }
-function stageLabel(label: string, status: Processing["status"]) {
-  const name = label.startsWith("翻译") ? "翻译" : "学习";
+function stageLabel(
+  label: string,
+  status: Processing["status"],
+  learningName: string,
+) {
+  const name = label.startsWith("翻译") ? "翻译" : learningName;
   if (status === "queued") return `等待${name}`;
   if (status === "waiting") return `${name}待配置`;
-  if (status === "failed") return `${name}失败`;
+  if (status === "failed") return name === "翻译" ? "翻译中断" : `${name}失败`;
   return label;
 }
 export function CoverProcessing({
   job,
   onSettings,
   unavailable = false,
+  learningName = "学习",
 }: {
   job: Processing;
   onSettings: () => void;
   unavailable?: boolean;
+  learningName?: "学习" | "解析";
 }) {
   const nextPhase = coverPhase(job);
   const [phase, setPhase] = useState(nextPhase);
   const [retrying, setRetrying] = useState(false);
+  const retryLock = useRef(false);
+  useEffect(() => {
+    retryLock.current = false;
+    setRetrying(false);
+  }, [job.updatedAt]);
   const leaving = phase !== nextPhase;
   useEffect(() => {
     if (!leaving) return;
@@ -131,13 +142,15 @@ export function CoverProcessing({
     return key === job.phase ? job.status : "queued";
   };
   const retry = async () => {
+    if (retryLock.current) return;
+    retryLock.current = true;
     setRetrying(true);
     try {
       await api.process(job.documentId);
     } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
+      retryLock.current = false;
       setRetrying(false);
+      toast.error((e as Error).message);
     }
   };
   return (
@@ -161,7 +174,11 @@ export function CoverProcessing({
     >
       {stages.map((stage) => {
         const state = status(stage.key, stage.done);
-        const label = stageLabel(stage.label, state);
+        const label = stageLabel(
+          stage.label.replace("学习", learningName),
+          state,
+          learningName,
+        );
         const count =
           stage.key === "learning"
             ? stage.value === null
@@ -215,6 +232,18 @@ export function CoverProcessing({
                   {unavailable ? "离线" : count}
                 </span>
               </span>
+              {phase === "learning" && !leaving && state === "failed" && (
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className="cover-processing-action cover-processing-retry"
+                  aria-label={`重试${learningName}`}
+                  disabled={retrying || unavailable}
+                  onClick={retry}
+                >
+                  <RefreshCw className="size-3" />
+                </Button>
+              )}
             </div>
             {phase === "learning" && (
               <Progress
@@ -231,19 +260,6 @@ export function CoverProcessing({
                 onClick={onSettings}
               >
                 等待 AI 配置
-              </Button>
-            )}
-            {phase === "learning" && !leaving && state === "failed" && (
-              <Button
-                size="xs"
-                variant="ghost"
-                className="cover-processing-action"
-                disabled={retrying || unavailable}
-                onClick={retry}
-              >
-                <RefreshCw className="size-3" />
-                重试
-                {stage.key === "translating" ? "翻译" : "学习"}
               </Button>
             )}
           </div>

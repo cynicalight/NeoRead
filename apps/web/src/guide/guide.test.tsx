@@ -4,7 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
 import { toast } from "sonner";
-import { cursorAt, script } from "./canvas";
+import {
+  cursorAt,
+  script,
+  Painter,
+  paint,
+  readPalette,
+  stillTime,
+} from "./canvas";
 import { scenes } from "./scenes";
 import { guideTopics } from "./topics";
 import { guideLaunch, releaseNotes } from "./releases";
@@ -109,6 +116,28 @@ describe("guide canvas", () => {
     expect(cursorAt(s, 799)).toEqual({ x: 100, y: 50 });
     expect(s.duration).toBe(800);
   });
+});
+
+describe("reading interaction scenes", () => {
+  it.each(["reflow", "blockFocus", "autoCopy", "rankTable"] as const)(
+    "renders %s across transitions and in reduced motion",
+    (id) => {
+      const scene = scenes[id];
+      const palette = readPalette();
+      for (const dark of [false, true]) {
+        const { ctx, calls } = recordingContext();
+        const painter = new Painter(ctx, { ...palette, dark }, "sans-serif");
+        const times = new Set([0, scene.script.duration - 1, stillTime(scene)]);
+        for (const time of Object.values(scene.script.marks)) {
+          for (const offset of [-1, 0, 200, 500])
+            times.add(Math.max(0, time + offset));
+        }
+        for (const time of times) paint(scene, painter, time);
+        paint(scene, painter, stillTime(scene), false);
+        expect(calls).toContain("fillText");
+      }
+    },
+  );
 });
 
 describe("guide host", () => {

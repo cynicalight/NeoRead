@@ -68,8 +68,15 @@ export function venueLabel(metadata: PaperMetadata) {
 }
 
 /** Author · year · venue for list rows. */
-export function paperByline(doc: Pick<Document, "author" | "metadata">) {
-  return [authorsShort(doc), paperYear(doc.metadata), venueLabel(doc.metadata)]
+export function paperByline(
+  doc: Pick<Document, "author" | "metadata">,
+  showAuthors = true,
+) {
+  return [
+    showAuthors ? authorsShort(doc) : "",
+    paperYear(doc.metadata),
+    venueLabel(doc.metadata),
+  ]
     .filter(Boolean)
     .join(" · ");
 }

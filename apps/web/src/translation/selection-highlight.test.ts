@@ -89,3 +89,23 @@ it("leaves selection outside the translation and unsupported browsers native", (
   expect(installTranslationSelectionHighlight(host)).toBeUndefined();
   expect(host.hasAttribute("data-compact-selection")).toBe(false);
 });
+
+it("selects a touched formula whole and releases it when the selection clears", () => {
+  host.innerHTML =
+    '<p>maps <span class="katex"><span>x</span><span>1</span></span> to</p>';
+  const formula = host.querySelector<HTMLElement>(".katex")!;
+  const selection = window.getSelection()!;
+  selection.setBaseAndExtent(
+    host.querySelector("p")!.firstChild!,
+    1,
+    formula.firstChild!.firstChild!,
+    1,
+  );
+  update();
+  expect(formula.dataset.formulaHighlight).toBe(
+    "neoread-translation-selection",
+  );
+  selection.collapseToStart();
+  update();
+  expect(formula.hasAttribute("data-formula-highlight")).toBe(false);
+});

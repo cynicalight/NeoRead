@@ -3304,6 +3304,18 @@
                         "enum": ["codex", "claude", "kimi", "api"],
                       },
                   },
+                  {
+                    "in": "query",
+                    "name": "refresh",
+                    "description": "Reload an expired catalog from the Settings picker. Fresh snapshots are reused.",
+                    "schema": { "type": "boolean", "default": false },
+                  },
+                  {
+                    "in": "query",
+                    "name": "cached",
+                    "description": "Read the existing snapshot, including expired data, without starting discovery.",
+                    "schema": { "type": "boolean", "default": false },
+                  },
                 ],
               "responses":
                 {
@@ -3811,6 +3823,130 @@
                 },
             },
         },
+      "/api/documents/{id}/translations/chapter-status":
+        {
+          "post":
+            {
+              "description": "Count the translation units of the book chapter at the reader's position. EPUB sends `location` and uses the same chapter boundaries as `/translations/chapter`; a book PDF sends the inclusive page range of its chapter. Failed units are counted separately and keep their own retry controls.",
+              "parameters":
+                [
+                  {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                ],
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "properties":
+                                {
+                                  "location":
+                                    {
+                                      "type": "object",
+                                      "required": ["type", "href"],
+                                      "properties":
+                                        {
+                                          "type":
+                                            {
+                                              "type": "string",
+                                              "enum": ["epub"],
+                                            },
+                                          "href": { "type": "string" },
+                                          "blockId": { "type": "string" },
+                                          "locator": { "type": "string" },
+                                        },
+                                    },
+                                  "fromPage":
+                                    { "type": "integer", "minimum": 1 },
+                                  "toPage":
+                                    { "type": "integer", "minimum": 1 },
+                                },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Chapter translation status",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "required":
+                                    [
+                                      "key",
+                                      "title",
+                                      "total",
+                                      "idle",
+                                      "pending",
+                                      "running",
+                                      "complete",
+                                      "failed",
+                                      "unparsed",
+                                      "parsing",
+                                    ],
+                                  "properties":
+                                    {
+                                      "key":
+                                        {
+                                          "type": "string",
+                                          "description": "Stable while the position stays in the same chapter.",
+                                        },
+                                      "title":
+                                        {
+                                          "type": "string",
+                                          "description": "EPUB TOC title, or the chapter's opening words without a TOC. Empty for PDF; the reader names it from its outline or page range.",
+                                        },
+                                      "total": { "type": "integer" },
+                                      "idle": { "type": "integer" },
+                                      "pending": { "type": "integer" },
+                                      "running": { "type": "integer" },
+                                      "complete": { "type": "integer" },
+                                      "failed": { "type": "integer" },
+                                      "unparsed":
+                                        {
+                                          "type": "integer",
+                                          "description": "Book PDF pages in the range not yet parsed.",
+                                        },
+                                      "parsing":
+                                        {
+                                          "type": "boolean",
+                                          "description": "The range's pages are being parsed on request.",
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Error",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
       "/api/documents/{id}/translations/range":
         {
           "post":
@@ -4197,7 +4333,7 @@
                     "in": "path",
                     "name": "key",
                     "required": true,
-                    "schema": { "enum": ["library", "guide", "shortcuts"] },
+                    "schema": { "enum": ["library", "guide", "shortcuts", "fonts"] },
                   },
                 ],
               "responses":
@@ -4239,7 +4375,7 @@
                     "in": "path",
                     "name": "key",
                     "required": true,
-                    "schema": { "enum": ["library", "guide", "shortcuts"] },
+                    "schema": { "enum": ["library", "guide", "shortcuts", "fonts"] },
                   },
                 ],
               "requestBody":
@@ -5279,6 +5415,58 @@
                     },
                 },
             },
+          "delete":
+            {
+              "summary": "Delete an idle session with its transcript, runs and provider conversations",
+              "parameters":
+                [
+                  {
+                    "in": "path",
+                    "name": "id",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                  {
+                    "in": "path",
+                    "name": "session",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                ],
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Deleted",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "required": ["ok"],
+                                  "properties": { "ok": { "type": "boolean" } },
+                                },
+                            },
+                        },
+                    },
+                  "404": { "description": "Session is missing" },
+                  "409": { "description": "Session has an active run" },
+                  "default":
+                    {
+                      "description": "Error",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
         },
       "/api/documents/{id}/chat-sessions/{session}/messages":
         {
@@ -5474,6 +5662,59 @@
               "summary": "Start a server-owned run; one active run per session, at most four globally",
             },
         },
+      "/api/documents/{id}/chat-sessions/{session}/runs/{run}/continue": {
+        "post": {
+          "summary": "Continue this run from its persisted Pi checkpoint without repeating the user message",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "path",
+              "name": "session",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "path",
+              "name": "run",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "202": {
+              "description": "Continuation accepted; same logical run identity",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ChatRun"
+                  }
+                }
+              }
+            },
+            "default": {
+              "description": "No checkpoint, identity changed, active run, or other error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "/api/documents/{id}/chat-sessions/{session}/runs/{run}/events":
         {
           "get":
@@ -6424,13 +6665,11 @@
                   "tools":
                     {
                       "type": "array",
-                      "maxItems": 256,
                       "items": { "$ref": "#/components/schemas/ToolActivity" },
                     },
                   "webSources":
                     {
                       "type": "array",
-                      "maxItems": 1000,
                       "items": { "$ref": "#/components/schemas/WebSource" },
                     },
                 },
@@ -6798,8 +7037,9 @@
                   "protocol":
                     {
                       "type": "string",
-                      "enum": ["auto", "openai", "anthropic"],
-                      "default": "auto",
+                      "description": "openai is Chat Completions. Responses return the protocol in use; auto is accepted only for configurations saved before the explicit choice.",
+                      "enum": ["openai", "responses", "anthropic", "auto"],
+                      "default": "openai",
                     },
                   "url": { "type": "string" },
                   "model": { "type": "string" },
@@ -7516,6 +7756,7 @@
                         ],
                     },
                   "error": { "type": "string" },
+                  "resumable": { "type": "boolean", "description": "A safe persisted checkpoint can continue this unanswered run." },
                   "startedAt": { "type": "string" },
                   "finishedAt": { "type": "string" },
                 },
@@ -7557,7 +7798,7 @@
                   "target": { "type": "string" },
                   "url": { "type": "string", "format": "uri" },
                   "status":
-                    { "enum": ["running", "completed", "failed", "cancelled"] },
+                    { "enum": ["running", "completed", "failed", "cancelled", "unavailable", "deferred"] },
                   "detail": { "type": "string" },
                   "startedAt": { "type": "string" },
                   "finishedAt": { "type": "string" },

@@ -1,4 +1,10 @@
-import { annotationsInRects } from "./annotation-hover";
+import {
+  clearFormulaMarks,
+  formulaAwareRects,
+  formulaHighlightRules,
+  markFormulas,
+} from "./formula-highlight";
+import { annotationsAtPoint, annotationsInRects } from "./annotation-hover";
 import { SentenceHover } from "./sentence-hover";
 import { useEffect, useId, useRef } from "react";
 import type { RefObject } from "react";
@@ -17,6 +23,14 @@ import { sourcePassage, translatedSentenceRanges } from "./sentence-links";
 import { blockRange, resolveEPUBLocation } from "../readers/epub-web-location";
 import { epubSentenceSlice } from "./epub-links";
 import { searchRanges } from "./search-ranges";
+import { overlap } from "../readers/pdf-reading";
+import {
+  hasReflowSource,
+  reflowQuoteRanges,
+  reflowSourceRanges,
+  reflowMarkRanges,
+  segmentSentences,
+} from "./reflow";
 
 type Mark = { annotation: Annotation; range: Range };
 const hit = (range: Range, x: number, y: number) =>
@@ -77,12 +91,16 @@ export function useSentenceMarks(
     const searchName = `${prefix}-search`;
     const cache = new Map<string, Range[]>();
     let geometry = new WeakMap<Range, DOMRect[]>();
-    const containsPoint = (range: Range, x: number, y: number) => {
+    const rectsOf = (range: Range) => {
       let rects = geometry.get(range);
       if (!rects) {
-        rects = Array.from(range.getClientRects());
+        rects = formulaAwareRects([range]);
         geometry.set(range, rects);
       }
+      return rects;
+    };
+    const containsPoint = (range: Range, x: number, y: number) => {
+      const rects = rectsOf(range);
       return rects.some(
         (r) =>
           r.width &&
@@ -97,7 +115,10 @@ export function useSentenceMarks(
       const key = `${t.blockId}:${i}`;
       if (!cache.has(key)) {
         const block = latest.current.blocks.find((b) => b.id === t.blockId);
-        if (block && "location" in block) {
+        // Reflowed PDF text renders each source sentence as its own element.
+        if (hasReflowSource(host, t.blockId)) {
+          cache.set(key, reflowSourceRanges(host, t.blockId, i));
+        } else if (block && "location" in block) {
           const slice = epubSentenceSlice(block, t.sentences, [i]);
           // A failed alignment must not highlight the entire paragraph.
           const range = slice
@@ -120,6 +141,10 @@ export function useSentenceMarks(
     let anchor: { x: number; y: number } | undefined;
     let activeRanges: Range[] = [];
     let activeAnnotationTarget: ReaderAnnotationTarget | null = null;
+    // Marks in the active sentence and its hover, so moving within the
+    // sentence can switch between the note card and the sentence highlight.
+    let activeMarked: Annotation[] = [];
+    let activeHover: { key: string; ranges: Range[] } | undefined;
     const cancelEnter = () => {
       clearTimeout(enterTimer);
       enterTimer = undefined;
@@ -135,6 +160,8 @@ export function useSentenceMarks(
         leaveTimer = undefined;
         activeRanges = [];
         activeAnnotationTarget = null;
+        activeMarked = [];
+        activeHover = undefined;
         hover.clear();
       }, 500);
     };
@@ -152,6 +179,8 @@ export function useSentenceMarks(
       cancelLeave();
       activeRanges = [];
       activeAnnotationTarget = null;
+      activeMarked = [];
+      activeHover = undefined;
       hover.clear(true);
     };
     const targetCache = new Map<string, Range[]>();
@@ -171,6 +200,7 @@ export function useSentenceMarks(
         latest.current;
       names.forEach((name) => registry.delete(name));
       registry.delete(searchName);
+      clearFormulaMarks(host, prefix);
       names = [];
       marks = translatedAnnotationRanges(host, annotations, translations);
       for (const annotation of annotations) {
@@ -217,7 +247,39 @@ export function useSentenceMarks(
               : [];
           },
         );
-        if (passages?.length)
+        // Reflowed text has no PDF text layer; find the saved quote in it.
+        const reflowed = (passages ?? []).filter((p) =>
+          hasReflowSource(host, p.blockId),
+        );
+        for (const passage of reflowed)
+          for (const source of passage.sources)
+            marks.push(
+              ...reflowQuoteRanges(host, passage.blockId, source).map(
+                (range) => ({ annotation, range }),
+              ),
+            );
+        // Ordinary source marks live in the PDF text layer; reflowed text
+        // finds their quote in the paragraphs under the saved rectangles.
+        // A text-layer quote is found across the paragraphs it covers.
+        const location = annotation.location;
+        if (!passages?.length && location.quote?.trim()) {
+          const covered = blocks.flatMap((block) =>
+            "page" in block &&
+            block.page === location.page &&
+            hasReflowSource(host, block.id) &&
+            (!location.rects?.length ||
+              location.rects.some((r) => overlap(r, block.bounds) > 0))
+              ? [block.id]
+              : [],
+          );
+          marks.push(
+            ...reflowMarkRanges(host, covered, location.quote).map((range) => ({
+              annotation,
+              range,
+            })),
+          );
+        }
+        if (passages?.length && !reflowed.length)
           marks.push(
             ...(engine.sentenceRanges?.(passages) ?? []).map((range) => ({
               annotation,
@@ -246,12 +308,23 @@ export function useSentenceMarks(
             `::highlight(${name}) { ${kind === "underline" ? `text-decoration: underline 2px ${color};` : `background-color: ${color}66;`} }`,
           );
           rules.push(`.textLayer ::highlight(${name}) { color: transparent; }`);
+          rules.push(
+            ...formulaHighlightRules(
+              name,
+              kind === "underline"
+                ? { underline: color }
+                : { background: `${color}66` },
+            ),
+          );
         }
         groups.get(name)!.push(mark.range);
       }
       rules.push(
         `::highlight(${searchName}) { background-color: color-mix(in srgb, var(--primary) 25%, transparent); }`,
         `.textLayer ::highlight(${searchName}) { color: transparent; }`,
+        ...formulaHighlightRules(searchName, {
+          background: "color-mix(in srgb, var(--primary) 25%, transparent)",
+        }),
       );
       const css = rules.join("\n");
       if (style.textContent !== css) style.textContent = css;
@@ -259,6 +332,7 @@ export function useSentenceMarks(
         const highlight = new Highlight(...ranges);
         highlight.priority = 1;
         registry.set(name, highlight);
+        markFormulas(host, name, ranges);
         names.push(name);
       }
       if (searchQuery.trim() && searchResults.length) {
@@ -303,11 +377,15 @@ export function useSentenceMarks(
                 );
             });
           } else {
+            // Untranslated reflowed text is visible itself; the PDF text layer
+            // is hidden.
             ranges.push(
               ...searchRanges(
-                engine.sentenceRanges?.([
-                  { blockId: block.id, sources: [block.text] },
-                ]) ?? [],
+                hasReflowSource(host, block.id)
+                  ? reflowSourceRanges(host, block.id)
+                  : (engine.sentenceRanges?.([
+                      { blockId: block.id, sources: [block.text] },
+                    ]) ?? []),
                 searchQuery,
               ),
             );
@@ -317,6 +395,7 @@ export function useSentenceMarks(
           const highlight = new Highlight(...ranges);
           highlight.priority = 2;
           registry.set(searchName, highlight);
+          markFormulas(host, searchName, ranges);
         }
       }
       if (pointer.current && activeRanges.length && leaveTimer === undefined)
@@ -325,6 +404,20 @@ export function useSentenceMarks(
     const schedule = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(paint);
+    };
+    const report = (matches: Annotation[], rects: DOMRect[], x: number) => {
+      activeAnnotationTarget =
+        matches.length && rects.length
+          ? {
+              ids: matches.map((a) => a.id),
+              anchor: {
+                x,
+                top: Math.min(...rects.map((r) => r.top)),
+                bottom: Math.max(...rects.map((r) => r.bottom)),
+              },
+            }
+          : null;
+      latest.current.events.annotationHover?.(activeAnnotationTarget);
     };
     const resolveHover = (point: { target: Element; x: number; y: number }) => {
       const { blocks, translations } = latest.current;
@@ -339,33 +432,49 @@ export function useSentenceMarks(
         deferClear();
         return;
       }
-      const report = (matches: Annotation[], rects: DOMRect[]) => {
-        activeAnnotationTarget =
-          matches.length && rects.length
-            ? {
-                ids: matches.map((a) => a.id),
-                anchor: {
-                  x: point.x,
-                  top: Math.min(...rects.map((r) => r.top)),
-                  bottom: Math.max(...rects.map((r) => r.bottom)),
-                },
-              }
-            : null;
-        latest.current.events.annotationHover?.(activeAnnotationTarget);
-      };
-      const pointRect = new DOMRect(point.x, point.y, 1, 1);
-      const direct = annotationsInRects(
+      const direct = annotationsAtPoint(
         host,
         latest.current.annotations,
         marks,
-        [pointRect],
+        point.x,
+        point.y,
+        rectsOf,
       );
-      if (direct.length) hover.clear(true);
+      if (direct.annotations.length) hover.clear(true);
       const translated = target.closest<HTMLElement>("[data-sentence]");
+      const reflowed = target.closest<HTMLElement>("[data-source-sentence]");
       let t: TranslationBlock | undefined,
         index = -1,
         fromTranslation = false;
-      if (translated) {
+      if (reflowed) {
+        const blockId = reflowed.closest<HTMLElement>("[data-reflow-source]")
+          ?.dataset.reflowSource;
+        const block = blocks.find((b) => b.id === blockId);
+        t = translations.find(
+          (t) => t.blockId === blockId && t.status === "complete",
+        );
+        if (!t && block?.text)
+          t = {
+            blockId: block.id,
+            sourceHash: "",
+            status: "complete",
+            sentences: segmentSentences(
+              block.image
+                ? (block as { caption?: string }).caption || block.text
+                : block.text,
+            ),
+          };
+        index = Number(reflowed.dataset.sourceSentence);
+        if (
+          t &&
+          !sourceRanges(t, index).some((r) =>
+            containsPoint(r, event.clientX, event.clientY),
+          )
+        ) {
+          deferClear();
+          return;
+        }
+      } else if (translated) {
         const blockId = translated.closest<HTMLElement>(
           "[data-translation-block]",
         )?.dataset.translationBlock;
@@ -409,12 +518,7 @@ export function useSentenceMarks(
             blockId: block.id,
             sourceHash: "",
             status: "complete",
-            sentences: Array.from(
-              new Intl.Segmenter(undefined, {
-                granularity: "sentence",
-              }).segment(block.text),
-              (s) => ({ source: s.segment, target: "" }),
-            ),
+            sentences: segmentSentences(block.text),
           };
         }
         if (t)
@@ -425,7 +529,7 @@ export function useSentenceMarks(
           );
       }
       if (!t || index < 0 || !t.sentences[index]) {
-        report(direct, [pointRect]);
+        report(direct.annotations, direct.rects, point.x);
         deferClear();
         return;
       }
@@ -440,18 +544,23 @@ export function useSentenceMarks(
       const rects = activeRanges.flatMap((range) =>
         Array.from(range.getClientRects()),
       );
-      const matches = annotationsInRects(
-        host,
-        latest.current.annotations,
-        marks,
-        rects,
-      );
-      report(
-        matches,
-        activeRanges.flatMap((range) => Array.from(range.getClientRects())),
-      );
-      if (matches.length) hover.clear(true);
-      else hover.show(`${t.blockId}:${index}:${fromTranslation}`, ranges);
+      activeMarked = [
+        ...new Set([
+          ...annotationsInRects(host, latest.current.annotations, marks, rects),
+          ...direct.annotations,
+        ]),
+      ];
+      activeHover = { key: `${t.blockId}:${index}:${fromTranslation}`, ranges };
+      applyPoint(point.x, point.y);
+    };
+    // Only the marked text opens the note; the rest of the sentence hovers.
+    const applyPoint = (x: number, y: number) => {
+      const hit = activeMarked.length
+        ? annotationsAtPoint(host, activeMarked, marks, x, y, rectsOf)
+        : { annotations: [], rects: [] };
+      report(hit.annotations, hit.rects, x);
+      if (hit.annotations.length) hover.clear(true);
+      else if (activeHover) hover.show(activeHover.key, activeHover.ranges);
     };
     const move = (event: PointerEvent) => {
       if (event.buttons || window.getSelection()?.toString().trim()) {
@@ -476,7 +585,7 @@ export function useSentenceMarks(
       ) {
         cancelEnter();
         cancelLeave();
-        latest.current.events.annotationHover?.(activeAnnotationTarget);
+        applyPoint(event.clientX, event.clientY);
         return;
       }
       latest.current.events.annotationHover?.(null);
@@ -493,7 +602,7 @@ export function useSentenceMarks(
         enterTimer = undefined;
         anchor = undefined;
         if (pointer.current) resolveHover(pointer.current);
-      }, 400);
+      }, 100);
     };
     let pressed: { x: number; y: number } | undefined;
     const down = (event: PointerEvent) => {
@@ -526,7 +635,7 @@ export function useSentenceMarks(
       });
     };
     const textSelector =
-      ".textLayer, [data-epub-block], [data-translation-block]";
+      ".textLayer, [data-epub-block], [data-translation-block], [data-reflow-block]";
     const containsText = (node: Node) =>
       node instanceof Element &&
       (node.matches(textSelector) || !!node.querySelector(textSelector));
@@ -577,6 +686,7 @@ export function useSentenceMarks(
       hover.destroy();
       names.forEach((name) => registry.delete(name));
       registry.delete(searchName);
+      clearFormulaMarks(host, prefix);
       style.remove();
     };
   }, [root, engine, linked, mode, prefix]);

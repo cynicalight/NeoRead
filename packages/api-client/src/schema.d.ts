@@ -2960,6 +2960,10 @@ export interface paths {
             parameters: {
                 query: {
                     provider: "codex" | "claude" | "kimi" | "api";
+                    /** @description Reload an expired catalog from the Settings picker. Fresh snapshots are reused. */
+                    refresh?: boolean;
+                    /** @description Read the existing snapshot, including expired data, without starting discovery. */
+                    cached?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -3386,6 +3390,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{id}/translations/chapter-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Count the translation units of the book chapter at the reader's position. EPUB sends `location` and uses the same chapter boundaries as `/translations/chapter`; a book PDF sends the inclusive page range of its chapter. Failed units are counted separately and keep their own retry controls. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        location?: {
+                            /** @enum {string} */
+                            type: "epub";
+                            href: string;
+                            blockId?: string;
+                            locator?: string;
+                        };
+                        fromPage?: number;
+                        toPage?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Chapter translation status */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @description Stable while the position stays in the same chapter. */
+                            key: string;
+                            /** @description EPUB TOC title, or the chapter's opening words without a TOC. Empty for PDF; the reader names it from its outline or page range. */
+                            title: string;
+                            total: number;
+                            idle: number;
+                            pending: number;
+                            running: number;
+                            complete: number;
+                            failed: number;
+                            /** @description Book PDF pages in the range not yet parsed. */
+                            unparsed: number;
+                            /** @description The range's pages are being parsed on request. */
+                            parsing: boolean;
+                        };
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{id}/translations/range": {
         parameters: {
             query?: never;
@@ -3760,7 +3840,7 @@ export interface paths {
                 query?: never;
                 header?: never;
                 path: {
-                    key: "library" | "guide" | "shortcuts";
+                    key: "library" | "guide" | "shortcuts" | "fonts";
                 };
                 cookie?: never;
             };
@@ -3793,7 +3873,7 @@ export interface paths {
                 query?: never;
                 header?: never;
                 path: {
-                    key: "library" | "guide" | "shortcuts";
+                    key: "library" | "guide" | "shortcuts" | "fonts";
                 };
                 cookie?: never;
             };
@@ -4620,7 +4700,55 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete an idle session with its transcript, runs and provider conversations */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    session: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok: boolean;
+                        };
+                    };
+                };
+                /** @description Session is missing */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Session has an active run */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         /** Rename a session or change its backend while idle */
@@ -4774,6 +4902,55 @@ export interface paths {
                     };
                 };
                 /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{id}/chat-sessions/{session}/runs/{run}/continue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Continue this run from its persisted Pi checkpoint without repeating the user message */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    session: string;
+                    run: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Continuation accepted; same logical run identity */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatRun"];
+                    };
+                };
+                /** @description No checkpoint, identity changed, active run, or other error */
                 default: {
                     headers: {
                         [name: string]: unknown;
@@ -5357,10 +5534,11 @@ export interface components {
         };
         APIConnection: {
             /**
-             * @default auto
+             * @description openai is Chat Completions. Responses return the protocol in use; auto is accepted only for configurations saved before the explicit choice.
+             * @default openai
              * @enum {string}
              */
-            protocol: "auto" | "openai" | "anthropic";
+            protocol: "openai" | "responses" | "anthropic" | "auto";
             url: string;
             model: string;
             key?: string;
@@ -5652,6 +5830,8 @@ export interface components {
             /** @enum {unknown} */
             status: "running" | "completed" | "failed" | "cancelled" | "interrupted";
             error?: string;
+            /** @description A safe persisted checkpoint can continue this unanswered run. */
+            resumable?: boolean;
             startedAt: string;
             finishedAt?: string;
         };
@@ -5674,7 +5854,7 @@ export interface components {
             /** Format: uri */
             url?: string;
             /** @enum {unknown} */
-            status: "running" | "completed" | "failed" | "cancelled";
+            status: "running" | "completed" | "failed" | "cancelled" | "unavailable" | "deferred";
             detail?: string;
             startedAt: string;
             finishedAt?: string;

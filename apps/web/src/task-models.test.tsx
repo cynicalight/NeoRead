@@ -73,7 +73,7 @@ const trigger = (label: string) =>
 async function choose(label: string, text: string) {
   await act(async () => trigger(label).click());
   const option = Array.from(document.querySelectorAll('[role="option"]')).find(
-    (item) => item.textContent === text,
+    (item) => (item.getAttribute("aria-label") ?? item.textContent) === text,
   ) as HTMLElement;
   expect(option).toBeDefined();
   await act(async () => {
@@ -147,7 +147,7 @@ it("leaves the API image model empty when no model passed vision", async () => {
   );
   await act(async () => root.render(<TaskModels disabled={false} />));
   expect(trigger("图片模型").textContent).toContain("无可用模型");
-  expect(trigger("图片模型").disabled).toBe(true);
+  expect(trigger("图片模型").disabled).toBe(false);
   expect(host.textContent).toContain("没有通过图片理解检测的模型");
 });
 
@@ -182,4 +182,67 @@ it("disables effort for fixed models and keeps tunable models selectable", async
   expect(trigger("问答 Effort").disabled).toBe(true);
   expect(trigger("问答 Effort").textContent).toContain("固定／自动");
   expect(trigger("翻译 Effort").disabled).toBe(false);
+});
+it.each(["codex", "claude", "kimi"])(
+  "checks expiry only when the settings picker opens for %s",
+  async (provider) => {
+    config = { ...config, primary: provider, models: { [provider]: "opus" } };
+    useReaderStore.setState({ aiConfig: config });
+    await act(async () => root.render(<TaskModels disabled={false} />));
+    expect(api.agentModels).toHaveBeenCalledExactlyOnceWith(
+      provider,
+      expect.any(AbortSignal),
+      false,
+      true,
+    );
+    await choose("翻译模型", "Fable");
+    expect(
+      vi.mocked(api.agentModels).mock.calls.filter((call) => call[2]),
+    ).toHaveLength(1);
+    await act(async () =>
+      useReaderStore.setState({
+        aiConfig: {
+          ...config,
+          capabilities: {
+            [provider]: { text: true, vision: false, checkedAt: "updated" },
+          },
+        },
+      }),
+    );
+    expect(
+      vi.mocked(api.agentModels).mock.calls.filter((call) => call[2]),
+    ).toHaveLength(1);
+    await choose("问答模型", "Sonnet");
+    expect(
+      vi.mocked(api.agentModels).mock.calls.filter((call) => call[2]),
+    ).toHaveLength(2);
+  },
+);
+
+it("reloads the catalog after detection while retaining the selected model", async () => {
+  await act(async () =>
+    root.render(<TaskModels disabled={false} refreshKey={0} />),
+  );
+  vi.mocked(api.agentModels).mockClear();
+  let resolve!: (models: AgentModel[]) => void;
+  vi.mocked(api.agentModels).mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  await act(async () =>
+    root.render(<TaskModels disabled={false} refreshKey={1} />),
+  );
+  expect(api.agentModels).toHaveBeenCalledTimes(1);
+  expect(api.agentModels).toHaveBeenCalledWith(
+    "claude",
+    expect.any(AbortSignal),
+    false,
+    true,
+  );
+  expect(trigger("问答模型").textContent).toContain("Opus");
+  expect(useReaderStore.getState().aiConfig?.primary).toBe("claude");
+  await act(async () => resolve(models));
+  expect(api.saveAIConfig).not.toHaveBeenCalled();
 });

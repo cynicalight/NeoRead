@@ -72,7 +72,7 @@ func (s *Server) translationRecords(documentID string, m translationInput, visib
 	}
 	query := "SELECT body FROM translations WHERE document_id=?"
 	if visible {
-		query = `SELECT COALESCE(previous.body,t.body) FROM translations t LEFT JOIN translation_previous previous
+		query = `SELECT CASE WHEN t.status='failed' THEN t.body ELSE COALESCE(previous.body,t.body) END FROM translations t LEFT JOIN translation_previous previous
 ON previous.document_id=t.document_id AND previous.block_id=t.block_id AND previous.source_hash=t.source_hash WHERE t.document_id=?`
 	}
 	args := []any{documentID}
@@ -182,7 +182,7 @@ func (s *Server) saveTranslation(documentID string, t TranslationBlock, source .
 	visible := t
 	if t.Status == "complete" {
 		_, err = tx.Exec("DELETE FROM translation_previous WHERE document_id=? AND block_id=? AND source_hash=?", documentID, t.BlockID, t.SourceHash)
-	} else {
+	} else if t.Status != "failed" {
 		var previous string
 		err = tx.QueryRow("SELECT body FROM translation_previous WHERE document_id=? AND block_id=? AND source_hash=?", documentID, t.BlockID, t.SourceHash).Scan(&previous)
 		if err == nil {

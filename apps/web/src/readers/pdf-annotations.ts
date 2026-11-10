@@ -102,6 +102,7 @@ export class PDFAnnotationLayer {
         ordered.push(group);
       }
       for (const group of remaining.values()) group.remove();
+      this.placeNotes(page, byPage.get(Number(page.dataset.pageNumber)) ?? []);
       let next = page.querySelector<HTMLElement>(
         ":scope > .neoread-annotation",
       );
@@ -123,6 +124,37 @@ export class PDFAnnotationLayer {
       }
     }
   };
+  /** Marks the end of each annotation that has a note. */
+  private placeNotes(page: HTMLElement, annotations: Annotation[]) {
+    const stale = new Map<string, HTMLElement>();
+    for (const marker of page.querySelectorAll<HTMLElement>(
+      ":scope > .neoread-note-marker",
+    ))
+      stale.set(marker.dataset.annotationId!, marker);
+    for (const annotation of annotations) {
+      if (annotation.location.type !== "pdf" || !annotation.note?.trim())
+        continue;
+      const rect = annotation.location.rects?.at(-1);
+      if (!rect) continue;
+      let marker = stale.get(annotation.id);
+      stale.delete(annotation.id);
+      if (!marker) {
+        marker = document.createElement("span");
+        marker.className = "neoread-note-marker";
+        marker.dataset.annotationId = annotation.id;
+        marker.setAttribute("aria-hidden", "true");
+        page.append(marker);
+      }
+      const left = `${(rect.x + rect.width) * 100}%`,
+        top = `${rect.y * 100}%`,
+        color = annotation.color || "#facc15";
+      if (marker.style.left !== left) marker.style.left = left;
+      if (marker.style.top !== top) marker.style.top = top;
+      if (marker.style.getPropertyValue("--annotation-color") !== color)
+        marker.style.setProperty("--annotation-color", color);
+    }
+    for (const marker of stale.values()) marker.remove();
+  }
   clear = () => {
     this.pressed = undefined;
     this.host

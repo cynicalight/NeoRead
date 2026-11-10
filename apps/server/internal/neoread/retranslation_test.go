@@ -223,3 +223,21 @@ func TestRetranslationRunsThroughExistingLaneAndClearsRestartState(t *testing.T)
 		t.Fatal(visible)
 	}
 }
+
+func TestRetranslationFailureVisibleWithPreviousTranslationPreserved(t *testing.T) {
+	s, _, m := completedTranslationFixture(t)
+	assistanceRequest(t, s, "retranslate")
+	item := newTranslation(m.Blocks[0])
+	item.Status, item.Error = "failed", "原文句子未完整对应"
+	if err := s.saveTranslation("doc", item); err != nil {
+		t.Fatal(err)
+	}
+	visible, err := s.visibleTranslations("doc", m)
+	if err != nil || visible[0].Status != "failed" || visible[0].Error != item.Error {
+		t.Fatalf("failure hidden: %+v, %v", visible, err)
+	}
+	previous, err := s.translationPrevious("doc")
+	if err != nil || !previous[item.BlockID+":"+item.SourceHash] {
+		t.Fatal("previous translation lost", err)
+	}
+}

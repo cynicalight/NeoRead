@@ -47,7 +47,7 @@ func TestDeepSeekWebPermissionSourcesAndFailure(t *testing.T) {
 	c.WebSearch = true
 	c.webTransport = webRoundTrip(func(*http.Request) (*http.Response, error) { return webJSON(429, `{"error":"PRIVATE_SECRET"}`), nil })
 	raw, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"x"}`))
-	if err != nil || !strings.Contains(string(raw), "限流") || strings.Contains(string(raw), "PRIVATE_SECRET") || c.Tools[1].Status != "failed" {
+	if err != nil || !strings.Contains(string(raw), "temporarily_unavailable") || strings.Contains(string(raw), "PRIVATE_SECRET") || c.Tools[1].Status != "deferred" {
 		t.Fatal(string(raw), err, c.Tools)
 	}
 	c.webCalls = webToolCalls
@@ -61,7 +61,7 @@ func TestDeepSeekWebFetchBoundsAndCancel(t *testing.T) {
 		return webJSON(200, jsonText(map[string]string{"title": "Page", "content": strings.Repeat("a", 9000)})), nil
 	})}
 	raw, err := c.callWebTool(t.Context(), conn, "web_fetch", json.RawMessage(`{"url":"https://1.1.1.1/page"}`))
-	if err != nil || !strings.Contains(string(raw), `"truncated":true`) || len(c.WebSources) != 1 || c.WebSources[0].Kind != "page" {
+	if err != nil || len(c.WebSources) != 1 || len(c.WebSources[0].Text) != 9000 || c.WebSources[0].Kind != "page" {
 		t.Fatal(err, string(raw))
 	}
 	for _, url := range []string{"file:///etc/passwd", "http://127.0.0.1/", "http://[::1]/", "http://192.168.1.1/", "http://169.254.169.254/", "https://user:pass@example.com/"} {
@@ -112,8 +112,8 @@ func TestKeenableWebSearchKeylessAndKeyed(t *testing.T) {
 	if strings.Join(requests, "\n") != strings.Join(want, "\n") {
 		t.Fatal(requests)
 	}
-	c.webTransport = webRoundTrip(func(*http.Request) (*http.Response, error) { return webJSON(429, `{"error":"PRIVATE_SECRET"}`), nil })
-	if raw, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"x"}`)); err != nil || !strings.Contains(string(raw), "Keenable 搜索限流") || strings.Contains(string(raw), "PRIVATE_SECRET") {
+	c.webTransport = webRoundTrip(func(*http.Request) (*http.Response, error) { return webJSON(401, `{"error":"PRIVATE_SECRET"}`), nil })
+	if raw, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"x"}`)); err != nil || !strings.Contains(string(raw), "Keenable Key 无效") || strings.Contains(string(raw), "PRIVATE_SECRET") || c.Tools[len(c.Tools)-1].Status != "failed" {
 		t.Fatal(string(raw), err)
 	}
 	if validSearchConnection(APIConnection{Protocol: "keenable", URL: "https://other.example"}) {
@@ -133,6 +133,11 @@ func TestWebConnectionAndRedirectBoundaries(t *testing.T) {
 	})
 	if _, err := deepSeekWebRequest(t.Context(), APIConnection{URL: defaultSearchURL, Key: "secret"}, "search", map[string]string{"query": "x"}, transport); err == nil {
 		t.Fatal("redirect accepted")
+	}
+	for _, path := range []string{"search", "fetch"} {
+		if _, err := keenableWebRequest(t.Context(), APIConnection{Protocol: "keenable", URL: keenableSearchURL, Key: "secret"}, path, "https://1.1.1.1/page", transport); err == nil {
+			t.Fatal("Keenable redirect accepted", path)
+		}
 	}
 	if got := displayWebURL("https://example.com/page?token=private&q=reader#secret"); strings.Contains(got, "private") || strings.Contains(got, "secret") || !strings.Contains(got, "q=reader") {
 		t.Fatal(got)
@@ -237,8 +242,8 @@ func TestNativeWebCitationsKeepDocumentValidationAndStreaming(t *testing.T) {
 	if got := c.normalizeWebCitations("citeturn1view0"); !strings.Contains(got, "引用未解析") {
 		t.Fatal(got)
 	}
-	if _, err := documentCitationSources(c.normalizeWebCitations("citeunknown")); err == nil {
-		t.Fatal("unknown source bypassed validator")
+	if sources, err := documentCitationSources(c.normalizeWebCitations("citeunknown")); err != nil || len(sources) != 0 {
+		t.Fatalf("unknown web citation produced document evidence: %v %v", sources, err)
 	}
 	c.WebSearch = false
 	if c.normalizeWebCitations(text) != text {
@@ -246,11 +251,11 @@ func TestNativeWebCitationsKeepDocumentValidationAndStreaming(t *testing.T) {
 	}
 }
 
-func TestSourceRefreshStillEnforcesSnapshotLimit(t *testing.T) {
+func TestSourceRefreshPreservesFullSnapshot(t *testing.T) {
 	c := &chatInput{}
 	first := c.addWebSource(WebSource{URL: "https://example.com/", Title: "Original", Text: "Summary", Kind: "search"})
 	next := c.addWebSource(WebSource{URL: first.URL, Title: strings.Repeat("x", 500), Text: strings.Repeat("原文", 8000), Kind: "page"})
-	if next.ID != first.ID || !next.Truncated || len(next.Text) > 8192 || len([]rune(next.Title)) > 161 || next.RetrievedAt == "" {
+	if next.ID != first.ID || next.Truncated || next.Text != strings.Repeat("原文", 8000) || next.Title != strings.Repeat("x", 500) || next.RetrievedAt == "" {
 		t.Fatal(next.ID, next.Truncated, len(next.Text), len([]rune(next.Title)))
 	}
 	c.recordTool(ToolActivity{ID: "x", Kind: "tool", Title: "Read", Status: "completed"})
@@ -281,9 +286,9 @@ func TestToolCompletionRetainsActualTargetAndProgress(t *testing.T) {
 		t.Fatal(messages, err)
 	}
 }
-func TestWebSourceBudgetIsNotReportedAsNoResults(t *testing.T) {
+func TestWebSourcesBeyondFormerLimitDoNotBlockNewRequests(t *testing.T) {
 	c := &chatInput{WebSearch: true}
-	for i := 0; i < webSourceLimit-1; i++ {
+	for i := 0; i < 1005; i++ {
 		c.addWebSource(WebSource{URL: fmt.Sprintf("https://example.com/%d", i), Title: "Existing", Kind: "search"})
 	}
 	count := 0
@@ -293,15 +298,15 @@ func TestWebSourceBudgetIsNotReportedAsNoResults(t *testing.T) {
 	})
 	conn := APIConnection{URL: "https://api.deepseek.com", Key: "dummy"}
 	raw, err := c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"new docs"}`))
-	if err != nil || !strings.Contains(string(raw), `"budgetExhausted":true`) || !strings.Contains(c.Tools[0].Detail, "预算已满") {
+	if err != nil || len(c.WebSources) != 1007 || strings.Contains(string(raw), "budgetExhausted") || c.Tools[0].Status != "completed" {
 		t.Fatal(string(raw), c.Tools, err)
 	}
 	raw, err = c.callWebTool(t.Context(), conn, "web_search", json.RawMessage(`{"query":"other docs"}`))
-	if err != nil || !strings.Contains(string(raw), `"shouldFinish":true`) || count != 1 || c.Tools[1].Status != "failed" {
+	if err != nil || strings.Contains(string(raw), "budgetNotice") || count != 2 || c.Tools[1].Status != "completed" {
 		t.Fatal(string(raw), c.Tools, err, count)
 	}
 	err = c.codexToolEvent("item/completed", json.RawMessage(`{"item":{"id":"native","type":"webSearch","query":"other docs","results":[{"title":"New","url":"https://example.com/new"}]}}`))
-	if err != nil || !strings.Contains(c.Tools[2].Detail, "预算已满") {
+	if err != nil || len(c.WebSources) != 1008 || c.Tools[2].Status != "completed" || strings.Contains(c.Tools[2].Detail, "预算已满") {
 		t.Fatal(err, c.Tools)
 	}
 }
@@ -379,8 +384,13 @@ func TestToolActivityBudgetDoesNotInterrupt(t *testing.T) {
 			t.Fatal(i, err)
 		}
 	}
-	if len(c.Tools) != 256 || c.Tools[255].Status != "completed" {
-		t.Fatal("record limit or retained activity state is incorrect", len(c.Tools))
+	if len(c.Tools) != 300 {
+		t.Fatal("tool activity history was truncated", len(c.Tools))
+	}
+	for i, activity := range c.Tools {
+		if activity.ID != fmt.Sprint(i) || activity.Status != "completed" {
+			t.Fatalf("activity %d lost its identity or completion state: %+v", i, activity)
+		}
 	}
 }
 
@@ -477,7 +487,7 @@ func TestPiWebProtocolErrorLetsModelFinish(t *testing.T) {
  const p=JSON.parse(init.body),tools=p.messages.filter(m=>m.role==='tool');
  if(init.body.includes('search-secret'))throw new Error('search key leaked to model');
  if(!p.tools?.some(t=>t.function.name==='web_search'))throw new Error('web tool missing');
- if(tools.length && !tools.at(-1).content.includes('web_tool_failed'))throw new Error('missing budget notice');
+ if(tools.length){const result=JSON.parse(tools.at(-1).content);if(result.status!=='temporarily_unavailable'||result.reason!=='service_unavailable')throw new Error('missing recoverable failure result');}
  const call=tools.length===0?{name:'web_search',arguments:JSON.stringify({query:'official docs'})}:null;
  const delta=call?{tool_calls:[{index:0,id:'tool-'+tools.length,type:'function',function:call}]}:{content:'See [Official](https://1.1.1.1/docs).'};
  let out='';for(const choice of [{delta,finish_reason:null},{delta:{},finish_reason:call?'tool_calls':'stop'}])out+='data: '+JSON.stringify({id:'test',object:'chat.completion.chunk',model:'test',choices:[{index:0,...choice}]})+'\n\n';
@@ -500,7 +510,7 @@ func TestPiWebProtocolErrorLetsModelFinish(t *testing.T) {
 	})}
 	result, err := streamPiChat(t.Context(), APIConnection{URL: "https://model.example/v1", Key: "model-secret"}, completionRequest{Model: "test", Tools: true, ContextWindow: 64000}, AIInput{Prompt: chat.Question, Chat: chat}, nil)
 	if err != nil || !strings.Contains(result.Text, "https://1.1.1.1/docs") || len(calls) != 1 {
-		t.Fatal("model should finish after receiving budget notice", err, result.Text, calls)
+		t.Fatal("model should finish after receiving recoverable failure", err, result.Text, calls)
 	}
 	if err := s.saveDocumentAgentAnswer(t.Context(), a, result.Text, "api"); err != nil {
 		t.Fatal("final answer was not saved", err)

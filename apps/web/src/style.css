@@ -223,6 +223,18 @@ svg:is(.lucide-trash, .lucide-trash-2) {
 :is(button, [role="menuitem"]):has(> svg:is(.lucide-trash, .lucide-trash-2)) {
   color: var(--destructive) !important;
 }
+/* Destructive buttons turn solid red on hover; their trash icon turns white. */
+[data-slot="button"]:is(
+    [data-variant="destructive"],
+    [data-variant="destructive-ghost"]
+  ):is(:hover, [aria-expanded="true"]):not(:disabled),
+[data-slot="button"]:is(
+    [data-variant="destructive"],
+    [data-variant="destructive-ghost"]
+  ):is(:hover, [aria-expanded="true"]):not(:disabled)
+  svg:is(.lucide-trash, .lucide-trash-2) {
+  color: #fff !important;
+}
 /* The citation window is transparent and sized to its dialog. */
 html[data-citation-window] {
   --text-xs: 0.625rem;
@@ -269,8 +281,11 @@ kbd {
   overflow: hidden;
   background: color-mix(in oklch, var(--muted) 60%, var(--background));
 }
+.library-tab-panel {
+  --sidebar-width: var(--library-sidebar-width, 238px);
+  position: relative;
+}
 .library-sidebar {
-  --sidebar-width: 238px;
   display: flex;
   flex-direction: column;
   gap: 22px;
@@ -288,6 +303,35 @@ kbd {
   transform: translateX(-16px);
   opacity: 0;
   pointer-events: none;
+}
+.library-sidebar-resizer {
+  position: absolute;
+  z-index: 30;
+  top: 10px;
+  bottom: 10px;
+  left: var(--sidebar-width);
+  width: 8px;
+  height: auto;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  touch-action: none;
+  -webkit-app-region: no-drag;
+}
+.library-sidebar-resizer::after {
+  content: "";
+  width: 1px;
+  height: 100%;
+  background: transparent;
+}
+.library-sidebar-resizer:hover,
+.library-sidebar-resizer:focus-visible {
+  background: transparent;
+}
+.library-sidebar-resizer:is(:hover, :focus-visible)::after {
+  background: var(--border);
 }
 .library-mode-trigger {
   align-self: flex-start;
@@ -692,7 +736,73 @@ kbd {
   min-width: 180px;
 }
 .assistant-sidebar {
+  --assistant-header-height: 112px;
+  position: relative;
   min-width: 250px;
+}
+/* Shared by all three tabs: keep controls crisp while the surface and blur
+   fade independently over the content below each tab’s toolbar. */
+.assistant-sidebar::before,
+.assistant-sidebar::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--assistant-header-height);
+  z-index: 1;
+  pointer-events: none;
+}
+.assistant-sidebar::before {
+  background: linear-gradient(
+    to bottom,
+    var(--background) 0%,
+    var(--background) 38%,
+    color-mix(in srgb, var(--background) 82%, transparent) 56%,
+    color-mix(in srgb, var(--background) 38%, transparent) 76%,
+    transparent 100%
+  );
+  backdrop-filter: blur(16px);
+  mask-image: linear-gradient(to bottom, #000 42%, #0009 70%, transparent);
+}
+.assistant-sidebar::after {
+  backdrop-filter: blur(4px);
+  mask-image: linear-gradient(to bottom, #000 55%, #000b 78%, transparent);
+}
+.assistant-sidebar > [data-slot="tabs"] > .panel-tabs {
+  z-index: 2;
+  border-bottom: 0;
+  background: transparent;
+}
+.assistant-sidebar .notes-header,
+.assistant-sidebar .paper-note-toolbar {
+  position: relative;
+  z-index: 2;
+}
+.assistant-sidebar:has(> [data-slot="tabs"] > .notes-panel:not([hidden])) {
+  --assistant-header-height: 156px;
+}
+.notes-header {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 8px 15px 12px;
+}
+.notes-header .notes-filter.notes-filter {
+  margin-bottom: 0;
+}
+.notes-header .notes-search {
+  padding: 0;
+}
+.notes-header .notes-search > svg {
+  top: 8px;
+  left: 10px;
+}
+/* Keep both filter and search controls fixed over scrolling annotations. */
+.assistant-sidebar .notes-header + [data-slot="scroll-area"] {
+  margin-top: -92px;
+}
+.assistant-sidebar .notes-list {
+  padding-top: 92px;
 }
 .neoread-sidebar[data-open="false"] {
   opacity: 0;
@@ -903,15 +1013,16 @@ kbd {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 2px;
   width: 100%;
   height: auto;
   white-space: normal;
   text-align: left;
   line-height: 1.7;
-  padding: 12px;
+  padding: 6px 8px;
   font-size: 11px;
   font-weight: 400;
-  margin-bottom: 8px;
+  margin-bottom: 2px;
 }
 .search-result small {
   font-size: 10px;
@@ -1046,6 +1157,32 @@ kbd {
 .neoread-highlight[data-kind="underline"][data-hovered] {
   background: color-mix(in srgb, var(--annotation-color) 30%, transparent);
 }
+/* Small superscript glyph at the end of a highlight that carries a note. */
+.neoread-note-marker {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -5px 0 0 0;
+  pointer-events: none;
+  z-index: 7;
+  background-color: color-mix(
+    in srgb,
+    var(--annotation-color, #facc15) 55%,
+    var(--foreground)
+  );
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+.epub-web-note-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
 .neoread-loading {
   position: absolute;
   inset: 0;
@@ -1150,14 +1287,25 @@ kbd {
   width: 13px;
 }
 .chat-message {
+  font-family: var(--assistant-font-family);
+  font-weight: var(--assistant-font-weight);
   font-size: calc(12px * var(--assistant-font-scale, 1));
   line-height: 1.9;
   padding: 13px 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Progress lines, tool records and reasoning use the answer's size (and font scale). */
+.chat-message [data-slot="trace-line"],
+.chat-message [data-slot="trace-collapsible-trigger"] {
+  font-size: inherit;
+}
 .chat-message.assistant {
   padding-bottom: 0;
+}
+/* Before the copy row exists, keep the progress line clear of the composer. */
+.chat-message.assistant:not(:has(> .chat-message-actions)) {
+  padding-bottom: 24px;
 }
 .chat-message-actions {
   display: flex;
@@ -1174,7 +1322,8 @@ kbd {
 }
 .chat-message.assistant:hover .chat-message-actions,
 .chat-message.assistant:focus-within .chat-message-actions,
-.chat-message-actions[data-copied] {
+.chat-message-actions[data-copied],
+.chat-message-actions[data-status] {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1186,13 +1335,18 @@ kbd {
 }
 /* After the copied hold, stay hidden until the pointer leaves the answer. */
 @media (hover: hover) {
-  .chat-message.assistant .chat-message-actions[data-dismissed] {
+  .chat-message.assistant
+    .chat-message-actions[data-dismissed]:not([data-status]) {
     opacity: 0;
     pointer-events: none;
   }
 }
 .chat-message-actions button {
   color: inherit;
+}
+.chat-action-status {
+  min-width: 0;
+  line-height: 1.4;
 }
 .chat-copy-button {
   transition: transform 120ms ease;
@@ -1265,6 +1419,7 @@ kbd {
   box-shadow: none !important;
   resize: none;
   min-height: 77px;
+  font-family: var(--assistant-font-family);
   font-size: calc(11px * var(--assistant-font-scale, 1));
   padding: 7px;
   outline: none;
@@ -1621,15 +1776,6 @@ kbd {
   white-space: pre-wrap;
   line-height: 1.8;
 }
-.note-preview {
-  border-left: 2px solid #c9ae6d;
-  padding-left: 14px;
-  max-height: 160px;
-  overflow: auto;
-  font-size: 12px;
-  line-height: 1.8;
-  color: var(--muted-foreground);
-}
 .page-navigation {
   display: flex;
   flex-shrink: 0;
@@ -1644,8 +1790,8 @@ kbd {
   .library-content {
     padding: 35px 28px;
   }
-  .library-sidebar {
-    --sidebar-width: 210px;
+  .library-tab-panel {
+    --sidebar-width: var(--library-sidebar-width, 210px);
   }
   .neoread-title {
     max-width: 210px;
@@ -1659,6 +1805,9 @@ kbd {
 }
 @media (max-width: 720px) {
   .library-sidebar {
+    display: none;
+  }
+  .library-sidebar-resizer {
     display: none;
   }
   .library-content {
@@ -1932,12 +2081,24 @@ kbd {
   font-size: 10px;
   color: var(--muted-foreground);
 }
+.cover-processing .cover-processing-retry {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+}
 .cover-analyze,
 .cover-incomplete {
   position: absolute;
   bottom: 12px;
   left: 12px;
   z-index: 2;
+}
+.paper-cover-frame .cover-analyze {
+  left: 50%;
+  transform: translateX(-50%);
+}
+.paper-cover-frame .cover-analyze button {
+  background: var(--accent);
 }
 .cover-incomplete {
   background: var(--background);
@@ -2085,7 +2246,13 @@ kbd {
     box-shadow 200ms;
 }
 .agent-deck-window[data-spread] {
-  mask-image: linear-gradient(to bottom, transparent calc(50% - var(--deck-edge)), black calc(50% - var(--deck-edge) + 90px), black calc(50% + var(--deck-edge) - 90px), transparent calc(50% + var(--deck-edge)));
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(50% - var(--deck-edge)),
+    black calc(50% - var(--deck-edge) + 90px),
+    black calc(50% + var(--deck-edge) - 90px),
+    transparent calc(50% + var(--deck-edge))
+  );
 }
 .agent-deck-edge {
   display: none;
@@ -2097,7 +2264,9 @@ kbd {
   pointer-events: none;
   backdrop-filter: blur(6px);
 }
-.agent-deck-window[data-spread] .agent-deck-edge { display: block; }
+.agent-deck-window[data-spread] .agent-deck-edge {
+  display: block;
+}
 .agent-deck-edge-top {
   top: calc(50% - var(--deck-edge));
   mask-image: linear-gradient(to bottom, black, transparent);
@@ -3183,13 +3352,20 @@ body[data-resizing] * {
   flex: 1;
   min-width: 0;
 }
-.paper-row-title,
+.paper-row-title-text,
 .paper-row-byline {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.paper-row-title-text {
+  min-width: 0;
+}
 .paper-row-title {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
   font-size: 14px;
   font-weight: 500;
   line-height: 1.45;
@@ -3227,8 +3403,6 @@ body[data-resizing] * {
 }
 .paper-row:hover .paper-row-more,
 .paper-row:focus-within .paper-row-more,
-.paper-card:hover .paper-row-more,
-.paper-card:focus-within .paper-row-more,
 .paper-row-more[data-popup-open] {
   opacity: 1;
 }
@@ -3262,7 +3436,6 @@ body[data-resizing] * {
   background: color-mix(in oklch, var(--foreground) 7%, transparent);
 }
 .paper-card-cover.book-cover {
-  margin-bottom: 6px;
   padding: 14px 12px;
   justify-content: flex-start;
   border-radius: 5px;
@@ -3274,12 +3447,11 @@ body[data-resizing] * {
   -webkit-line-clamp: 6;
 }
 @media (hover: hover) and (pointer: fine) {
-  .paper-card-cover.book-cover:hover {
+  .paper-cover-frame:hover {
     transform: translateY(-3px);
   }
 }
 .paper-card[data-selected] .paper-card-cover.book-cover {
-  transform: translateY(-3px);
   box-shadow:
     var(--cover-shadow-hover),
     inset 5px 0 0 #ffffff23;
@@ -3291,20 +3463,15 @@ body[data-resizing] * {
   margin-top: 0;
   font-size: 12px;
 }
-.paper-card .paper-title-processing {
-  flex-wrap: wrap;
-  white-space: normal;
+.paper-cover-frame {
+  margin-bottom: 6px;
+  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
 }
-.paper-card-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 24px;
-  font-size: 10px;
-  color: var(--muted-foreground);
+.paper-card[data-selected] .paper-cover-frame {
+  transform: translateY(-3px);
 }
-.paper-card-meta .paper-row-status {
-  padding: 0 5px;
+.paper-card-cover.book-cover:hover {
+  transform: none;
 }
 .paper-card .paper-row-check {
   position: absolute;
@@ -3318,9 +3485,10 @@ body[data-resizing] * {
   box-shadow: 0 1px 4px #0001;
 }
 :root[data-reduced-motion="true"] {
-  .paper-card-cover.book-cover:hover,
-  .paper-card[data-selected] .paper-card-cover.book-cover {
+  .paper-cover-frame:hover,
+  .paper-card[data-selected] .paper-cover-frame {
     transform: none;
+    transition: none;
   }
 }
 .paper-detail {
@@ -3412,6 +3580,9 @@ body[data-resizing] * {
   width: 26px;
   height: 26px;
   color: var(--muted-foreground);
+}
+.paper-title-suggestion-dismiss.paper-title-suggestion-dismiss:hover {
+  color: #fff;
 }
 .paper-detail-open.paper-detail-open {
   height: 48px;
@@ -3611,7 +3782,8 @@ textarea.paper-title-input {
 }
 .paper-attachment-toggle.paper-attachment-toggle {
   display: inline-flex;
-  margin: -3px 3px -3px -4px;
+  flex-shrink: 0;
+  margin-block: -3px;
   vertical-align: middle;
 }
 :is(
@@ -3976,6 +4148,7 @@ textarea.citation-preview {
 }
 .settings-panel {
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 2px 4px 24px;
   scrollbar-width: none;
@@ -4234,9 +4407,10 @@ textarea.citation-preview {
 
 /* The note tab and expanded editor share one Markdown draft. */
 .paper-note-status {
-  min-height: 20px;
+  min-height: 15px;
   padding-inline: 4px;
-  font-size: 11px;
+  text-align: right;
+  font-size: 10px;
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
 }
@@ -4359,21 +4533,7 @@ textarea.paper-note-editor-input {
   background: var(--muted);
   border-radius: 6px;
 }
-@media (prefers-reduced-motion: no-preference) {
-  .paper-note button,
-  .paper-note-dialog button {
-    transition:
-      transform 150ms ease,
-      background-color 150ms ease;
-  }
-  .paper-note button:not(.paper-note-toggle):active,
-  .paper-note-dialog button:active {
-    transform: scale(0.97);
-  }
-  .paper-note button:not(.paper-note-toggle):hover,
-  .paper-note-dialog button:hover {
-    transform: scale(1.02);
-  }
+:root:not([data-reduced-motion="true"]) {
   .paper-note-rich,
   .paper-note-editor-input {
     animation: paper-tag-enter 150ms ease;
@@ -4382,7 +4542,7 @@ textarea.paper-note-editor-input {
       box-shadow 150ms ease;
   }
 }
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduced-motion="true"] {
   .paper-note-dialog,
   .paper-note-dialog *,
   .paper-note,

@@ -45,16 +45,24 @@ export function dragHorizontally(
   handle.setPointerCapture?.(event.pointerId);
   document.body.dataset.resizing = "";
   const onMove = (e: PointerEvent) => move(e.clientX - start);
+  let finished = false;
   const finish = () => {
+    if (finished) return;
+    finished = true;
     handle.removeEventListener("pointermove", onMove);
     handle.removeEventListener("pointerup", finish);
     handle.removeEventListener("pointercancel", finish);
+    handle.removeEventListener("lostpointercapture", finish);
     delete document.body.dataset.resizing;
+    if (handle.hasPointerCapture?.(event.pointerId))
+      handle.releasePointerCapture(event.pointerId);
     end();
   };
   handle.addEventListener("pointermove", onMove);
   handle.addEventListener("pointerup", finish);
   handle.addEventListener("pointercancel", finish);
+  handle.addEventListener("lostpointercapture", finish);
+  return finish;
 }
 
 /**

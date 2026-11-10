@@ -50,6 +50,8 @@ export function NavigationTree({
   outline,
   blocks,
   annotations,
+  deleting,
+  onDeleteBookmark,
   go,
   location,
 }: {
@@ -58,6 +60,8 @@ export function NavigationTree({
   outline: TOCItem[];
   blocks: PDFBlock[];
   annotations: Annotation[];
+  deleting: ReadonlySet<string>;
+  onDeleteBookmark: (id: string) => void;
   go: (location: DocumentLocation) => void;
   location?: DocumentLocation;
 }) {
@@ -265,6 +269,7 @@ export function NavigationTree({
   }
   function rows(items: NavigationItem[], depth = 0): React.ReactNode {
     return items.map((item) => {
+      const { bookmarkId } = item;
       const hasChildren = !!item.children.length;
       const readOnly = disabled || item.id.startsWith("page-");
       const parent = item.parentId ? byId.get(item.parentId) : undefined;
@@ -442,6 +447,15 @@ export function NavigationTree({
               >
                 移入前一个可用目录
               </ContextMenuItem>
+              {bookmarkId && (
+                <ContextMenuItem
+                  variant="destructive"
+                  disabled={readOnly || deleting.has(bookmarkId)}
+                  onClick={() => onDeleteBookmark(bookmarkId)}
+                >
+                  删除书签
+                </ContextMenuItem>
+              )}
             </ContextMenuContent>
           </ContextMenu>
           {hasChildren && (
@@ -551,7 +565,7 @@ export function NavigationTree({
               {allSelected ? "取消全选" : "全选"}
             </Button>
             <Button
-              variant="ghost"
+              variant="destructive-ghost"
               size="icon-sm"
               aria-label="删除所选目录"
               title="删除所选目录"

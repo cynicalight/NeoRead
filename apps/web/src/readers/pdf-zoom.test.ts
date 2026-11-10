@@ -39,10 +39,16 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
   PDFViewer: class {
     refresh = vi.fn();
     constructor(
-      private options: { eventBus: { listeners: Map<string, () => void> } },
+      private options: {
+        viewer: HTMLDivElement;
+        eventBus: { listeners: Map<string, () => void> };
+      },
     ) {}
     setDocument(doc: unknown) {
       if (doc) this.options.eventBus.listeners.get("pagesinit")?.();
+    }
+    get viewer() {
+      return this.options.viewer;
     }
     currentPageNumber = 1;
     getPageView() {
@@ -217,6 +223,7 @@ it.each([false, true])(
       expect(state.scale).toBeCloseTo(0.83, 2);
       const pending = adapter.focusBlock("focus-target", "source");
       await vi.advanceTimersByTimeAsync(interrupt ? 96 : 500);
+      if (interrupt) host.dispatchEvent(new WheelEvent("wheel", { deltaY: 0 }));
       const focused = state.scale;
       expect(focused).toBeGreaterThan(1);
       wheel({ deltaY: 100 });
@@ -337,6 +344,45 @@ it("keeps the original zoom basis when a sidebar toggle reverses mid-animation",
     await vi.advanceTimersByTimeAsync(160);
     expect(state.scale).toBe(1.6);
     expect(state.update).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("keyboard zoom settles the visible focus scale before applying its zoom step", async () => {
+  vi.useFakeTimers();
+  try {
+    Object.defineProperties(host, {
+      clientWidth: { value: 600 },
+      clientHeight: { value: 600 },
+    });
+    state.pageNode = document.createElement("div");
+    state.pageNode.getBoundingClientRect = () =>
+      new DOMRect(0, 0, 1000 * state.scale, 1200 * state.scale);
+    adapter.setBlocks([
+      {
+        id: "target",
+        page: 1,
+        label: "text",
+        text: "Target",
+        bounds: { x: 0.1, y: 0.2, width: 0.4, height: 0.2 },
+      },
+    ]);
+    const pending = adapter.focusBlock("target", "source");
+    await vi.advanceTimersByTimeAsync(96);
+    expect(state.scale).toBe(1);
+    state.update.mockClear();
+    key("+");
+    expect(state.update).toHaveBeenCalledTimes(2);
+    const settled =
+      Math.round(state.update.mock.calls[0][0].scaleFactor * 100) / 100;
+    expect(settled).toBeGreaterThan(1);
+    expect(settled).toBeLessThan(1.42);
+    expect(state.scale).toBeCloseTo(Math.round(settled * 1.1 * 100) / 100);
+    const zoomed = state.scale;
+    await vi.advanceTimersByTimeAsync(500);
+    await pending;
+    expect(state.scale).toBe(zoomed);
   } finally {
     vi.useRealTimers();
   }

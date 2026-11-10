@@ -31,6 +31,7 @@ function drag(
     x?: number;
     y?: number;
     types?: string[];
+    files?: File[];
     relatedTarget?: Node | null;
   } = {},
 ) {
@@ -39,7 +40,7 @@ function drag(
     dataTransfer: {
       value: {
         types: options.types || ["Files"],
-        files: [file],
+        files: options.files || [file],
         dropEffect: "none",
       },
     },
@@ -81,6 +82,18 @@ it("keeps a quick drop on a paper in the normal import flow", async () => {
   expect(uploadAttachments).not.toHaveBeenCalled();
   expect(row("a").dataset.armed).toBe("false");
 });
+it.each(["zip", "rar", "doc", "docx", "md", "xls", "xlsx", "csv"])(
+  "adds a quick %s drop as an attachment instead of importing a paper",
+  async (extension) => {
+    const supplement = new File([extension], `supplement.${extension}`);
+    await act(async () => drag("a", "drop", { files: [file, supplement] }));
+    expect(uploadAttachments).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: "a" }),
+      [file, supplement],
+    );
+    expect(imported).not.toHaveBeenCalled();
+  },
+);
 it("arms only after dwelling and consumes an attachment drop", async () => {
   await act(async () => {
     drag("a", "dragover");

@@ -21,7 +21,7 @@ type codexSession struct {
 	cmd                                *exec.Cmd
 	stdin                              io.WriteCloser
 	stdout                             io.ReadCloser
-	scan                               *bufio.Scanner
+	reader                             *bufio.Reader
 	work, model, threadID, actualModel string
 	serial                             int
 	total                              *TokenCounts
@@ -85,11 +85,9 @@ func startCodexSession(work, model string, overrides []string, token string) (*c
 		_ = stdout.Close()
 		return nil, generationError(ErrorConfiguration, "无法启动 Codex App Server，请检查 CLI 安装及版本")
 	}
-	scan := bufio.NewScanner(stdout)
-	// MCP completion events can echo up to 32 MiB of page images as base64.
-	scan.Buffer(make([]byte, 4096), 48<<20)
+	reader := bufio.NewReader(stdout)
 
-	return &codexSession{cmd: cmd, stdin: stdin, stdout: stdout, scan: scan, work: work, model: model, configOverrides: effectiveOverrides}, nil
+	return &codexSession{cmd: cmd, stdin: stdin, stdout: stdout, reader: reader, work: work, model: model, configOverrides: effectiveOverrides}, nil
 }
 
 func invokeCodex(ctx context.Context, work, model string, in AIInput, delta func(string), metrics ...func([]ModelTokens)) (string, error) {
@@ -135,9 +133,6 @@ func (s *codexSession) generate(ctx context.Context, in AIInput, delta func(stri
 		if itemID == "" {
 			return generationError(ErrorProtocol, "Codex 消息编号无效")
 		}
-		if answer.Len()+len(part) > 1<<20 {
-			return generationError(ErrorLimit, "Codex 回答过长")
-		}
 		if part == "" {
 			return nil
 		}
@@ -160,9 +155,6 @@ func (s *codexSession) generate(ctx context.Context, in AIInput, delta func(stri
 		}
 		if pending[itemID] == nil {
 			pending[itemID] = &strings.Builder{}
-		}
-		if pending[itemID].Len()+len(part) > 1<<20 {
-			return generationError(ErrorLimit, "Codex 消息过长")
 		}
 		pending[itemID].WriteString(part)
 		return nil
@@ -366,6 +358,9 @@ func (s *codexSession) generate(ctx context.Context, in AIInput, delta func(stri
 			return "", err
 		}
 		instructions := s.baseInstructions
+		if in.SystemPrompt != "" {
+			instructions = in.SystemPrompt
+		}
 		if instructions == "" {
 			instructions = readerSystemPrompt
 		}
@@ -480,13 +475,14 @@ func (e *codexRPCError) Unwrap() error { return errCodexRPCResponse }
 
 func (s *codexSession) readRPCMessage(ctx context.Context) (codexRPCMessage, error) {
 	var msg codexRPCMessage
-	if !s.scan.Scan() {
+	line, err := s.reader.ReadBytes('\n')
+	if err != nil {
 		if ctx.Err() != nil {
 			return msg, ctx.Err()
 		}
-		return msg, generationError(ErrorNetwork, "Codex 输出连接中断或事件过大")
+		return msg, generationError(ErrorNetwork, "Codex 输出连接中断或事件未完成")
 	}
-	if !utf8.Valid(s.scan.Bytes()) || json.Unmarshal(s.scan.Bytes(), &msg) != nil {
+	if !utf8.Valid(line) || json.Unmarshal(line, &msg) != nil {
 		return msg, generationError(ErrorProtocol, "Codex 输出协议无效")
 	}
 	return msg, nil

@@ -5,10 +5,8 @@ import {
   BookSearch,
   Bot,
   FileUp,
-  FolderInput,
   Highlighter,
-  Palette,
-  SlidersHorizontal,
+  MousePointerClick,
   SquareTerminal,
   type LucideIcon,
 } from "lucide-react";
@@ -57,14 +55,6 @@ export const guideTopics: GuideTopic[] = [
         body: "没有安装 CLI 时，点击 API 卡片，填写 OpenAI 兼容接口的地址和 Key 并保存。NeoRead 会拉取模型列表并逐个检测，Key 只保存在本机。",
         scene: "api",
       },
-    ],
-  },
-  {
-    id: "models",
-    title: "为任务选择模型",
-    icon: SlidersHorizontal,
-    action: { kind: "settings", label: "打开设置" },
-    steps: [
       {
         id: "task-models",
         title: "问答和翻译分开选模型",
@@ -91,6 +81,18 @@ export const guideTopics: GuideTopic[] = [
         body: "把 PDF 拖进窗口即可导入，也可以在「导入论文」中点「选择 PDF 文件」。论文导入后先在本地解析，默认不超过 50 页时自动翻译。可在「设置 → 论文库」调整页数阈值，0 表示全部手动翻译。",
         scene: "pdf",
       },
+      {
+        id: "zotero",
+        title: "从 Zotero 迁移",
+        body: "在「导入论文」中点击「从 Zotero 导入」，选择 Zotero 资料目录并扫描，预览后可导入 PDF、论文信息、分类、标签、笔记和可转换的批注。扫描前请完全退出 Zotero；Zotero 中的原数据保持不变。",
+        scene: "zotero",
+      },
+      {
+        id: "connector",
+        title: "从浏览器收录",
+        body: "从 Chrome 网上应用店安装 NeoRead Connector。在论文页面点击插件图标，选择分类和标签后即可把 PDF 收录到论文库。收录时需要保持 NeoRead 打开。",
+        scene: "connector",
+      },
     ],
   },
   {
@@ -109,6 +111,38 @@ export const guideTopics: GuideTopic[] = [
         title: "侧栏 Agent",
         body: "选中文字后，在浮动工具栏点「问 AI」，回答会出现在右侧 Agent 栏。也可以把多段文字引用到对话，或直接在底部输入框提问。",
         scene: "assistant",
+      },
+      {
+        id: "themes",
+        title: "石墨与纯黑阅读",
+        body: "点击阅读工具栏中的「阅读外观」，可在浅色、纸张、石墨和纯黑之间切换，PDF 原文也会随之换色；选择「跟随系统」后，可分别指定系统浅色和深色时使用的配色。原文、译文和 Agent 分组设置：EPUB 原文、译文和 Agent 都可以分别选择字体、字号和加粗，字体列表末尾可读取本机字体；PDF 原文可调整缩放，译文默认与聚焦段落时的宽度一致，可用「边距」加宽或收窄。深色模式下的图片处理方式可在「设置 → 显示」中选择。",
+        scene: "appearance",
+      },
+    ],
+  },
+  {
+    id: "reading-interaction",
+    title: "沉浸式阅读",
+    icon: MousePointerClick,
+    action: { kind: "settings", label: "打开设置" },
+    steps: [
+      {
+        id: "reflow",
+        title: "按段落重排正文",
+        body: "在「设置 → 阅读」开启「文字重排」，正文会按段落重新排版，译文紧跟在对应的原文段落下方，方便连续阅读与对照。",
+        scene: "reflow",
+      },
+      {
+        id: "block-focus",
+        title: "点击段落聚焦",
+        body: "点击正文段落，可聚焦当前段落及其对应译文。换一段点击即可切换；如果不喜欢，可在「设置 → 阅读」关闭「点击段落聚焦」。",
+        scene: "blockFocus",
+      },
+      {
+        id: "auto-copy",
+        title: "选中文字，自动复制",
+        body: "在「设置 → 阅读」开启「自动复制选中文字」。拖动选中正文，松开鼠标后便会自动复制，并显示「已复制」，可以直接粘贴到其他应用。",
+        scene: "autoCopy",
       },
     ],
   },
@@ -138,26 +172,6 @@ export const guideTopics: GuideTopic[] = [
     ],
   },
   {
-    id: "collect",
-    title: "收录与迁移",
-    icon: FolderInput,
-    action: { kind: "import", label: "导入论文" },
-    steps: [
-      {
-        id: "zotero",
-        title: "从 Zotero 迁移",
-        body: "在「导入论文」中点击「从 Zotero 导入」，选择 Zotero 资料目录并扫描，预览后可导入 PDF、论文信息、分类、标签、笔记和可转换的批注。扫描前请完全退出 Zotero；Zotero 中的原数据保持不变。",
-        scene: "zotero",
-      },
-      {
-        id: "connector",
-        title: "从浏览器收录",
-        body: "从 Chrome 网上应用店安装 NeoRead Connector。在论文页面点击插件图标，选择分类和标签后即可把 PDF 收录到论文库。收录时需要保持 NeoRead 打开。",
-        scene: "connector",
-      },
-    ],
-  },
-  {
     id: "notes",
     title: "批注与导出",
     icon: Highlighter,
@@ -177,20 +191,6 @@ export const guideTopics: GuideTopic[] = [
     ],
   },
   {
-    id: "appearance",
-    title: "阅读外观",
-    icon: Palette,
-    action: { kind: "settings", label: "打开设置" },
-    steps: [
-      {
-        id: "themes",
-        title: "石墨与纯黑阅读",
-        body: "点击阅读工具栏中的「阅读外观」，可在浅色、纸张、石墨和纯黑之间切换，PDF 原文也会随之换色；选择「跟随系统」后，可分别指定系统浅色和深色时使用的配色。原文缩放、译文字号和 Agent 字号都可以用滑块调整。深色模式下的图片处理方式可在「设置 → 显示」中选择。",
-        scene: "appearance",
-      },
-    ],
-  },
-  {
     id: "journal-ranks",
     title: "期刊评级",
     icon: Award,
@@ -201,6 +201,12 @@ export const guideTopics: GuideTopic[] = [
         title: "在论文库查看期刊评级",
         body: "在「设置 → 显示」的期刊指标中填写 easyScholar SecretKey 并保存，论文标题旁就会显示 CCF、SCI 分区、中科院分区、影响因子等指标。可以只显示选中的指标，不需要时关闭即可。",
         scene: "ranks",
+      },
+      {
+        id: "rank-table",
+        title: "表格布局中的期刊指标",
+        body: "保存 easyScholar SecretKey 后，切换到论文库的表格布局，也能在标题下方查看期刊指标，例如 CCF A、SCI Q1、中科院 1区和影响因子。具体显示哪些指标，取决于论文出处与设置中勾选的项目。",
+        scene: "rankTable",
       },
     ],
   },

@@ -35,7 +35,7 @@ func TestTranslationPromptSettingsPreserveAndReset(t *testing.T) {
 
 func TestTranslationPromptAppliesToTextButNotChatOrSource(t *testing.T) {
 	s, p, m := translationFixture(t)
-	var prompts []string
+	var prompts, systems []string
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Messages []struct {
@@ -46,6 +46,7 @@ func TestTranslationPromptAppliesToTextButNotChatOrSource(t *testing.T) {
 			t.Error(err)
 			return
 		}
+		systems = append(systems, req.Messages[0].Content)
 		prompt := req.Messages[len(req.Messages)-1].Content
 		prompts = append(prompts, prompt)
 		if strings.Contains(prompt, "输入资料：") {
@@ -77,8 +78,11 @@ func TestTranslationPromptAppliesToTextButNotChatOrSource(t *testing.T) {
 			t.Fatal("preference missing", prompt)
 		}
 	}
-	if !strings.Contains(prompts[0], "只输出 JSONL") || !strings.Contains(prompts[0], "不可信") || !strings.Contains(prompts[0], `"source":"First sentence. Second sentence."`) {
+	if !strings.Contains(prompts[0], "只输出 JSONL") || !strings.Contains(prompts[0], `"source":"First sentence. Second sentence."`) {
 		t.Fatal("preference replaced the format/source contract")
+	}
+	if len(systems) != 2 || systems[0] != translationSystemPrompt || systems[1] != readerSystemPrompt {
+		t.Fatalf("body translation instructions leaked or did not reach fallback: %v", systems)
 	}
 	if s.taskGenerationService(c, taskChat).translationInstructions != "" {
 		t.Fatal("translation preference leaked into chat")

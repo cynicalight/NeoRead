@@ -237,6 +237,7 @@ func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document D
 		}
 	}
 	if err := s.generationService(config).ValidateInput(AIInput{Images: images}, true); err != nil {
+		s.diagnosticEvent(slog.LevelError, "chat.admission.rejected", "requestId", requestID(r.Context()), "provider", provider, "errorCode", errorKind(err), "vision", len(images) > 0, "textReady", capable(config, provider, false))
 		fail(w, 400, err.Error())
 		return
 	}

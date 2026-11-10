@@ -1,3 +1,5 @@
+import { renderMarkdownPDF, cancelMarkdownPDF } from "./markdown-pdf";
+import { saveExportFile } from "./export-file";
 import { confirmReaderMigration } from "./migration-confirmation";
 import { startupAppearanceArgument } from "../startup-appearance";
 import { saveStartupAppearance } from "./startup-appearance-cache";
@@ -214,7 +216,7 @@ async function startServer() {
         NEOREAD_TOKEN: serverToken,
         NEOREAD_NODE: process.execPath,
         NEOREAD_AGENT: app.isPackaged
-          ? join(process.resourcesPath, "agent", "dist", "main.mjs")
+          ? join(process.resourcesPath, "agent.asar", "dist", "main.mjs")
           : join(root, "agent", "dist", "main.mjs"),
         NEOREAD_PROCESSOR: app.isPackaged
           ? join(process.resourcesPath, "processor", "main.mjs")
@@ -993,6 +995,34 @@ app
       )
         throw new Error("Invalid sender");
     };
+    ipcMain.handle(
+      "neoread:save-export-file",
+      async (event, name: unknown, bytes: unknown) => {
+        settingsSender(event);
+        diagnostics?.record("document.export.save_start");
+        try {
+          const saved = await saveExportFile(window!, name, bytes);
+          diagnostics?.record(
+            saved ? "document.export.saved" : "document.export.save_cancelled",
+          );
+          return saved;
+        } catch (error) {
+          diagnostics?.record("document.export.save_failed", error);
+          throw new Error("文件保存失败，请重试");
+        }
+      },
+    );
+    ipcMain.handle(
+      "neoread:markdown-pdf",
+      (event, id: unknown, html: unknown) => {
+        settingsSender(event);
+        return renderMarkdownPDF(id, html);
+      },
+    );
+    ipcMain.handle("neoread:cancel-markdown-pdf", (event, id: unknown) => {
+      settingsSender(event);
+      if (typeof id === "string") cancelMarkdownPDF(id);
+    });
     ipcMain.handle("neoread:library-location", (event) => {
       settingsSender(event);
       return activeLibrary || "";

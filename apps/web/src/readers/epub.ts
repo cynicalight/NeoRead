@@ -1,3 +1,4 @@
+import { searchExcerpt } from "./search-excerpt";
 import { selectionContext } from "./selection-context";
 import { forwardReaderShortcut } from "../shortcuts/shortcuts";
 import {
@@ -712,9 +713,19 @@ export class EPUBReaderAdapter implements ReaderAdapter {
         100 - results.length,
       );
       for (const [index, locator] of matches.entries()) {
+        const range = resolveEPUBRange(doc, locator);
+        if (!range) continue;
+        const prefix = doc.createRange();
+        prefix.selectNodeContents(doc.body);
+        prefix.setEnd(range.startContainer, range.startOffset);
+        const start = prefix.toString().length;
         results.push({
           id: `${chapter.id}:${index}`,
-          excerpt: `${locator.text?.before ?? ""}${locator.text?.highlight ?? ""}${locator.text?.after ?? ""}`,
+          excerpt: searchExcerpt(
+            doc.body.textContent ?? "",
+            start,
+            start + range.toString().length,
+          ),
           location: this.fromLocator(locator),
         });
       }

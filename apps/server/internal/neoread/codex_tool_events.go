@@ -93,19 +93,13 @@ func (c *chatInput) codexToolEvent(method string, params json.RawMessage) error 
 		}
 		if method == "item/completed" {
 			for _, r := range item.Results {
-				source := c.addWebSource(WebSource{URL: r.URL, Title: r.Title, Text: r.Snippet, Kind: "search"})
-				if source.ID == "" && publicWebURL(r.URL) != "" {
-					v.Detail = "网页来源预算已满，未保存新的来源"
-					continue
-				}
+				c.addWebSource(WebSource{URL: r.URL, Title: r.Title, Text: r.Snippet, Kind: "search"})
 				for _, ref := range []string{r.ID, r.RefID, r.RefIDCamel} {
 					c.rememberNativeWebSource(ref, r.URL)
 				}
 			}
 			if item.Action.URL != "" {
-				if source := c.addWebSource(WebSource{URL: item.Action.URL, Title: item.Action.URL, Kind: "page"}); source.ID == "" && publicWebURL(item.Action.URL) != "" {
-					v.Detail = "网页来源预算已满，未保存新的来源"
-				}
+				c.addWebSource(WebSource{URL: item.Action.URL, Title: item.Action.URL, Kind: "page"})
 			}
 		}
 	case "mcpToolCall":

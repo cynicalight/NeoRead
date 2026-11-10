@@ -88,6 +88,7 @@ import {
 import { useReaderStore } from "../store";
 import { TrashView } from "../TrashView";
 import { BookCoverImage } from "../book-cover";
+import { CoverProcessing } from "../ProcessingStatus";
 import { useCardZoom } from "../useCardZoom";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
 import { trashWithUndo } from "../library-actions";
@@ -138,6 +139,7 @@ import {
 import { usePaperUI } from "./state";
 import { PaperDetail } from "./PaperDetail";
 import { DetailSheet, useClickIntent } from "../DetailSheet";
+import { ExportDocumentDialog } from "../ExportDocumentDialog";
 import { PaperMenuItems, type PaperMenuActions } from "./PaperMenu";
 import { CategoryDialog } from "./CategoryDialog";
 import { CitationDialog } from "./CitationDialog";
@@ -172,6 +174,7 @@ export interface PaperLibraryProps {
   moveToBooks: (doc: Document) => void;
   navOpen: boolean;
   onToggleNav: () => void;
+  onSettings?: () => void;
 }
 
 const busy = (job?: Processing) =>
@@ -187,6 +190,7 @@ export function PaperLibrary({
   moveToBooks,
   navOpen,
   onToggleNav,
+  onSettings,
 }: PaperLibraryProps) {
   const prefs = useReaderStore((s) => s.libraryPreferences.papers) || {};
   const sort: PaperSort = prefs.sort || "opened";
@@ -237,6 +241,7 @@ export function PaperLibrary({
       reverse,
     ],
   );
+  const [exportDocument, setExportDocument] = useState<Document | null>(null);
   const [merging, setMerging] = useState<Document[] | null>(null);
   const [tagging, setTagging] = useState<string[] | null>(null);
   const [journalRankConfig, setJournalRankConfig] =
@@ -382,14 +387,15 @@ export function PaperLibrary({
   const [libraryBody, setLibraryBody] = useState<HTMLDivElement | null>(null);
   const clickIntent = useClickIntent(selectedId);
   useEffect(() => {
-    // Pressing on empty library space closes the detail panel.
+    // Nested menus/dialogs portal into the library too; only empty library
+    // space should close the detail panel.
     const main = mainRef.current;
     if (!main || !selectedId) return;
     const away = (e: PointerEvent) => {
       if (
         e.button === 0 &&
         !(e.target as Element).closest(
-          '[data-paper-id], [data-attachment-row], .detail-sheet, button, a, input, textarea, select, label, [role="button"], [role="separator"], [role="tab"], [contenteditable="true"]',
+          '[data-base-ui-portal], [data-paper-id], [data-attachment-row], .detail-sheet, button, a, input, textarea, select, label, [role="button"], [role="separator"], [role="tab"], [contenteditable="true"]',
         )
       )
         ui.select(null);
@@ -526,6 +532,7 @@ export function PaperLibrary({
     return result;
   };
   const actions: PaperMenuActions = {
+    export: setExportDocument,
     open: openDocument,
     addAttachment: (doc, kind) => {
       useAttachments.setState({ selected: null });
@@ -677,6 +684,7 @@ export function PaperLibrary({
         onToggleAttachments={() => toggleAttachments(doc.id)}
         doc={doc}
         job={jobs.get(doc.id)}
+        onSettings={onSettings}
         selected={
           !picking && (selectedId === doc.id || clickIntent.pending === doc.id)
         }
@@ -788,7 +796,7 @@ export function PaperLibrary({
               ))}
               <span className="tabular-nums">{visible.length} 篇</span>
               <Button
-                variant="ghost"
+                variant="destructive-ghost"
                 size="icon-xs"
                 aria-label="清除当前标签条件"
                 title="清除当前标签条件"
@@ -1055,8 +1063,7 @@ export function PaperLibrary({
                     size="icon-sm"
                     aria-label="移到回收站"
                     title="移到回收站"
-                    variant="ghost"
-                    className="text-destructive"
+                    variant="destructive-ghost"
                     disabled={!pickedDocs.length}
                     onClick={() => void trashPapers(pickedDocs, true)}
                   >
@@ -1260,6 +1267,13 @@ export function PaperLibrary({
           </DetailSheet>
         </div>
       )}
+      {exportDocument && (
+        <ExportDocumentDialog
+          key={exportDocument.id}
+          document={exportDocument}
+          onClose={() => setExportDocument(null)}
+        />
+      )}
       {exporting && (
         <CitationDialog
           docs={documents.filter((d) => exporting.ids.includes(d.id))}
@@ -1406,7 +1420,9 @@ function PaperProcessing({ job }: { job?: Processing }) {
       : status === "waiting"
         ? "等待 AI 配置"
         : status === "failed"
-          ? `${name}失败`
+          ? parsing
+            ? "解析失败"
+            : "翻译中断"
           : `${name}中`;
   const done = parsing ? job.pagesDone : job.translationsDone;
   const total = parsing ? job.pagesTotal : job.translationsTotal;
@@ -1435,7 +1451,7 @@ function PaperProcessing({ job }: { job?: Processing }) {
       />
       {status === "failed" && (
         <Button
-          size="xs"
+          size="icon-xs"
           variant="ghost"
           aria-label={`重试${name}`}
           data-row-action
@@ -1446,7 +1462,6 @@ function PaperProcessing({ job }: { job?: Processing }) {
           }}
         >
           <RefreshCw className="size-3" />
-          {retrying ? "重试中" : "重试"}
         </Button>
       )}
     </span>
@@ -1478,6 +1493,7 @@ function PaperRow({
   moreMenu,
   expanded,
   onToggleAttachments,
+  onSettings,
 }: {
   doc: Document;
   job?: Processing;
@@ -1501,6 +1517,7 @@ function PaperRow({
   moreMenu: React.ReactNode;
   expanded: boolean;
   onToggleAttachments: () => void;
+  onSettings?: () => void;
 }) {
   const upload = useAttachments((s) => s.uploads[doc.id]);
   const cached = useAttachments((s) => s.items[doc.id]);
@@ -1523,7 +1540,7 @@ function PaperRow({
       <ChevronRight className={expanded ? "rotate-90" : undefined} />
     </Button>
   );
-  const byline = paperByline(doc);
+  const byline = paperByline(doc, showAuthors);
   const authors = showAuthors ? authorsShort(doc) : "";
   const authorLine = authors && (
     <p className="paper-row-byline" title={authors}>
@@ -1544,27 +1561,29 @@ function PaperRow({
   );
   const title = (
     <p className="paper-row-title" title={doc.title}>
+      <span className="paper-row-title-text">
+        {colors.length > 0 && (
+          <span
+            className="paper-row-colors"
+            role="img"
+            aria-label={colors.map((c) => c.name).join("、")}
+            title={colors.map((c) => c.name).join("、")}
+          >
+            {colors.map((c) => (
+              <span
+                key={c.name}
+                className="color-dot"
+                style={{ background: c.color }}
+              />
+            ))}
+          </span>
+        )}
+        {doc.favorite && (
+          <Star className="mr-1 inline size-3 fill-current text-amber-500" />
+        )}
+        {doc.title}
+      </span>
       {disclosure}
-      {colors.length > 0 && (
-        <span
-          className="paper-row-colors"
-          role="img"
-          aria-label={colors.map((c) => c.name).join("、")}
-          title={colors.map((c) => c.name).join("、")}
-        >
-          {colors.map((c) => (
-            <span
-              key={c.name}
-              className="color-dot"
-              style={{ background: c.color }}
-            />
-          ))}
-        </span>
-      )}
-      {doc.favorite && (
-        <Star className="mr-1 inline size-3 fill-current text-amber-500" />
-      )}
-      {doc.title}
     </p>
   );
   const dropHint = drop.armed && (
@@ -1808,19 +1827,47 @@ function PaperRow({
           <>
             {dropHint}
             {check}
-            <div
-              className={`book-cover paper-card-cover cover-${coverTone(doc.id)}`}
-            >
-              <BookCoverImage doc={doc} />
-              <div className="cover-title">{doc.title}</div>
+            <div className="book-cover-frame paper-cover-frame">
+              <div
+                className={`book-cover paper-card-cover cover-${coverTone(doc.id)}`}
+              >
+                <BookCoverImage doc={doc} />
+                <div className="cover-title">{doc.title}</div>
+              </div>
+              {job && (
+                <div data-row-action>
+                  {job.manualTranslation &&
+                  !job.enabled &&
+                  job.phase !== "learning" ? (
+                    <span className="cover-analyze">
+                      <PaperProcessing job={job} />
+                    </span>
+                  ) : (
+                    <CoverProcessing
+                      job={job}
+                      learningName="解析"
+                      onSettings={onSettings ?? (() => {})}
+                    />
+                  )}
+                </div>
+              )}
             </div>
             {title}
             {authorLine}
-            <PaperProcessing job={job} />
-            <div className="paper-card-meta">
-              {status}
-              {more}
+            <div
+              className="book-progress"
+              role="progressbar"
+              aria-label="阅读进度"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent}
+            >
+              <div style={{ width: `${percent}%` }} />
             </div>
+            <p className="book-status">
+              {doc.percentage > 0 ? `已读 ${percent}%` : "还未开始阅读"}
+              <span>{(doc.size / 1024 / 1024).toFixed(1)} MB</span>
+            </p>
           </>
         ) : (
           <>

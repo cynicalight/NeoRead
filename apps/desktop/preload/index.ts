@@ -19,6 +19,12 @@ async function proxyRequest(channel: string, ...args: unknown[]) {
 }
 contextBridge.exposeInMainWorld("neoreadDesktop", {
   platform: process.platform,
+  saveExportFile: (name: string, bytes: Uint8Array) =>
+    ipcRenderer.invoke("neoread:save-export-file", name, bytes),
+  markdownPDF: (id: string, html: string) =>
+    ipcRenderer.invoke("neoread:markdown-pdf", id, html),
+  cancelMarkdownPDF: (id: string) =>
+    ipcRenderer.invoke("neoread:cancel-markdown-pdf", id),
   startupAppearance: startupAppearanceFromArguments(process.argv),
   exportDiagnostics: () => ipcRenderer.invoke("neoread:export-diagnostics"),
   recordDiagnostic: (event: unknown) =>

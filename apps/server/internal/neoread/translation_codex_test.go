@@ -23,7 +23,8 @@ func TestTranslationServiceKeepsOtherProviderTaskSettings(t *testing.T) {
 	}
 	service, adapter := s.translationService(config)
 	defer adapter.close()
-	claude, ok := service.connections["claude"].Adapter.(configuredCLIAdapter)
+	wrapped, ok := service.connections["claude"].Adapter.(claudeChatAdapter)
+	claude := wrapped.configuredCLIAdapter
 	if !ok || service.primary != "claude" || claude.model != "translation-model" || claude.level != "low" || claude.task != taskTranslation {
 		t.Fatalf("translation task settings not preserved: %#v", service)
 	}
@@ -214,9 +215,10 @@ func TestTranslationCodexWorkersReuseSelectedModelAndEffort(t *testing.T) {
 			PID    int    `json:"pid"`
 			Method string `json:"method"`
 			Params struct {
-				Model    string `json:"model"`
-				Effort   string `json:"effort"`
-				ThreadID string `json:"threadId"`
+				Model            string `json:"model"`
+				BaseInstructions string `json:"baseInstructions"`
+				Effort           string `json:"effort"`
+				ThreadID         string `json:"threadId"`
 			} `json:"params"`
 		}
 		if err := json.Unmarshal([]byte(line), &r); err != nil {
@@ -231,6 +233,9 @@ func TestTranslationCodexWorkersReuseSelectedModelAndEffort(t *testing.T) {
 			count.initializes++
 		case "thread/start":
 			count.starts++
+			if r.Params.BaseInstructions != translationSystemPrompt {
+				t.Fatal("translation worker received general reading instructions")
+			}
 			if r.Params.Model != "selected-codex" {
 				t.Fatal("wrong model")
 			}

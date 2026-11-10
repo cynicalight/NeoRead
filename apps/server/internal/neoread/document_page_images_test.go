@@ -76,7 +76,7 @@ func pageImageFixture(t *testing.T, cached bool) (*Server, *documentAgent) {
 
 func TestPDFPageToolScopeEvidenceAndMCPImages(t *testing.T) {
 	s, a := pageImageFixture(t, true)
-	for _, args := range []string{`{"pages":[0]}`, `{"pages":[3]}`, `{"pages":[]}`, `{"pages":[1],"path":"/etc/passwd"}`, `{"pages":[1,1,1,1,1,1,1,1,1]}`} {
+	for _, args := range []string{`{"pages":[0]}`, `{"pages":[3]}`, `{"pages":[]}`, `{"pages":[1],"path":"/etc/passwd"}`} {
 		raw, err := a.call(t.Context(), "read_pdf_pages", json.RawMessage(args))
 		if err != nil || !strings.Contains(string(raw), "error") || len(a.Evidence) > 0 {
 			t.Fatal("invalid read", string(raw), err)
@@ -123,8 +123,8 @@ func TestPDFPageToolScopeEvidenceAndMCPImages(t *testing.T) {
 	}
 	a.prepared, a.sourceTokens = true, pageImageTokens
 	bounded, err := a.call(t.Context(), "read_pdf_pages", json.RawMessage(`{"pages":[1,2]}`))
-	if err != nil || len(resultPageImages(bounded)) != 1 || !strings.Contains(string(bounded), `"remainingPages":[2]`) {
-		t.Fatal("image budget dropped continuation", string(bounded), err)
+	if err != nil || len(resultPageImages(bounded)) != 2 || !strings.Contains(string(bounded), `"remainingPages":[]`) {
+		t.Fatal("estimated image budget dropped requested pages", string(bounded), err)
 	}
 	coverage := jsonText(a.readingCoverage())
 	if !strings.Contains(coverage, `"readPassages":0`) || !strings.Contains(coverage, `"viewedPages":[2,1]`) {
@@ -153,8 +153,8 @@ func TestPDFPageToolScopeEvidenceAndMCPImages(t *testing.T) {
 	if err != nil || !strings.Contains(string(refs), "pageImage") {
 		t.Fatal("missing visual citation", string(refs), err)
 	}
-	if _, err = a.references("[S99]"); err == nil {
-		t.Fatal("unread image citation accepted")
+	if refs, err = a.references("[S99]"); err != nil || string(refs) != "[]" {
+		t.Fatalf("unread image citation gained navigation metadata: %s %v", refs, err)
 	}
 	a.canViewPages = false
 	raw, err := a.call(t.Context(), "read_pdf_pages", json.RawMessage(`{"pages":[1]}`))

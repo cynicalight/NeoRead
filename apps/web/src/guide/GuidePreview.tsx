@@ -18,7 +18,13 @@ export default function GuidePreview() {
       ? "release"
       : "guide",
   );
-  const [topic, setTopic] = useState(guideTopics[0].id);
+  const [topic, setTopic] = useState(() => {
+    const requested = new URLSearchParams(location.search).get("topic");
+    return (
+      guideTopics.find((topic) => topic.id === requested)?.id ??
+      guideTopics[0].id
+    );
+  });
   useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle("dark", theme === "dark");

@@ -1,3 +1,4 @@
+import { loadModelCatalog } from "./model-catalog";
 import { useEffect, useState } from "react";
 import { api } from "@neoread/api";
 import type {
@@ -23,6 +24,7 @@ import {
   selectedAgentModel,
 } from "./ModelSelector";
 import { useReaderStore } from "./store";
+import { ProviderIcon } from "./ProviderIdentity";
 
 const AUTO = "__auto__";
 const tasks: [ModelTask, string][] = [
@@ -44,7 +46,15 @@ export function taskChoice(config: AIConfig, task: ModelTask) {
   return { model, effort };
 }
 
-export function TaskModels({ disabled }: { disabled: boolean }) {
+export function TaskModels({
+  disabled,
+  onAPIModelsLoaded,
+  refreshKey = 0,
+}: {
+  disabled: boolean;
+  refreshKey?: number;
+  onAPIModelsLoaded?: (models: AgentModel[]) => void;
+}) {
   const {
     aiConfig: config,
     setAIConfig,
@@ -59,15 +69,24 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
   }>({ provider: "", models: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [openPicker, setOpenPicker] = useState("");
   useEffect(() => {
-    if (!provider) return;
+    if (!provider) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    void api
-      .agentModels(provider, controller.signal)
+    void loadModelCatalog(
+      provider,
+      controller.signal,
+      !!openPicker,
+      !openPicker,
+    )
       .then((models) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          if (provider === "api") onAPIModelsLoaded?.(models);
           setCatalog({
             provider,
             models: models.map((model) => ({
@@ -75,6 +94,7 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
               name: modelDisplayName(model.id, model.name),
             })),
           });
+        }
       })
       .catch((error: Error) => {
         if (!controller.signal.aborted) setError(error.message);
@@ -83,7 +103,7 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [provider, revision]);
+  }, [provider, revision, openPicker, onAPIModelsLoaded, refreshKey]);
   if (!config || !provider) return null;
   const models = catalog.provider === provider ? catalog.models : [];
 
@@ -173,8 +193,11 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
                 {label}
               </span>
               <Select
+                onOpenChange={(open) => {
+                  setOpenPicker(open ? task : "");
+                }}
                 value={current?.id ?? recommended?.id ?? AUTO}
-                disabled={disabled || saving || (empty && !current)}
+                disabled={disabled || saving}
                 onValueChange={(value) =>
                   value &&
                   void chooseModel(
@@ -188,6 +211,13 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
                   aria-label={`${label}模型`}
                   aria-busy={loading || saving}
                 >
+                  {(current ?? recommended) && (
+                    <ProviderIcon
+                      provider={provider}
+                      model={current ?? recommended}
+                      size={20}
+                    />
+                  )}
                   <SelectValue>
                     {current
                       ? `${current.name}${unavailable ? "（未通过检测）" : ""}`
@@ -196,14 +226,20 @@ export function TaskModels({ disabled }: { disabled: boolean }) {
                         : defaultLabel}
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent align="start" alignItemWithTrigger={false}>
                   {!recommended && !empty && (
                     <SelectItem value={AUTO} label={defaultLabel}>
                       {defaultLabel}
                     </SelectItem>
                   )}
                   {options.map((m) => (
-                    <SelectItem key={m.id} value={m.id} label={m.name}>
+                    <SelectItem
+                      key={m.id}
+                      value={m.id}
+                      label={m.name}
+                      aria-label={m.name}
+                    >
+                      <ProviderIcon provider={provider} model={m} size={20} />
                       {m.name}
                     </SelectItem>
                   ))}

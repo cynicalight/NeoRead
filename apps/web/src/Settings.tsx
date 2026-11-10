@@ -1,3 +1,4 @@
+import { loadModelCatalog } from "./model-catalog";
 import { Switch } from "@neoread/ui/components/switch";
 import { PaperServiceSettings } from "./papers/PaperServiceSettings";
 import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
@@ -103,6 +104,8 @@ export function Settings({
   const checked = useRef(new Set<string>());
   const refreshing = useRef(false);
   const [saving, setSaving] = useState(false);
+  const pendingAgent = useRef<string | null>(null);
+  const agentSaveRunning = useRef(false);
   const [deckOpen, setDeckOpen] = useState(false);
   // This is a presentation preference, independent of asynchronous detection.
   const [deckFront, setDeckFront] = useState(() => {
@@ -127,6 +130,7 @@ export function Settings({
   const [loading, setLoading] = useState(false);
   // Whether a detection has finished since the dialog opened.
   const [probed, setProbed] = useState(false);
+  const [modelRefresh, setModelRefresh] = useState(0);
   const [apiModels, setAPIModels] = useState<AgentModel[]>([]);
   const [apiModelsError, setAPIModelsError] = useState("");
   const [apiDetails, setAPIDetails] = useState(false);
@@ -284,14 +288,19 @@ export function Settings({
     if (refreshing.current) return;
     refreshing.current = true;
     // Reopening refreshes metadata silently; preserve the last confirmed UI.
-    if (force || !probed) setLoading(true);
+    if (force) setLoading(true);
     try {
-      const [providers, config] = await Promise.all([
+      const before = useReaderStore.getState().aiConfig;
+      const [providers, loadedConfig] = await Promise.all([
         api.providers(false),
         api.aiConfig(),
       ]);
       setProviders(providers);
-      setAIConfig(config);
+      // Keep config changes published while this settings snapshot was loading.
+      const latest = useReaderStore.getState().aiConfig;
+      const config =
+        latest === before ? loadedConfig : (latest ?? loadedConfig);
+      if (latest === before) setAIConfig(config);
       // CLI agents are checked as a whole, the API agent one model at a time.
       const pending = providers
         .filter((provider) => {
@@ -310,14 +319,19 @@ export function Settings({
           return true;
         })
         .map(({ id }) => id);
+      // Initialize missing catalogs; only the Settings model picker checks expiry.
+      const catalogProviders = providers.filter(({ installed }) => installed);
+      const results = await Promise.allSettled(
+        catalogProviders.map(({ id }) => loadModelCatalog(id)),
+      );
       let models: AgentModel[] = [];
-      if (providers.some(({ id, installed }) => id === "api" && installed)) {
-        try {
-          models = await api.agentModels("api");
-          setAPIModelsError("");
-        } catch (error) {
-          setAPIModelsError((error as Error).message);
-        }
+      const apiIndex = catalogProviders.findIndex(({ id }) => id === "api");
+      const apiResult = results[apiIndex];
+      if (apiResult?.status === "fulfilled") {
+        models = apiResult.value;
+        setAPIModelsError("");
+      } else if (apiResult?.status === "rejected") {
+        setAPIModelsError((apiResult.reason as Error).message);
       }
       setAPIModels(models);
       // Large catalogs are checked on demand, row by row.
@@ -334,7 +348,6 @@ export function Settings({
         checked.current.add(JSON.stringify(["api", model.id]));
       const firstStage = (id: string): "text" | "vision" =>
         !force && config.capabilities[id]?.pendingVision ? "vision" : "text";
-      setLoading(false);
       await checkAll(
         [...pending, ...modelChecks.map(({ id }) => `api:${id}`)],
         firstStage,
@@ -347,6 +360,7 @@ export function Settings({
       refreshing.current = false;
       setLoading(false);
       setProbed(true);
+      setModelRefresh((n) => n + 1);
     }
   };
   useEffect(() => {
@@ -513,7 +527,8 @@ export function Settings({
         ? "没有图片理解能力"
         : "没有通过文本推理检测的模型";
     }
-    if (loading || testing.has(name)) return "正在检测，请稍候";
+    if (loading || (testing.has(name) && !config?.capabilities[name]))
+      return "正在检测，请稍候";
     if (!installed) return "未安装 CLI";
     if (!cliReady(name, "text")) return "文本推理未通过检测";
     return cliReady(name, "vision") ? "" : "没有图片理解能力";
@@ -529,7 +544,14 @@ export function Settings({
           ? "pending"
           : "failed";
     }
-    if (loading || testing.has(name)) return "pending";
+    if (loading || (testing.has(name) && !config?.capabilities[name]))
+      return "pending";
+    if (!probed && !providers.length)
+      return config?.capabilities[name]
+        ? cliReady(name, "text") && cliReady(name, "vision")
+          ? "ready"
+          : "failed"
+        : "pending";
     if (!installed) return "missing";
     return agentBlocker(name) ? "failed" : "ready";
   };
@@ -539,22 +561,30 @@ export function Settings({
       toast.warning(`${providerLabel(name)} 未配置好：${blocker}`);
       return;
     }
-    if (config?.primary === name) {
-      rememberCard(name);
-      return;
-    }
-    if (testing.size) {
-      toast.info("正在检测 Agent，请稍候");
-      return;
-    }
+    // Serialize writes and retain the last choice while a previous save runs.
+    pendingAgent.current = name;
+    if (agentSaveRunning.current) return;
+    agentSaveRunning.current = true;
     setSaving(true);
     try {
-      const latest = await api.aiConfig();
-      setAIConfig(await api.saveAIConfig({ ...latest, primary: name }));
-      rememberCard(name);
-    } catch (e) {
-      toast.error((e as Error).message);
+      while (pendingAgent.current) {
+        const next = pendingAgent.current;
+        pendingAgent.current = null;
+        try {
+          const latest = await api.aiConfig();
+          setAIConfig(
+            latest.primary === next
+              ? latest
+              : await api.saveAIConfig({ ...latest, primary: next }),
+          );
+          rememberCard(next);
+          setModelRefresh((n) => n + 1);
+        } catch (e) {
+          toast.error((e as Error).message);
+        }
+      }
     } finally {
+      agentSaveRunning.current = false;
       setSaving(false);
     }
   };
@@ -609,7 +639,7 @@ export function Settings({
   };
   // Handles a card click in the open deck; true moves the card to the middle.
   const pickCard = (id: string) => {
-    if (!config || saving || aiModelSaving) return false;
+    if (!config || aiModelSaving) return false;
     const status = agentStatus(id);
     if (id === "api" && status === "missing") {
       openAPIConfig();
@@ -779,11 +809,22 @@ export function Settings({
                 layout="settings"
               />
             </section>
-            <section>
-              <div className="flex items-center justify-between gap-3">
-                <h3 id="motion-label" className="text-sm font-medium">
-                  动态效果
-                </h3>
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span id="authors-label">显示作者名称</span>
+                <Switch
+                  aria-labelledby="authors-label"
+                  checked={paperPreferences.showAuthors !== false}
+                  onCheckedChange={(checked) =>
+                    void savePaperPreferences((prefs) => ({
+                      ...prefs,
+                      showAuthors: !!checked,
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span id="motion-label">动态效果</span>
                 <Switch
                   id="motion-enabled"
                   aria-labelledby="motion-label"
@@ -829,7 +870,7 @@ export function Settings({
             </section>
             <section>
               <h3 className="mb-3 text-sm font-medium">期刊指标</h3>
-              <label className="flex items-center justify-between gap-4 text-sm">
+              <div className="flex items-center justify-between gap-4 text-sm">
                 <span>
                   在论文库显示 easyScholar 期刊指标
                   <span className="block text-xs text-muted-foreground">
@@ -844,7 +885,7 @@ export function Settings({
                     void saveJournalRank({ enabled: !!checked })
                   }
                 />
-              </label>
+              </div>
               {journalRank?.enabled && (
                 <>
                   <div className="mt-4 flex items-center gap-2">
@@ -874,7 +915,7 @@ export function Settings({
                     <span id="journal-rank-filter-label">指标筛选</span>
                     <Tabs
                       value={journalRank.filterMode}
-                      className="min-w-0 flex-1"
+                      className="ml-auto w-1/2 min-w-fit"
                       onValueChange={(value) => {
                         if (value !== "include" && value !== "exclude") return;
                         void saveJournalRank({
@@ -1021,6 +1062,35 @@ export function Settings({
                   }
                 />
               </label>
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
+                  文字重排
+                  <span className="block text-xs text-muted-foreground">
+                    按段落重排正文，译文显示在对应原文下方。
+                    <span className="font-semibold text-foreground">
+                      建议配置 Agent 后再开启，部分原文的 LaTeX 公式需要依靠 AI
+                      识别
+                    </span>
+                  </span>
+                </span>
+                <Switch
+                  aria-label="文字重排"
+                  checked={theme.textReflow === true}
+                  onCheckedChange={(checked) =>
+                    setTheme({ textReflow: !!checked })
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>点击段落聚焦</span>
+                <Switch
+                  aria-label="点击段落聚焦"
+                  checked={theme.blockFocus !== false}
+                  onCheckedChange={(checked) =>
+                    setTheme({ blockFocus: !!checked })
+                  }
+                />
+              </label>
             </section>
             <section>
               <HighlightColorsEditor />
@@ -1033,29 +1103,6 @@ export function Settings({
             {currentLibrary === "papers" && (
               <>
                 <CitePluginSettings open={open} />
-                <section>
-                  <h3 className="mb-3 text-sm font-medium">显示设置</h3>
-                  <label className="flex items-center justify-between gap-4 text-sm">
-                    <span>
-                      论文显示作者名字
-                      <span className="block text-xs text-muted-foreground">
-                        在表格和卡片中的标题下方显示
-                      </span>
-                    </span>
-                    <Switch
-                      aria-label="论文显示作者名字"
-                      checked={paperPreferences.showAuthors !== false}
-                      onCheckedChange={(checked) =>
-                        void updateLibraryPreferences({
-                          papers: {
-                            ...paperPreferences,
-                            showAuthors: !!checked,
-                          },
-                        }).catch((e) => toast.error(e.message))
-                      }
-                    />
-                  </label>
-                </section>
                 <section>
                   <h3 className="mb-3 text-sm font-medium">导入设置</h3>
                   <label className="flex items-center justify-between gap-4 text-sm">
@@ -1123,7 +1170,8 @@ export function Settings({
                 </div>
                 <AgentDeck
                   items={deckItems}
-                  front={deckFront}
+                  disabled={!config}
+                  front={config?.primary || deckFront}
                   open={deckOpen}
                   onOpenChange={setDeckOpen}
                   panel={
@@ -1259,7 +1307,7 @@ export function Settings({
                                           )}
                                           {model.custom && (
                                             <Button
-                                              variant="ghost"
+                                              variant="destructive-ghost"
                                               size="icon-sm"
                                               aria-label={`移除 ${model.name}`}
                                               title="移除"
@@ -1316,13 +1364,12 @@ export function Settings({
                   onPanelClose={() => {
                     setAPIDetails(false);
                   }}
+                  onFallback={rememberCard}
                   usable={(id) => agentStatus(id) === "ready"}
                   onPick={pickCard}
                   onDetail={openDetail}
-                  onRefresh={() => {
-                    void refresh(true);
-                  }}
-                  refreshing={loading || testing.size > 0}
+                  onRefresh={() => void refresh(true)}
+                  refreshing={loading}
                   loadCalls={(id, signal) =>
                     recentAgentCalls(id, documents, signal)
                   }
@@ -1331,7 +1378,11 @@ export function Settings({
               {config && (
                 <div className="mt-4 flex flex-col gap-2">
                   <div data-tour="task-models">
-                    <TaskModels disabled={saving || testing.size > 0} />
+                    <TaskModels
+                      disabled={saving || testing.size > 0}
+                      refreshKey={modelRefresh}
+                      onAPIModelsLoaded={setAPIModels}
+                    />
                   </div>
                 </div>
               )}

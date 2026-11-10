@@ -20,6 +20,7 @@ import {
   DialogContent,
   DialogTitle,
 } from "@neoread/ui/components/dialog";
+import { toast } from "sonner";
 import type { RecentCall } from "./agentUsage";
 import { useDeckTick } from "./useDeckTick";
 
@@ -225,10 +226,14 @@ export function AgentDeck({
   loadCalls,
   panel,
   onPanelClose,
+  onFallback,
+  disabled = false,
   usable,
 }: {
   panel?: ReactNode;
   onPanelClose: () => void;
+  onFallback: (id: string) => void;
+  disabled?: boolean;
   usable: (id: string) => boolean;
   items: DeckItem[];
   /** The card on top of the closed stack. */
@@ -250,6 +255,8 @@ export function AgentDeck({
     0,
     items.findIndex((item) => item.id === front),
   );
+  const selectedIndex = items.findIndex((item) => item.selected);
+  const openingIndex = selectedIndex < 0 ? frontIndex : selectedIndex;
   const [pos, setPos] = useState({ center: frontIndex, prev: frontIndex });
   const [spread, setSpread] = useState(false);
   const [mounted, setMounted] = useState(open);
@@ -258,9 +265,7 @@ export function AgentDeck({
   const [detail, setDetail] = useState<string | null>(null);
   const [panelVisible, setPanelVisible] = useState(false);
   const anchor = useRef(frontIndex);
-  const pickTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
+  const navigated = useRef(false);
   const latest = useRef({ onPick, usable });
   latest.current = { onPick, usable };
   const hadPanel = useRef(false);
@@ -290,13 +295,25 @@ export function AgentDeck({
       anchor.current = pos.center;
     }
   }, [!!panel]);
-  useEffect(() => () => clearTimeout(pickTimer.current), []);
   const close = () => {
     if (panel) onPanelClose();
-    else onOpenChange(false);
+    else {
+      if (wheelTimer.current !== undefined) {
+        clearTimeout(wheelTimer.current);
+        wheelTimer.current = undefined;
+      }
+      const center = ((Math.round(motion.current.target) % n) + n) % n;
+      const item = items[center];
+      if (latest.current.usable(item.id)) selectCentered();
+      else {
+        toast.warning(`${item.title} 当前不可用，已回退到上一个 Agent`);
+        onFallback(items[anchor.current].id);
+      }
+      onOpenChange(false);
+    }
   };
   const step = useStep();
-  const wheel = useRef({ direction: 0, lastInput: 0 });
+  const wheel = useRef({ direction: 0, lastInput: 0, start: 0 });
   const wheelTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -313,7 +330,6 @@ export function AgentDeck({
     if (!open) {
       scrollSound.current = false;
       sound.pause();
-      clearTimeout(pickTimer.current);
       setSpread(false);
       setDetail(null);
       const timer = window.setTimeout(
@@ -323,8 +339,9 @@ export function AgentDeck({
       return () => window.clearTimeout(timer);
     }
     setMounted(true);
-    anchor.current = frontIndex;
-    setPos({ center: frontIndex, prev: frontIndex });
+    navigated.current = false;
+    anchor.current = openingIndex;
+    setPos({ center: openingIndex, prev: openingIndex });
     // Let the portal paint the gathered cards before changing their transforms.
     // A single frame can be batched with mounting, skipping the starting pose.
     let firstFrame: number | undefined;
@@ -351,34 +368,45 @@ export function AgentDeck({
   };
   const transform = (d: number) =>
     `translateY(calc(-50% + ${d * step}px)) scale(${1 - Math.min(Math.abs(d), 3) * 0.06})`;
-  // One continuous spring drives every card; wrapping is spatial, never timed.
+  // Wheel input moves directly; one spring snaps all cards together afterward.
   const [position, setPosition] = useState(frontIndex);
+  const [navigating, setNavigating] = useState(false);
   const motion = useRef({ value: frontIndex, target: frontIndex, velocity: 0 });
   const frame = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (open) {
-      motion.current = { value: frontIndex, target: frontIndex, velocity: 0 };
-      setPosition(frontIndex);
+      setNavigating(false);
+      motion.current = {
+        value: openingIndex,
+        target: openingIndex,
+        velocity: 0,
+      };
+      setPosition(openingIndex);
     }
     return () => {
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
       frame.current = undefined;
       clearTimeout(wheelTimer.current);
-      wheel.current = { direction: 0, lastInput: 0 };
+      wheel.current = { direction: 0, lastInput: 0, start: 0 };
     };
   }, [open]);
-  const animateTo = (target: number) => {
+  const animateTo = (target: number, immediate = false) => {
+    setNavigating(true);
     const state = motion.current;
     state.target = target;
     const center = ((Math.round(target) % n) + n) % n;
-    setPos((current) => ({ center, prev: current.center }));
-    if (reducedMotion()) {
+    setPos((current) =>
+      current.center === center ? current : { center, prev: current.center },
+    );
+    if (reducedMotion() || immediate) {
+      if (frame.current !== undefined) cancelAnimationFrame(frame.current);
+      frame.current = undefined;
       if (
         scrollSound.current &&
         Math.round(state.value) !== Math.round(state.target)
       )
         sound.tick();
-      state.value = Math.round(state.target);
+      state.value = reducedMotion() ? Math.round(state.target) : state.target;
       state.velocity = 0;
       setPosition(state.value);
       return;
@@ -408,25 +436,37 @@ export function AgentDeck({
   };
   const move = (to: number) => {
     clearTimeout(wheelTimer.current);
-    wheel.current = { direction: 0, lastInput: 0 };
+    wheelTimer.current = undefined;
+    wheel.current = { direction: 0, lastInput: 0, start: 0 };
     const state = motion.current;
     animateTo(Math.round(state.target + offset(to, state.target)));
   };
+  useEffect(() => {
+    if (!open || selectedIndex < 0 || navigated.current || panel) return;
+    anchor.current = selectedIndex;
+    move(selectedIndex);
+  }, [selectedIndex, open]);
+  const selectCentered = () => {
+    const center = ((Math.round(motion.current.target) % n) + n) % n;
+    const item = items[center];
+    if (latest.current.usable(item.id) && latest.current.onPick(item.id))
+      anchor.current = center;
+  };
   const pick = (i: number) => {
+    navigated.current = true;
     scrollSound.current = false;
-    clearTimeout(pickTimer.current);
     move(i);
-    const arrive = () => {
-      if (latest.current.onPick(items[i].id)) anchor.current = i;
-      else if (items[i].id !== "api") move(anchor.current);
-    };
-    if (reducedMotion() || i === pos.center) arrive();
-    else pickTimer.current = setTimeout(arrive, 540);
+    if (latest.current.onPick(items[i].id)) {
+      anchor.current = i;
+      onOpenChange(false);
+    } else if (items[i].id !== "api") move(anchor.current);
   };
   const keys = (event: KeyboardEvent) => {
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    navigated.current = true;
     event.preventDefault();
     move(pos.center + (event.key === "ArrowDown" ? 1 : -1));
+    selectCentered();
   };
   const shown = items.find((item) => item.id === detail);
 
@@ -468,6 +508,7 @@ export function AgentDeck({
           variant="ghost"
           className="absolute inset-0 z-20 h-auto rounded-2xl p-0 hover:bg-transparent dark:hover:bg-transparent"
           aria-label="展开 Agent 卡片"
+          disabled={disabled}
           data-tour="agent-stack"
           onClick={() => {
             sound.unlock();
@@ -486,13 +527,17 @@ export function AgentDeck({
           onWheel={(event) => {
             if (panel || shown || !open || event.ctrlKey || !event.deltaY)
               return;
+            navigated.current = true;
             sound.unlock();
             scrollSound.current = true;
-            clearTimeout(pickTimer.current);
             clearTimeout(wheelTimer.current);
             const now = performance.now();
             const direction = Math.sign(event.deltaY);
             const state = motion.current;
+            let start =
+              wheelTimer.current === undefined
+                ? Math.round(state.target)
+                : wheel.current.start;
             // Reverse from the visible position instead of chasing queued travel.
             if (
               wheel.current.direction &&
@@ -501,18 +546,31 @@ export function AgentDeck({
             ) {
               state.target = state.value;
               state.velocity = 0;
+              start =
+                direction > 0
+                  ? Math.floor(state.value)
+                  : Math.ceil(state.value);
             }
-            wheel.current = { direction, lastInput: now };
+            wheel.current = { direction, lastInput: now, start };
             const pixels =
               event.deltaY *
               (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? step : 1);
-            // Preserve all input, including multiple turns around the deck.
-            // The spring follows faster input faster and eases out naturally;
-            // native trackpad momentum is not given a second inertia impulse.
-            animateTo(state.target + pixels / step);
+            // Small trackpad deltas follow the finger directly. Mouse wheel
+            // notches arrive as large deltas and are eased so they don't jump.
+            animateTo(
+              state.target + pixels / step,
+              Math.abs(pixels) < step * 0.25 && frame.current === undefined,
+            );
             wheelTimer.current = setTimeout(() => {
               wheelTimer.current = undefined;
-              animateTo(Math.round(motion.current.target));
+              // Snap in the travel direction so a single notch never springs back.
+              const moved = motion.current.target - start;
+              const cards =
+                Math.abs(moved) < 0.02
+                  ? 0
+                  : Math.sign(moved) * Math.max(1, Math.round(Math.abs(moved)));
+              animateTo(start + cards);
+              selectCentered();
             }, 140);
           }}
           showCloseButton={false}
@@ -609,7 +667,7 @@ export function AgentDeck({
                     )}
                     style={{
                       transition:
-                        spread && !panel && frame.current !== undefined
+                        spread && !panel && navigating
                           ? "box-shadow 200ms"
                           : undefined,
                       transform: spread
@@ -645,7 +703,14 @@ export function AgentDeck({
                       tabIndex={d === 0 ? 0 : -1}
                       className="absolute inset-0 h-auto rounded-2xl p-0 hover:bg-transparent dark:hover:bg-transparent"
                       onFocus={() => {
-                        if (open && spread && !panel) move(i);
+                        if (open && spread && !panel) {
+                          if (
+                            i !==
+                            ((Math.round(motion.current.target) % n) + n) % n
+                          )
+                            navigated.current = true;
+                          move(i);
+                        }
                       }}
                       onClick={() => pick(i)}
                     />

@@ -1,8 +1,9 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import type { Message } from "@neoread/core";
+import type { ChatRun, Message } from "@neoread/core";
 import type { ChatStreamEvent } from "@neoread/api";
 import {
   ChatSession,
+  chatRetryAction,
   type ChatInput,
   type ChatTransport,
 } from "./chat-session";
@@ -420,9 +421,7 @@ describe("independent session lifecycle", () => {
     );
     session.cancel();
     expect(io.cancel).toHaveBeenCalledOnce();
-    expect(session.getSnapshot().pending?.controller.signal.aborted).toBe(
-      false,
-    );
+    expect(session.getSnapshot().pending?.controller.signal.aborted).toBe(true);
     wait.resolve();
     await vi.waitFor(() => expect(session.getSnapshot().busy).toBe(false));
   });
@@ -495,4 +494,222 @@ it("uses persisted completed tool states when history confirms a reply after a s
   await sending;
   expect(h.session.getSnapshot().pending?.phase).toBe("saved");
   expect(h.session.getSnapshot().pending?.tools).toEqual(saved.tools);
+});
+
+it("continues a checkpoint with the same question and completed tools without regenerating", async () => {
+  let history: Message[] = [];
+  let run: ChatRun | undefined;
+  const completed = {
+    id: "known-tool",
+    kind: "web" as const,
+    tool: "web_fetch",
+    title: "读取",
+    status: "completed" as const,
+    startedAt: "now",
+  };
+  const stream = vi.fn<ChatTransport["stream"]>(
+    async (_id, input, _signal, emit) => {
+      history = [message(input.userMessageId!, "user", input.prompt)];
+      run = {
+        id: "run",
+        documentId: "doc",
+        sessionId: "session",
+        userMessageId: input.userMessageId!,
+        provider: "api",
+        status: "failed",
+        resumable: true,
+        startedAt: "now",
+      };
+      emit({ event: "tool", data: completed });
+      emit({ event: "delta", data: { text: "incomplete fragment" } });
+      emit({ event: "error", data: { error: "upstream 502" } });
+    },
+  );
+  const continueRun = vi.fn<NonNullable<ChatTransport["continueRun"]>>(
+    async (active, _signal, emit) => {
+      expect(active.id).toBe("run");
+      expect(active.userMessageId).toBe(history[0].id);
+      expect(session.getSnapshot().pending).toMatchObject({
+        content: "",
+        tools: [completed],
+      });
+      history.push(message("answer", "assistant", "continued answer"));
+      run = { ...active, status: "completed", resumable: false };
+      emit({ event: "tool", data: completed });
+      emit({ event: "delta", data: { text: "continued answer" } });
+      emit({ event: "done", data: { ok: true } });
+    },
+  );
+  const session = new ChatSession("doc", {
+    messages: async () => history,
+    latestRun: async () => run,
+    stream,
+    continueRun,
+  });
+  await session.load();
+  await session.send(input);
+  expect(chatRetryAction(session.getSnapshot())).toBe("continue");
+  expect(session.getSnapshot().pending?.notice).not.toContain("502");
+  await session.continueRun();
+  expect(stream).toHaveBeenCalledOnce();
+  expect(continueRun).toHaveBeenCalledOnce();
+  expect(history.filter((m) => m.role === "user")).toHaveLength(1);
+  expect(session.getSnapshot().pending).toMatchObject({
+    phase: "saved",
+    content: "continued answer",
+  });
+  session.dispose();
+});
+
+it("manual reconnect attaches an existing running run without a new generation", async () => {
+  let run: ChatRun | undefined;
+  let history: Message[] = [];
+  const stream = vi.fn<ChatTransport["stream"]>(async (_id, input) => {
+    history = [message(input.userMessageId!, "user", input.prompt)];
+    run = {
+      id: "run",
+      documentId: "doc",
+      sessionId: "session",
+      userMessageId: input.userMessageId!,
+      provider: "api",
+      status: "running",
+      startedAt: "now",
+    };
+    throw new Error("offline");
+  });
+  const resume = vi.fn<NonNullable<ChatTransport["resume"]>>(
+    async (active, _signal, emit) => {
+      history.push(message("answer", "assistant", "same run"));
+      run = { ...active, status: "completed" };
+      emit({ event: "done", data: { ok: true } });
+    },
+  );
+  const session = new ChatSession("doc", {
+    messages: async () => history,
+    latestRun: async () => run,
+    stream,
+    resume,
+  });
+  await session.load();
+  await session.send(input);
+  expect(chatRetryAction(session.getSnapshot())).toBe("reconnect");
+  await session.reconnect();
+  expect(stream).toHaveBeenCalledOnce();
+  expect(resume).toHaveBeenCalledOnce();
+  expect(session.getSnapshot().pending?.content).toBe("same run");
+  session.dispose();
+});
+
+it("does not offer regeneration while checkpoint status cannot be confirmed", async () => {
+  let history: Message[] = [];
+  const stream = vi.fn<ChatTransport["stream"]>(
+    async (_id, input, _signal, emit) => {
+      history = [message(input.userMessageId!, "user", input.prompt)];
+      emit({ event: "error", data: { error: "502" } });
+    },
+  );
+  const latestRun = vi
+    .fn<NonNullable<ChatTransport["latestRun"]>>()
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValue(new Error("offline"));
+  const session = new ChatSession("doc", {
+    messages: async () => history,
+    latestRun,
+    stream,
+  });
+  await session.load();
+  await session.send(input);
+  expect(chatRetryAction(session.getSnapshot())).toBe("sync");
+  expect(session.getSnapshot().pending?.notice).not.toContain("重新生成");
+  session.dispose();
+});
+
+it("keeps a definitive continuation rejection even when the old checkpoint remains resumable", async () => {
+  const { RequestError } = await import("@neoread/api");
+  let history: Message[] = [];
+  let run: ChatRun | undefined;
+  const stream = vi.fn<ChatTransport["stream"]>(
+    async (_id, input, _signal, emit) => {
+      history = [message(input.userMessageId!, "user", input.prompt)];
+      run = {
+        id: "rejected-run",
+        documentId: "doc",
+        sessionId: "session",
+        userMessageId: input.userMessageId!,
+        provider: "api",
+        status: "failed",
+        resumable: true,
+        startedAt: "now",
+      };
+      emit({ event: "error", data: { error: "502" } });
+    },
+  );
+  const continueRun = vi
+    .fn<NonNullable<ChatTransport["continueRun"]>>()
+    .mockRejectedValue(
+      new RequestError(
+        "API 配置或模型已改变，请重新生成。",
+        undefined,
+        undefined,
+        409,
+      ),
+    );
+  const session = new ChatSession("doc", {
+    messages: async () => history,
+    latestRun: async () => run,
+    stream,
+    continueRun,
+  });
+  await session.load();
+  await session.send(input);
+  expect(chatRetryAction(session.getSnapshot())).toBe("continue");
+  await session.continueRun();
+  expect(chatRetryAction(session.getSnapshot())).toBe("regenerate");
+  expect(session.getSnapshot().pending?.notice).toContain(
+    "API 配置或模型已改变",
+  );
+  expect(session.getSnapshot().pending?.notice).not.toContain(
+    "可从已保存的进度继续",
+  );
+  await session.retrySync();
+  await session.continueRun();
+  expect(chatRetryAction(session.getSnapshot())).toBe("regenerate");
+  expect(continueRun).toHaveBeenCalledOnce();
+  run = { ...run!, id: "new-eligible-run" };
+  await session.retrySync();
+  expect(chatRetryAction(session.getSnapshot())).toBe("continue");
+  session.dispose();
+});
+
+it("keeps continuation available after an ambiguous network failure", async () => {
+  let history: Message[] = [];
+  let run: ChatRun | undefined;
+  const stream: ChatTransport["stream"] = async (_id, input, _signal, emit) => {
+    history = [message(input.userMessageId!, "user", input.prompt)];
+    run = {
+      id: "network-run",
+      documentId: "doc",
+      sessionId: "session",
+      userMessageId: input.userMessageId!,
+      provider: "api",
+      status: "failed",
+      resumable: true,
+      startedAt: "now",
+    };
+    emit({ event: "error", data: { error: "502" } });
+  };
+  const continueRun = vi
+    .fn<NonNullable<ChatTransport["continueRun"]>>()
+    .mockRejectedValue(new TypeError("network unavailable"));
+  const session = new ChatSession("doc", {
+    messages: async () => history,
+    latestRun: async () => run,
+    stream,
+    continueRun,
+  });
+  await session.load();
+  await session.send(input);
+  await session.continueRun();
+  expect(chatRetryAction(session.getSnapshot())).toBe("continue");
+  session.dispose();
 });

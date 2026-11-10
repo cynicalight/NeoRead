@@ -3,7 +3,7 @@ import { act, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AIConfig, AgentModel, ProxySettingsState } from "@neoread/core";
-import { api } from "@neoread/api";
+import { api, type PaperRefreshProgress } from "@neoread/api";
 import { toast } from "sonner";
 import { Settings } from "./Settings";
 import { useReaderStore } from "./store";
@@ -115,6 +115,21 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("PointerEvent", MouseEvent);
   vi.clearAllMocks();
+  // The status endpoint observes the same task state as the start endpoint.
+  let paperProgress: PaperRefreshProgress = {
+    status: "idle",
+    total: 0,
+    processed: 0,
+    failed: 0,
+    skipped: 0,
+  };
+  vi.mocked(api.paperRefreshStatus).mockImplementation(
+    async () => paperProgress,
+  );
+  vi.mocked(api.startPaperRefresh).mockImplementation(async () => {
+    paperProgress = { ...paperProgress, status: "done" };
+    return paperProgress;
+  });
   config = {
     primary: "api",
     models: {},
@@ -243,7 +258,7 @@ it("saves the API endpoint and key, then tests the new connection", async () => 
     expect.objectContaining({
       api: {
         url: "https://api.deepseek.com",
-        protocol: "auto",
+        protocol: "openai",
         model: "",
         key: "sk-test",
         hasKey: false,
@@ -465,4 +480,101 @@ it("shows only library location in the books tab for the current library", async
       useReaderStore.setState({ libraryPreferences: previous }),
     );
   }
+});
+
+it("checks installed providers' shared catalog caches whenever settings opens", async () => {
+  config.capabilities = {
+    codex: { text: true, vision: true, checkedAt: "checked" },
+    claude: { text: true, vision: true, checkedAt: "checked" },
+  };
+  vi.mocked(api.providers).mockResolvedValue([
+    { id: "codex", installed: true, authenticated: true, status: "ready" },
+    { id: "claude", installed: true, authenticated: true, status: "ready" },
+    { id: "kimi", installed: false, authenticated: false, status: "missing" },
+  ]);
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  expect(api.agentModels).toHaveBeenCalledWith("codex");
+  expect(api.agentModels).toHaveBeenCalledWith("claude");
+  expect(
+    vi.mocked(api.agentModels).mock.calls.some(([id]) => id === "kimi"),
+  ).toBe(false);
+  vi.mocked(api.agentModels).mockClear();
+  await act(async () =>
+    root.render(<Settings open={false} onOpenChange={() => {}} />),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  expect(api.agentModels).toHaveBeenCalledWith("codex");
+  expect(api.agentModels).toHaveBeenCalledWith("claude");
+});
+
+it("does not overwrite freshly updated capabilities with a slower settings snapshot", async () => {
+  let release!: (providers: Awaited<ReturnType<typeof api.providers>>) => void;
+  vi.mocked(api.providers).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  const updated = {
+    ...config,
+    capabilities: {
+      ...config.capabilities,
+      codex: { text: true, vision: true, checkedAt: "new-check" },
+    },
+  };
+  await act(async () => useReaderStore.getState().setAIConfig(updated));
+  await act(async () => release([]));
+  expect(useReaderStore.getState().aiConfig?.capabilities.codex).toEqual(
+    updated.capabilities.codex,
+  );
+});
+
+it("saves the last navigated ready agent when the previous save is still running", async () => {
+  config.capabilities = {
+    codex: { text: true, vision: true, checkedAt: "saved" },
+    claude: { text: true, vision: true, checkedAt: "saved" },
+  };
+  vi.mocked(api.providers).mockResolvedValue(
+    (["codex", "claude"] as const).map((id) => ({
+      id,
+      installed: true,
+      authenticated: true,
+      status: "已登录",
+    })),
+  );
+  let finishFirst!: () => void;
+  vi.mocked(api.saveAIConfig).mockImplementationOnce(
+    (next) =>
+      new Promise((resolve) => {
+        finishFirst = () => {
+          config = next;
+          resolve(next);
+        };
+      }),
+  );
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await expand();
+  // Focus centres the starting card; arrow navigation performs the selection.
+  await act(async () =>
+    host.querySelector<HTMLElement>('[aria-label="使用 Codex"]')!.focus(),
+  );
+  const navigate = async (key: string) => {
+    await act(async () => {
+      host
+        .querySelector('[role="radiogroup"]')!
+        .dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+  };
+  await navigate("ArrowDown");
+  expect(api.saveAIConfig).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ primary: "claude" }),
+  );
+  await navigate("ArrowUp");
+  await click('[aria-label="收起"]');
+  await act(async () => finishFirst());
+  expect(api.saveAIConfig).toHaveBeenLastCalledWith(
+    expect.objectContaining({ primary: "codex" }),
+  );
+  expect(useReaderStore.getState().aiConfig?.primary).toBe("codex");
 });

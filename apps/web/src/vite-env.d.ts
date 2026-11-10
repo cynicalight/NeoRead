@@ -2,6 +2,9 @@
 
 interface Window {
   neoreadDesktop?: {
+    saveExportFile?: (name: string, bytes: Uint8Array) => Promise<boolean>;
+    markdownPDF?: (id: string, html: string) => Promise<Uint8Array>;
+    cancelMarkdownPDF?: (id: string) => Promise<void>;
     platform: string;
     startupAppearance?: Partial<import("@neoread/core").ReaderTheme>;
     exportDiagnostics?: () => Promise<boolean>;

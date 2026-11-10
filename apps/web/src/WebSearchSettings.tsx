@@ -156,6 +156,7 @@ export function WebSearchSettings({
           </label>
           <Tabs
             value={provider || "off"}
+            className="ml-auto w-1/2 min-w-fit"
             onValueChange={(next) => {
               if (next === "off" || next === "deepseek" || next === "keenable")
                 saveProvider(next === "off" ? "" : next);
@@ -235,7 +236,7 @@ export function WebSearchSettings({
           <div className="flex justify-end">
             <Button
               type="button"
-              variant="ghost"
+              variant="destructive-ghost"
               size="sm"
               disabled={disabled}
               onClick={() => {

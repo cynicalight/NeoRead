@@ -1,7 +1,6 @@
 package neoread
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"io"
@@ -21,10 +20,8 @@ func streamAnthropic(ctx context.Context, c APIConnection, req completionRequest
 		}
 		content = parts
 	}
-	messages := append([]completionMessage(nil), req.History...)
-	messages = append(messages, completionMessage{Role: "user", Content: content})
-	payload["messages"] = messages
-	payload["system"] = readerSystemPrompt
+	payload["messages"] = []completionMessage{{Role: "user", Content: content}}
+	payload["system"] = in.systemPrompt()
 	delete(payload, "n")
 	delete(payload, "stream_options")
 	return requestAnthropic(ctx, c, payload, emit)
@@ -62,8 +59,6 @@ type anthropicUsage struct {
 }
 
 func readAnthropicStream(ctx context.Context, r io.Reader, c APIConnection, emit func(ProviderEvent) error) (GenerateResult, error) {
-	scan := bufio.NewScanner(r)
-	scan.Buffer(make([]byte, 4096), maxProviderFrame)
 	var frame, text strings.Builder
 	started, finished := false, false
 	model := ""
@@ -101,9 +96,6 @@ func readAnthropicStream(ctx context.Context, r io.Reader, c APIConnection, emit
 		return emit(ProviderEvent{Metrics: []ModelTokens{{Model: model, Tokens: tokens}}})
 	}
 	add := func(part string) error {
-		if text.Len()+len(part) > 1<<20 {
-			return generationError(ErrorLimit, "API 回答超过 1 MiB 限制")
-		}
 		text.WriteString(part)
 		if emit != nil && part != "" {
 			return emit(ProviderEvent{Text: part})
@@ -232,48 +224,39 @@ func readAnthropicStream(ctx context.Context, r io.Reader, c APIConnection, emit
 		}
 		return false, nil
 	}
-	for scan.Scan() {
-		if ctx.Err() != nil {
-			return GenerateResult{}, ctx.Err()
-		}
-		line := scan.Text()
-		if line == "" {
-			done, err := dispatch()
-			if err != nil {
-				return GenerateResult{}, err
-			}
-			if done {
-				return GenerateResult{Text: text.String(), FinishReason: "stop"}, nil
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "data:") {
-			value := strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
-			if frame.Len()+len(value)+1 > maxProviderFrame {
-				return GenerateResult{}, protocol()
-			}
-			frame.WriteString(value)
-			frame.WriteByte('\n')
-		}
+	err := consumeCompletionFrames(ctx, r, func(data string) (bool, error) {
+		frame.WriteString(data)
+		return dispatch()
+	})
+	if err != nil {
+		return GenerateResult{}, err
 	}
-	if ctx.Err() != nil {
-		return GenerateResult{}, ctx.Err()
-	}
-	if scan.Err() != nil {
-		return GenerateResult{}, generationError(ErrorNetwork, "Messages API 流中断或事件过大")
-	}
-	return GenerateResult{}, protocol()
+	return GenerateResult{Text: text.String(), FinishReason: "stop"}, nil
 }
 
 // The Messages adapter currently supports text generation, so document chat
 // uses the shared pre-retrieval path and persists the same active window.
 func anthropicDocumentCompletion(ctx context.Context, c APIConnection, payload map[string]any, messages []toolCompletionMessage, callbacks ...toolStreamCallbacks) (toolCompletionResult, error) {
+	system, history, err := textDocumentMessages(messages, "Messages API")
+	if err != nil {
+		return toolCompletionResult{}, err
+	}
+	payload["system"], payload["messages"] = system, history
+	delete(payload, "n")
+	delete(payload, "stream_options")
+	return textDocumentCompletion(func(emit func(ProviderEvent) error) (GenerateResult, error) {
+		return requestAnthropic(ctx, c, payload, emit)
+	}, callbacks...)
+}
+
+// textDocumentMessages 拆出系统提示和纯文本历史；含工具调用或页面图片的记录不能改用 Messages。
+func textDocumentMessages(messages []toolCompletionMessage, protocol string) (string, []completionMessage, error) {
 	var system []string
 	var history []completionMessage
 	for _, m := range messages {
 		text, ok := m.Content.(string)
 		if !ok || len(m.Calls) > 0 || m.CallID != "" || len(m.PageImages) > 0 {
-			return toolCompletionResult{}, generationError(ErrorCapability, "Messages API 暂未适配文档工具消息")
+			return "", nil, generationError(ErrorCapability, protocol+" 暂未适配文档工具消息")
 		}
 		if m.Role == "system" {
 			system = append(system, text)
@@ -281,11 +264,12 @@ func anthropicDocumentCompletion(ctx context.Context, c APIConnection, payload m
 			history = append(history, completionMessage{Role: m.Role, Content: text})
 		}
 	}
-	payload["system"], payload["messages"] = strings.Join(system, "\n\n"), history
-	delete(payload, "n")
-	delete(payload, "stream_options")
+	return strings.Join(system, "\n\n"), history, nil
+}
+
+func textDocumentCompletion(request func(func(ProviderEvent) error) (GenerateResult, error), callbacks ...toolStreamCallbacks) (toolCompletionResult, error) {
 	var response toolCompletionResult
-	result, err := requestAnthropic(ctx, c, payload, func(event ProviderEvent) error {
+	result, err := request(func(event ProviderEvent) error {
 		for _, metric := range event.Metrics {
 			response.Model, response.Tokens = metric.Model, metric.Tokens
 		}

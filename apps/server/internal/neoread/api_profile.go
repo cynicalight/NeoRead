@@ -14,6 +14,11 @@ const apiRulesVersion = "2026-10-13.1"
 
 type apiEndpoint struct{ Vendor, Protocol, Base string }
 
+// apiProtocols lists the supported API connection protocols.
+var apiProtocols = []string{"openai", "responses", "anthropic"}
+
+func validAPIProtocol(protocol string) bool { return slices.Contains(apiProtocols, protocol) }
+
 func resolveAPIEndpoint(c APIConnection) apiEndpoint {
 	e := apiEndpoint{"custom", "openai", strings.TrimRight(c.URL, "/")}
 	u, err := url.Parse(c.URL)
@@ -60,7 +65,7 @@ func resolveAPIEndpoint(c APIConnection) apiEndpoint {
 			e.Base = strings.TrimRight(u.String(), "/")
 		}
 	}
-	if c.Protocol != "" && c.Protocol != "auto" {
+	if validAPIProtocol(c.Protocol) {
 		e.Protocol = c.Protocol
 	}
 	return e
@@ -88,7 +93,7 @@ func reasoningRule(e apiEndpoint, model string, advertised []string) apiReasonin
 	fixed := func() { r.Mode = "fixed"; r.Source = "official" }
 	// Selecting a protocol on a relay does not import model-name heuristics.
 	if e.Vendor == "custom" {
-		if e.Protocol == "openai" || e.Protocol == "anthropic" {
+		if validAPIProtocol(e.Protocol) {
 			r.Levels = advertised
 			if len(advertised) == 0 {
 				r.Levels = []string{"low", "medium", "high"}
@@ -104,7 +109,8 @@ func reasoningRule(e apiEndpoint, model string, advertised []string) apiReasonin
 	}
 	switch e.Vendor {
 	case "openai":
-		if e.Protocol != "openai" {
+		// Chat Completions 与 Responses 同属 OpenAI 官方端点，强度档位相同。
+		if e.Protocol == "anthropic" {
 			return r
 		}
 		switch m {
@@ -252,6 +258,12 @@ func (r apiReasoningRule) info() *APIEffortInfo {
 	return info
 }
 func (r apiReasoningRule) apply(payload map[string]any, protocol, requested, resolved string) {
+	if protocol == "responses" {
+		if resolved != "" {
+			payload["reasoning"] = map[string]string{"effort": resolved}
+		}
+		return
+	}
 	if protocol == "anthropic" {
 		payload["max_tokens"] = 8192
 		if r.Source == "official" && (r.Mode == "budget" || r.Mode == "levels") {

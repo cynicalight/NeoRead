@@ -77,7 +77,6 @@ func (s *Server) convertFormulas(ctx context.Context, documentID string, m layou
 	for _, t := range items {
 		saved[t.BlockID] = t
 	}
-	var failures []error
 	for _, b := range m.Blocks {
 		if !isFormula(b) || b.Image == "" {
 			continue
@@ -87,7 +86,6 @@ func (s *Server) convertFormulas(ctx context.Context, documentID string, m layou
 			continue
 		}
 		if t.Status == "failed" {
-			failures = append(failures, errors.New(t.Error))
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -110,7 +108,6 @@ func (s *Server) convertFormulas(ctx context.Context, documentID string, m layou
 		if callErr != nil {
 			t.Status = "failed"
 			t.Error = callErr.Error()
-			failures = append(failures, callErr)
 		}
 		if ctx.Err() != nil {
 			t.Status = "pending"
@@ -123,8 +120,17 @@ func (s *Server) convertFormulas(ctx context.Context, documentID string, m layou
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if t.Status == "failed" {
+			reason := "provider_error"
+			if strings.Contains(callErr.Error(), "公式转换未返回完整的") {
+				reason = "invalid_formula"
+			} else if errors.Is(callErr, os.ErrNotExist) {
+				reason = "image_missing"
+			}
+			s.diagnosticEvent(slog.LevelError, "translation.item_failed", "documentId", documentID, "blockId", b.ID, "phase", "formula", "reasonCode", reason)
+		}
 	}
-	return errors.Join(failures...)
+	return nil
 }
 
 func (s *Server) translateContent(ctx context.Context, p *Processing, input translationInput) error {

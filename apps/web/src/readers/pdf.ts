@@ -1,3 +1,4 @@
+import { searchExcerpt } from "./search-excerpt";
 import { reportDiagnostic } from "../diagnostics";
 import { PDFResizeObserver } from "./pdf-resize";
 import { readPDFOutline } from "./pdf-outline";
@@ -257,6 +258,12 @@ export class PDFReaderAdapter implements ReaderAdapter {
   getPageCount() {
     return this.pdf?.numPages ?? 0;
   }
+  async getPageWidth() {
+    if (!this.pdf?.numPages) return undefined;
+    const page = await this.pdf.getPage(1);
+    // PDF points display at 96 / 72 CSS pixels.
+    return page.getViewport({ scale: 1 }).width * (96 / 72);
+  }
   getLocation(): PDFLocation {
     const page = this.viewer.getPageView(this.location.page - 1)?.div as
       HTMLElement | undefined;
@@ -335,15 +342,19 @@ export class PDFReaderAdapter implements ReaderAdapter {
     if (!query.trim() || !this.pdf) return results;
     for (let page = 1; page <= this.pdf.numPages && !this.disposed; page++) {
       const text = await this.pageText(page);
-      const index = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+      const index = text
+        .toLocaleLowerCase()
+        .indexOf(query.trim().toLocaleLowerCase());
       if (index >= 0)
         results.push({
           id: `${page}`,
-          excerpt: text.slice(
-            Math.max(0, index - 65),
-            index + query.length + 110,
-          ),
-          location: { type: "pdf", page, quote: query },
+          excerpt: searchExcerpt(text, index, index + query.trim().length),
+          location: {
+            type: "pdf",
+            page,
+            quote: query.trim(),
+            quoteContext: { text, start: index },
+          },
         });
       if (results.length >= 100) break;
     }
@@ -387,6 +398,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
       return;
     event.preventDefault();
     this.viewport.cancelAnimation();
+    this.navigation.cancelMotion();
     this.wheelScale = undefined;
     if (command === "width") {
       this.navigation.stop();
@@ -690,6 +702,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     blockId: string,
     signal: AbortSignal,
     width?: number,
+    theme: ReaderTheme = this.theme,
   ): Promise<Blob> {
     const block = this.blockData.find((item) => item.id === blockId);
     if (!block || !this.pdf || this.disposed) throw new Error("图片位置不可用");
@@ -708,6 +721,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.ceil(viewport.width * bounds.width));
     canvas.height = Math.max(1, Math.ceil(viewport.height * bounds.height));
+    const pageColors = pdfObjectColors(theme);
     const task = page.render({
       canvas,
       canvasContext: canvas.getContext("2d")!,
@@ -721,7 +735,8 @@ export class PDFReaderAdapter implements ReaderAdapter {
         -viewport.height * bounds.y,
       ],
       annotationMode: pdfjs.AnnotationMode.DISABLE,
-      background: "white",
+      background: pageColors?.background ?? "white",
+      pageColors: pageColors ?? undefined,
     });
     const cancel = () => task.cancel();
     signal.addEventListener("abort", cancel, { once: true });

@@ -80,8 +80,10 @@ type AIInput struct {
 	Chat          *chatInput
 	Effort        string
 	Prompt        string
-	Image         []byte
-	Images        [][]byte
+	// Set only by internal tasks; HTTP callers cannot supply system instructions.
+	SystemPrompt string
+	Image        []byte
+	Images       [][]byte
 }
 
 func (in AIInput) images() [][]byte {
@@ -207,6 +209,10 @@ func publicConfig(c AIConfig) AIConfig {
 	}
 	c.API.HasKey = c.API.Key != ""
 	c.API.Key = ""
+	// 设置页只显示三种协议；旧配置按地址推断出的实际协议展示。
+	if c.API.URL != "" {
+		c.API.Protocol = resolveAPIEndpoint(c.API).Protocol
+	}
 	c.TextAPI.HasKey = c.TextAPI.Key != ""
 	c.TextAPI.Key = ""
 	c.ImageAPI.HasKey = c.ImageAPI.Key != ""
@@ -239,8 +245,10 @@ func validateAgentAPI(c APIConnection) error {
 	}
 	return validateAPIURL(c.URL)
 }
+
+// 旧配置的空值和 auto 仍按地址推断；新保存的连接由用户明确选择三种协议之一。
 func validateAPIProtocol(protocol string) error {
-	if protocol != "" && protocol != "auto" && protocol != "openai" && protocol != "anthropic" {
+	if protocol != "" && protocol != "auto" && !validAPIProtocol(protocol) {
 		return errors.New("无效的 API 协议")
 	}
 	return nil
@@ -329,6 +337,10 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.APIModels = added
+	// 设置页回显的是旧配置推断出的协议；地址和协议未变时保留旧值，避免使模型检测结果失效。
+	if (old.API.Protocol == "" || old.API.Protocol == "auto") && c.API.URL == old.API.URL && c.API.Protocol == resolveAPIEndpoint(old.API).Protocol {
+		c.API.Protocol = old.API.Protocol
+	}
 	// Omitted keys preserve secrets; hasKey=false plus empty key explicitly clears one.
 	if c.TextAPI.Key == "" && c.TextAPI.HasKey {
 		c.TextAPI.Key = old.TextAPI.Key

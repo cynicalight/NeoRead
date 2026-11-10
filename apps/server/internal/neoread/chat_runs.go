@@ -10,9 +10,9 @@ import (
 )
 
 const maxConcurrentChats = 4
-const maxChatRunEvents = 8 << 20
 
 type ChatRun struct {
+	Resumable     bool   `json:"resumable,omitempty"`
 	ID            string `json:"id"`
 	SessionID     string `json:"sessionId"`
 	DocumentID    string `json:"documentId"`
@@ -29,13 +29,14 @@ type chatRunEvent struct {
 }
 type chatRunRecord struct {
 	ChatRun
-	Events []chatRunEvent `json:"events"`
+	Events     []chatRunEvent `json:"events"`
+	Checkpoint *piCheckpoint  `json:"piCheckpoint,omitempty"`
+	Input      *chatRunInput  `json:"input,omitempty"`
 }
 type chatRun struct {
 	mu       sync.Mutex
 	record   chatRunRecord
 	events   []chatRunEvent
-	bytes    int
 	changed  chan struct{}
 	done     chan struct{}
 	settled  bool
@@ -66,11 +67,6 @@ func (r *chatRun) send(event string, value any) error {
 		r.terminal = &e
 		return nil
 	}
-	if r.bytes+len(raw) > maxChatRunEvents || len(r.events) > 50000 {
-		r.cancel()
-		return generationError(ErrorLimit, "会话输出超过限制")
-	}
-	r.bytes += len(raw)
 	r.events = append(r.events, e)
 	r.notify()
 	return nil
@@ -78,11 +74,12 @@ func (r *chatRun) send(event string, value any) error {
 func (s *Store) latestChatRun(sessionID string) (ChatRun, error) {
 	var raw string
 	err := s.DB.QueryRow("SELECT body FROM chat_runs WHERE session_id=? ORDER BY rowid DESC LIMIT 1", sessionID).Scan(&raw)
-	var run ChatRun
+	var run chatRunRecord
 	if err == nil {
 		err = json.Unmarshal([]byte(raw), &run)
 	}
-	return run, err
+	run.Resumable = run.Status != "completed" && run.Status != "running" && run.Checkpoint != nil && run.Checkpoint.CanContinue
+	return run.ChatRun, err
 }
 func (s *Store) readChatRun(sessionID, runID string) (chatRunRecord, error) {
 	var raw string
@@ -138,7 +135,7 @@ func (s *Server) startSessionChat(w http.ResponseWriter, r *http.Request, docume
 		return
 	}
 	stamp := now()
-	record := chatRunRecord{ChatRun: ChatRun{ID: id(), SessionID: sessionID, DocumentID: document.ID, UserMessageID: user.ID, Provider: config.Primary, Status: "running", StartedAt: stamp}, Events: []chatRunEvent{}}
+	record := chatRunRecord{ChatRun: ChatRun{ID: id(), SessionID: sessionID, DocumentID: document.ID, UserMessageID: user.ID, Provider: config.Primary, Status: "running", StartedAt: stamp}, Events: []chatRunEvent{}, Input: &chatRunInput{QuestionKey: chatRunQuestionKey(user), Text: text, Images: images, ConfigKey: chatRunConfigKey(config)}}
 	tx, err := s.Store.DB.BeginTx(ctx, nil)
 	if err != nil {
 		abandon()
@@ -169,6 +166,9 @@ func (s *Server) startSessionChat(w http.ResponseWriter, r *http.Request, docume
 	s.chatRuns[sessionID] = run
 	s.chatMu.Unlock()
 	chat := &chatInput{WebAPI: searchAPIConnection(config), WebSearch: user.WebSearch, server: s, SessionID: sessionID, DocumentID: document.ID, Title: document.Title, Summary: document.Metadata.Abstract, Question: user.Content, CurrentText: text, History: history, ReadingLocation: user.ReadingLocation}
+	chat.piRunID = record.ID
+	chat.piCheckpoint = func(cp *piCheckpoint) error { return s.checkpointChat(run, cp) }
+	chat.piInvalidateCheckpoint = func() { s.invalidateChatCheckpoint(run) }
 	go func() {
 		defer finish()
 		defer cancel()
@@ -206,6 +206,11 @@ func (s *Server) finishChatRun(ctx context.Context, run *chatRun) {
 		if ctx.Err() == context.Canceled {
 			run.record.Status = "cancelled"
 		}
+	}
+	run.record.Resumable = run.record.Status != "completed" && run.record.Checkpoint != nil && run.record.Checkpoint.CanContinue
+	if run.record.Status == "completed" {
+		run.record.Checkpoint = nil
+		run.record.Input = nil
 	}
 	run.record.FinishedAt = now()
 	run.record.Events = append(append([]chatRunEvent{}, run.events...), *terminal)
@@ -245,14 +250,18 @@ func (s *Server) sessionRunEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		events = record.Events
-		if len(events) == 0 {
+		if len(events) == 0 || (events[len(events)-1].Event != "done" && events[len(events)-1].Event != "error") {
 			event := "error"
-			data := map[string]any{"error": "运行已中断，可重新生成"}
+			message := "运行已中断，可重新生成"
+			if record.Checkpoint != nil && record.Checkpoint.CanContinue {
+				message = "运行已中断，可从已保存的位置继续"
+			}
+			data := map[string]any{"error": message}
 			if record.Status == "completed" {
 				event = "done"
 				data = map[string]any{"ok": true}
 			}
-			events = []chatRunEvent{{event, json.RawMessage(jsonText(data))}}
+			events = append(events, chatRunEvent{event, json.RawMessage(jsonText(data))})
 		}
 	}
 	w.Header().Set("Content-Type", "text/event-stream")

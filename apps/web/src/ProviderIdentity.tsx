@@ -1,4 +1,4 @@
-import { Claude, Kimi, OpenAI } from "@lobehub/icons";
+import { Claude, DeepSeek, Kimi, OpenAI, Qwen } from "@lobehub/icons";
 import { KeyRound } from "lucide-react";
 
 // The API agent is not one brand, so it uses a neutral key mark.
@@ -45,16 +45,31 @@ export function ProviderGlyph({
 
 export function ProviderIcon({
   provider,
+  model,
   size = 20,
 }: {
   provider: string;
+  model?: { id: string; name: string };
   size?: number;
 }) {
   const brand = providers[provider as keyof typeof providers];
   if (!brand) return null;
+  const modelBrand = model
+    ? [model.id, model.name]
+        .map((name) => {
+          if (/gpt|openai/i.test(name)) return OpenAI;
+          if (/claude/i.test(name)) return Claude;
+          if (/qwen/i.test(name)) return Qwen;
+          if (/deepseek|^ds[\s-]/i.test(name)) return DeepSeek;
+          if (/kimi/i.test(name)) return Kimi;
+          return undefined;
+        })
+        .find(Boolean)
+    : undefined;
+  const Avatar = modelBrand?.Avatar ?? brand.Avatar;
   return (
     <span aria-hidden="true" className="provider-icon inline-flex shrink-0">
-      <brand.Avatar size={size} iconClassName="size-full" />
+      <Avatar size={size} iconClassName="size-full" />
     </span>
   );
 }

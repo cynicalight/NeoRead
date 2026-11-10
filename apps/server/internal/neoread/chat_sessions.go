@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -199,6 +200,57 @@ func (s *Server) updateChatSession(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, 200, v)
 }
+
+// deleteChatSession removes a finished session with its messages, runs and
+// provider conversations. Annotations keep their text but lose the link to a
+// deleted answer; usage records are kept so totals stay accurate.
+func (s *Server) deleteChatSession(w http.ResponseWriter, r *http.Request) {
+	s.chatMu.Lock()
+	defer s.chatMu.Unlock()
+	v, err := s.Store.chatSession(r.PathValue("id"), r.PathValue("session"))
+	if err != nil {
+		fail(w, 404, "会话不存在")
+		return
+	}
+	if s.chatRuns[v.ID] != nil || s.chatReservations[v.ID] {
+		fail(w, 409, "请等待当前会话运行结束后删除")
+		return
+	}
+	if err = s.Store.deleteChatSession(v.DocumentID, v.ID); err != nil {
+		s.diagnosticEvent(slog.LevelWarn, "chat.session.delete_failed", "documentId", v.DocumentID, "sessionId", v.ID, "errorCode", errorKind(err))
+		fail(w, 500, "无法删除会话")
+		return
+	}
+	s.diagnosticEvent(slog.LevelInfo, "chat.session.deleted", "documentId", v.DocumentID, "sessionId", v.ID)
+	respond(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Store) deleteChatSession(documentID, sessionID string) error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	const sessionMessages = "SELECT id FROM messages WHERE document_id=? AND json_extract(body,'$.sessionId')=?"
+	for _, q := range []string{
+		"UPDATE annotations SET body=json_set(body,'$.answerId','') WHERE document_id=? AND json_extract(body,'$.answerId') IN (" + sessionMessages + ")",
+		"DELETE FROM chat_agent_runs WHERE document_id=? AND json_extract(body,'$.messageId') IN (" + sessionMessages + ")",
+	} {
+		if _, err = tx.Exec(q, documentID, documentID, sessionID); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec("DELETE FROM messages WHERE document_id=? AND json_extract(body,'$.sessionId')=?", documentID, sessionID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("DELETE FROM document_conversations WHERE document_id=? AND provider LIKE 'session:' || ? || ':%'", documentID, sessionID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("DELETE FROM chat_sessions WHERE id=? AND document_id=?", sessionID, documentID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 func (s *Server) sessionMessages(w http.ResponseWriter, r *http.Request) {
 	v, err := s.Store.chatSession(r.PathValue("id"), r.PathValue("session"))
 	if err != nil {
@@ -232,8 +284,17 @@ func sessionTitle(question string) string {
 	return string(runes)
 }
 
+// visibleReasoning drops reasoning with no visible text; some providers stream
+// thinking that is only line breaks.
+func visibleReasoning(reasoning string) string {
+	if strings.TrimSpace(reasoning) == "" {
+		return ""
+	}
+	return reasoning
+}
+
 func (s *Store) saveChatAnswer(ctx context.Context, chat *chatInput, text, reasoning string) error {
-	message := Message{ID: id(), CreatedAt: now(), DocumentID: chat.DocumentID, SessionID: chat.SessionID, Role: "assistant", Content: text, Reasoning: reasoning, Tools: chat.toolSnapshot(), WebSources: chat.webSourcesSnapshot()}
+	message := Message{ID: id(), CreatedAt: now(), DocumentID: chat.DocumentID, SessionID: chat.SessionID, Role: "assistant", Content: text, Reasoning: visibleReasoning(reasoning), Tools: chat.toolSnapshot(), WebSources: chat.webSourcesSnapshot()}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err

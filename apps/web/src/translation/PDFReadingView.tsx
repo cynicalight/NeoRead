@@ -1,5 +1,6 @@
 import { figureTarget } from "../readers/figure-references";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
+import { pdfFocusWidth, pdfTranslationColumn } from "./pdf-column";
 import {
   useEffect,
   useLayoutEffect,
@@ -42,22 +43,38 @@ import { overlap, ReadingSync } from "../readers/pdf-reading";
 import { animatePDFScroll } from "../readers/pdf-scroll";
 import { TranslationPanes } from "./TranslationPanes";
 import { formulaNumbers } from "./formulaNumbers";
-import { TranslationText } from "./TranslationText";
+import {
+  ReflowSource,
+  showsOriginal,
+  TranslationText,
+} from "./TranslationText";
+import {
+  reflowBlockText,
+  reflowSourceSelection,
+  restoredSource,
+} from "./reflow";
+import { copyText } from "../chat/clipboard";
+import { EPUBBlockOverlay } from "../readers/epub-block-focus";
+import { DeferredBlockFocus } from "../readers/deferred-block-focus";
 import { blockImageCache } from "./block-images";
 import { useSentenceMarks } from "./useSentenceMarks";
 import { translatedSelection as captureTranslationSelection } from "./selection";
 import { installTranslationSelectionHighlight } from "./selection-highlight";
-import { translationFont } from "../appearance";
+import { READING_MARGIN, sourceFont, translationFont } from "../appearance";
 import { selectSentence } from "../readers/sentence-selection";
 import { installCitationHover } from "../readers/citation-hover";
 import { numberedReference } from "../readers/pdf-citations";
 import "./translation.css";
 
 import { AssistanceControls } from "./AssistanceControls";
-import { chapterRange, headingPages } from "./chapters";
+import { BookChapterControls } from "./BookChapterControls";
+import { chapterRange, chapterTitle, headingPages } from "./chapters";
+import { useChapterTranslation } from "./chapterTranslation";
 import { searchPDFBlocks } from "./pdf-search";
 
 type Mode = "source" | "parallel" | "translation";
+/** Scroll settling after a pinned jump or click does not move the chapter. */
+const pinHold = 800;
 export function PDFReadingView({
   document: doc,
   active = true,
@@ -89,15 +106,33 @@ export function PDFReadingView({
   events: ReaderEvents;
 }) {
   const { swapped, sourceWidth } = readerLayout(theme.readerLayout);
+  // Reflowed text renders extracted paragraphs in one column for every mode;
+  // the PDF engine stays mounted, hidden, for outline, search and navigation.
+  const reflow = theme.textReflow === true;
+  const blockSelector = reflow
+    ? "[data-reflow-block]"
+    : "[data-translation-block]";
+  const nodeBlockId = (node: HTMLElement) =>
+    reflow ? node.dataset.reflowBlock : node.dataset.translationBlock;
   const [mode, setMode] = useState<Mode>("source"),
     [syncEnabled, setSyncEnabled] = useState(true);
-  const { translations, error } = useTranslations(doc.id);
+  const { translations, error } = useTranslations(doc.id, undefined, active);
   const [popup, setPopup] = useState<{ block: PDFBlock; rect: DOMRect }>();
   const [engine, setEngine] = useState<ReaderAdapter>();
   const [hoveredBlock, setHoveredBlock] = useState<string>();
   const [focusedBlock, setFocusedBlock] = useState<string>();
+  const deferredFocus = useMemo(() => new DeferredBlockFocus(), []);
+  useEffect(() => {
+    const cancel = () => deferredFocus.cancel();
+    document.addEventListener("pointerdown", cancel, true);
+    return () => {
+      document.removeEventListener("pointerdown", cancel, true);
+      deferredFocus.cancel();
+    };
+  }, [deferredFocus]);
   const hoverOwner = useRef<"source" | "translation" | undefined>(undefined);
   const hover = (origin: "source" | "translation", blockId?: string) => {
+    if (reflow) return;
     if (!blockId && hoverOwner.current !== origin) return;
     hoverOwner.current = blockId ? origin : undefined;
     setHoveredBlock(blockId);
@@ -119,8 +154,41 @@ export function PDFReadingView({
     control = useRef(new ReadingSync()),
     side = useRef<"source" | "translation">("source"),
     reading = useRef<PDFReadingAnchor | undefined>(undefined);
+  const reflowReading = useRef<PDFReadingAnchor | undefined>(
+    doc.progress?.type === "pdf" &&
+      (doc.progress.reflowPosition?.blockId ?? doc.progress.reflowBlockId)
+      ? {
+          blockId: (doc.progress.reflowPosition?.blockId ??
+            doc.progress.reflowBlockId)!,
+          fraction: 0,
+        }
+      : undefined,
+  );
+  const originalReading = useRef<PDFReadingAnchor | undefined>(undefined);
+  // The page whose chapter the book toolbar describes. A click or jump pins
+  // it; afterwards scrolling moves it to the paragraph mid-view.
+  const [chapterPage, setChapterPage] = useState(
+    doc.progress?.type === "pdf" ? doc.progress.page : 1,
+  );
+  const pinnedAt = useRef(0);
+  const pageTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const pinPage = (page: number) => {
+    pinnedAt.current = performance.now();
+    clearTimeout(pageTimer.current);
+    setChapterPage(page);
+  };
+  const driftPage = (page: number) => {
+    if (performance.now() - pinnedAt.current < pinHold) return;
+    clearTimeout(pageTimer.current);
+    pageTimer.current = setTimeout(() => setChapterPage(page), 200);
+  };
+  useEffect(() => () => clearTimeout(pageTimer.current), []);
   const recordReading = (anchor: PDFReadingAnchor) => {
+    const block = state.current?.blocks.find((b) => b.id === anchor.blockId);
+    if (block) driftPage(block.page);
     reading.current = anchor;
+    if (state.current.reflow) reflowReading.current = anchor;
+    else originalReading.current = anchor;
   };
   const translationMotion = useRef({
     operation: 0,
@@ -144,10 +212,8 @@ export function PDFReadingView({
     let initialized = false;
     const resize = () => {
       const node = Array.from(
-        host.querySelectorAll<HTMLElement>("[data-translation-block]"),
-      ).find(
-        (node) => node.dataset.translationBlock === reading.current?.blockId,
-      );
+        host.querySelectorAll<HTMLElement>(blockSelector),
+      ).find((node) => nodeBlockId(node) === reading.current?.blockId);
       const before = node?.getBoundingClientRect().top;
       host.style.setProperty(
         "--translation-inset",
@@ -164,9 +230,9 @@ export function PDFReadingView({
       observer.disconnect();
       cancelTranslationMotion();
     };
-  }, [mode, doc.id, active]);
-  const state = useRef({ mode, blocks, translations, events, theme });
-  state.current = { mode, blocks, translations, events, theme };
+  }, [mode, doc.id, active, reflow]);
+  const state = useRef({ mode, blocks, translations, events, theme, reflow });
+  state.current = { mode, blocks, translations, events, theme, reflow };
   useSentenceMarks(
     root,
     engine,
@@ -187,19 +253,42 @@ export function PDFReadingView({
     selection = useRef<ReaderSelection | null>(null),
     scrollFrame = useRef(0);
   const equationNumbers = useMemo(() => formulaNumbers(blocks), [blocks]);
-  const [blockImages, setBlockImages] =
-    useState<ReturnType<typeof blockImageCache>>();
+  const imageTheme = `${theme.mode}:${theme.pdfDarkContrast ?? "soft"}`;
+  const [imageCache, setImageCache] = useState<{
+    theme: string;
+    cache: ReturnType<typeof blockImageCache>;
+  }>();
   useEffect(() => {
     if (!engine?.renderBlockImage) return;
-    const cache = blockImageCache(engine.renderBlockImage.bind(engine));
-    setBlockImages(cache);
-    return () => {
-      cache.dispose();
-      setBlockImages(undefined);
-    };
-  }, [engine, blocks]);
+    const imageThemeSnapshot = { ...theme };
+    const cache = blockImageCache((id, signal, width) =>
+      engine.renderBlockImage!(id, signal, width, imageThemeSnapshot),
+    );
+    setImageCache({ theme: imageTheme, cache });
+    return () => cache.dispose();
+  }, [engine, blocks, imageTheme]);
+  const blockImages =
+    imageCache?.theme === imageTheme ? imageCache.cache : undefined;
+  const imageKey = `${imageTheme}:${blockImages ? "ready" : "pending"}`;
   const visibleBlocks = blocks.filter(
     (b) => !isPDFPageDecoration(b) && !equationNumbers.pairedIds.has(b.id),
+  );
+  const [pageWidth, setPageWidth] = useState<number>();
+  useEffect(() => {
+    let current = true;
+    setPageWidth(undefined);
+    if (reflow) return;
+    void engine
+      ?.getPageWidth?.()
+      .then((width) => current && setPageWidth(width))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [engine, reflow]);
+  const focusWidth = useMemo(
+    () => (reflow ? undefined : pdfFocusWidth(blocks, pageWidth)),
+    [blocks, pageWidth, reflow],
   );
   const searchBlockIds = useMemo(
     () => [
@@ -226,9 +315,8 @@ export function PDFReadingView({
   };
   const targetNode = (id: string) =>
     Array.from(
-      pane.current?.querySelectorAll<HTMLElement>("[data-translation-block]") ??
-        [],
-    ).find((n) => n.dataset.translationBlock === id);
+      pane.current?.querySelectorAll<HTMLElement>(blockSelector) ?? [],
+    ).find((n) => nodeBlockId(n) === id);
   const followTranslation = (
     anchor: PDFReadingAnchor,
     sentenceIndex?: number,
@@ -292,13 +380,16 @@ export function PDFReadingView({
     motion.moving = true;
     setFocusedBlock(block.id);
     const anchor = { blockId: block.id, fraction: 0.5 };
+    pinPage(block.page);
     recordReading(anchor);
     // Both panels center their own geometry; a tall translation must not shift
     // a short original away from its center (or vice versa).
     const source =
-      mode !== "translation" ? engine?.focusBlock?.(block.id, mode) : undefined;
+      mode !== "translation" && !reflow
+        ? engine?.focusBlock?.(block.id, mode)
+        : undefined;
     const translated =
-      mode !== "source"
+      mode !== "source" || reflow
         ? followTranslation(anchor, undefined, { smooth: true, center: true })
         : undefined;
     const completed = Promise.all([source, translated])
@@ -311,7 +402,13 @@ export function PDFReadingView({
         }
       });
     events.location(
-      { type: "pdf", page: block.page, x: block.bounds.x, y: block.bounds.y },
+      {
+        type: "pdf",
+        page: block.page,
+        ...(reflow
+          ? { reflowBlockId: block.id }
+          : { x: block.bounds.x, y: block.bounds.y }),
+      },
       block.page /
         (engine?.getPageCount?.() || Math.max(1, ...blocks.map((b) => b.page))),
     );
@@ -326,6 +423,7 @@ export function PDFReadingView({
       (b) => !isPDFPageDecoration(b),
     );
     const linked =
+      location.reflowBlockId ??
       location.translation?.blockId ??
       location.sourceAnchors?.[0]?.blockId ??
       location.sentenceLink?.parts[0]?.blockId;
@@ -362,8 +460,9 @@ export function PDFReadingView({
     );
   };
   const go = async (location: DocumentLocation) => {
-    input(mode === "translation" ? "translation" : "source");
-    await engine?.goTo(location);
+    input(mode === "translation" || reflow ? "translation" : "source");
+    if (location.type === "pdf") pinPage(location.page);
+    if (!reflow) await engine?.goTo(location);
     if (location.type !== "pdf") return;
     const block = locationBlock(location);
     if (block) {
@@ -383,7 +482,9 @@ export function PDFReadingView({
       recordReading(anchor);
       followTranslation(anchor, location.translation?.sentenceIndexes[0]);
       state.current.events.location(
-        location,
+        reflow
+          ? { type: "pdf", page: block.page, reflowBlockId: block.id }
+          : location,
         block.page / Math.max(1, ...state.current.blocks.map((b) => b.page)),
       );
     }
@@ -391,12 +492,20 @@ export function PDFReadingView({
   const focus = async (location: DocumentLocation) => {
     const block = locationBlock(location);
     const completed = block
-      ? focusBlock(block, mode === "translation" ? "translation" : "source")
+      ? focusBlock(
+          block,
+          mode === "translation" || reflow ? "translation" : "source",
+        )
       : go(location);
     const operation = explicitFocus.current.operation;
     await completed;
     if (operation !== explicitFocus.current.operation) return;
-    if (location.type === "pdf" && mode !== "translation")
+    if (
+      location.type === "pdf" &&
+      !(location.translation && location.quoteContext) &&
+      mode !== "translation" &&
+      !reflow
+    )
       engine?.flashReference?.(location, location.quote ?? "");
   };
   // Keep the public adapter usable by TOC, notes and page navigation in all modes.
@@ -431,6 +540,37 @@ export function PDFReadingView({
       () => engine.hideCitationPreview?.(),
     );
   }, [engine, blocks, mode]);
+  // Reflowed paragraphs share the EPUB paragraph box: hover outline, copy and
+  // ask-AI actions, and an optional click-to-focus movement.
+  const overlay = useRef<EPUBBlockOverlay<PDFBlock> | undefined>(undefined);
+  useEffect(() => {
+    const host = pane.current;
+    if (!reflow || !host) return;
+    const value: EPUBBlockOverlay<PDFBlock> = new EPUBBlockOverlay<PDFBlock>(
+      host,
+      () => {},
+      (id) => {
+        if (state.current.theme.blockFocus !== false) void value.focus(id);
+      },
+      () => state.current.blocks,
+      (block, action) => {
+        if (action === "copy" && !block.image) {
+          const translation = state.current.translations.find(
+            (t) => t.blockId === block.id,
+          );
+          void copyText(reflowBlockText(block.text, translation), "已复制");
+          return;
+        }
+        state.current.events.blockAction?.(block, action);
+      },
+    );
+    overlay.current = value;
+    return () => {
+      overlay.current = undefined;
+      // Its action buttons are a React root; unmount it outside this commit.
+      queueMicrotask(() => value.destroy());
+    };
+  }, [reflow, doc.id]);
   const visitCitation = async (blockId: string, label: string) => {
     try {
       if (label.startsWith("figure:")) {
@@ -491,18 +631,25 @@ export function PDFReadingView({
           return (l: DocumentLocation) => actions.current.focus(l);
         if (key === "next" || key === "previous")
           return () => {
-            if (!state.current.blocks.length) return target[key]();
+            if (!state.current.blocks.length)
+              return state.current.reflow ? Promise.resolve() : target[key]();
             const block = state.current.blocks.find(
               (b) => b.id === reading.current?.blockId,
             );
             const current =
-              block?.page ?? (target.getLocation() as { page: number }).page;
+              block?.page ??
+              (state.current.reflow
+                ? 1
+                : (target.getLocation() as { page: number }).page);
             return actions.current.go({
               type: "pdf",
               page: Math.max(1, current + (key === "next" ? 1 : -1)),
             });
           };
-        if (key === "getLocation" && state.current.mode === "translation")
+        if (
+          key === "getLocation" &&
+          (state.current.mode === "translation" || state.current.reflow)
+        )
           return () => {
             const block = state.current.blocks.find(
               (b) => b.id === reading.current?.blockId,
@@ -511,14 +658,24 @@ export function PDFReadingView({
               ? {
                   type: "pdf",
                   page: block.page,
-                  x: block.bounds.x,
-                  y:
-                    block.bounds.y +
-                    (reading.current?.fraction ?? 0) * block.bounds.height,
+                  ...(state.current.reflow
+                    ? { reflowBlockId: block.id }
+                    : {
+                        x: block.bounds.x,
+                        y:
+                          block.bounds.y +
+                          (reading.current?.fraction ?? 0) *
+                            block.bounds.height,
+                      }),
                 }
-              : target.getLocation();
+              : state.current.reflow
+                ? { type: "pdf", page: 1 }
+                : target.getLocation();
           };
-        if (key === "isNear" && state.current.mode === "translation")
+        if (
+          key === "isNear" &&
+          (state.current.mode === "translation" || state.current.reflow)
+        )
           return (location: DocumentLocation) => {
             const block = locationBlock(location),
               host = pane.current;
@@ -570,9 +727,14 @@ export function PDFReadingView({
     events.selection(null);
     window.getSelection()?.removeAllRanges();
     void engine.focusSentences?.("", []);
-    const anchor = reading.current;
+    const anchor = reflow ? reflowReading.current : originalReading.current;
+    if (!reflow) reading.current = anchor;
     const operation = explicitFocus.current.operation;
     const restore = async () => {
+      // Reflowed text keeps its place; the hidden PDF needs no zoom or sync.
+      if (reflow) {
+        return;
+      }
       if (previous !== mode) {
         // Use the same preference path as the 适宽 button, including clearing
         // temporary passage zoom and saving this document's zoom preference.
@@ -603,7 +765,32 @@ export function PDFReadingView({
       cancelAnimationFrame(frame);
       engine.hoverBlock?.(null);
     };
-  }, [mode, engine, active]);
+  }, [mode, engine, active, reflow]);
+  // Wait for the saved paragraph before restoring reflow progress.
+  const reflowRestored = useRef(false);
+  useLayoutEffect(() => {
+    reflowRestored.current = false;
+  }, [doc.id, reflow]);
+  const restoreReflow = () => {
+    if (!state.current.reflow || reflowRestored.current || !pane.current)
+      return;
+    reading.current = reflowReading.current;
+    const anchor = reflowReading.current;
+    if (anchor && !targetNode(anchor.blockId)) return;
+    if (!anchor && !visibleBlocks.length) {
+      pane.current.scrollTop = 0;
+      return;
+    }
+    reflowRestored.current = true;
+    if (anchor) {
+      reading.current = anchor;
+      followTranslation(anchor);
+    } else {
+      recordReading({ blockId: visibleBlocks[0].id, fraction: 0 });
+      pane.current.scrollTop = 0;
+    }
+  };
+  useLayoutEffect(restoreReflow, [blocks, doc.id, reflow]);
   useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
   useEffect(() => {
     const release = () => {
@@ -617,6 +804,7 @@ export function PDFReadingView({
     };
   }, []);
   const input = (active: typeof side.current) => {
+    deferredFocus.cancel();
     cancelTranslationMotion();
     if (explicitFocus.current.moving || active === "translation")
       engine?.cancelBlockFocus?.();
@@ -636,6 +824,19 @@ export function PDFReadingView({
     const selected = window.getSelection();
     if (!selected?.rangeCount || !selected.toString().trim() || !pane.current)
       return;
+    const range = selected.getRangeAt(0);
+    const start =
+      range.startContainer instanceof Element
+        ? range.startContainer
+        : range.startContainer.parentElement;
+    if (reflow && start?.closest("[data-reflow-source]")) {
+      const source = reflowSourceSelection(pane.current, range, blocks);
+      if (source) {
+        selection.current = source;
+        events.selection(source);
+      }
+      return;
+    }
     const value = captureTranslationSelection(
       pane.current,
       selected.getRangeAt(0),
@@ -654,19 +855,20 @@ export function PDFReadingView({
         explicitFocus.current.moving ||
         translationMotion.current.moving ||
         !pane.current ||
+        (reflow && !!reflowReading.current && !reflowRestored.current) ||
         !control.current.canFollow("translation")
       )
         return;
       const v = pane.current.getBoundingClientRect(),
         y = v.top + v.height * 0.5;
       const nodes = Array.from(
-        pane.current.querySelectorAll<HTMLElement>("[data-translation-block]"),
+        pane.current.querySelectorAll<HTMLElement>(blockSelector),
       );
       const node = nodes.find((n) => n.getBoundingClientRect().bottom > y);
       if (!node) return;
       const r = node.getBoundingClientRect(),
         anchor = {
-          blockId: node.dataset.translationBlock!,
+          blockId: nodeBlockId(node)!,
           fraction: Math.max(0, Math.min(1, (y - r.top) / (r.height || 1))),
         };
       recordReading(anchor);
@@ -676,21 +878,25 @@ export function PDFReadingView({
           {
             type: "pdf",
             page: block.page,
-            x: block.bounds.x,
-            y: block.bounds.y + anchor.fraction * block.bounds.height,
+            ...(reflow
+              ? { reflowBlockId: block.id }
+              : {
+                  x: block.bounds.x,
+                  y: block.bounds.y + anchor.fraction * block.bounds.height,
+                }),
           },
           block.page /
             (engine?.getPageCount?.() ||
               Math.max(1, ...blocks.map((b) => b.page))),
         );
-      if (mode === "parallel" && syncEnabledRef.current) {
+      if (mode === "parallel" && !reflow && syncEnabledRef.current) {
         control.current.following("source");
         void engine?.followBlock?.(anchor);
       }
     });
   };
   const changeMode = (value: Mode) => {
-    input(value === "translation" ? "translation" : "source");
+    input(value === "translation" || reflow ? "translation" : "source");
     setPopup(undefined);
     setMode(value);
   };
@@ -731,25 +937,62 @@ export function PDFReadingView({
       </TooltipContent>
     </Tooltip>
   );
+  const book = doc.library === "books";
+  const pageCount =
+    engine?.getPageCount?.() || Math.max(1, ...blocks.map((b) => b.page));
+  const bookChapter = useMemo(
+    () =>
+      book
+        ? chapterRange(
+            outline.current,
+            chapterPage,
+            pageCount,
+            headingPages(blocks),
+          )
+        : undefined,
+    // The outline ref is filled when the engine becomes ready.
+    [book, chapterPage, pageCount, blocks, engine],
+  );
+  const chapterRevision = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const t of translations)
+      counts[t.status] = (counts[t.status] ?? 0) + 1;
+    return Object.entries(counts).sort().join();
+  }, [translations]);
+  const {
+    status: chapterStatus,
+    stale: chapterStale,
+    refresh: refreshChapter,
+  } = useChapterTranslation(
+    doc.id,
+    bookChapter,
+    `${processing?.updatedAt ?? ""}|${blocks.length}|${chapterRevision}`,
+    active && book,
+  );
   const toolbar = (
     <div className="translation-toolbar">
-      {!autoCenterHost && autoCenterButton}
-      <AssistanceControls
-        documentId={doc.id}
-        processing={processing}
-        library={doc.library}
-        chapter={() => {
-          const location = facade.current?.getLocation();
-          if (location?.type !== "pdf") return undefined;
-          return chapterRange(
-            outline.current,
-            location.page,
-            engine?.getPageCount?.() ||
-              Math.max(1, ...blocks.map((b) => b.page)),
-            headingPages(blocks),
-          );
-        }}
-      />
+      {!autoCenterHost && !reflow && autoCenterButton}
+      {book ? (
+        <BookChapterControls
+          documentId={doc.id}
+          processing={processing}
+          status={chapterStatus}
+          stale={chapterStale}
+          title={bookChapter && chapterTitle(outline.current, bookChapter)}
+          onRequest={async () => {
+            if (!bookChapter) return;
+            const result = await api.translateRange(
+              doc.id,
+              bookChapter.fromPage,
+              bookChapter.toPage,
+            );
+            if (result.parsing) toast("正在解析本章，完成后开始翻译");
+          }}
+          onChange={refreshChapter}
+        />
+      ) : (
+        <AssistanceControls documentId={doc.id} processing={processing} />
+      )}
       <Tabs value={mode} onValueChange={(v) => changeMode(v as Mode)}>
         <TabsList>
           <TabsTrigger value="source">仅原文</TabsTrigger>
@@ -765,19 +1008,22 @@ export function PDFReadingView({
     <div
       className="pdf-reading"
       data-reading-mode={mode}
+      data-reflow={reflow || undefined}
       ref={root}
       data-theme={theme.mode}
       data-dark-contrast={theme.pdfDarkContrast ?? "soft"}
     >
-      {autoCenterHost && createPortal(autoCenterButton, autoCenterHost)}
+      {autoCenterHost &&
+        !reflow &&
+        createPortal(autoCenterButton, autoCenterHost)}
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
-      {mode === "translation" && (
+      {(mode === "translation" || reflow) && (
         <div className="pdf-reading-controls">
           <div className="pdf-page-navigation">{pageNavigation}</div>
         </div>
       )}
       <TranslationPanes
-        mode={mode}
+        mode={reflow ? "translation" : mode}
         swapped={swapped}
         onSwap={() => updateReaderLayout({ swapped: !swapped })}
         sourceWidth={sourceWidth}
@@ -788,7 +1034,7 @@ export function PDFReadingView({
         source={
           <div
             className="translation-source"
-            inert={mode === "translation"}
+            inert={mode === "translation" || reflow}
             onWheelCapture={() => input("source")}
             onPointerDownCapture={() => input("source")}
             onKeyDownCapture={() => input("source")}
@@ -806,16 +1052,26 @@ export function PDFReadingView({
                 ...events,
                 selection: sourceSelection,
                 blockFocus: (block) => {
-                  void focusBlock(block, "source");
+                  if (state.current.theme.blockFocus !== false)
+                    void focusBlock(block, "source");
                 },
                 location: (location, percentage) => {
+                  // Unparsed pages have no paragraphs to report mid-view.
+                  if (
+                    location.type === "pdf" &&
+                    side.current === "source" &&
+                    !state.current.blocks.some((b) => b.page === location.page)
+                  )
+                    driftPage(location.page);
                   if (
                     state.current.mode !== "translation" &&
+                    !state.current.reflow &&
                     side.current === "source"
                   )
                     events.location(location, percentage);
                 },
                 readingAnchor: (anchor) => {
+                  if (state.current.reflow) return;
                   if (
                     explicitFocus.current.moving ||
                     !control.current.canFollow("source") ||
@@ -823,8 +1079,10 @@ export function PDFReadingView({
                   )
                     return;
                   recordReading(anchor);
+                  restoreReflow();
                   if (
                     state.current.mode === "parallel" &&
+                    !state.current.reflow &&
                     syncEnabledRef.current
                   )
                     followTranslation(anchor);
@@ -833,6 +1091,18 @@ export function PDFReadingView({
                   if (mode === "parallel") hover("source", block?.id);
                 },
                 blockAction: (block, action) => {
+                  // The page shows extracted text; copying gives the source
+                  // with the repairs its translation made.
+                  if (action === "copy" && !block.image) {
+                    const translation = state.current.translations.find(
+                      (t) => t.blockId === block.id,
+                    );
+                    void copyText(
+                      restoredSource(block.text, translation),
+                      "已复制",
+                    );
+                    return;
+                  }
                   if (action !== "translate") {
                     events.blockAction?.(block, action);
                     return;
@@ -849,7 +1119,7 @@ export function PDFReadingView({
                 },
               }}
             />
-            {mode !== "translation" && (
+            {mode !== "translation" && !reflow && (
               <div className="pdf-reading-controls">
                 <div className="pdf-page-navigation">{pageNavigation}</div>
               </div>
@@ -857,7 +1127,7 @@ export function PDFReadingView({
           </div>
         }
         translation={
-          mode !== "source" && (
+          (reflow || mode !== "source") && (
             <div
               className="translation-document"
               ref={pane}
@@ -871,12 +1141,12 @@ export function PDFReadingView({
               onWheelCapture={() => input("translation")}
               onPointerDownCapture={(event) => {
                 const section = (event.target as Element).closest<HTMLElement>(
-                  "[data-translation-block]",
+                  blockSelector,
                 );
                 pressedBlock.current =
                   section && event.button === 0
                     ? {
-                        id: section.dataset.translationBlock!,
+                        id: nodeBlockId(section)!,
                         x: event.clientX,
                         y: event.clientY,
                       }
@@ -895,7 +1165,9 @@ export function PDFReadingView({
                 // Select the translated sentence; untranslated text falls
                 // back to the sentence around the word.
                 const target = event.target as Element;
-                const sentence = target.closest(".translation-sentence");
+                const sentence = target.closest(
+                  ".translation-sentence, .reflow-sentence",
+                );
                 const selected = window.getSelection();
                 if (sentence && selected) {
                   const range = document.createRange();
@@ -910,7 +1182,22 @@ export function PDFReadingView({
               }}
               onKeyDownCapture={() => input("translation")}
               onKeyUp={translatedSelection}
+              onClick={(event) => overlay.current?.click(event.nativeEvent)}
+              data-column={focusWidth && !reflow ? "" : undefined}
               style={{
+                ...(reflow && {
+                  "--reflow-margin": `${theme.pdfTranslationMargin ?? READING_MARGIN.default}px`,
+                  "--reflow-source-font": sourceFont(theme.fontFamily),
+                  "--reflow-source-size": `${theme.fontSize / (theme.translationFontSize ?? 1)}em`,
+                  "--reflow-source-weight":
+                    theme.fontWeight === "bold" ? 600 : 400,
+                }),
+                ...(focusWidth && {
+                  "--pdf-column-width": `${pdfTranslationColumn(
+                    focusWidth,
+                    theme.pdfTranslationMargin,
+                  )}px`,
+                }),
                 fontSize: `${theme.translationFontSize ?? 1}rem`,
                 fontFamily: translationFont(theme.translationFontFamily),
                 fontWeight:
@@ -924,7 +1211,7 @@ export function PDFReadingView({
               {error && <p role="alert">{error}</p>}
               {!visibleBlocks.length && (
                 <p role="status">
-                  {doc.library === "books"
+                  {doc.library === "books" && !reflow
                     ? "尚未翻译任何章节，可在工具栏翻译本章。"
                     : "正文仍在解析中，完成的段落会在这里显示。"}
                 </p>
@@ -946,6 +1233,63 @@ export function PDFReadingView({
                           .flatMap((r) => r.sentenceIndexes)
                       : [];
                   });
+                const text = (
+                  <TranslationText
+                    block={block}
+                    onCitation={(blockId, label) =>
+                      void visitCitation(blockId, label)
+                    }
+                    formulaNumber={equationNumbers.byFormula.get(block.id)}
+                    translation={translated}
+                    documentId={doc.id}
+                    renderImage={blockImages?.url}
+                    imageTheme={imageKey}
+                    retry={() => void translate(block.id)}
+                    paused={processing?.enabled === false}
+                  />
+                );
+                const indicator = noteIndexes.length > 0 && (
+                  <span
+                    className="translation-note-indicator"
+                    title="此段有已保存的标注"
+                    aria-label="此段有已保存的标注"
+                  />
+                );
+                if (reflow)
+                  return (
+                    <section
+                      key={block.id}
+                      data-reflow-block={block.id}
+                      data-block-kind={block.image ? "image" : "text"}
+                      data-label={block.label}
+                      data-search-hit={
+                        searchBlockIds.includes(block.id) || undefined
+                      }
+                      className={
+                        noteIndexes.length ? "translation-annotated" : ""
+                      }
+                    >
+                      {showsOriginal(block) ? (
+                        <div data-translation-block={block.id}>{text}</div>
+                      ) : (
+                        <TranslationText
+                          {...text.props}
+                          source={
+                            mode !== "translation" && (
+                              <ReflowSource
+                                block={block}
+                                translation={translated}
+                                onCitation={text.props.onCitation}
+                              />
+                            )
+                          }
+                          showTranslation={mode !== "source"}
+                          markTranslation
+                        />
+                      )}
+                      {indicator}
+                    </section>
+                  );
                 return (
                   <section
                     key={block.id}
@@ -976,7 +1320,11 @@ export function PDFReadingView({
                             ) > 5))
                       )
                         return;
-                      focusTranslation(block);
+                      if (theme.blockFocus !== false)
+                        deferredFocus.schedule(event.detail, () => {
+                          if (!window.getSelection()?.toString().trim())
+                            focusTranslation(block);
+                        });
                     }}
                     onKeyDown={(event) => {
                       if (
@@ -1000,25 +1348,8 @@ export function PDFReadingView({
                       noteIndexes.length ? "translation-annotated" : ""
                     }
                   >
-                    <TranslationText
-                      block={block}
-                      onCitation={(blockId, label) =>
-                        void visitCitation(blockId, label)
-                      }
-                      formulaNumber={equationNumbers.byFormula.get(block.id)}
-                      translation={translated}
-                      documentId={doc.id}
-                      renderImage={blockImages?.url}
-                      retry={() => void translate(block.id)}
-                      paused={processing?.enabled === false}
-                    />
-                    {noteIndexes.length > 0 && (
-                      <span
-                        className="translation-note-indicator"
-                        title="此段有已保存的标注"
-                        aria-label="此段有已保存的标注"
-                      />
-                    )}
+                    {text}
+                    {indicator}
                   </section>
                 );
               })}
@@ -1051,6 +1382,7 @@ export function PDFReadingView({
                 translation={activePopup}
                 documentId={doc.id}
                 renderImage={blockImages?.url}
+                imageTheme={imageKey}
                 retry={() => void translate(popup.block.id)}
                 paused={processing?.enabled === false}
               />

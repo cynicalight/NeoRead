@@ -133,7 +133,7 @@ func (s *Server) streamChat(ctx context.Context, cancel context.CancelFunc, w ht
 		return
 	}
 	contextWarning := ""
-	if in.Chat != nil && (len(in.images()) == 0 || (config.Primary == "api" && in.Chat.SessionID != "")) && (config.Primary == "codex" || config.Primary == "api") {
+	if in.Chat != nil && (len(in.images()) == 0 || (config.Primary == "api" && in.Chat.SessionID != "")) && (config.Primary == "codex" || config.Primary == "claude" || config.Primary == "api") {
 		d, docErr := s.Store.Document(documentID)
 		if docErr == nil {
 			if _, fileErr := os.Stat(s.Store.File(d)); fileErr == nil {

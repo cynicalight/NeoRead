@@ -112,3 +112,68 @@ describe("frozen SSE consumption", () => {
     expect(cancelled).toBe(true);
   });
 });
+
+it.each(["unavailable", "deferred"])(
+  "continues after a %s tool result through another fetch and final answer",
+  async (status) => {
+    const tool = {
+      id: "first",
+      kind: "web",
+      tool: "web_fetch",
+      title: "读取网页",
+      startedAt: "2026-11-02T00:00:00Z",
+    };
+    const wire = [
+      ["tool", { ...tool, status: "running" }],
+      ["tool", { ...tool, status, detail: "此网址无法读取" }],
+      ["tool", { ...tool, id: "second", status: "completed" }],
+      ["delta", { text: "根据另一个网页回答" }],
+      ["done", { ok: true }],
+    ]
+      .map(
+        ([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+      )
+      .join("");
+    const events: ChatStreamEvent[] = [];
+    await consumeChatStream(
+      stream([encode(wire)]),
+      new AbortController().signal,
+      (event) => events.push(event),
+    );
+    expect(events.map((event) => event.event)).toEqual([
+      "tool",
+      "tool",
+      "tool",
+      "delta",
+      "done",
+    ]);
+    expect(events[1].data).toMatchObject({ status });
+    await expect(
+      consumeChatStream(
+        stream([
+          encode(
+            `event: tool\ndata: ${JSON.stringify({ ...tool, status: "unknown" })}\n\n`,
+          ),
+        ]),
+        new AbortController().signal,
+        () => {},
+      ),
+    ).rejects.toThrow();
+  },
+);
+
+it("accepts large valid tool output and answer events without host size gates", async () => {
+  const text = "x".repeat(7 * 1024 * 1024);
+  const seen: ChatStreamEvent[] = [];
+  await consumeChatStream(
+    stream([
+      encode(
+        `event: delta\ndata: ${JSON.stringify({ text })}\n\nevent: done\ndata: {"ok":true}\n\n`,
+      ),
+    ]),
+    new AbortController().signal,
+    (event) => seen.push(event),
+  );
+  expect(seen[0]).toEqual({ event: "delta", data: { text } });
+  expect(seen.at(-1)?.event).toBe("done");
+});

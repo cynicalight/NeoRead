@@ -4,7 +4,6 @@ package neoread
 // not in SQLite, usage logs, compact prompts or the public chat transcript.
 func pageImageMessages(req completionRequest, messages []toolCompletionMessage) ([]toolCompletionMessage, error) {
 	wire := append([]toolCompletionMessage(nil), messages...)
-	bytes := 0
 	for i, m := range wire {
 		if len(m.PageImages) == 0 {
 			continue
@@ -17,10 +16,6 @@ func pageImageMessages(req completionRequest, messages []toolCompletionMessage) 
 			data, err := req.PageImageData(page)
 			if err != nil {
 				return nil, err
-			}
-			bytes += len(data)
-			if bytes > 32<<20 {
-				return nil, generationError(ErrorLimit, "当前对话图片超过传输上限，请整理上下文后重试")
 			}
 			parts = append(parts, map[string]any{"type": "text", "text": "[" + page.SourceID + "] " + pageEvidence(page).Text}, map[string]any{"type": "image_url", "image_url": map[string]string{"url": imageData(data), "detail": "high"}})
 		}

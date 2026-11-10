@@ -20,6 +20,8 @@ export function Thinking({
   incomplete?: boolean;
 }) {
   const [open, setOpen] = useState<boolean>();
+  // Some providers stream thinking that is only line breaks.
+  if (!text.trim()) return null;
   return (
     <Trace className="mb-2">
       <TraceCollapsible open={open ?? active} onOpenChange={setOpen}>
@@ -37,8 +39,8 @@ export function Thinking({
             </TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>
-        <TraceCollapsibleContent className="max-h-80 overflow-y-auto text-sm whitespace-pre-wrap [overflow-wrap:anywhere] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {text}
+        <TraceCollapsibleContent className="max-h-80 overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {text.trim()}
         </TraceCollapsibleContent>
       </TraceCollapsible>
     </Trace>

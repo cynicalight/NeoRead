@@ -115,6 +115,27 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   withDetail = false;
 });
+it("applies the existing author preference to books immediately", async () => {
+  await act(async () => {
+    useReaderStore.setState({
+      documents: [{ ...docs[0], author: "Book Author" }],
+      libraryPreferences: { mode: "books", papers: {} },
+    });
+  });
+  expect(host.querySelector(".cover-author")?.textContent).toBe("Book Author");
+  await act(async () => {
+    useReaderStore.setState({
+      libraryPreferences: { mode: "books", papers: { showAuthors: false } },
+    });
+  });
+  expect(host.querySelector(".cover-author")).toBeNull();
+  await act(async () => {
+    useReaderStore.setState({
+      libraryPreferences: { mode: "books", papers: { showAuthors: true } },
+    });
+  });
+  expect(host.querySelector(".cover-author")?.textContent).toBe("Book Author");
+});
 const button = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>("button")].find(
     (b) => b.textContent?.trim() === label,

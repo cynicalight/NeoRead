@@ -188,13 +188,16 @@ func TestTranslationExportBundlesImagesAndPreservesFormulaAndCode(t *testing.T) 
 	if strings.Index(text, "正文译文") > strings.Index(text, "图一：结果") {
 		t.Fatal("reading order changed")
 	}
+	if w := request(t, s, "GET", "/api/documents/doc/translations/export", nil); w.Code != 200 || !strings.Contains(w.Body.String(), "data:image/png;base64,aW1hZ2UgZGF0YQ==") || strings.Contains(w.Body.String(), "图片未包含") {
+		t.Fatal("standalone markdown did not embed image", w.Code)
+	}
 	if err := os.Remove(filepath.Join(s.analysisDir("doc"), image.Image)); err != nil {
 		t.Fatal(err)
 	}
 	if w := request(t, s, "GET", "/api/documents/doc/translations/export?format=zip", nil); w.Code != 500 || w.Header().Get("Content-Disposition") != "" {
 		t.Fatal("missing image produced download", w.Code)
 	}
-	if w := request(t, s, "GET", "/api/documents/doc/translations/export", nil); w.Code != 200 || !strings.Contains(w.Body.String(), "图片未包含") {
+	if w := request(t, s, "GET", "/api/documents/doc/translations/export", nil); w.Code != 500 || w.Header().Get("Content-Disposition") != "" {
 		t.Fatal(w.Code, w.Body.String())
 	}
 }
@@ -243,6 +246,9 @@ func TestTranslationArchiveRejectsEscapingImages(t *testing.T) {
 		t.Skip(err)
 	}
 	for _, source := range []string{outside, "../private.png", "escape.png"} {
+		if _, err := inlineTranslationImages(root, "![image](assets/image.png)", []translationExportAsset{{source, "assets/image.png"}}); err == nil {
+			t.Fatal("inline export escaped document root", source)
+		}
 		var out bytes.Buffer
 		if err := writeTranslationArchive(&out, root, "text", []translationExportAsset{{source, "assets/image.png"}}); err == nil || bytes.Contains(out.Bytes(), []byte("private contents")) {
 			t.Fatal("escaped document root", source, err)

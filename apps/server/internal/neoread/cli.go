@@ -2,6 +2,7 @@ package neoread
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -37,7 +38,7 @@ func invokeCLI(ctx context.Context, root, provider, model string, in AIInput, de
 	if provider == "codex" {
 		return invokeCodex(ctx, work, model, in, delta, metrics...)
 	}
-	args := append(claudeArgs(), "--append-system-prompt", readerSystemPrompt)
+	args := append(claudeArgs(), "--append-system-prompt", in.systemPrompt())
 	if in.Effort != "" {
 		args = append(args, "--effort", in.Effort)
 	}
@@ -55,82 +56,104 @@ func invokeCLI(ctx context.Context, root, provider, model string, in AIInput, de
 		b, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": parts}})
 		input = strings.NewReader(string(b) + "\n")
 	}
-	child, cancel := context.WithCancel(ctx)
-	defer cancel()
-	cmd := runtimeenv.CommandContext(child, provider, args...)
-	cmd.Dir = work
-	cmd.Stdin = input
-	cmd.Stderr = io.Discard
-	cmd.WaitDelay = 400 * time.Millisecond
-	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
-	stdout, e := cmd.StdoutPipe()
-	if e != nil {
-		return "", e
-	}
-	if e = cmd.Start(); e != nil {
-		return "", generationError(ErrorConfiguration, "无法启动 Agent，请检查安装路径")
-	}
-	stop := context.AfterFunc(child, func() { time.AfterFunc(450*time.Millisecond, func() { _ = stdout.Close() }) })
-	defer stop()
-	scan := bufio.NewScanner(stdout)
-	scan.Buffer(make([]byte, 4096), maxProviderFrame)
 	var text strings.Builder
-	failed := false
 	completed := false
-	for scan.Scan() {
-		if ctx.Err() != nil {
-			break
-		}
+	incomplete := errors.New("Agent 未完成请求，请检查登录、网络、模型或额度")
+	e = runClaudeProcess(ctx, work, args, nil, input, func(line []byte) error {
 		if completed {
-			continue
+			return nil
 		}
-		reportClaudeMetrics(scan.Bytes(), metrics)
-		part, done, bad := claudeEvent(scan.Bytes())
-		if !utf8.Valid(scan.Bytes()) {
+		reportClaudeMetrics(line, metrics)
+		part, done, bad := claudeEvent(line)
+		if !utf8.Valid(line) {
 			bad = true
 		}
 		if done {
 			var result struct {
 				Text *string `json:"result"`
 			}
-			_ = json.Unmarshal(scan.Bytes(), &result)
+			_ = json.Unmarshal(line, &result)
 			if result.Text != nil && *result.Text != text.String() {
 				bad = true
 			}
 		}
-		completed = completed || done
-		failed = failed || bad
-		if bad || text.Len()+len(part) > 1<<20 {
-			failed = true
-			cancel()
-			break
+		if bad {
+			return incomplete
 		}
+		completed = done
 		if part != "" {
 			text.WriteString(part)
 			if delta != nil {
 				delta(part)
 			}
 		}
+		return nil
+	})
+	if ctx.Err() != nil {
+		return "", ctx.Err()
 	}
-	if scan.Err() != nil {
-		failed = true
+	if e != nil && errorKind(e) == ErrorConfiguration {
+		return "", e
+	}
+	if e != nil || !completed || text.Len() == 0 {
+		return "", incomplete
+	}
+	return text.String(), nil
+}
+
+// runClaudeProcess owns one Claude Code process: it streams stdout lines to
+// line, stops at the first rejected line, and always waits for the process.
+func runClaudeProcess(ctx context.Context, work string, args, env []string, input io.Reader, line func([]byte) error) error {
+	child, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := runtimeenv.CommandContext(child, "claude", args...)
+	cmd.Dir = work
+	cmd.Stdin = input
+	cmd.Stderr = io.Discard
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	cmd.WaitDelay = 400 * time.Millisecond
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	stdout, e := cmd.StdoutPipe()
+	if e != nil {
+		return e
+	}
+	if e = cmd.Start(); e != nil {
+		return generationError(ErrorConfiguration, "无法启动 Agent，请检查安装路径")
+	}
+	stop := context.AfterFunc(child, func() { time.AfterFunc(450*time.Millisecond, func() { _ = stdout.Close() }) })
+	defer stop()
+	scan := &providerLineReader{reader: bufio.NewReader(stdout)}
+	var failure error
+	for scan.Scan() {
+		if ctx.Err() != nil {
+			break
+		}
+		if failure = line(scan.Bytes()); failure != nil {
+			cancel()
+			break
+		}
+	}
+	if failure == nil && scan.Err() != nil {
+		failure = generationError(ErrorProtocol, "Agent 输出超过限制或读取失败")
 		cancel()
 	}
 	e = cmd.Wait()
 	if ctx.Err() != nil {
-		return "", ctx.Err()
+		return ctx.Err()
 	}
-	if e != nil || failed || !completed || text.Len() == 0 {
-		return "", errors.New("Agent 未完成请求，请检查登录、网络、模型或额度")
+	if failure != nil {
+		return failure
 	}
-	return text.String(), nil
+	return e
 }
 
 // ACP transmits image content directly. No filesystem or terminal capabilities
 // are advertised; the isolated profile disables all model tools and subagents.
 func invokeKimi(ctx context.Context, work, model string, in AIInput, delta func(string), metrics ...func([]ModelTokens)) (string, error) {
 	profile := filepath.Join(work, "neoread.md")
-	if e := os.WriteFile(profile, []byte("---\nname: reader\ndescription: NeoRead document assistant\ntools: []\nsubagents: []\n---\n"+readerSystemPrompt+"\n"), 0600); e != nil {
+	if e := os.WriteFile(profile, []byte("---\nname: reader\ndescription: NeoRead document assistant\ntools: []\nsubagents: []\n---\n"+in.systemPrompt()+"\n"), 0600); e != nil {
 		return "", e
 	}
 	args := []string{"--agent-file", profile, "--skills-dir", work}
@@ -157,8 +180,7 @@ func invokeKimi(ctx context.Context, work, model string, in AIInput, delta func(
 	}
 	lifecycle := newRPCLifecycle(ctx, cmd, stdin, stdout)
 	defer func() { lifecycle.close(); cancel(); _ = cmd.Wait() }()
-	scan := bufio.NewScanner(stdout)
-	scan.Buffer(make([]byte, 4096), maxProviderFrame)
+	scan := &providerLineReader{reader: bufio.NewReader(stdout)}
 	var text strings.Builder
 	sessionID := ""
 	request := func(id int, method string, params any) (json.RawMessage, error) {
@@ -201,9 +223,6 @@ func invokeKimi(ctx context.Context, work, model string, in AIInput, delta func(
 				}
 				_ = json.Unmarshal(msg.Params, &p)
 				if ctx.Err() == nil && id == 3 && sessionID != "" && p.SessionID == sessionID && p.Update.Type == "agent_message_chunk" && p.Update.Content.Type == "text" {
-					if text.Len()+len(p.Update.Content.Text) > 1<<20 {
-						return nil, generationError(ErrorLimit, "Kimi 回答过长")
-					}
 					text.WriteString(p.Update.Content.Text)
 					if delta != nil {
 						delta(p.Update.Content.Text)
@@ -299,3 +318,32 @@ func invokeKimi(ctx context.Context, work, model string, in AIInput, delta func(
 	}
 	return text.String(), nil
 }
+
+// providerLineReader 保留完整 JSONL 行，由协议解析决定是否有效，不按消息大小截断。
+type providerLineReader struct {
+	reader *bufio.Reader
+	line   []byte
+	err    error
+	ended  bool
+}
+
+func (s *providerLineReader) Scan() bool {
+	if s.ended {
+		return false
+	}
+	line, err := s.reader.ReadBytes('\n')
+	if err != nil {
+		s.ended = true
+		if err != io.EOF {
+			s.err = err
+			return false
+		}
+	}
+	if len(line) == 0 {
+		return false
+	}
+	s.line = bytes.TrimSuffix(bytes.TrimSuffix(line, []byte("\n")), []byte("\r"))
+	return true
+}
+func (s *providerLineReader) Bytes() []byte { return s.line }
+func (s *providerLineReader) Err() error    { return s.err }

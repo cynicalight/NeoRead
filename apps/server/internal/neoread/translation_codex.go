@@ -26,15 +26,15 @@ func (a *translationCodexAdapter) close() {
 }
 
 // translationSessions are the per-worker conversations that persist across
-// batches. Close discards them when the worker ends.
+// batches. Close discards them when the worker ends. API batches are independent.
+// Codex reuses a thread to avoid starting a new agent thread for every batch.
+// Its prior batch history is a cost of that reuse, not required translation context.
 type translationSessions struct {
 	codex *translationCodexAdapter
-	api   *apiTranslationSession
 }
 
 func (t translationSessions) close() {
 	t.codex.close()
-	t.api.close()
 }
 
 func (s *Server) translationService(config AIConfig) (*GenerationService, translationSessions) {
@@ -46,12 +46,8 @@ func (s *Server) translationService(config AIConfig) (*GenerationService, transl
 	}
 	connection.Adapter = codex
 	service.connections["codex"] = connection
-	connection = service.connections["api"]
-	api := &apiTranslationSession{apiAgentAdapter: connection.Adapter.(apiAgentAdapter)}
-	connection.Adapter = api
-	service.connections["api"] = connection
 	service.timeout = translationBatchTimeout
-	return service, translationSessions{codex, api}
+	return service, translationSessions{codex}
 }
 
 func (a *translationCodexAdapter) Stream(ctx context.Context, req GenerateRequest, emit func(ProviderEvent) error) (GenerateResult, error) {

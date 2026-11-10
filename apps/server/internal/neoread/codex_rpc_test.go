@@ -28,7 +28,7 @@ func TestCodexRPCErrorsKeepSafeDiagnostics(t *testing.T) {
 			old := slog.Default()
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
 			t.Cleanup(func() { slog.SetDefault(old) })
-			session := &codexSession{scan: bufio.NewScanner(strings.NewReader(`{"id":1,"error":` + tc.payload + "}\n"))}
+			session := &codexSession{reader: bufio.NewReader(strings.NewReader(`{"id":1,"error":` + tc.payload + "}\n"))}
 			life := &rpcLifecycle{encoder: json.NewEncoder(io.Discard)}
 			_, err := session.callRPC(t.Context(), life, "thread/resume", map[string]string{"threadId": "PRIVATE-THREAD"}, func(codexRPCMessage) error { return nil })
 			if !errors.Is(err, errCodexRPCResponse) {
@@ -50,5 +50,14 @@ func TestCodexRPCErrorsKeepSafeDiagnostics(t *testing.T) {
 				t.Fatal("upstream message, data or request parameters leaked")
 			}
 		})
+	}
+}
+
+func TestCodexReadsLargeValidRPCEvent(t *testing.T) {
+	payload := strings.Repeat("x", 49<<20)
+	session := &codexSession{reader: bufio.NewReader(strings.NewReader(`{"method":"event","params":{"text":"` + payload + `"}}` + "\n"))}
+	msg, err := session.readRPCMessage(t.Context())
+	if err != nil || len(msg.Params) < len(payload) {
+		t.Fatalf("large event failed: %v", err)
 	}
 }

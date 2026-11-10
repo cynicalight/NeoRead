@@ -320,3 +320,41 @@ it("forwards library function keys from EPUB frames and blocks them in dialogs",
   dialog.remove();
   expect(run).toHaveBeenCalledTimes(1);
 });
+
+it("matches the return shortcut by the physical left bracket key", () => {
+  const press = (init: KeyboardEventInit) =>
+    new KeyboardEvent("keydown", { code: "BracketLeft", ...init });
+  expect(
+    matches(
+      press({ key: "[", metaKey: true }),
+      "returnLocation",
+      defaults(),
+      true,
+    ),
+  ).toBe(true);
+  expect(
+    matches(
+      press({ key: "[", ctrlKey: true }),
+      "returnLocation",
+      defaults(),
+      false,
+    ),
+  ).toBe(true);
+  // A layout that types another character on the same key still matches.
+  expect(
+    matches(
+      press({ key: "ü", metaKey: true }),
+      "returnLocation",
+      defaults(),
+      true,
+    ),
+  ).toBe(true);
+  expect(matches(press({ key: "[" }), "returnLocation", defaults(), true)).toBe(
+    false,
+  );
+  expect(label(defaults().returnLocation, true)).toBe("Cmd + [");
+  expect(
+    normalizeBindings({ returnLocation: { key: "]", shift: false } })
+      .returnLocation.key,
+  ).toBe("]");
+});

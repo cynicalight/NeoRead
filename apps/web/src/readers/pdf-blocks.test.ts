@@ -179,6 +179,44 @@ it("attaches clicks, keeps action buttons interactive, and does not attach drags
   vi.unstubAllGlobals();
 });
 
+it("lets a double click select PDF text before focusing", () => {
+  vi.useFakeTimers();
+  const host = document.createElement("div");
+  host.innerHTML = '<div class="page" data-page-number="2"><span>Text</span></div>';
+  document.body.append(host);
+  const page = host.firstElementChild as HTMLElement;
+  page.getBoundingClientRect = () => new DOMRect(10, 20, 1000, 1400);
+  const focus = vi.fn(() => true);
+  const layer = new PDFBlockOverlay(host, vi.fn(), vi.fn(), focus);
+  layer.setBlocks([{ ...block, image: undefined, text: "Text" }]);
+  const target = page.firstElementChild!;
+  const click = (detail: number) => {
+    target.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 210, clientY: 440 }));
+    target.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 210, clientY: 440, detail }));
+  };
+  try {
+    click(1);
+    expect(focus).not.toHaveBeenCalled();
+    click(2);
+    vi.advanceTimersByTime(500);
+    expect(focus).not.toHaveBeenCalled();
+    click(1);
+    vi.advanceTimersByTime(149);
+    expect(focus).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(focus).toHaveBeenCalledOnce();
+    focus.mockClear();
+    click(1);
+    host.dispatchEvent(new Event("scroll"));
+    vi.advanceTimersByTime(500);
+    expect(focus).not.toHaveBeenCalled();
+  } finally {
+    act(() => layer.destroy());
+    host.remove();
+    vi.useRealTimers();
+  }
+});
+
 it("reports source hover and paints a passive counterpart without feeding hover back", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const host = document.createElement("div");

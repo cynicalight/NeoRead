@@ -15,11 +15,23 @@ const alignmentCells = 4 << 20
 
 func comparableLetters(s string) []rune {
 	out := []rune{}
+	command := false
 	for _, r := range strings.ToLower(s) {
-		// Mathematical Alphanumeric Symbols are formula fragments, not prose.
-		if r >= 0x1D400 && r <= 0x1D7FF {
+		// Mathematical Alphanumeric Symbols and Greek letters are formula
+		// variables, not prose; restored inline math writes Greek as \alpha.
+		if r >= 0x1D400 && r <= 0x1D7FF || unicode.Is(unicode.Greek, r) {
 			continue
 		}
+		// KaTeX command names (\sqrt, \frac) in restored inline math are not
+		// letters of the extracted text.
+		if r == '\\' {
+			command = true
+			continue
+		}
+		if command && unicode.IsLetter(r) && r < 0x80 {
+			continue
+		}
+		command = false
 		if unicode.IsLetter(r) {
 			out = append(out, r)
 		}

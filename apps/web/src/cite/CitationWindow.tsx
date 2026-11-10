@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { api } from "@neoread/api";
-import { Toaster } from "sonner";
+import { Toaster } from "@neoread/ui/components/sonner";
 import { useResolvedTheme } from "../appearance";
 import { useReaderStore } from "../store";
 import { CiteHost } from "./CiteHost";

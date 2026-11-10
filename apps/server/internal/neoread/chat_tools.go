@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// ToolActivity is a bounded, presentation-safe execution record, never raw RPC data.
+// ToolActivity is a presentation-safe execution record, never raw RPC data.
 type ToolActivity struct {
 	ID         string `json:"id"`
 	Kind       string `json:"kind"`
@@ -121,9 +121,6 @@ func (c *chatInput) recordTool(v ToolActivity) error {
 		return nil
 	}
 	if index < 0 {
-		if len(c.Tools) >= 256 {
-			return nil
-		}
 		v.StartedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	if v.Status == "" {
@@ -172,40 +169,32 @@ func (c *chatInput) webSourcesSnapshot() []WebSource {
 	defer c.toolMu.Unlock()
 	return append([]WebSource(nil), c.WebSources...)
 }
+
+// addWebSource 返回本次工具取得的完整内容；历史中的已读正文不会被搜索摘要降级。
 func (c *chatInput) addWebSource(v WebSource) WebSource {
 	c.toolMu.Lock()
 	defer c.toolMu.Unlock()
 	v.RetrievedAt = now()
 	v.URL = displayWebURL(v.URL)
-	if v.Title == "" {
-		v.Title = v.URL
-	}
 	if v.URL == "" {
 		return WebSource{}
 	}
-	v.Title = documentActivityLabel(v.Title)
-	if len(v.Text) > 8192 {
-		v.Text = truncateChatText(v.Text, 8192)
-		v.Truncated = true
+	if v.Title == "" {
+		v.Title = v.URL
 	}
 	for i, old := range c.WebSources {
-		if old.URL == v.URL {
-			v.ID = old.ID
-			if v.Title == v.URL && old.Title != "" {
-				v.Title = old.Title
-			}
-			if v.Kind == "page" && v.Text == "" && old.Text != "" {
-				return old
-			}
-			if v.Kind == "search" && old.Kind == "page" {
-				return old
-			}
-			c.WebSources[i] = v
+		if old.URL != v.URL {
+			continue
+		}
+		v.ID = old.ID
+		if v.Title == v.URL && old.Title != "" {
+			v.Title = old.Title
+		}
+		if v.Kind == "search" && old.Kind == "page" || v.Kind == "page" && v.Text == "" && old.Text != "" {
 			return v
 		}
-	}
-	if len(c.WebSources) >= webSourceLimit {
-		return WebSource{}
+		c.WebSources[i] = v
+		return v
 	}
 	v.ID = "W" + strconv.Itoa(len(c.WebSources)+1)
 	c.WebSources = append(c.WebSources, v)
@@ -235,19 +224,4 @@ func webInstructions(base string, enabled bool) string {
 
 func inChatHasWebTools(c *chatInput) bool {
 	return c != nil && c.WebSearch && len(c.toolSnapshot()) > 0
-}
-
-func (c *chatInput) webSourceBudgetFull(rawURL string) bool {
-	c.toolMu.Lock()
-	defer c.toolMu.Unlock()
-	if len(c.WebSources) < webSourceLimit {
-		return false
-	}
-	url := displayWebURL(rawURL)
-	for _, s := range c.WebSources {
-		if s.URL == url {
-			return false
-		}
-	}
-	return true
 }

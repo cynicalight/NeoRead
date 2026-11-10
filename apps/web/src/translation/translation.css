@@ -93,6 +93,10 @@
 .pdf-reading .translation-document section {
   max-width: none;
 }
+/* A focused body block's width at the Focus Block zoom limit. */
+.pdf-reading .translation-document[data-column] section {
+  max-width: var(--pdf-column-width);
+}
 .translation-document section {
   position: relative;
   margin: 0 auto 1.25em;
@@ -105,6 +109,22 @@
     outline-color 180ms ease-out,
     box-shadow 180ms ease-out;
 }
+/* Match the source chapter's border-box width and reading margins. */
+.epub-reading .translation-panes[data-stacked] {
+  --epub-page-width: 54rem;
+}
+.epub-reading .translation-panes[data-stacked] .epub-web-reader {
+  scrollbar-gutter: stable;
+}
+.epub-reading .translation-panes[data-stacked] .translation-document {
+  padding-inline: var(--epub-margin, 32px);
+}
+.epub-reading .translation-panes[data-stacked] .translation-document section {
+  max-width: max(
+    0px,
+    calc(var(--epub-page-width) - 2 * var(--epub-margin, 32px))
+  );
+}
 .translation-document [data-label="doc_title"] {
   font-size: 1.45em;
   font-weight: 600;
@@ -116,7 +136,9 @@
 }
 .translation-sentence,
 .translation-sentence > .message-markdown,
-.translation-sentence > .message-markdown > p {
+.translation-sentence > .message-markdown > p,
+.reflow-sentence > .message-markdown,
+.reflow-sentence > .message-markdown > p {
   display: inline;
   margin: 0;
 }
@@ -130,6 +152,22 @@
 .translation-document ::highlight(neoread-translation-selection) {
   background-color: rgba(59, 130, 246, 0.3);
   background-color: color-mix(in srgb, AccentColor 30%, transparent);
+}
+/* KaTeX defaults to 1.21em, which reads larger than the surrounding prose. */
+.translation-document .katex,
+.epub-reflow-translation .katex {
+  font-size: 1em;
+}
+/* A selection touching a formula paints the formula's whole box (see
+   formula-highlight.ts); the more specific selector keeps it above marks. */
+.translation-document
+  .katex[data-formula-highlight~="neoread-translation-selection"] {
+  background-color: rgba(59, 130, 246, 0.3);
+  background-color: color-mix(in srgb, AccentColor 30%, transparent);
+  border-radius: 2px;
+}
+.translation-document .katex ::highlight(neoread-translation-selection) {
+  background-color: transparent;
 }
 .translation-document[data-compact-selection]::selection,
 .translation-document[data-compact-selection] ::selection {
@@ -375,4 +413,37 @@
   .neoread-block-hover:not(.neoread-block-focus) {
     animation: none;
   }
+}
+/* Reflowed text: each translation sits under its source paragraph. */
+.epub-reflow-translation {
+  display: block;
+  margin-top: 0.35em;
+  font-family: var(--reflow-translation-font, inherit);
+  font-size: calc(1em * var(--reflow-translation-scale, 1));
+  font-weight: var(--reflow-translation-weight, inherit);
+}
+.epub-reflow[data-reflow-mode="translation"] .epub-web-chapter [data-epub-run] {
+  display: none;
+}
+.epub-reflow[data-reflow-mode="translation"] .epub-reflow-translation {
+  margin-top: 0;
+}
+.epub-reflow-translation .translation-pending,
+.pdf-reading[data-reflow] .translation-pending {
+  min-height: 0;
+  justify-content: flex-start;
+}
+/* The block overlay positions its boxes inside the scrolling column. */
+.pdf-reading[data-reflow] .translation-document {
+  position: relative;
+  padding-top: 32px;
+  padding-inline: var(--reflow-margin, 48px);
+}
+.reflow-source {
+  font-family: var(--reflow-source-font, inherit);
+  font-size: var(--reflow-source-size, 1em);
+  font-weight: var(--reflow-source-weight, inherit);
+}
+.pdf-reading[data-reflow][data-reading-mode="parallel"] .reflow-source {
+  margin-bottom: 0.35em;
 }

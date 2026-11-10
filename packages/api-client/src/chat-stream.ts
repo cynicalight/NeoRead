@@ -63,9 +63,14 @@ export function decodeFrame(frame: string): ChatStreamEvent | undefined {
         ["search", "web", "tool"].includes(String(parsed.kind)) &&
         typeof parsed.tool === "string" &&
         typeof parsed.title === "string" &&
-        ["running", "completed", "failed", "cancelled"].includes(
-          String(parsed.status),
-        ) &&
+        [
+          "running",
+          "completed",
+          "failed",
+          "cancelled",
+          "unavailable",
+          "deferred",
+        ].includes(String(parsed.status)) &&
         typeof parsed.startedAt === "string" &&
         ["target", "url", "detail", "finishedAt"].every(
           (k) => parsed[k] === undefined || typeof parsed[k] === "string",
@@ -100,10 +105,7 @@ export async function consumeChatStream(
   let line = "",
     frame = "",
     cr = false,
-    terminal = false,
-    textBytes = 0,
-    reasoningBytes = 0,
-    draftBytes = 0;
+    terminal = false;
   const abort = () => {
     void reader.cancel().catch(() => {});
   };
@@ -117,24 +119,6 @@ export async function consumeChatStream(
     const event = decodeFrame(frame);
     frame = "";
     if (!event) return;
-    if (event.event === "reasoning") {
-      reasoningBytes += new TextEncoder().encode(event.data.text).length;
-      if (reasoningBytes > 1024 * 1024)
-        throw new ChatStreamError("AI 思考内容超出大小限制", "protocol");
-    }
-    if (event.event === "draft") {
-      draftBytes = event.data.reset
-        ? 0
-        : draftBytes + new TextEncoder().encode(event.data.text).length;
-      if (draftBytes > 1024 * 1024)
-        throw new ChatStreamError("AI 暂存文本超出大小限制", "protocol");
-    }
-    if (event.event === "delta") {
-      draftBytes = 0;
-      textBytes += new TextEncoder().encode(event.data.text).length;
-      if (textBytes > 1024 * 1024)
-        throw new ChatStreamError("AI 回答超出大小限制", "protocol");
-    }
     terminal = event.event === "done" || event.event === "error";
     onEvent(event);
     if (event.event === "error")
@@ -152,9 +136,6 @@ export async function consumeChatStream(
         dispatchLine();
         cr = char === "\r";
       } else line += char;
-      // JSON escaping can amplify a legal 1MiB answer up to sixfold.
-      if (line.length + frame.length > 6 * 1024 * 1024 + 1024)
-        throw new ChatStreamError("AI 事件过大", "protocol");
     }
   };
   try {

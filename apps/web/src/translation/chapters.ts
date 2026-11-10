@@ -77,3 +77,18 @@ export function chapterRange(
     toPage: Math.min(pages, next ? Math.max(fromPage, next - 1) : runEnd),
   };
 }
+
+/** The outline title starting the range, otherwise its page numbers. */
+export function chapterTitle(toc: TOCItem[], range: PageRange): string {
+  const entries = toc.length === 1 ? toc[0].children : toc;
+  const entry = entries.find(
+    (item) =>
+      item.location.type === "pdf" &&
+      !item.id.startsWith("page-") &&
+      item.location.page === range.fromPage,
+  );
+  if (entry?.label.trim()) return entry.label.trim();
+  return range.fromPage === range.toPage
+    ? `第 ${range.fromPage} 页`
+    : `第 ${range.fromPage}–${range.toPage} 页`;
+}

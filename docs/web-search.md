@@ -19,13 +19,17 @@ Keenable 参考：[API 文档](https://docs.keenable.ai)。
 
 DeepSeek 参考：[Search & Fetch 指南](https://api-docs.deepseek.com/zh-cn/guides/search/)、[Search](https://api-docs.deepseek.com/zh-cn/api/search/)、[Fetch](https://api-docs.deepseek.com/zh-cn/api/fetch/)。这两项是独立工具 API，未向 Chat Completions 请求添加未经支持的 `enable_search` 参数。
 
+DeepSeek Fetch 明确返回内容不存在时，执行记录显示“此网址无法读取”，不会加入已读来源。临时服务或响应格式失败显示“暂未取得结果”；模型可使用已有资料或其他来源继续，不能声称已读取失败的网页。认证、余额及权限错误继续显示可操作提示。
+
+直接搜索服务只对明确的临时 HTTP 状态（408、429、500、502、503、504）最多尝试三次，默认等待 1 秒和 2 秒，并遵守更长的 `Retry-After`。所有尝试共用两分钟工具时限和相同请求体。网络异常、读取失败及格式错误不自动重放；取消立即传播。诊断事件 `web.tool.retry` 和 `web.tool.deferred` 不记录密钥、查询词或上游正文。
+
 ## 执行记录与来源
 
 聊天回答上方提供可展开的执行记录。搜索词、网页 URL、工具名和中途进度来自实际工具事件；按调用 ID 更新为执行中、完成、失败或取消，正文到达后仍可展开查看。Go 文档工具补充实际读取的章节、页码或关键词。
 
 Codex 的 `item/started`、`item/completed` 和 `item/mcpToolCall/progress` 经 stdio JSON-RPC 接收，由 Go 转为统一的 `tool` SSE 事件；Pi 的工具桥接调用使用同一事件结构。MCP 只显示已知安全参数和服务/工具身份，不展示完整请求、认证头或原始工具结果。
 
-成功回答将执行记录和网页来源一起保存到消息。搜索摘要与读取到的正文分别标记，记录获取时间，超过 8192 UTF-8 字节的正文快照明确标为截短。DeepSeek 每次搜索最多返回 5 个候选，本轮网页调用最多 12 次；最多保存 24 个网页来源、256 个执行步骤。失败或取消的独立会话保留运行事件，重新打开未完成的问题时可恢复查看。
+成功回答将执行记录和网页来源一起保存到消息。搜索摘要与读取到的正文分别标记，记录获取时间；来源按 URL 去重，不因累计数量或正文大小停止后续工具调用。每次搜索请求 count=5，但上游返回的结果均保留。正文、元数据和执行记录不再执行宿主截断或数量淘汰；Pi 原生压缩管理模型上下文，完整历史继续保存。网页调用200次预算仍仅提醒，不停用工具。失败或取消的独立会话保留运行事件。
 
 文档引用仍按已读证据校验 `[S1]`。外部来源使用 Markdown 链接。能从 Codex 返回结果确定 URL 的原生网页引用会转换为链接；缺少 ID/URL 对应关系时显示“网页引用未解析，见执行记录”，不根据结果顺序猜测来源，也不绕过文档 S 引用校验。
 
@@ -41,7 +45,7 @@ Codex 原生搜索请求由 App Server/服务端执行，NeoRead 收到的是执
 
 ## 验证与人工检查
 
-自动化覆盖配置持久保存、遗漏字段保留、密钥隔离与更换地址保护、CLI 开关约束、模型与搜索服务使用不同地址/Key、IPC 工具生命周期、继承 MCP 的禁用、DeepSeek 请求协议、权限关闭、来源快照保存、截短、预算、内网 URL、重定向、取消和限流；Pi worker 使用本地模型响应替身，不访问商业模型服务。
+自动化覆盖配置持久保存、遗漏字段保留、密钥隔离与更换地址保护、CLI 开关约束、模型与搜索服务使用不同地址/Key、IPC 工具生命周期、继承 MCP 的禁用、DeepSeek 请求协议、权限关闭、完整来源快照保存、预算提醒、内网 URL、重定向、取消和限流；Pi worker 使用本地模型响应替身，不访问商业模型服务。
 
 可选原生 CLI 配置预检：在 `apps/server` 运行 `NEOREAD_TEST_CODEX_WEB_PREFLIGHT=1 go test ./internal/neoread -run '^TestCodexWebPreflightNative$' -count=1`。只初始化实际安装的 CLI 并核验配置，不启动模型回合或调用 MCP。
 

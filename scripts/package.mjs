@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createPackageWithOptions, listPackage } from "@electron/asar";
 import { dedupeOnnxLibraries } from "./dedupe-onnx.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -67,6 +68,22 @@ await cp(
   join(root, "scripts/agent-smoke.mjs"),
   join(staging, "agent/smoke.mjs"),
 );
+// Keep dependencies intact while avoiding thousands of individual install writes.
+// Native modules need real paths; Electron resolves unpacked archive entries.
+const agentDirectory = join(staging, "agent");
+const agentArchive = join(staging, "agent.asar");
+const archiveStarted = Date.now();
+await createPackageWithOptions(agentDirectory, agentArchive, {
+  unpack: "**/*.{node,dll,exe,dylib,so}",
+});
+console.log(
+  JSON.stringify({
+    event: "package.agent_archived",
+    entries: listPackage(agentArchive).length,
+    durationMs: Date.now() - archiveStarted,
+  }),
+);
+await rm(agentDirectory, { recursive: true, force: true });
 // Include lazy worker/shared chunks as well as entrypoints and the model.
 await cp(join(processor, "dist"), processor, { recursive: true });
 await rm(join(processor, "dist"), { recursive: true });

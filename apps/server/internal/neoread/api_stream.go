@@ -62,8 +62,8 @@ type completionRequest struct {
 	Tools            bool
 	Model, Effort    string
 	SupportedEfforts []string
-	ReasoningSink    func(string)
-	History          []completionMessage
+	// MaxOutput is the model catalog output limit; zero retains the protocol default.
+	MaxOutput int
 }
 
 func completionContent(in AIInput) any {
@@ -75,6 +75,19 @@ func completionContent(in AIInput) any {
 		parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]string{"url": imageData(im)}})
 	}
 	return parts
+}
+
+// applyOutputLimit writes the catalog output limit using the selected protocol.
+func applyOutputLimit(payload map[string]any, protocol string, limit int) {
+	if limit <= 0 {
+		return
+	}
+	switch protocol {
+	case "responses":
+		payload["max_output_tokens"] = limit
+	default:
+		payload["max_tokens"] = limit
+	}
 }
 
 // apiRequest sends one authenticated request to the configured endpoint.
@@ -140,8 +153,11 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 	}
 	if trace.Resolved != "" {
 		trace.EffortField = "reasoning_effort"
-		if endpoint.Protocol == "anthropic" {
+		switch endpoint.Protocol {
+		case "anthropic":
 			trace.EffortField = "output_config.effort"
+		case "responses":
+			trace.EffortField = "reasoning.effort"
 		}
 		if rule.Mode == "budget" {
 			trace.EffortField = "thinking.budget_tokens"
@@ -166,12 +182,15 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 		ctx, cancel = context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
 	}
-	messages := append([]completionMessage{{Role: "system", Content: readerSystemPrompt}}, req.History...)
-	messages = append(messages, completionMessage{Role: "user", Content: completionContent(in)})
+	messages := []completionMessage{{Role: "system", Content: in.systemPrompt()}, {Role: "user", Content: completionContent(in)}}
 	payload := map[string]any{"model": req.Model, "messages": messages, "stream": true, "n": 1, "stream_options": map[string]bool{"include_usage": true}}
 	rule.apply(payload, endpoint.Protocol, req.Effort, trace.Resolved)
-	if endpoint.Protocol == "anthropic" {
+	applyOutputLimit(payload, endpoint.Protocol, req.MaxOutput)
+	switch endpoint.Protocol {
+	case "anthropic":
 		return streamAnthropic(ctx, c, req, in, payload, emit)
+	case "responses":
+		return streamResponses(ctx, c, req, in, payload, emit)
 	}
 	body, _ := json.Marshal(payload)
 	response, e := apiRequest(ctx, c, "POST", "/chat/completions", body)
@@ -188,17 +207,15 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 		return GenerateResult{}, generationError(ErrorProtocol, "API 未返回 SSE 流；此连接只支持 Chat Completions 流式协议")
 	}
 	trace.Stage = "stream"
-	return readCompletionStreamWithConnection(ctx, response.Body, c, req.ReasoningSink, emit)
+	return readCompletionStreamWithConnection(ctx, response.Body, c, emit)
 }
 
-const maxProviderFrame = 8 << 20 // 1 MiB text can expand sixfold in JSON escapes.
 func readCompletionStream(ctx context.Context, r io.Reader, emit func(ProviderEvent) error) (GenerateResult, error) {
-	return readCompletionStreamWithConnection(ctx, r, APIConnection{}, nil, emit)
+	return readCompletionStreamWithConnection(ctx, r, APIConnection{}, emit)
 }
-func readCompletionStreamWithConnection(ctx context.Context, r io.Reader, c APIConnection, reasoningSink func(string), emit func(ProviderEvent) error) (GenerateResult, error) {
+func readCompletionStreamWithConnection(ctx context.Context, r io.Reader, c APIConnection, emit func(ProviderEvent) error) (GenerateResult, error) {
 	var text strings.Builder
 	finished := false
-	reasoningBytes := 0
 	model := ""
 	dispatch := func(data string) (bool, error) {
 		if data == "" {
@@ -269,13 +286,6 @@ func readCompletionStreamWithConnection(ctx context.Context, r io.Reader, c APIC
 				return false, generationError(ErrorCapability, "API 返回了不支持的工具调用")
 			}
 			if choice.Delta.Reasoning != "" {
-				reasoningBytes += len(choice.Delta.Reasoning)
-				if reasoningBytes > 1<<20 {
-					return false, generationError(ErrorLimit, "API 思考内容超过限制")
-				}
-				if reasoningSink != nil {
-					reasoningSink(choice.Delta.Reasoning)
-				}
 				if emit != nil {
 					if err := emit(ProviderEvent{Reasoning: choice.Delta.Reasoning}); err != nil {
 						return false, err
@@ -284,9 +294,6 @@ func readCompletionStreamWithConnection(ctx context.Context, r io.Reader, c APIC
 			}
 			if choice.Delta.Content != nil && *choice.Delta.Content != "" {
 				part := *choice.Delta.Content
-				if text.Len()+len(part) > 1<<20 {
-					return false, generationError(ErrorLimit, "API 回答超过 1 MiB 限制")
-				}
 				text.WriteString(part)
 				if emit != nil {
 					if e := emit(ProviderEvent{Text: part}); e != nil {
@@ -315,16 +322,24 @@ func readCompletionStreamWithConnection(ctx context.Context, r io.Reader, c APIC
 	return GenerateResult{Text: text.String(), FinishReason: "stop"}, nil
 }
 
-// The existing text stream and tool rounds share framing, limits and EOF rules.
+// Text and tool rounds share SSE framing and terminal rules without clipping results.
 func consumeCompletionFrames(ctx context.Context, r io.Reader, dispatch func(string) (bool, error)) error {
-	scan := bufio.NewScanner(r)
-	scan.Buffer(make([]byte, 4096), maxProviderFrame)
+	reader := bufio.NewReader(r)
 	var frame strings.Builder
-	for scan.Scan() {
+	for {
+		line, readErr := reader.ReadString('\n')
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		line := scan.Text()
+		if readErr != nil {
+			if readErr != io.EOF {
+				return generationError(ErrorNetwork, "API 流中断")
+			}
+			if len(line) == 0 {
+				break
+			}
+		}
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 		if line == "" {
 			data := strings.TrimSuffix(frame.String(), "\n")
 			frame.Reset()
@@ -348,18 +363,12 @@ func consumeCompletionFrames(ctx context.Context, r io.Reader, dispatch func(str
 		}
 		value = strings.TrimPrefix(value, " ")
 		if field == "data" {
-			if frame.Len()+len(value)+1 > maxProviderFrame {
-				return generationError(ErrorProtocol, "API 事件超过大小限制")
-			}
 			frame.WriteString(value)
 			frame.WriteByte('\n')
 		}
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
-	}
-	if scan.Err() != nil {
-		return generationError(ErrorNetwork, "API 流中断或事件过大")
 	}
 	return generationError(ErrorProtocol, "API 流缺少完整成功终态")
 }

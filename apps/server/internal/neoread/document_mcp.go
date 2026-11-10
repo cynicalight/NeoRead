@@ -78,7 +78,7 @@ func serveBoundDocumentMCP(binding *documentToolBinding) (string, string, func()
 				if abort != nil {
 					abort()
 				}
-				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "Document attempt ended; do not use stale evidence."}}}, nil
 			}
 
 			content := []mcp.Content{&mcp.TextContent{Text: string(raw)}}

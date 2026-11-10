@@ -79,8 +79,9 @@ export function AttachmentUploads({ doc }: { doc: Document }) {
         role="status"
       >
         <span>
-          {batch.running ? "正在添加附件" : "附件处理完成"} · {complete}/
-          {batch.entries.length}
+          {batch.running
+            ? `正在添加附件 · ${complete}/${batch.entries.length}`
+            : "未完成的附件"}
         </span>
         {batch.running ? (
           <Button
@@ -305,11 +306,15 @@ export function PaperAttachments({
             <DropdownMenuTrigger
               disabled={busy || uploading}
               render={
-                <Button size="xs" variant="ghost" aria-label="添加附件" />
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="添加附件"
+                  title="添加附件"
+                />
               }
             >
               <Plus />
-              添加
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => picker.current?.click()}>

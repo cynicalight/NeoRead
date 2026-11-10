@@ -2,23 +2,20 @@ import {
   exportOperation,
   exportFailure,
   exportFailureDetail,
-  PDFExportError,
 } from "./translation/pdf-export-error";
 import type { Document } from "@neoread/core";
-import { api, publicationURL } from "@neoread/api";
-import workerURL from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { downloadBlob, fileTitle } from "./download";
+import { toast } from "sonner";
+import { api } from "@neoread/api";
+import { saveExportBlob, exportCancelled, fileTitle } from "./download";
 import { reportDiagnostic } from "./diagnostics";
-import type {
-  PDFExportProgress,
-  TranslatedPDF,
-} from "./translation/pdf-export-model";
+export type PDFExportProgress = { phase: "preparing" | "saving" };
+export type TranslatedPDFResult = { delivery: "download" | "print" };
 
 export async function exportTranslatedPDF(
   doc: Document,
   signal: AbortSignal,
   onProgress: (progress: PDFExportProgress) => void,
-): Promise<Omit<TranslatedPDF, "bytes">> {
+): Promise<TranslatedPDFResult> {
   const started = performance.now();
   const requestId = crypto.randomUUID();
   let phase = "snapshot";
@@ -30,81 +27,63 @@ export async function exportTranslatedPDF(
       durationMs: Math.round(performance.now() - started),
       detail: `phase=${phase}${detail ? ` ${detail}` : ""}`,
     });
-  const font = (path: string) =>
-    exportOperation("font_load", async () => {
-      const response = await fetch(path, { signal });
-      if (!response.ok)
-        throw new Error("PDF 导出字体加载失败，请重新打开应用后重试。");
-      return new Uint8Array(await response.arrayBuffer());
-    });
   event("start");
-  onProgress({ phase: "preparing", done: 0, total: 0 });
+  onProgress({ phase: "preparing" });
   try {
-    if (doc.type !== "pdf")
-      throw new PDFExportError(
-        "unsupported_document",
-        new Error("译文 PDF 导出仅适用于 PDF 文档"),
-      );
     signal.throwIfAborted();
-    const [blocks, translations, cjk, latin, pdfjs, engine] = await Promise.all(
-      [
-        exportOperation("snapshot", () => api.blocks(doc.id, signal)),
-        exportOperation("snapshot", () => api.translations(doc.id, signal)),
-        font("/pdf-assets/export-fonts/NotoSansSC-Regular.ttf"),
-        font("/pdf-assets/standard_fonts/LiberationSans-Regular.ttf"),
-        exportOperation("module_load", () => import("pdfjs-dist")),
-        exportOperation(
-          "module_load",
-          () => import("./translation/pdf-export"),
-        ),
-      ],
-    );
+    const [blob, engine] = await Promise.all([
+      exportOperation("snapshot", () =>
+        api.exportTranslation(doc.id, "markdown", signal),
+      ),
+      exportOperation("module_load", () => import("./markdown-pdf")),
+    ]);
     signal.throwIfAborted();
     phase = "layout";
     event("stage");
-    pdfjs.GlobalWorkerOptions.workerSrc ||= workerURL;
-    const result = await engine.translatedPDF(
-      pdfjs.getDocument,
-      {
-        url: publicationURL(doc.id, "original.pdf"),
-        cMapUrl: "/pdf-assets/cmaps/",
-        cMapPacked: true,
-        standardFontDataUrl: "/pdf-assets/standard_fonts/",
-        wasmUrl: "/pdf-assets/wasm/",
-      },
-      blocks,
-      translations,
-      { cjk, latin },
-      {
-        signal,
-        onProgress: (progress) => {
-          if (progress.phase === "saving") {
-            phase = "saving";
-            event("stage");
-          }
-          onProgress(progress);
-        },
-      },
+    const html = engine.markdownPrintHTML(
+      await blob.text(),
+      `${fileTitle(doc.title)}-译文`,
     );
     signal.throwIfAborted();
+    phase = "saving";
+    event("stage");
+    onProgress({ phase: "saving" });
+    const desktop = window.neoreadDesktop;
+    if (!desktop?.markdownPDF) {
+      await engine.printMarkdownInBrowser(
+        html,
+        signal,
+        `${fileTitle(doc.title)}-译文`,
+      );
+      event("print_dialog_closed");
+      return { delivery: "print" };
+    }
+    const cancel = () => {
+      void desktop.cancelMarkdownPDF?.(requestId).catch(() => {});
+    };
+    signal.addEventListener("abort", cancel, { once: true });
+    let bytes: Uint8Array;
+    try {
+      bytes = await desktop.markdownPDF(requestId, html);
+    } finally {
+      signal.removeEventListener("abort", cancel);
+    }
+    signal.throwIfAborted();
     phase = "download";
-    downloadBlob(
-      new Blob([result.bytes as Uint8Array<ArrayBuffer>], {
-        type: "application/pdf",
-      }),
+    await saveExportBlob(
+      new Blob([new Uint8Array(bytes)], { type: "application/pdf" }),
       `${fileTitle(doc.title)}-译文.pdf`,
+      signal,
     );
-    // Browser download initiation is observable; disk completion is not.
     event(
-      "download_requested",
-      `pages=${result.pages} translated=${result.translated} preserved=${result.issues.length}`,
+      window.neoreadDesktop?.saveExportFile ? "saved" : "download_requested",
     );
-    const { bytes: _bytes, ...summary } = result;
-    return summary;
+    return { delivery: "download" };
   } catch (error) {
+    const cancelled = exportCancelled(error, signal);
     event(
-      signal.aborted ? "cancelled" : "failed",
-      signal.aborted
+      cancelled ? "cancelled" : "failed",
+      cancelled
         ? "reasonCode=user_cancelled"
         : exportFailureDetail(
             exportFailure(
@@ -119,7 +98,77 @@ export async function exportTranslatedPDF(
             ),
           ),
     );
-    if (signal.aborted) throw new DOMException("已取消导出", "AbortError");
+    if (cancelled) throw new DOMException("已取消导出", "AbortError");
     throw error;
+  }
+}
+
+/** The library menu closes before export finishes; keep progress and cancellation available. */
+export async function exportTranslatedPDFWithToast(doc: Document) {
+  const controller = new AbortController();
+  const action = { label: "取消", onClick: () => controller.abort() };
+  const id = toast.loading("正在读取译文…", { action });
+  try {
+    const result = await exportTranslatedPDF(
+      doc,
+      controller.signal,
+      (progress) => {
+        if (controller.signal.aborted) return;
+        toast.loading(
+          progress.phase === "preparing" ? "正在读取译文…" : "正在生成 PDF…",
+          { id, action },
+        );
+      },
+    );
+    if (result.delivery === "download")
+      toast.success(
+        window.neoreadDesktop?.saveExportFile
+          ? "已保存译文 PDF"
+          : "已开始下载译文 PDF",
+        { id, action: undefined },
+      );
+    else toast.info("打印窗口已关闭", { id, action: undefined });
+  } catch (error) {
+    if (exportCancelled(error, controller.signal))
+      toast.info("已取消导出", { id, action: undefined });
+    else
+      toast.error(
+        error instanceof Error ? error.message : "译文 PDF 导出失败，请重试",
+        { id, action: undefined },
+      );
+  }
+}
+
+export async function exportTranslatedMarkdownWithToast(doc: Document) {
+  const controller = new AbortController();
+  const id = toast.loading("正在读取译文…", {
+    action: { label: "取消", onClick: () => controller.abort() },
+  });
+  try {
+    const blob = await api.exportTranslation(
+      doc.id,
+      "markdown",
+      controller.signal,
+    );
+    controller.signal.throwIfAborted();
+    await saveExportBlob(
+      blob,
+      `${fileTitle(doc.title)}-译文.md`,
+      controller.signal,
+    );
+    toast.success(
+      window.neoreadDesktop?.saveExportFile
+        ? "已保存译文 Markdown"
+        : "已开始下载译文 Markdown",
+      { id, action: undefined },
+    );
+  } catch (error) {
+    if (exportCancelled(error, controller.signal))
+      toast.info("已取消导出", { id, action: undefined });
+    else
+      toast.error(
+        error instanceof Error ? error.message : "译文导出失败，请重试",
+        { id, action: undefined },
+      );
   }
 }

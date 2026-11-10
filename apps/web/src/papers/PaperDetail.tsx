@@ -257,7 +257,7 @@ export function PaperDetail({
               <span>AI 建议：{m.suggestedTitle}</span>
             </Button>
             <Button
-              variant="ghost"
+              variant="destructive-ghost"
               size="icon"
               className="paper-title-suggestion-dismiss"
               aria-label="删除 AI 建议标题"
@@ -445,11 +445,13 @@ export function PaperDetail({
           <div className="flex items-center justify-between">
             <h3>摘要</h3>
             <Button
-              size="xs"
+              size={!editingAbstract && !m.abstract ? "icon-xs" : "xs"}
               variant="ghost"
+              aria-label={!editingAbstract && !m.abstract ? "添加摘要" : undefined}
+              title={!editingAbstract && !m.abstract ? "添加摘要" : undefined}
               onClick={() => setEditingAbstract(!editingAbstract)}
             >
-              {editingAbstract ? "完成" : m.abstract ? "编辑" : "添加"}
+              {editingAbstract ? "完成" : m.abstract ? "编辑" : <Plus />}
             </Button>
           </div>
           {editingAbstract ? (

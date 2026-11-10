@@ -76,31 +76,14 @@ func TestChatHistoryKeepsQuestionAnswerBoundaries(t *testing.T) {
 	}
 }
 
-func TestChatHistorySourcesStayWithinTotalBudget(t *testing.T) {
-	old := strings.Repeat("旧", 150000/3)
-	recent := strings.Repeat("近", 150000/3)
-	current := strings.Repeat("今", 150000/3)
-	messages := []Message{
-		{Role: "user", Content: "第一问", Context: old}, {Role: "assistant", Content: "答一"},
-		{Role: "user", Content: "第二问", Context: recent}, {Role: "assistant", Content: "答二"},
-	}
-	chat := &chatInput{DocumentID: "doc", Title: "title", Question: "第三问", CurrentText: current, History: messages}
+func TestChatHistorySourcesRemainCompleteBeyondOldBudget(t *testing.T) {
+	old := strings.Repeat("旧", 50000)
+	recent := strings.Repeat("近", 50000)
+	current := strings.Repeat("今", 50000)
+	chat := &chatInput{Question: "第三问", CurrentText: current, History: []Message{{Role: "user", Content: "第一问", Context: old}, {Role: "assistant", Content: "答一"}, {Role: "user", Content: "第二问", Context: recent}}}
 	prompt := chat.legacyPrompt()
-	total := 0
-	for _, source := range chat.Sources {
-		total += len(source.Text)
-		if source.Text == old {
-			t.Fatal("kept the oldest source past the budget")
-		}
-	}
-	if total > chatSourceBytes {
-		t.Fatalf("sources total %d bytes", total)
-	}
-	if len(chat.Sources) != 2 || chat.Sources[1].Text != current {
-		t.Fatal("dropped the current or most recent source")
-	}
-	if !strings.Contains(prompt, `"text":"第一问","sourceOmitted":true`) {
-		t.Fatal("omitted source is not marked")
+	if len(chat.Sources) != 3 || !strings.Contains(prompt, old) || !strings.Contains(prompt, recent) || !strings.Contains(prompt, current) || strings.Contains(prompt, `"sourceOmitted":true`) {
+		t.Fatal("history evidence was omitted")
 	}
 }
 

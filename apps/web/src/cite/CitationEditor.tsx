@@ -259,7 +259,7 @@ export function CitationEditor({
                       <ChevronDown />
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="destructive-ghost"
                       size="icon-sm"
                       aria-label={`移除 ${title}`}
                       onClick={() =>

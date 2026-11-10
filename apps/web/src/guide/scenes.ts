@@ -1814,7 +1814,10 @@ const connector = scene({
     if (!f.after("open")) return;
     p.alpha(f.progress("open", 180), () => {
       p.box(P, { fill: c.popover, radius: 10, shadow: 18, stroke: c.border });
-      p.text("NeoRead Connector", P.x + 14, P.y + 24, { size: 13, weight: 600 });
+      p.text("NeoRead Connector", P.x + 14, P.y + 24, {
+        size: 13,
+        weight: 600,
+      });
       p.text("保存当前页面的 PDF 论文。", P.x + 14, P.y + 46, {
         size: 10.5,
         color: c.mutedForeground,
@@ -2416,7 +2419,325 @@ const cli = scene({
   },
 });
 
+// Reading interaction settings, in the same order as the real settings panel.
+const interactionLabels = [
+  "多文档标签页",
+  "自动复制选中文字",
+  "原文译文悬停关联",
+  "文字重排",
+  "点击段落聚焦",
+];
+const interactionY = (i: number) => D.y + 130 + i * 44;
+const interactionToggle = (i: number): Rect => ({
+  x: D.x + D.w - 48,
+  y: interactionY(i) - 8,
+  w: 26,
+  h: 16,
+});
+
+function readingSettings(f: Frame, active: number) {
+  dialog(f, D, 1 - f.progress("close", 240), () => {
+    const { p, c } = f;
+    settingsFrame(f);
+    tabs(f, settingsTabs, ["Agent", "显示", "阅读", "论文库"], 2);
+    p.text("阅读交互", D.x + 22, D.y + 99, { size: 12, weight: 600 });
+    interactionLabels.forEach((label, i) => {
+      const r = interactionToggle(i);
+      const on =
+        i === active ? f.progress("on", 220) : i === 1 || i === 3 ? 0 : 1;
+      p.text(label, D.x + 22, interactionY(i), { size: 11.5 });
+      if (i === 3)
+        p.text(
+          "按段落重排正文，译文显示在对应原文下方。",
+          D.x + 22,
+          interactionY(i) + 16,
+          {
+            size: 10,
+            color: c.mutedForeground,
+            max: D.w - 90,
+          },
+        );
+      p.box(r, { fill: c.input, radius: 8 });
+      p.alpha(on, () => p.box(r, { fill: c.primary, radius: 8 }));
+      p.circle(
+        r.x + 8 + on * 10,
+        r.y + 8,
+        5.5,
+        on > 0.5 ? c.primaryForeground : c.background,
+      );
+    });
+  });
+}
+
+const reflowPairs = [
+  [
+    "We propose a new simple network architecture, the Transformer, based solely on attention mechanisms.",
+    "我们提出一种仅基于注意力机制的新型网络架构：Transformer。",
+  ],
+  [
+    "Attention connects distant positions directly, without recurrence or convolutions.",
+    "注意力直接连接相距较远的位置，无需循环或卷积结构。",
+  ],
+  [
+    "Experiments show better translation quality with significantly less time to train.",
+    "实验表明，模型在提升翻译质量的同时，显著缩短了训练时间。",
+  ],
+];
+const reflow = scene({
+  pointerScale: 1.5,
+  script: script({ x: 470, y: 360 })
+    .wait(500)
+    .move(interactionToggle(3), 800)
+    .click("on")
+    .wait(700)
+    .move(settingsClose, 600)
+    .click("close")
+    .wait(300)
+    .mark("reflow")
+    .move({ x: 566, y: 330 }, 650)
+    .wait(3000)
+    .build(1200),
+  draw(f) {
+    const { p, c } = f;
+    readingToolbar(f, 1);
+    card(f, content);
+    p.alpha(1 - f.progress("reflow", 350), () => {
+      p.text("Attention Is All You Need", 320, 83, {
+        size: 16,
+        weight: 600,
+        align: "center",
+      });
+      [54, 338].forEach((x) =>
+        p.bars(
+          { x, y: 124, w: 240, h: 230 },
+          [1, 0.95, 1, 0.88, 1, 0.97, 0.7, 1, 0.95, 1, 0.84, 1, 0.9, 0.6],
+          { gap: 16, height: 4 },
+        ),
+      );
+    });
+    p.alpha(f.progress("reflow", 350), () => {
+      p.text("Abstract", 104, 78, { size: 14, weight: 600 });
+      let y = 108;
+      reflowPairs.forEach(([en, zh], i) => {
+        p.alpha(f.progress("reflow", 350, i * 170), () => {
+          const next = paragraph(f, en, 104, y, 432, {
+            size: 11.5,
+            leading: 18,
+          });
+          paragraph(f, zh, 104, next + 7, 432, {
+            size: 11,
+            leading: 18,
+            color: c.mutedForeground,
+          });
+        });
+        y += 88;
+      });
+    });
+    readingSettings(f, 3);
+  },
+});
+
+const focusBlock = (i: number): Rect => ({
+  x: 30,
+  y: 97 + i * 80,
+  w: 580,
+  h: 68,
+});
+const blockFocus = scene({
+  pointerScale: 1.5,
+  script: script({ x: 568, y: 350 })
+    .wait(500)
+    .move({ x: 185, y: 278 }, 850)
+    .click("third")
+    .wait(1700)
+    .move({ x: 190, y: 198 }, 750)
+    .click("second")
+    .wait(1200)
+    .move({ x: 555, y: 343 }, 500)
+    .mark("hint")
+    .wait(2800)
+    .build(1200),
+  draw(f) {
+    const { p, c } = f;
+    readingToolbar(f, 1);
+    card(f, content);
+    p.line(320, 64, 320, 344, c.border);
+    p.text("Abstract", 42, 77, { size: 13, weight: 600 });
+    p.text("摘要", 338, 77, { size: 13, weight: 600 });
+    reflowPairs.forEach(([en, zh], i) => {
+      const r = focusBlock(i);
+      const focused =
+        i === 2
+          ? f.progress("third", 260) * (1 - f.progress("second", 260))
+          : i === 1
+            ? f.progress("second", 260)
+            : 0;
+      p.alpha(focused, () =>
+        p.box(r, {
+          fill: c.dark ? "rgb(255 255 255 / 7%)" : "rgb(0 0 0 / 5%)",
+          stroke: "rgb(128 128 128 / 22%)",
+          radius: 7,
+        }),
+      );
+      paragraph(f, en, 42, r.y + 14, 258, { size: 11.5, leading: 18 });
+      paragraph(f, zh, 338, r.y + 14, 258, { size: 11.5, leading: 19 });
+    });
+    callout(
+      f,
+      320,
+      355,
+      "不喜欢可在「设置 → 阅读」关闭",
+      f.progress("hint", 250),
+    );
+  },
+});
+
+const autoCopy = scene({
+  pointerScale: 1.5,
+  still: "copied",
+  script: script({ x: 470, y: 360 })
+    .wait(500)
+    .move(interactionToggle(1), 800)
+    .click("on")
+    .wait(600)
+    .move(settingsClose, 600)
+    .click("close")
+    .wait(450)
+    .move(selectionStart, 700)
+    .mark("down")
+    .move(selectionEnd, 1200)
+    .mark("up")
+    .wait(450)
+    .mark("copied")
+    .wait(1500)
+    .move({ x: 465, y: 300 }, 650)
+    .wait(1000)
+    .build(1200),
+  draw(f) {
+    const { p } = f;
+    readerTop(f);
+    card(f, page);
+    const lines = wrap(f, pageText, textWidth, 11.5);
+    selection(f, lines);
+    p.text("Abstract", textX, page.y + 30, { size: 13, weight: 600 });
+    lines.forEach((line, i) => p.text(line, textX, lineY(i), { size: 11.5 }));
+    assistantSide(f);
+    sideHint(f);
+    readingSettings(f, 1);
+    toast(
+      f,
+      "已复制",
+      f.progress("up", 200, 150) * (1 - f.progress("up", 250, 2300)),
+    );
+  },
+});
+
+// Table layout uses the same journal badges as the list layout.
+const rankTable = scene({
+  pointerScale: 1.5,
+  script: script({ x: 570, y: 370 })
+    .wait(450)
+    .move({ x: 513, y: 38 }, 650)
+    .click("table")
+    .wait(500)
+    .mark("badges")
+    .move({ x: 266, y: 171 }, 750)
+    .wait(1500)
+    .move({ x: 267, y: 233 }, 650)
+    .wait(2000)
+    .build(1400),
+  draw(f) {
+    const { p, c } = f;
+    sidebar(f);
+    card(f);
+    libraryHeader(f);
+    // Explicit layout controls keep the switch gesture recognizable.
+    tabs(
+      f,
+      { x: 473, y: 24, w: 76, h: 26 },
+      ["列表", "表格"],
+      f.after("table") ? 1 : 0,
+    );
+    if (!f.after("table")) {
+      rankedPapers
+        .slice(0, 4)
+        .forEach((paper, i) =>
+          paperRow(f, main.y + 60 + i * 62, paper.title, paper.meta),
+        );
+      return;
+    }
+    const left = main.x + 16;
+    p.box(
+      { x: left, y: 67, w: main.w - 32, h: 28 },
+      { fill: c.muted, radius: 4 },
+    );
+    [
+      ["标题", left + 8],
+      ["年份", 468],
+      ["出处", 516],
+    ].forEach(([label, x]) =>
+      p.text(String(label), Number(x), 81, {
+        size: 10,
+        color: c.mutedForeground,
+      }),
+    );
+    const rows = [
+      {
+        title: "Attention Is All You Need",
+        year: "2017",
+        venue: "NeurIPS",
+        ranks: [["CCF A", "high"]],
+      },
+      {
+        title: "Highly accurate protein structure prediction",
+        year: "2021",
+        venue: "Nature",
+        ranks: [
+          ["SCI Q1", "high"],
+          ["中科院 1区", "high"],
+          ["IF 50.5", "high"],
+        ],
+      },
+      {
+        title: "BERT: Pre-training of Deep Bidirectional Transformers",
+        year: "2019",
+        venue: "NAACL",
+        ranks: [["CCF B", "mid"]],
+      },
+      {
+        title: "Graph Neural Networks: A Review",
+        year: "2020",
+        venue: "AI Open",
+        ranks: [
+          ["SCI Q2", "mid"],
+          ["中科院 2区", "mid"],
+        ],
+      },
+    ] as const;
+    rows.forEach((row, i) => {
+      const y = 114 + i * 62;
+      p.text(row.title, left + 8, y, { size: 10.5, weight: 500, max: 274 });
+      p.text(row.year, 468, y, { size: 10, color: c.mutedForeground });
+      p.text(row.venue, 516, y, {
+        size: 10,
+        color: c.mutedForeground,
+        max: 88,
+      });
+      p.alpha(f.progress("badges", 350, i * 140), () => {
+        let x = left + 8;
+        for (const [label, tone] of row.ranks)
+          x += rankBadge(f, x, y + 23, label, tone) + 5;
+      });
+      p.line(left, y + 43, 616, y + 43, c.border);
+    });
+  },
+});
+
 export const scenes = {
+  reflow,
+  blockFocus,
+  autoCopy,
+  rankTable,
   detect,
   login,
   api: apiScene,

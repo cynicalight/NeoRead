@@ -13,12 +13,16 @@ import { useAttachments } from "./attachments";
 import * as attachments from "./attachments";
 import { paper } from "./fixtures";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
+import { LibrarySidebarResizer } from "../LibrarySidebarResizer";
 vi.mock("../annotated-pdf-export", () => ({
   exportAnnotatedPDFWithToast: vi.fn(async () => 1),
 }));
 vi.mock("@neoread/api", () => ({
   api: {
+    annotations: vi.fn(async () => []),
+    messages: vi.fn(async () => []),
     paperAttachments: vi.fn(async () => []),
+    removePaperAttachment: vi.fn(async () => {}),
     snapshotStatus: vi.fn(async () => ({ available: false })),
     journalRankConfig: vi.fn(async () => ({
       enabled: true,
@@ -144,6 +148,53 @@ beforeEach(async () => {
   root = createRoot(host);
   await act(async () => root.render(<Harness />));
 });
+it.each(["unmount", "capture loss"])(
+  "finishes sidebar resizing on %s and removes its global drag state",
+  async (reason) => {
+    await act(async () => {
+      useReaderStore.setState({
+        theme: {
+          ...useReaderStore.getState().theme,
+          librarySidebarWidth: undefined,
+        },
+      });
+      root.render(
+        <div>
+          <aside />
+          <LibrarySidebarResizer />
+        </div>,
+      );
+    });
+    const handle = host.querySelector<HTMLButtonElement>(
+      '[aria-label="调整书库侧栏宽度"]',
+    )!;
+    (handle.previousElementSibling as HTMLElement).getBoundingClientRect = () =>
+      new DOMRect(0, 0, 210, 600);
+    await act(async () => {
+      handle.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          clientX: 210,
+        }),
+      );
+      handle.dispatchEvent(new MouseEvent("pointermove", { clientX: 230 }));
+    });
+    expect(document.body.hasAttribute("data-resizing")).toBe(true);
+    await act(async () => {
+      if (reason === "unmount") root.render(<div />);
+      else handle.dispatchEvent(new Event("lostpointercapture"));
+    });
+    expect(document.body.hasAttribute("data-resizing")).toBe(false);
+    expect(useReaderStore.getState().theme.librarySidebarWidth).toBe(230);
+    await act(async () => {
+      handle.dispatchEvent(new MouseEvent("pointermove", { clientX: 300 }));
+      handle.dispatchEvent(new Event("pointerup"));
+    });
+    expect(useReaderStore.getState().theme.librarySidebarWidth).toBe(230);
+  },
+);
+
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
@@ -572,6 +623,20 @@ it.each(["card", "table"] as const)(
       "Attention Is All You Need",
     ).querySelector<HTMLButtonElement>('[aria-label="重试翻译"]')!;
     expect(retry).not.toBeNull();
+    if (layout === "card") {
+      const frame = row("Attention Is All You Need").querySelector(
+        ".paper-cover-frame",
+      )!;
+      expect(frame.querySelector(".cover-processing")?.contains(retry)).toBe(
+        true,
+      );
+      expect(
+        row("Attention Is All You Need").querySelector(
+          '.book-progress[role="progressbar"]',
+        ),
+      ).not.toBeNull();
+      expect(frame.querySelector('[aria-label$="的更多操作"]')).toBeNull();
+    }
     await act(async () => {
       retry.click();
       retry.click();
@@ -583,7 +648,76 @@ it.each(["card", "table"] as const)(
   },
 );
 
+it.each(["card", "table"] as const)(
+  "shows an icon-only parsing retry beside the failure in %s view",
+  async (layout) => {
+    jobs = new Map([
+      [
+        "a",
+        {
+          documentId: "a",
+          phase: "learning",
+          status: "failed",
+          pagesDone: 2,
+          pagesTotal: 20,
+          translationsDone: 0,
+          translationsTotal: 0,
+          detail: "解析失败",
+          updatedAt: "2026-10-08T00:00:00Z",
+        },
+      ],
+    ]);
+    await act(async () => {
+      useReaderStore.setState({
+        libraryPreferences: { mode: "papers", papers: { layout } },
+      });
+      root.render(<Harness />);
+    });
+    const paper = row("Attention Is All You Need");
+    const retry = paper.querySelector<HTMLButtonElement>(
+      '[aria-label="重试解析"]',
+    )!;
+    expect(retry.textContent).toBe("");
+    expect(retry.parentElement?.textContent).toContain("解析失败");
+    await act(async () => {
+      retry.click();
+      retry.click();
+    });
+    expect(api.process).toHaveBeenCalledExactlyOnceWith("a");
+    expect(retry.disabled).toBe(true);
+    expect(open).not.toHaveBeenCalled();
+  },
+);
+
 const prefs = () => useReaderStore.getState().libraryPreferences.papers ?? {};
+it("shows the reading status and file size under a paper cover", async () => {
+  await act(async () => {
+    useReaderStore.setState({
+      documents: [
+        paper({
+          id: "read",
+          title: "Read paper",
+          percentage: 0.42,
+          size: 2 * 1024 * 1024,
+        }),
+        paper({
+          id: "new",
+          title: "New paper",
+          percentage: 0,
+          size: 1024 * 1024,
+        }),
+      ],
+      libraryPreferences: { mode: "papers", papers: { layout: "card" } },
+    });
+    root.render(<Harness />);
+  });
+  expect(row("Read paper").querySelector(".book-status")?.textContent).toBe(
+    "已读 42%2.0 MB",
+  );
+  expect(row("New paper").querySelector(".book-status")?.textContent).toBe(
+    "还未开始阅读1.0 MB",
+  );
+});
 const press = (target: Element, type: string, clientX = 0) =>
   act(async () => {
     target.dispatchEvent(
@@ -1714,6 +1848,34 @@ it("expands and collapses attachment children with the keyboard", async () => {
   expect(document.activeElement).toBe(row(docs[0].title));
 });
 
+it("removes an attachment from the detail menu without dismissing the paper", async () => {
+  vi.mocked(api.paperAttachments).mockResolvedValue([supplement]);
+  await act(async () => usePaperUI.setState({ selectedId: "a" }));
+  await act(async () => button("附件菜单 Supplementary material").click());
+  const item = menuItem("移除附件…");
+  // Native pointerdown precedes the menu click, including clicks on its icon.
+  await press(item.querySelector("svg")!, "pointerdown");
+  expect(usePaperUI.getState().selectedId).toBe("a");
+  await act(async () => item.click());
+  const dialog = document.querySelector('[role="alertdialog"]')!;
+  expect(dialog).not.toBeNull();
+  await press(
+    dialog.querySelector('[data-slot="alert-dialog-description"]')!,
+    "pointerdown",
+  );
+  expect(usePaperUI.getState().selectedId).toBe("a");
+  const confirm = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "移除附件",
+  )!;
+  await press(confirm, "pointerdown");
+  await act(async () => confirm.click());
+  expect(api.removePaperAttachment).toHaveBeenCalledExactlyOnceWith("a", "supp");
+  expect(useAttachments.getState().items.a).toEqual([]);
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  expect(usePaperUI.getState().selectedId).toBe("a");
+  expect(host.querySelector(".paper-detail")).not.toBeNull();
+});
+
 it("opens attachment rename and removal from the child context menu", async () => {
   vi.mocked(api.paperAttachments).mockResolvedValue([supplement]);
   await act(async () =>
@@ -2473,4 +2635,50 @@ it("does not look up the AI title if applying it fails", async () => {
       .click(),
   );
   expect(api.lookupMetadata).not.toHaveBeenCalled();
+});
+
+it("opens the shared export dialog for the context-clicked paper", async () => {
+  await act(async () =>
+    row(docs[1].title).dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 10,
+      }),
+    ),
+  );
+  expect(menuItem("引用")).toBeUndefined();
+  expect(menuItem("导出译文 PDF")).toBeUndefined();
+  expect(menuItem("导出译文 Markdown")).toBeUndefined();
+  expect(menuItem("导出带批注的 PDF")).toBeUndefined();
+  await act(async () => menuItem("导出…").click());
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog).toBeTruthy();
+  expect(dialog.querySelector('[aria-label="导出内容"]')?.textContent).toBe(
+    "批注原文译文",
+  );
+  expect(dialog.querySelector('[aria-label="导出格式"]')?.textContent).toBe(
+    "MarkdownPDF",
+  );
+  expect(open).not.toHaveBeenCalled();
+  // The clicked document must be used even while another paper is selected.
+  const toggles = [...dialog.querySelectorAll<HTMLButtonElement>("button")];
+  await act(async () =>
+    toggles.find((el) => el.textContent === "批注")!.click(),
+  );
+  await act(async () =>
+    toggles.find((el) => el.textContent === "原文")!.click(),
+  );
+  await act(async () =>
+    toggles.find((el) => el.textContent === "导出")!.click(),
+  );
+  expect(api.annotations).toHaveBeenCalledWith(
+    docs[1].id,
+    expect.any(AbortSignal),
+  );
+  expect(api.messages).toHaveBeenCalledWith(
+    docs[1].id,
+    expect.any(AbortSignal),
+  );
 });

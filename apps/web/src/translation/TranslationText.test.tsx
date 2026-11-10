@@ -263,3 +263,29 @@ it("replaces an old sharp image after a full layout reparse", async () => {
     "?v=assets%2F0123456789abcdef0123456789abcdef_p1-b1.png",
   );
 });
+
+it("renders the image again after the reading theme changes", async () => {
+  const renderImage = vi.fn(async () => "blob:sharp");
+  const draw = async (imageTheme: string) =>
+    act(async () =>
+      root.render(
+        <TranslationText
+          block={base}
+          documentId="doc"
+          retry={() => {}}
+          renderImage={renderImage}
+          imageTheme={imageTheme}
+        />,
+      ),
+    );
+  await draw("light");
+  const original = host.querySelector("img")!;
+  Object.defineProperty(original, "naturalWidth", { value: 480 });
+  await act(async () => original.dispatchEvent(new Event("load")));
+  await draw("dark:soft");
+  const dark = host.querySelector("img")!;
+  expect(dark).not.toBe(original);
+  Object.defineProperty(dark, "naturalWidth", { value: 480 });
+  await act(async () => dark.dispatchEvent(new Event("load")));
+  expect(renderImage).toHaveBeenCalledTimes(2);
+});

@@ -24,6 +24,7 @@ export default function MathFormula({
   return (
     <span
       className={display ? "markdown-math display" : "markdown-math"}
+      data-tex={value}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
