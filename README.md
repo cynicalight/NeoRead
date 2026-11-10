@@ -221,3 +221,8 @@ assets/            # Logo 源文件与应用图标
 感谢 [Readium](https://github.com/readium)、[PDF.js](https://github.com/mozilla/pdf.js)、[shadcn/ui](https://github.com/shadcn-ui/ui) 和 [Base UI](https://github.com/mui/base-ui)。shadcn 组件保留在 `packages/ui`，相关许可见 [packages/ui/LICENSE.md](packages/ui/LICENSE.md)。更多技术来源与归属见[第三方来源](docs/sources.md)。
 
 [项目范围](docs/spec.md) · [路线图](docs/roadmap.md) · [OpenAPI](docs/openapi.yaml) · [验证记录](docs/verification.md)
+
+## 交流群
+
+<img width="720" height="1088" alt="image" src="https://github.com/user-attachments/assets/a91dde2e-b202-45c8-88bd-639b83cd5245" />
+
