@@ -28,6 +28,16 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 - **引用导出**：支持 GB/T 7714、APA、BibTeX 和 RIS，可复制单篇引用或批量导出。
 - **回收站**：删除后保留原文件、批注和对话，可撤销或恢复；确认彻底删除后才移除数据。
 
+<img width="2594" height="1796" alt="image-paper-lib" src="https://github.com/user-attachments/assets/c288d52f-eee1-4a8e-bf37-d7c8e49f2f9e" />
+
+<img width="2594" height="1796" alt="image-paper-lib-detail" src="https://github.com/user-attachments/assets/553e7b02-bb16-48a3-8c7e-b0bcc17e6ddc" />
+
+<img width="2594" height="1796" alt="image-book-lib" src="https://github.com/user-attachments/assets/28f238d3-c223-49c8-8c9b-5309e8e09a03" />
+
+<img width="2594" height="1796" alt="image-book-lib-detail" src="https://github.com/user-attachments/assets/5e76feeb-115d-44db-b04f-95cb7a603b09" />
+
+
+
 **阅读与翻译**
 
 - **多文档标签页**：可同时打开多篇论文或图书，在标签间切换并保留阅读位置、未发送问题和对话；支持批量打开、关闭确认和重启恢复。操作与快捷键见[标签页说明](docs/reading-tabs.md)。
@@ -37,11 +47,19 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 - **阅读记录**：书签、高亮、下划线、问题批注、批注标签、论文笔记与阅读位置恢复；悬停即可预览批注，支持按颜色和标签筛选、搜索笔记、撤销批注改动、摘录批注、Markdown 导出及桌面 `neoread://` 链接。PDF 内部引用支持悬停预览和返回阅读位置。
 - **阅读偏好**：双击选中整句，可选开启选中文字自动复制；可自定义高亮颜色和译文字体；界面支持浅色、深色、纸张与跟随系统，桌面窗口外观同步切换。
 
+<img width="2594" height="1796" alt="reflow-mode" src="https://github.com/user-attachments/assets/6650744d-fdfa-493b-bb01-7e78c62e8b2b" />
+
+<img width="2594" height="1796" alt="markdown-note" src="https://github.com/user-attachments/assets/8381af34-c060-46fa-bd79-1bb2bb08fe47" />
+
+
 **AI 助读**
 
 - **问答与解释**：选区翻译与解释、多选区引用、EPUB 当前章节或 PDF 当前页总结、对话历史和生成取消。普通提问默认附带论文标题和摘要，可开启章节正文；引用选段提问时附带所在章节。回答中的出处可跳回原文并闪烁定位。
 - **在 Codex 中继续**：完成 Codex 文档阅读对话后，从 Agent 顶栏打开独立的 Codex App 对话，保留已有上下文并附带原文和聊天快照。关闭 NeoRead 后也可继续阅读；两边后续消息不自动同步。
 - **两种接入方式**：检测本机 Claude Code / Codex CLI / Kimi Code CLI 的安装与登录状态，通过官方 CLI 使用已有账户；或在设置中配置 API 连接，支持 OpenAI Chat Completions 与 Anthropic Messages 协议。问答与翻译可分别选择模型和思考强度。
+
+<img width="1061" height="846" alt="ai-reference" src="https://github.com/user-attachments/assets/c5f659e9-64af-4027-979c-7b58577f61c0" />
+
 
 **桌面应用**
 
