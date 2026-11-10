@@ -19,7 +19,7 @@ Keenable 参考：[API 文档](https://docs.keenable.ai)。
 
 DeepSeek 参考：[Search & Fetch 指南](https://api-docs.deepseek.com/zh-cn/guides/search/)、[Search](https://api-docs.deepseek.com/zh-cn/api/search/)、[Fetch](https://api-docs.deepseek.com/zh-cn/api/fetch/)。这两项是独立工具 API，未向 Chat Completions 请求添加未经支持的 `enable_search` 参数。
 
-DeepSeek Fetch 明确返回内容不存在时，执行记录显示“此网址无法读取”，不会加入已读来源。临时服务或响应格式失败显示“暂未取得结果”；模型可使用已有资料或其他来源继续，不能声称已读取失败的网页。认证、余额及权限错误继续显示可操作提示。
+DeepSeek Fetch 明确返回内容不存在（或 Keenable Fetch 返回 404 `page_not_found`）时，执行记录显示“此网址无法读取”，不会加入已读来源。临时服务或响应格式失败显示“暂未取得结果”；模型可使用已有资料或其他来源继续，不能声称已读取失败的网页。认证、余额及权限错误继续显示可操作提示。
 
 直接搜索服务只对明确的临时 HTTP 状态（408、429、500、502、503、504）最多尝试三次，默认等待 1 秒和 2 秒，并遵守更长的 `Retry-After`。所有尝试共用两分钟工具时限和相同请求体。网络异常、读取失败及格式错误不自动重放；取消立即传播。诊断事件 `web.tool.retry` 和 `web.tool.deferred` 不记录密钥、查询词或上游正文。
 
@@ -45,7 +45,7 @@ Codex 原生搜索请求由 App Server/服务端执行，NeoRead 收到的是执
 
 ## 验证与人工检查
 
-自动化覆盖配置持久保存、遗漏字段保留、密钥隔离与更换地址保护、CLI 开关约束、模型与搜索服务使用不同地址/Key、IPC 工具生命周期、继承 MCP 的禁用、DeepSeek 请求协议、权限关闭、完整来源快照保存、预算提醒、内网 URL、重定向、取消和限流；Pi worker 使用本地模型响应替身，不访问商业模型服务。
+自动化覆盖配置持久保存、遗漏字段保留、密钥隔离与更换地址保护、CLI 开关约束、模型与搜索服务使用不同地址/Key、IPC 工具生命周期、继承 MCP 的禁用、DeepSeek 与 Keenable 请求协议（含重试和 404 不可用结果）、权限关闭、完整来源快照保存、预算提醒、内网 URL、重定向、取消和限流；Pi worker 使用本地模型响应替身，不访问商业模型服务。
 
 可选原生 CLI 配置预检：在 `apps/server` 运行 `NEOREAD_TEST_CODEX_WEB_PREFLIGHT=1 go test ./internal/neoread -run '^TestCodexWebPreflightNative$' -count=1`。只初始化实际安装的 CLI 并核验配置，不启动模型回合或调用 MCP。
 
