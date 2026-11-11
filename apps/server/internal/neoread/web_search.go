@@ -124,7 +124,7 @@ func sendWebRequest(ctx context.Context, service string, transport http.RoundTri
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	response, err := webHTTPWithRetry(ctx, client, newRequest)
+	response, err := webHTTPWithRetry(ctx, service, client, newRequest)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -172,7 +172,8 @@ func sendWebRequest(ctx context.Context, service string, transport http.RoundTri
 }
 
 // webHTTPWithRetry 仅对供应商明确的临时 HTTP 状态重试；网络、正文和协议失败不重放。
-func webHTTPWithRetry(ctx context.Context, client *http.Client, newRequest func(context.Context) (*http.Request, error)) (*http.Response, error) {
+// service 是固定的供应商名（DeepSeek、Keenable），写入重试日志以区分后端。
+func webHTTPWithRetry(ctx context.Context, service string, client *http.Client, newRequest func(context.Context) (*http.Request, error)) (*http.Response, error) {
 	for attempt := 0; attempt < 3; attempt++ {
 		request, err := newRequest(ctx)
 		if err != nil {
@@ -208,7 +209,7 @@ func webHTTPWithRetry(ctx context.Context, client *http.Client, newRequest func(
 			return response, nil
 		}
 		response.Body.Close()
-		slog.Warn("web.tool.retry", "httpStatus", response.StatusCode, "attempt", attempt+1, "delayMs", delay.Milliseconds(), "requestId", requestID(ctx))
+		slog.Warn("web.tool.retry", "service", service, "httpStatus", response.StatusCode, "attempt", attempt+1, "delayMs", delay.Milliseconds(), "requestId", requestID(ctx))
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():

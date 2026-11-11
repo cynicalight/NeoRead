@@ -1,10 +1,12 @@
 package neoread
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -328,5 +330,54 @@ func TestKeenableWebToolStateSaveFailureIsFatal(t *testing.T) {
 		if errorKind(err) != ErrorSave || writes != failAt || calls != failAt-1 {
 			t.Fatalf("failAt=%d err=%v writes=%d calls=%d", failAt, err, writes, calls)
 		}
+	}
+}
+
+func TestWebRetryLogNamesService(t *testing.T) {
+	for _, tc := range []struct {
+		service string
+		conn    APIConnection
+		success string
+	}{
+		{"DeepSeek", APIConnection{URL: defaultSearchURL, Key: "deepseek-secret"}, `{"results":[{"url":"https://example.org/page","title":"Page","summary":"Body"}]}`},
+		{"Keenable", APIConnection{Protocol: "keenable", URL: keenableSearchURL, Key: "keenable-secret"}, `{"results":[{"url":"https://example.org/page","title":"Page","snippet":"Body"}]}`},
+	} {
+		t.Run(tc.service, func(t *testing.T) {
+			var logs bytes.Buffer
+			old := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(old) })
+			calls := 0
+			chat := &chatInput{WebSearch: true, webTransport: webRoundTrip(func(*http.Request) (*http.Response, error) {
+				calls++
+				if calls == 1 {
+					return webJSON(503, `{"error":"PRIVATE"}`), nil
+				}
+				return webJSON(200, tc.success), nil
+			})}
+			if _, err := chat.callWebTool(t.Context(), tc.conn, "web_search", json.RawMessage(`{"query":"public information"}`)); err != nil || calls != 2 {
+				t.Fatalf("err=%v calls=%d", err, calls)
+			}
+			var event struct {
+				Msg        string `json:"msg"`
+				Service    string `json:"service"`
+				HTTPStatus int    `json:"httpStatus"`
+			}
+			found := false
+			for _, line := range bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")) {
+				if json.Unmarshal(line, &event) == nil && event.Msg == "web.tool.retry" {
+					found = true
+					if event.Service != tc.service || event.HTTPStatus != 503 {
+						t.Fatalf("retry event %s", line)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("no web.tool.retry event: %s", logs.String())
+			}
+			if strings.Contains(logs.String(), "secret") || strings.Contains(logs.String(), "PRIVATE") {
+				t.Fatalf("retry log leaked request data: %s", logs.String())
+			}
+		})
 	}
 }
