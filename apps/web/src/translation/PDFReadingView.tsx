@@ -143,6 +143,7 @@ export function PDFReadingView({
     );
   };
   const previousMode = useRef<Mode>("source");
+  const sourcePositionChanged = useRef(false);
   const syncEnabledRef = useRef(syncEnabled);
   syncEnabledRef.current = syncEnabled;
   const explicitFocus = useRef({
@@ -736,12 +737,26 @@ export function PDFReadingView({
         return;
       }
       if (previous !== mode) {
-        // Use the same preference path as the 适宽 button, including clearing
-        // temporary passage zoom and saving this document's zoom preference.
-        events.zoom?.("width");
-        await engine.setTheme({ ...state.current.theme, zoom: "width" });
-        if (cancelled) return;
-        if (mode !== "translation" && anchor && syncEnabledRef.current)
+        // Back in the single source pane, restore the zoom and center saved
+        // when it was left instead of fitting the width.
+        const restored =
+          mode === "source"
+            ? engine.restoreSourceZoom?.(sourcePositionChanged.current)
+            : undefined;
+        sourcePositionChanged.current = false;
+        if (restored === undefined) {
+          // Use the same preference path as the 适宽 button, including clearing
+          // temporary passage zoom and saving this document's zoom preference.
+          events.zoom?.("width");
+          await engine.setTheme({ ...state.current.theme, zoom: "width" });
+          if (cancelled) return;
+        }
+        if (
+          !restored &&
+          mode !== "translation" &&
+          anchor &&
+          syncEnabledRef.current
+        )
           await engine.followBlock?.(anchor);
       }
       if (!cancelled && mode !== "source" && anchor) followTranslation(anchor);
@@ -755,8 +770,14 @@ export function PDFReadingView({
     if (previous !== mode) {
       frame = requestAnimationFrame(() => {
         frame = requestAnimationFrame(() => {
-          if (!cancelled && operation === explicitFocus.current.operation)
-            apply();
+          if (cancelled) return;
+          if (operation === explicitFocus.current.operation) apply();
+          else if (mode === "source") {
+            // Newer input owns the source view; a later return must not
+            // apply this stale snapshot.
+            engine.discardSourceZoom?.();
+            sourcePositionChanged.current = false;
+          }
         });
       });
     } else apply();
@@ -803,7 +824,8 @@ export function PDFReadingView({
       window.removeEventListener("pointercancel", release);
     };
   }, []);
-  const input = (active: typeof side.current) => {
+  const input = (active: typeof side.current, automatic = false) => {
+    if (mode !== "source" && !automatic) sourcePositionChanged.current = true;
     deferredFocus.cancel();
     cancelTranslationMotion();
     if (explicitFocus.current.moving || active === "translation")
@@ -922,7 +944,10 @@ export function PDFReadingView({
     });
   };
   const changeMode = (value: Mode) => {
-    input(value === "translation" || reflow ? "translation" : "source");
+    if (value === mode) return;
+    if (mode === "source" && !reflow && syncEnabledRef.current)
+      engine?.captureSourceZoom?.();
+    input(value === "translation" || reflow ? "translation" : "source", true);
     setPopup(undefined);
     setMode(value);
   };
@@ -932,7 +957,7 @@ export function PDFReadingView({
     syncEnabledRef.current = enabled;
     setSyncEnabled(enabled);
     // Stop pending follow animations before changing the synchronization policy.
-    input(side.current);
+    input(side.current, true);
     engine?.cancelBlockFocus?.();
     const anchor = reading.current;
     if (!enabled || mode !== "parallel" || !anchor) return;

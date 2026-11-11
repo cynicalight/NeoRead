@@ -610,6 +610,15 @@ export interface ReaderAdapter {
   focusReference?(location: DocumentLocation, text: string): Promise<boolean>;
   /** Briefly mark the source block after following a chat reference. */
   flashReference?(location: DocumentLocation, text: string): void;
+  /** Save single-pane PDF zoom before a synchronized mode transition. */
+  captureSourceZoom?(): void;
+  /** Restore zoom and center after single-pane layout commits. Returns true when
+   * the center was restored, false when only the zoom was, and undefined when
+   * nothing was saved. After manual navigation, preserve the current reading
+   * center instead of the saved one. */
+  restoreSourceZoom?(preserveCurrentCenter?: boolean): boolean | undefined;
+  /** Drop a saved snapshot after newer input supersedes its restoration. */
+  discardSourceZoom?(): void;
   cancelBlockFocus?(): void;
   destroy(): Promise<void>;
 }
