@@ -1,6 +1,9 @@
 import { searchExcerpt } from "./search-excerpt";
 import { selectionContext } from "./selection-context";
-import { annotationsAtPoint } from "../translation/annotation-hover";
+import {
+  annotationsAtPoint,
+  type AnnotationRange,
+} from "../translation/annotation-hover";
 import { api } from "@neoread/api";
 import type {
   Annotation,
@@ -51,7 +54,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   private theme = defaultTheme;
   private selection: ReaderSelection | null = null;
   private annotations: Annotation[] = [];
-  private marks: { id: string; range: Range }[] = [];
+  private marks: AnnotationRange[] = [];
   /** Last range of each annotation that has note text. */
   private noted: { range: Range; color: string }[] = [];
   private noteLayer = document.createElement("div");
@@ -879,16 +882,11 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       this.events.annotationHover?.(null);
       return;
     }
-    const byId = new Map(this.annotations.map((a) => [a.id, a]));
-    const ranges = this.marks.flatMap((mark) => {
-      const annotation = byId.get(mark.id);
-      return annotation ? [{ annotation, range: mark.range }] : [];
-    });
     // Only the marked text itself opens the note, not the rest of its sentence.
     const { annotations: matches, rects } = annotationsAtPoint(
       this.container,
       this.annotations,
-      ranges,
+      this.marks,
       event.clientX,
       event.clientY,
     );
@@ -940,7 +938,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     this.events.annotation?.(
       hits.length
         ? {
-            ids: [...new Set(hits.map((h) => h.id))],
+            ids: [...new Set(hits.map((h) => h.annotation.id))],
             anchor: {
               x: event.clientX,
               top: event.clientY - 8,
@@ -955,6 +953,9 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   async highlight(annotations: Annotation[]) {
     this.annotations = annotations;
     this.paint();
+  }
+  annotationRanges() {
+    return this.marks;
   }
   private paint() {
     this.marks = [];
@@ -1003,7 +1004,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
           const range = blockRange(this.container, slice);
           if (range) {
             ranges.push(range);
-            this.marks.push({ id: annotation.id, range });
+            this.marks.push({ annotation, range });
           }
         }
       }

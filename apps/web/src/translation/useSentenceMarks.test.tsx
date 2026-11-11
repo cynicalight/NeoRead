@@ -673,6 +673,44 @@ it("segments untranslated EPUB source and rejects mismatched translation anchors
   expect(texts(hover())).toEqual(["翻译句子。"]);
 });
 
+it("hit-tests the EPUB adapter's source marks without drawing them again", async () => {
+  const a: Annotation = {
+    id: "epub-source",
+    documentId: "doc",
+    kind: "highlight",
+    quote: "Original",
+    note: "",
+    color: "#6cc58c",
+    createdAt: "",
+    location: {
+      type: "epub",
+      href: "chapter.xhtml",
+      blockId: "p1-b1",
+      start: 0,
+      end: 8,
+    },
+  };
+  engine.annotationRanges = () => {
+    const range = document.createRange();
+    range.selectNodeContents(
+      host.querySelector("[data-epub-run]")!.firstChild!,
+    );
+    return [{ annotation: a, range }];
+  };
+  try {
+    await act(async () => root.render(<App epub annotations={[a]} />));
+    expect(
+      [...registry.keys()].filter((name) => name.includes("-highlight-")),
+    ).toEqual([]);
+    await pointer("[data-epub-run]", "pointermove", 5);
+    expect(events.annotationHover).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ids: ["epub-source"] }),
+    );
+  } finally {
+    delete engine.annotationRanges;
+  }
+});
+
 it("links reflowed PDF source sentences with their translations", async () => {
   await act(async () => root.render(<App reflow />));
   await pointer("[data-source-sentence]", "pointermove", 10);

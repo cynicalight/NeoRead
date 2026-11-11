@@ -20,7 +20,7 @@ import type {
 } from "@neoread/core";
 import { textRange, translatedAnnotationRanges } from "./annotations";
 import { sourcePassage, translatedSentenceRanges } from "./sentence-links";
-import { blockRange, resolveEPUBLocation } from "../readers/epub-web-location";
+import { blockRange } from "../readers/epub-web-location";
 import { epubSentenceSlice } from "./epub-links";
 import { searchRanges } from "./search-ranges";
 import { overlap } from "../readers/pdf-reading";
@@ -88,6 +88,9 @@ export function useSentenceMarks(
     let marks: Mark[] = [],
       names: string[] = [],
       frame = 0;
+    // The EPUB adapter draws its own source marks; read them when hit-testing,
+    // since it repaints on its own schedule.
+    const allMarks = () => [...marks, ...(engine.annotationRanges?.() ?? [])];
     const searchName = `${prefix}-search`;
     const cache = new Map<string, Range[]>();
     let geometry = new WeakMap<Range, DOMRect[]>();
@@ -205,25 +208,6 @@ export function useSentenceMarks(
       marks = translatedAnnotationRanges(host, annotations, translations);
       for (const annotation of annotations) {
         if (
-          annotation.location.type === "epub" &&
-          !annotation.location.translation &&
-          annotation.kind !== "bookmark"
-        ) {
-          const epubBlocks = blocks.filter(
-            (b): b is EPUBReadingBlock => "location" in b,
-          );
-          for (const slice of resolveEPUBLocation(
-            {
-              ...annotation.location,
-              quote: annotation.location.quote || annotation.quote,
-            },
-            epubBlocks,
-          )) {
-            const range = blockRange(host, slice);
-            if (range) marks.push({ annotation, range });
-          }
-        }
-        if (
           annotation.location.type !== "pdf" ||
           (annotation.location.translation &&
             !annotation.location.sourceAnchors?.length) ||
@@ -304,12 +288,6 @@ export function useSentenceMarks(
       const groups = new Map<string, Range[]>();
       const rules: string[] = [];
       for (const mark of marks) {
-        // The EPUB adapter already paints saved source annotations.
-        if (
-          mark.annotation.location.type === "epub" &&
-          !mark.annotation.location.translation
-        )
-          continue;
         const color = /^#[\da-f]{6}$/i.test(mark.annotation.color)
           ? mark.annotation.color.toLowerCase()
           : "#e6b94c";
@@ -449,7 +427,7 @@ export function useSentenceMarks(
       const direct = annotationsAtPoint(
         host,
         latest.current.annotations,
-        marks,
+        allMarks(),
         point.x,
         point.y,
         rectsOf,
@@ -560,7 +538,12 @@ export function useSentenceMarks(
       );
       activeMarked = [
         ...new Set([
-          ...annotationsInRects(host, latest.current.annotations, marks, rects),
+          ...annotationsInRects(
+            host,
+            latest.current.annotations,
+            allMarks(),
+            rects,
+          ),
           ...direct.annotations,
         ]),
       ];
@@ -570,7 +553,7 @@ export function useSentenceMarks(
     // Only the marked text opens the note; the rest of the sentence hovers.
     const applyPoint = (x: number, y: number) => {
       const hit = activeMarked.length
-        ? annotationsAtPoint(host, activeMarked, marks, x, y, rectsOf)
+        ? annotationsAtPoint(host, activeMarked, allMarks(), x, y, rectsOf)
         : { annotations: [], rects: [] };
       report(hit.annotations, hit.rects, x);
       if (hit.annotations.length) hover.clear(true);
@@ -636,7 +619,7 @@ export function useSentenceMarks(
       const target = event.target instanceof Element ? event.target : undefined;
       if (target?.closest("a,button,input,textarea,[data-block-action]"))
         return;
-      const matches = marks.filter((m) =>
+      const matches = allMarks().filter((m) =>
         hit(m.range, event.clientX, event.clientY),
       );
       if (!matches.length) return;
