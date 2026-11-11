@@ -10,6 +10,7 @@ import { selectionContext } from "../readers/selection-context";
 import { searchRanges } from "./search-ranges";
 import { texText } from "../chat/tex-text";
 import { lcsMatches } from "../text-align";
+import { clipRange, textOffset } from "./dom-ranges";
 
 /** One reflowed source sentence. */
 export interface ReflowPart {
@@ -136,7 +137,8 @@ function needsSpace(left: string, right: string) {
   );
 }
 
-function sourceElement(host: HTMLElement, blockId: string) {
+/** The element holding a block's reflowed source text, if rendered. */
+export function reflowSourceElement(host: HTMLElement, blockId: string) {
   return Array.from(
     host.querySelectorAll<HTMLElement>("[data-reflow-source]"),
   ).find((n) => n.dataset.reflowSource === blockId);
@@ -144,7 +146,7 @@ function sourceElement(host: HTMLElement, blockId: string) {
 
 /** Whether `host` renders this block's source as reflowed text. */
 export function hasReflowSource(host: HTMLElement, blockId: string) {
-  return !!sourceElement(host, blockId);
+  return !!reflowSourceElement(host, blockId);
 }
 
 /**
@@ -156,7 +158,7 @@ export function reflowSourceRanges(
   blockId: string,
   index?: number,
 ): Range[] {
-  const element = sourceElement(host, blockId);
+  const element = reflowSourceElement(host, blockId);
   const root =
     index === undefined
       ? element
@@ -192,16 +194,8 @@ export function reflowSourceSelection(
     if (!block) continue;
     const source = selectedSource(node, range).trim();
     if (source) {
-      const clipped = document.createRange();
-      clipped.selectNodeContents(node);
-      if (range.compareBoundaryPoints(Range.START_TO_START, clipped) > 0)
-        clipped.setStart(range.startContainer, range.startOffset);
-      if (range.compareBoundaryPoints(Range.END_TO_END, clipped) < 0)
-        clipped.setEnd(range.endContainer, range.endOffset);
-      const before = clipped.cloneRange();
-      before.selectNodeContents(node);
-      before.setEnd(clipped.startContainer, clipped.startOffset);
-      const start = before.toString().length;
+      const clipped = clipRange(node, range);
+      const start = textOffset(node, clipped);
       anchors.push({
         blockId: block.id,
         source,
@@ -234,18 +228,11 @@ export function reflowSourceSelection(
   };
 }
 
-function clip(node: Node, range: Range) {
-  const clipped = document.createRange();
-  clipped.selectNodeContents(node);
-  if (range.compareBoundaryPoints(Range.START_TO_START, clipped) > 0)
-    clipped.setStart(range.startContainer, range.startOffset);
-  if (range.compareBoundaryPoints(Range.END_TO_END, clipped) < 0)
-    clipped.setEnd(range.endContainer, range.endOffset);
-  return clipped.toString();
-}
+const clip = (node: Node, range: Range) => clipRange(node, range).toString();
 const sentenceNodes = (node: HTMLElement) =>
   Array.from(node.querySelectorAll<HTMLElement>("[data-source-sentence]"));
-const compact = (text: string) => text.replace(/\s/g, "").toLowerCase();
+/** Text as compared across extraction differences: no spaces, lower case. */
+export const compact = (text: string) => text.replace(/\s/g, "").toLowerCase();
 
 /**
  * One rendered piece of a restored sentence, a character or a whole formula,
@@ -442,7 +429,7 @@ export function reflowQuoteRanges(
   blockId: string,
   quote: string,
 ): Range[] {
-  const element = sourceElement(host, blockId);
+  const element = reflowSourceElement(host, blockId);
   const sentences = element ? sentenceNodes(element) : [];
   const texts = sentences.map((s) => compact(sentenceText(s)));
   const needle = compact(quote);
@@ -464,7 +451,7 @@ export function reflowMarkRanges(
   quote: string,
 ): Range[] {
   const sentences = blockIds.flatMap((id) => {
-    const element = sourceElement(host, id);
+    const element = reflowSourceElement(host, id);
     return element ? sentenceNodes(element) : [];
   });
   const raw = sentences.map(sentenceText);

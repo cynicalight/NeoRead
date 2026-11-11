@@ -4,7 +4,11 @@ import {
   formulaHighlightRules,
   markFormulas,
 } from "./formula-highlight";
-import { annotationsAtPoint, annotationsInRects } from "./annotation-hover";
+import {
+  annotationsAtPoint,
+  annotationsInRects,
+  inside,
+} from "./annotation-hover";
 import { SentenceHover } from "./sentence-hover";
 import { useEffect, useId, useRef } from "react";
 import type { RefObject } from "react";
@@ -25,7 +29,9 @@ import { epubSentenceSlice } from "./epub-links";
 import { searchRanges } from "./search-ranges";
 import { overlap } from "../readers/pdf-reading";
 import {
+  compact,
   hasReflowSource,
+  reflowSourceElement,
   reflowQuoteRanges,
   reflowSourceRanges,
   reflowMarkRanges,
@@ -34,15 +40,7 @@ import {
 
 type Mark = { annotation: Annotation; range: Range };
 const hit = (range: Range, x: number, y: number) =>
-  Array.from(range.getClientRects()).some(
-    (r) =>
-      r.width &&
-      r.height &&
-      x >= r.left &&
-      x <= r.right &&
-      y >= r.top &&
-      y <= r.bottom,
-  );
+  Array.from(range.getClientRects()).some((r) => inside(r, x, y));
 
 /** Saved marks stay on their origin side; hover may still link sentences. */
 export function useSentenceMarks(
@@ -102,18 +100,8 @@ export function useSentenceMarks(
       }
       return rects;
     };
-    const containsPoint = (range: Range, x: number, y: number) => {
-      const rects = rectsOf(range);
-      return rects.some(
-        (r) =>
-          r.width &&
-          r.height &&
-          x >= r.left &&
-          x <= r.right &&
-          y >= r.top &&
-          y <= r.bottom,
-      );
-    };
+    const containsPoint = (range: Range, x: number, y: number) =>
+      rectsOf(range).some((r) => inside(r, x, y));
     const sourceRanges = (t: TranslationBlock, i: number) => {
       const key = `${t.blockId}:${i}`;
       if (!cache.has(key)) {
@@ -216,13 +204,11 @@ export function useSentenceMarks(
           continue;
         const passages = annotation.location.sourceAnchors?.flatMap(
           (anchor) => {
-            const normalize = (text: string) =>
-              text.replace(/\s/g, "").toLowerCase();
             const candidates = blocks.filter(
               (block) =>
                 "page" in block &&
                 block.page === anchor.page &&
-                normalize(block.text).includes(normalize(anchor.source)),
+                compact(block.text).includes(compact(anchor.source)),
             );
             const block =
               candidates.find((block) => block.id === anchor.blockId) ??
@@ -238,9 +224,7 @@ export function useSentenceMarks(
         );
         for (const passage of reflowed)
           for (const source of passage.sources) {
-            const node = Array.from(
-              host.querySelectorAll<HTMLElement>("[data-reflow-source]"),
-            ).find((item) => item.dataset.reflowSource === passage.blockId);
+            const node = reflowSourceElement(host, passage.blockId);
             const { anchor } = passage;
             const exact =
               node &&
