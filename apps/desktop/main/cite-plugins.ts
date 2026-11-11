@@ -83,30 +83,80 @@ function wordPaths({ platform, home, appData }: CitePluginOptions) {
   return null;
 }
 
-export async function windowsWordFolders() {
-  const query = async (key: string, view: string) => {
-    try {
-      return (
-        await run("reg.exe", ["query", key, "/s", view], {
-          timeout: 10000,
-          maxBuffer: 4 * 1024 * 1024,
-        })
-      ).stdout;
-    } catch (error) {
-      // reg.exe exits with 1 for an absent key; other failures must not
-      // silently send the plugin to a directory Word will never load.
-      if ((error as { code?: unknown }).code === 1) return "";
-      throw error;
+// Read only Word startup settings. Recursively dumping the Office registry can
+// exceed execFile's output limit on otherwise valid Office installations.
+const windowsWordRegistryScript = String.raw`
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+
+function Write-StartupValue($parent, $subkey, $name) {
+  $key = $parent.OpenSubKey($subkey)
+  if ($null -eq $key) { return }
+  try {
+    $value = $key.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    if ($value -is [string] -and $value.Length -gt 0) {
+      Write-Output $key.Name
+      Write-Output ("    " + $name + "    REG_EXPAND_SZ    " + $value)
     }
-  };
-  const outputs = await Promise.all(
-    ["/reg:64", "/reg:32"].flatMap((view) =>
-      ["HKCU", "HKLM"].map((hive) =>
-        query(`${hive}\\Software\\Microsoft\\Office`, view),
-      ),
-    ),
+  } finally {
+    $key.Dispose()
+  }
+}
+
+foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+  foreach ($hive in @([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryHive]::LocalMachine)) {
+    $root = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
+    try {
+      $office = $root.OpenSubKey('Software\Microsoft\Office')
+      if ($null -eq $office) { continue }
+      try {
+        foreach ($version in $office.GetSubKeyNames()) {
+          if ($version -notmatch '^\d+\.0$') { continue }
+          $word = $office.OpenSubKey($version + '\Word')
+          if ($null -ne $word) {
+            try {
+              Write-Output $word.Name
+              Write-StartupValue $word 'Options' 'STARTUP-PATH'
+            } finally {
+              $word.Dispose()
+            }
+          }
+          Write-StartupValue $office ($version + '\Common\General') 'Startup'
+        }
+      } finally {
+        $office.Dispose()
+      }
+    } finally {
+      $root.Dispose()
+    }
+  }
+}
+`;
+
+export async function windowsWordFolders() {
+  const systemRoot =
+    Object.entries(process.env).find(
+      ([key]) => key.toLowerCase() === "systemroot",
+    )?.[1] || "C:\\Windows";
+  const executable = win32.join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
   );
-  return parseWindowsWordFolders(outputs.join("\n"), process.env);
+  const { stdout } = await run(
+    executable,
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      Buffer.from(windowsWordRegistryScript, "utf16le").toString("base64"),
+    ],
+    { windowsHide: true, timeout: 10000, maxBuffer: 256 * 1024 },
+  );
+  return parseWindowsWordFolders(stdout.replace(/^\uFEFF/, ""), process.env);
 }
 
 export function parseWindowsWordFolders(text: string, env: NodeJS.ProcessEnv) {

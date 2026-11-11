@@ -15,7 +15,7 @@
 
 macOS 的默认启动目录为 `~/Library/Group Containers/UBF8T346G9.Office/User Content.localized/Startup.localized/Word/`。安装或卸载遇到访问限制时，会打开系统文件夹选择窗口；选择当前指定的文件夹并点“允许访问”，随后重试操作。模板与 AppleScript 目录可能分别请求授权，取消授权后可再次点击安装。Finder 中可能隐藏目录名称的 `.localized` 后缀。
 
-Windows 优先读取 Office 注册表中的 Word 启动目录设置（包含 32/64 位注册表视图）；没有自定义配置时使用 `%APPDATA%\Microsoft\Word\STARTUP`，并检查商店版 Office 已存在的启动目录。安装、状态检测和卸载使用相同的目录解析。权限不足时不会自动提权或修改目录权限；先退出 Word，再检查该目录的写入权限。
+Windows 通过 PowerShell 调用 Windows 注册表 API。检测只枚举 Office 版本键，并读取 Word 的 `STARTUP-PATH` 和 `Common\General` 的 `Startup` 设置，覆盖当前用户、系统级和 32/64 位注册表视图。没有自定义配置时使用 `%APPDATA%\Microsoft\Word\STARTUP`，并检查商店版 Office 已存在的启动目录。安装、状态检测和卸载使用相同的目录解析。权限不足时不会自动提权或修改目录权限；先退出 Word，再检查该目录的写入权限。
 
 `NeoRead.dotm` 需要在装有 Word 的电脑上构建后提交（见 `apps/cite-plugins/README.md`）；没有附带模板的版本会在设置中说明。
 
