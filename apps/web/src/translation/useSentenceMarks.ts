@@ -22,20 +22,17 @@ import type {
   SearchResult,
   TranslationBlock,
 } from "@neoread/core";
-import { textRange, translatedAnnotationRanges } from "./annotations";
+import { translatedAnnotationRanges } from "./annotations";
 import { sourcePassage, translatedSentenceRanges } from "./sentence-links";
 import { blockRange } from "../readers/epub-web-location";
 import { epubSentenceSlice } from "./epub-links";
 import { searchRanges } from "./search-ranges";
-import { overlap } from "../readers/pdf-reading";
 import {
-  compact,
   hasReflowSource,
-  reflowSourceElement,
   reflowSourceRanges,
   segmentSentences,
 } from "./reflow";
-import { reflowMarkRanges, reflowQuoteRanges } from "./reflow-marks";
+import { pdfSourceMarkRanges } from "./pdf-source-marks";
 
 type Mark = { annotation: Annotation; range: Range };
 const hit = (range: Range, x: number, y: number) =>
@@ -193,81 +190,14 @@ export function useSentenceMarks(
       clearFormulaMarks(host, prefix);
       names = [];
       marks = translatedAnnotationRanges(host, annotations, translations);
-      for (const annotation of annotations) {
-        if (
-          annotation.location.type !== "pdf" ||
-          (annotation.location.translation &&
-            !annotation.location.sourceAnchors?.length) ||
-          annotation.kind === "bookmark"
-        )
-          continue;
-        const passages = annotation.location.sourceAnchors?.flatMap(
-          (anchor) => {
-            const candidates = blocks.filter(
-              (block) =>
-                "page" in block &&
-                block.page === anchor.page &&
-                compact(block.text).includes(compact(anchor.source)),
-            );
-            const block =
-              candidates.find((block) => block.id === anchor.blockId) ??
-              (candidates.length === 1 ? candidates[0] : undefined);
-            return block
-              ? [{ blockId: block.id, sources: [anchor.source], anchor }]
-              : [];
-          },
-        );
-        // Reflowed text has no PDF text layer; find the saved quote in it.
-        const reflowed = (passages ?? []).filter((p) =>
-          hasReflowSource(host, p.blockId),
-        );
-        for (const passage of reflowed)
-          for (const source of passage.sources) {
-            const node = reflowSourceElement(host, passage.blockId);
-            const { anchor } = passage;
-            const exact =
-              node &&
-              anchor.text === node.textContent &&
-              anchor.start !== undefined &&
-              anchor.end !== undefined
-                ? textRange(node, anchor.start, anchor.end)
-                : undefined;
-            marks.push(
-              ...(exact
-                ? [exact]
-                : reflowQuoteRanges(host, passage.blockId, source)
-              ).map((range) => ({ annotation, range })),
-            );
-          }
-        // Ordinary source marks live in the PDF text layer; reflowed text
-        // finds their quote in the paragraphs under the saved rectangles.
-        // A text-layer quote is found across the paragraphs it covers.
-        const location = annotation.location;
-        if (!passages?.length && location.quote?.trim()) {
-          const covered = blocks.flatMap((block) =>
-            "page" in block &&
-            block.page === location.page &&
-            hasReflowSource(host, block.id) &&
-            (!location.rects?.length ||
-              location.rects.some((r) => overlap(r, block.bounds) > 0))
-              ? [block.id]
-              : [],
-          );
-          marks.push(
-            ...reflowMarkRanges(host, covered, location.quote).map((range) => ({
-              annotation,
-              range,
-            })),
-          );
-        }
-        if (passages?.length && !reflowed.length)
-          marks.push(
-            ...(engine.sentenceRanges?.(passages) ?? []).map((range) => ({
-              annotation,
-              range,
-            })),
-          );
-      }
+      for (const annotation of annotations)
+        for (const range of pdfSourceMarkRanges(
+          host,
+          annotation,
+          blocks,
+          engine,
+        ))
+          marks.push({ annotation, range });
       const groups = new Map<string, Range[]>();
       const rules: string[] = [];
       for (const mark of marks) {
