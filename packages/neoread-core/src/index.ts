@@ -74,6 +74,10 @@ export type TranslationLocation = TranslationRecoveryAnchor & {
   })[];
 };
 export type EPUBLocation = {
+  /** Zero-based publication chapter and chapter-local block positions. */
+  order?: { chapter: number; block: number };
+  /** A historical location could not be safely migrated; retain its note. */
+  unresolved?: boolean;
   blockId?: string;
   /** UTF-16 offsets in block text; endBlockId supports multi-paragraph selections. */
   start?: number;
@@ -85,7 +89,6 @@ export type EPUBLocation = {
   href: string;
   sentenceLink?: SentenceLink;
   translation?: TranslationLocation;
-  locator?: string;
   progression?: number;
   quote?: string;
 };

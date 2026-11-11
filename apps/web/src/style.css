@@ -1068,15 +1068,6 @@ kbd {
   inset: 0;
   overflow: hidden;
 }
-/* Readium positions reflowable frames but leaves their viewport size to us.
-   Fixed-layout frames are nested in wrappers and keep Readium's own sizing. */
-.neoread-engine > .readium-navigator-iframe {
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
 .neoread-engine.pdf-container {
   /* PDF.js assigns increasing z-index values to native annotations. Keep
      those layers inside the reader, below app dialogs and popovers. */

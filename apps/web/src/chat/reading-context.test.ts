@@ -37,7 +37,7 @@ it.each(["codex", "api", "claude"])(
       type: "epub",
       href: "ch2.xhtml#section",
       progression: 0.7,
-      locator: '{"href":"ch2.xhtml","type":"application/xhtml+xml"}',
+
       blockId: "b7",
     };
     const reader = {
@@ -49,7 +49,7 @@ it.each(["codex", "api", "claude"])(
     expect(result.readingLocation).toMatchObject({
       href: "ch2.xhtml#section",
       progression: 0.7,
-      locator: position.locator,
+
       blockId: "b7",
     });
     expect(result.context).toBe("");

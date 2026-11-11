@@ -118,6 +118,7 @@ import {
   activeAnnotation,
   annotationRequests,
   applySavedAnnotation,
+  saveAnnotationParts,
   highlightPalette,
 } from "./annotations";
 import { ColorSwatches } from "./ColorSwatches";
@@ -639,29 +640,39 @@ export function Workspace({
         source && kind !== "bookmark" && !editingAnnotation
           ? ((await adapter?.prepareAnnotation?.(source)) ?? source)
           : source;
-      let a: Annotation | undefined;
-      if (written && editingAnnotation) {
-        const updated = await api.updateAnnotationNote(
-          doc.id,
-          editingAnnotation.id,
-          noteText,
-        );
-        setAnnotations((items) => applySavedAnnotation(items, updated));
-        a = updated;
-      } else {
-        for (const request of annotationRequests(
-          kind,
-          prepared,
-          target,
-          noteText,
-          color,
-        )) {
-          const saved = await api.annotate(doc.id, request);
-          setAnnotations((items) => applySavedAnnotation(items, saved));
-          a = saved;
-          savedCount++;
-        }
-      }
+      // PDF notes keep their single positioned side; highlights and EPUB
+      // mixed selections retain independent parts with partial-save recovery.
+      const selected =
+        doc.type === "pdf" && written && prepared
+          ? { ...prepared, parts: undefined }
+          : prepared;
+      const a =
+        written && editingAnnotation
+          ? await api.updateAnnotationNote(
+              doc.id,
+              editingAnnotation.id,
+              noteText,
+            )
+          : await saveAnnotationParts(
+              kind === "bookmark"
+                ? { text: "", location: target }
+                : (selected ?? { text: "", location: target }),
+              (part) =>
+                api.annotate(
+                  doc.id,
+                  annotationRequests(kind, part, target, noteText, color)[0],
+                ),
+              (saved) => {
+                setAnnotations((items) => applySavedAnnotation(items, saved));
+                savedCount++;
+              },
+              (pending) => {
+                if (written) setNoteSelection(pending);
+                else setSelection(pending);
+              },
+            );
+      if (written && editingAnnotation)
+        setAnnotations((items) => applySavedAnnotation(items, a));
       adapter?.clearSelection();
       if (kind === "bookmark")
         toast.success("已添加书签", { id: "neoread-annotation-save" });

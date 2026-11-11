@@ -5,12 +5,6 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@readium/navigator-html-injectables@2.8.4':
-    hash: 55e79bbe1e906c6abe3e0a35e3acce6fca5c6f9f13df231684da0ba1ae0bfc29
-    path: patches/@readium__navigator-html-injectables@2.8.4.patch
-  '@readium/navigator@2.11.1':
-    hash: 91945f1d2975bffd8f4a122ae1595096c882cef2991a5da8b8e39ed88a87985c
-    path: patches/@readium__navigator@2.11.1.patch
   pdfjs-dist@6.3.289:
     hash: de1d7faae995881b779566624c9597ca7a2a6fb9459308e9004f82071d297420
     path: patches/pdfjs-dist@6.3.289.patch
@@ -149,12 +143,6 @@ importers:
       '@neoread/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-      '@readium/navigator':
-        specifier: 2.11.1
-        version: 2.11.1(patch_hash=91945f1d2975bffd8f4a122ae1595096c882cef2991a5da8b8e39ed88a87985c)
-      '@readium/shared':
-        specifier: 2.6.0
-        version: 2.6.0
       citeproc:
         specifier: 2.4.63
         version: 2.4.63
@@ -1915,26 +1903,6 @@ packages:
     peerDependencies:
       react: '>=18.0.0'
       react-dom: '>=18.0.0'
-
-  '@readium/decorator@1.2.4':
-    resolution: {integrity: sha512-1/H4g+NUfzN1k4Bptwxpyv2ovzE7Rc/8Yp2TZGhRwilm4TE67rPOVS0GcylPXezSF6LZJtRFfFFf0gcwC8SWcA==}
-    engines: {node: '>=18'}
-
-  '@readium/helpers@1.1.1':
-    resolution: {integrity: sha512-dCtHBmbJrXcarz8Yf0W6V5BJUsZU+UquTRLINHR1AjM/HTXPzs0U6/1daB7Urs7qWBpZEFuH3aQfXLSeTJObdg==}
-    engines: {node: '>=18'}
-
-  '@readium/navigator-html-injectables@2.8.4':
-    resolution: {integrity: sha512-DC/M5Si4yz8j8s5C6ReQOkq8pukvoCJjLfzi4tJScjF1dESxuwjBKEIAtK1jE8tWlJh/XhewBUCQcMm8yhkiEg==}
-    engines: {node: '>=18'}
-
-  '@readium/navigator@2.11.1':
-    resolution: {integrity: sha512-EQD9HfqWDTHrJQ1PKyKETdzxT2oDl4W46ckAWgCaMKgCyMfdsyaO5qAExeT0Fa4fvzRoKG9oIWNq70jNfZ9lHA==}
-    engines: {node: '>=18'}
-
-  '@readium/shared@2.6.0':
-    resolution: {integrity: sha512-9hYDK/IIVsmrJtofecw6y1awRITu6z9i4BO80iqIzGHNwba0izCgg8ylYEDcDvnKZNHu9Ho6BIZC1wKbxHyydw==}
-    engines: {node: '>=18'}
 
   '@redocly/ajv@8.11.2':
     resolution: {integrity: sha512-io1JpnwtIcvojV7QKDUSIuMN/ikdOUd1ReEnUnMKGfDVridQZ31J0MmIuqwuRjWDZfmvr+Q0MqCcfHM2gTivOg==}
@@ -5115,9 +5083,6 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  user-agent-data-types@0.4.3:
-    resolution: {integrity: sha512-Dn3fjwVgeM363mx1sEgOpOp9NNqHBj6Gn68dFbV1WoTr3s05CijKdxfH6A3Q5uzXnYNB6vdAfs/1HWFpObc7EQ==}
-
   utf8-byte-length@1.0.5:
     resolution: {integrity: sha512-Xn0w3MtiQ6zoz2vFyUVruaCL53O/DwUvkEeOvj+uulMm0BkUGYWmBYVyElqZaSLhY6ZD0ulfU3aBra2aVT4xfA==}
 
@@ -7529,31 +7494,6 @@ snapshots:
       clsx: 2.1.1
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
-
-  '@readium/decorator@1.2.4':
-    dependencies:
-      '@readium/navigator-html-injectables': 2.8.4(patch_hash=55e79bbe1e906c6abe3e0a35e3acce6fca5c6f9f13df231684da0ba1ae0bfc29)
-      '@readium/shared': 2.6.0
-
-  '@readium/helpers@1.1.1':
-    dependencies:
-      user-agent-data-types: 0.4.3
-
-  '@readium/navigator-html-injectables@2.8.4(patch_hash=55e79bbe1e906c6abe3e0a35e3acce6fca5c6f9f13df231684da0ba1ae0bfc29)':
-    dependencies:
-      '@readium/helpers': 1.1.1
-      '@readium/shared': 2.6.0
-
-  '@readium/navigator@2.11.1(patch_hash=91945f1d2975bffd8f4a122ae1595096c882cef2991a5da8b8e39ed88a87985c)':
-    dependencies:
-      '@readium/decorator': 1.2.4
-      '@readium/helpers': 1.1.1
-      '@readium/navigator-html-injectables': 2.8.4(patch_hash=55e79bbe1e906c6abe3e0a35e3acce6fca5c6f9f13df231684da0ba1ae0bfc29)
-      '@readium/shared': 2.6.0
-
-  '@readium/shared@2.6.0':
-    dependencies:
-      '@readium/helpers': 1.1.1
 
   '@redocly/ajv@8.11.2':
     dependencies:
@@ -11405,8 +11345,6 @@ snapshots:
   use-sync-external-store@1.7.0(react@19.3.0):
     dependencies:
       react: 19.3.0
-
-  user-agent-data-types@0.4.3: {}
 
   utf8-byte-length@1.0.5: {}
 

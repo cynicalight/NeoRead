@@ -21,7 +21,6 @@ import {
   type Document,
   type Message,
 } from "@neoread/core";
-import { api } from "@neoread/api";
 import { Badge } from "@neoread/ui/components/badge";
 import { Button } from "@neoread/ui/components/button";
 import { Input } from "@neoread/ui/components/input";
@@ -134,6 +133,7 @@ function NoteCard({
       <div>
         <Badge variant="outline">
           {annotationLabels[a.kind]}
+          {a.location.type === "epub" && a.location.unresolved && " · 定位异常"}
           {question &&
             (a.answerId ? " · 已回答" : a.resolved ? " · 已解决" : "")}
         </Badge>

@@ -1,5 +1,7 @@
+import { sourceEPUBSelection } from "../readers/epub-web-location";
 import { reflowBlockText } from "./reflow";
 import { copyText } from "../chat/clipboard";
+import { texText } from "../chat/tex-text";
 import { useSentenceMarks } from "./useSentenceMarks";
 import { useTranslations } from "./useTranslations";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
@@ -56,7 +58,7 @@ const blockAnchor = (block: EPUBReadingBlock): EPUBLocation => ({
 function chapterAnchor(location: EPUBLocation): EPUBLocation {
   return location.blockId
     ? { type: "epub", href: location.href, blockId: location.blockId }
-    : { type: "epub", href: location.href, locator: location.locator };
+    : { type: "epub", href: location.href, progression: location.progression };
 }
 export function EPUBReadingView({
   document: doc,
@@ -125,7 +127,7 @@ export function EPUBReadingView({
     setAnchor((current) =>
       current?.href === next.href &&
       current.blockId === next.blockId &&
-      current.locator === next.locator
+      current.progression === next.progression
         ? current
         : next,
     );
@@ -538,21 +540,36 @@ export function EPUBReadingView({
       !host.contains(range.endContainer)
     )
       return;
-    // Source text in the reflowed column belongs to the EPUB reader.
-    const start =
-      range.startContainer instanceof Element
-        ? range.startContainer
-        : range.startContainer.parentElement;
-    if (live.current.reflow && !start?.closest("[data-translation-block]"))
-      return;
-    const value = translatedSelection(host, range, visible, translations);
-    if (!value || value.selection.location.type !== "epub") return;
-    side.current = "translation";
-    selection.current = value.selection;
-    live.current.events.selection(value.selection);
-    updateLocation(value.selection.location);
-    pinAnchor(value.selection.location);
-    if (!live.current.reflow) void syncSource(value.selection.location);
+    const source =
+      live.current.reflow && live.current.mode !== "translation"
+        ? sourceEPUBSelection(host, range, live.current.blocks)
+        : undefined;
+    const translated =
+      live.current.reflow && live.current.mode === "source"
+        ? undefined
+        : translatedSelection(host, range, visible, translations)?.selection;
+    // The native EPUB adapter already captured source-only selections, including
+    // their pointer anchor and context. Only override translated/mixed ranges.
+    if (!translated) return;
+    const value: ReaderSelection = source
+      ? {
+          ...source,
+          text: texText(range).trim(),
+          anchor: translated.anchor,
+          context: translated.context,
+          parts: [
+            source,
+            { text: translated.text, location: translated.location },
+          ],
+        }
+      : translated;
+    if (!value || value.location.type !== "epub") return;
+    side.current = source ? "source" : "translation";
+    selection.current = value;
+    live.current.events.selection(value);
+    updateLocation(value.location);
+    pinAnchor(value.location);
+    if (!live.current.reflow) void syncSource(value.location);
   };
   const scroll = () => {
     live.current.events.annotationHover?.(null);

@@ -108,3 +108,46 @@ it("keeps all sentences and annotation ranges when a selection crosses paragraph
     ),
   ).toEqual(["第二句。", "第三句。"]);
 });
+
+it("extracts only translated text across intervening EPUB source paragraphs", () => {
+  const host = document.createElement("div");
+  host.innerHTML =
+    '<section data-translation-block="a"><span data-sentence="0">第一段译文。</span></section><p>Intervening source text.</p><section data-translation-block="b"><span data-sentence="0">第二段译文。</span></section>';
+  const nodes = host.querySelectorAll("span"),
+    range = document.createRange();
+  range.setStart(nodes[0].firstChild!, 2);
+  range.setEnd(nodes[1].firstChild!, 3);
+  Object.assign(range, {
+    getBoundingClientRect: () => new DOMRect(0, 0, 100, 100),
+  });
+  const blocks = ["a", "b"].map((id) => ({
+    id,
+    label: "text",
+    text: "Source.",
+    location: {
+      type: "epub" as const,
+      href: "chapter",
+      blockId: id,
+      start: 0,
+      end: 7,
+    },
+  }));
+  const translations: TranslationBlock[] = blocks.map((b, i) => ({
+    blockId: b.id,
+    status: "complete",
+    sourceHash: b.id,
+    sentences: [{ source: b.text, target: nodes[i].textContent! }],
+  }));
+  const value = translatedSelection(host, range, blocks, translations)!;
+  expect(value.selection.text).toBe("段译文。\n\n第二段");
+  expect(
+    value.selection.location.translation!.ranges!.map((r) => ({
+      blockId: r.blockId,
+      start: r.start,
+      end: r.end,
+    })),
+  ).toEqual([
+    { blockId: "a", start: 2, end: 6 },
+    { blockId: "b", start: 0, end: 3 },
+  ]);
+});

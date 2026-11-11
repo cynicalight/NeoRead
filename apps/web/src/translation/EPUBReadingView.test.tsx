@@ -87,16 +87,28 @@ vi.mock("../ReaderView", () => ({
   ReaderView: ({
     events,
     onReady,
+    theme,
   }: {
     events: ReaderEvents;
     onReady: (a: ReaderAdapter, t: []) => void;
+    theme: ReaderTheme;
   }) => {
     fixture.events = events;
     useEffect(() => {
       events.epubBlocksChanged?.(blocks);
       onReady(adapter, []);
     }, []);
-    return <div>EPUB 原文</div>;
+    return theme.textReflow ? (
+      <div className="epub-web-reader">
+        {blocks.map((block) => (
+          <p key={block.id} data-epub-block={block.id}>
+            <span data-epub-run={block.id}>{block.text}</span>
+          </p>
+        ))}
+      </div>
+    ) : (
+      <div>EPUB 原文</div>
+    );
   },
 }));
 import { useReaderStore } from "../store";
@@ -112,18 +124,9 @@ const blocks: import("@neoread/core").EPUBReadingBlock[] = [
     type: "epub",
     href,
     quote: "First sentence. Second sentence.",
-    locator: JSON.stringify({
-      href,
-      type: "application/xhtml+xml",
-      locations: {
-        textRange: { start: 0, end: 32 },
-        domRange: {
-          start: { cssSelector: "p", textNodeIndex: 0, charOffset: 0 },
-          end: { cssSelector: "p", textNodeIndex: 0, charOffset: 32 },
-        },
-      },
-      text: { highlight: "First sentence. Second sentence." },
-    }),
+    blockId: i ? "e-b" : "p1-b1",
+    start: 0,
+    end: 32,
   },
 }));
 let root: Root, host: HTMLDivElement;
@@ -193,6 +196,39 @@ async function click(label: string) {
   await act(async () => button.click());
 }
 
+it("keeps full mixed selection text for chat and independent annotation parts", async () => {
+  await renderView({ ...defaultTheme, textReflow: true });
+  await click("原文译文");
+  const source = host.querySelector('[data-epub-run="p1-b1"]')!;
+  const target = host.querySelector(
+    '[data-translation-block="p1-b1"] [data-sentence="0"]',
+  )!;
+  expect(target).toBeTruthy();
+  const range = document.createRange();
+  range.selectNodeContents(target);
+  range.setStart(source.firstChild!, 0);
+  Object.assign(range, {
+    getBoundingClientRect: () => new DOMRect(0, 0, 100, 20),
+  });
+  window.getSelection()!.addRange(range);
+  await act(async () =>
+    target.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
+  );
+  const selected = fixture.ready!.getSelection()!;
+  expect(selected.text).toContain(blocks[0].text);
+  expect(selected.text).toContain("第一句。");
+  expect(selected.text).not.toContain("第二句。");
+  expect(selected.parts?.map((part) => part.text)).toEqual([
+    blocks[0].text,
+    "第一句。",
+  ]);
+  expect(selected.parts?.[0].location).not.toHaveProperty("translation");
+  expect(selected.parts?.[1].location.translation?.sentenceIndexes).toEqual([
+    0,
+  ]);
+  expect(events.selection).toHaveBeenLastCalledWith(selected);
+});
+
 it("supports all modes and chapter navigation without PDF page locations", async () => {
   await click("仅译文");
   expect(host.querySelector('[data-mode="translation"]')).toBeTruthy();
@@ -242,9 +278,9 @@ it("restores an original interaction after following the translated pane", async
       text: "Second",
       location: {
         ...blocks[0].location,
-        locator: JSON.stringify({
-          locations: { textRange: { start: 16, end: 22 } },
-        }),
+        blockId: blocks[0].id,
+        start: 16,
+        end: 22,
       },
     }),
   );
@@ -462,10 +498,14 @@ it("links block hover and focuses a clicked block in both panes", async () => {
 it("prioritizes double-click selection over translation block focus", async () => {
   await click("原文译文");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
-  const section = host.querySelector<HTMLElement>('[data-translation-block="e-b"]')!;
+  const section = host.querySelector<HTMLElement>(
+    '[data-translation-block="e-b"]',
+  )!;
   vi.mocked(adapter.focusBlock!).mockClear();
   const clickBlock = (detail: number) => {
-    section.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+    section.dispatchEvent(
+      new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+    );
     section.dispatchEvent(new MouseEvent("click", { bubbles: true, detail }));
   };
   await act(async () => {

@@ -72,6 +72,8 @@ type Message struct {
 }
 type Store struct {
 	processingWriteMu sync.Mutex
+	epubBlocksMu      sync.Mutex
+	epubBlocksCache   map[string]epubChapterBlocksCache
 	DB                *sql.DB
 	Root              string
 }
@@ -145,7 +147,7 @@ func OpenStore(root string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if err = store.compactMarks(); err != nil {
+	if err = store.migrateEPUBLocations(); err != nil {
 		db.Close()
 		return nil, err
 	}

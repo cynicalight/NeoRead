@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf16"
 
@@ -18,15 +19,24 @@ import (
 )
 
 type EPUBReadingLocation struct {
-	Type    string `json:"type"`
-	Href    string `json:"href"`
-	Locator string `json:"locator"`
-	Quote   string `json:"quote"`
-	BlockID string `json:"blockId,omitempty"`
-	Start   int    `json:"start"`
-	End     int    `json:"end"`
+	Type    string            `json:"type"`
+	Href    string            `json:"href"`
+	Quote   string            `json:"quote"`
+	BlockID string            `json:"blockId,omitempty"`
+	Start   int               `json:"start"`
+	End     int               `json:"end"`
+	Order   *EPUBReadingOrder `json:"order,omitempty"`
+}
+
+// Zero-based publication chapter and chapter-local block positions. These are
+// independent of stable block IDs and need no preceding chapter text.
+type EPUBReadingOrder struct {
+	Chapter int `json:"chapter"`
+	Block   int `json:"block"`
 }
 type EPUBReadingBlock struct {
+	legacy *legacyEPUBBlockIndex
+
 	ID       string              `json:"id"`
 	Label    string              `json:"label"`
 	Text     string              `json:"text"`
@@ -34,6 +44,15 @@ type EPUBReadingBlock struct {
 	Location EPUBReadingLocation `json:"location"`
 }
 type epubTranslationDocument []EPUBReadingBlock
+
+// Cached chapter blocks are immutable and may be shared by concurrent readers.
+func orderedEPUBChapter(blocks epubTranslationDocument, chapter int) epubTranslationDocument {
+	out := append(epubTranslationDocument{}, blocks...)
+	for i := range out {
+		out[i].Location.Order = &EPUBReadingOrder{Chapter: chapter, Block: i}
+	}
+	return out
+}
 
 func (m epubTranslationDocument) translationParagraphs() []translationParagraph {
 	out := []translationParagraph{}
@@ -82,7 +101,7 @@ func (s *Server) readEPUBBlocks(id string) (epubTranslationDocument, error) {
 		return nil, err
 	}
 	out := epubTranslationDocument{}
-	for _, link := range manifest.ReadingOrder {
+	for chapter, link := range manifest.ReadingOrder {
 		if link.Type != "application/xhtml+xml" && link.Type != "text/html" {
 			continue
 		}
@@ -90,17 +109,64 @@ func (s *Server) readEPUBBlocks(id string) (epubTranslationDocument, error) {
 		if e != nil {
 			return nil, e
 		}
-		data, e := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
+		blocks, e := s.Store.readEPUBChapterBlocks(id, link.Href, name)
 		if e != nil {
 			return nil, e
 		}
-		blocks, e := epubTextBlocks(link.Href, string(data))
-		if e != nil {
-			return nil, e
-		}
-		out = append(out, blocks...)
+		out = append(out, orderedEPUBChapter(blocks, chapter)...)
 	}
 	return out, nil
+}
+
+type epubChapterBlocksCache struct {
+	size           int64
+	modified, used time.Time
+	blocks         epubTranslationDocument
+}
+
+// Cache immutable chapter text, shared by reading and annotation merging. File
+// metadata invalidates entries after re-extraction; the entry limit bounds retention.
+func (s *Store) readEPUBChapterBlocks(id, href, name string) (epubTranslationDocument, error) {
+	filename := filepath.Join(s.Root, "cache", id, filepath.FromSlash(name))
+	s.epubBlocksMu.Lock()
+	defer s.epubBlocksMu.Unlock()
+	info, err := os.Stat(filename)
+	if err != nil {
+		delete(s.epubBlocksCache, filename)
+		return nil, err
+	}
+	if entry, ok := s.epubBlocksCache[filename]; ok && entry.size == info.Size() && entry.modified.Equal(info.ModTime()) {
+		entry.used = time.Now()
+		s.epubBlocksCache[filename] = entry
+		return entry.blocks, nil
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	blocks, err := epubTextBlocks(href, string(data))
+	if err != nil {
+		return nil, err
+	}
+	s.cacheEPUBChapterBlocks(filename, info, blocks)
+	return blocks, nil
+}
+
+// Caller holds epubBlocksMu.
+func (s *Store) cacheEPUBChapterBlocks(filename string, info os.FileInfo, blocks epubTranslationDocument) {
+	if s.epubBlocksCache == nil {
+		s.epubBlocksCache = map[string]epubChapterBlocksCache{}
+	}
+	if _, exists := s.epubBlocksCache[filename]; !exists && len(s.epubBlocksCache) >= 32 {
+		oldest := ""
+		for key, entry := range s.epubBlocksCache {
+			if oldest == "" || entry.used.Before(s.epubBlocksCache[oldest].used) {
+				oldest = key
+			}
+		}
+		delete(s.epubBlocksCache, oldest)
+	}
+	s.epubBlocksCache[filename] = epubChapterBlocksCache{info.Size(), info.ModTime(), time.Now(), blocks}
 }
 func utf16Length(s string) int { return len(utf16.Encode([]rune(s))) }
 func epubCSSPath(n *html.Node) string {
@@ -198,11 +264,12 @@ func parseEPUBChapter(href, source string, mark func(EPUBReadingBlock, []*html.N
 		}
 		quote := text.String()
 		startPoint, endPoint := epubDOMPoint(startNode, utf16Length(startNode.Data[:prefix])), epubDOMPoint(endNode, utf16Length(endNode.Data[:end]))
-		loc, _ := json.Marshal(map[string]any{"href": href, "type": "application/xhtml+xml", "locations": map[string]any{"textRange": map[string]int{"start": offsets[startNode] + utf16Length(startNode.Data[:prefix]), "end": offsets[endNode] + utf16Length(endNode.Data[:end])}, "domRange": map[string]any{"start": startPoint, "end": endPoint}}, "text": map[string]string{"highlight": quote}})
+
 		key, _ := json.Marshal([]any{href, startPoint, endPoint})
 		sum := sha256.Sum256(key)
-		out = append(out, EPUBReadingBlock{ID: "e-" + hex.EncodeToString(sum[:16]), Label: label, Text: quote, Location: EPUBReadingLocation{Type: "epub", Href: href, Locator: string(loc), Quote: quote}})
+		out = append(out, EPUBReadingBlock{ID: "e-" + hex.EncodeToString(sum[:16]), Label: label, Text: quote, Location: EPUBReadingLocation{Type: "epub", Href: href, Quote: quote}})
 		b := &out[len(out)-1]
+		b.legacy = &legacyEPUBBlockIndex{Start: offsets[startNode] + utf16Length(startNode.Data[:prefix]), End: offsets[endNode] + utf16Length(endNode.Data[:end]), DOMStart: startPoint, DOMEnd: endPoint}
 		b.Location.BlockID, b.Location.End = b.ID, utf16Length(b.Text)
 		mark(*b, nodes[first:last+1])
 		nodes = nil
@@ -232,9 +299,8 @@ func parseEPUBChapter(href, source string, mark func(EPUBReadingBlock, []*html.N
 			if e == nil && src != "" && !resource.IsAbs() && resource.Host == "" && !strings.HasPrefix(resource.Path, "/") {
 				resolved := (&url.URL{Path: path.Join(path.Dir(base.Path), resource.Path)}).String()
 				if name, e := safeResource(resolved); e == nil {
-					loc, _ := json.Marshal(map[string]any{"href": href, "type": "application/xhtml+xml", "locations": map[string]any{"cssSelector": epubCSSPath(n)}})
 					sum := sha256.Sum256([]byte(href + ":" + epubCSSPath(n)))
-					out = append(out, EPUBReadingBlock{ID: "e-" + hex.EncodeToString(sum[:16]), Label: "image", Text: alt, Image: name, Location: EPUBReadingLocation{Type: "epub", Href: href, Locator: string(loc)}})
+					out = append(out, EPUBReadingBlock{ID: "e-" + hex.EncodeToString(sum[:16]), Label: "image", Text: alt, Image: name, Location: EPUBReadingLocation{Type: "epub", Href: href}})
 					b := &out[len(out)-1]
 					b.Location.BlockID = b.ID
 					mark(*b, []*html.Node{n})

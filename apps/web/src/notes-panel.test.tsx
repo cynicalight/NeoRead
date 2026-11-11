@@ -9,6 +9,7 @@ import { paper } from "./papers/fixtures";
 import { tabCloseWarning } from "./document-tab-guards";
 vi.mock("@neoread/api", () => ({
   api: {
+    epubBlocks: vi.fn(),
     documentNote: vi.fn(async () => ({ body: "" })),
     saveDocumentNote: vi.fn(async (_id: string, body: string) => ({ body })),
   },
@@ -222,4 +223,61 @@ it("warns before closing the tab with an unsaved inline note", async () => {
 
 it("keeps paper notes out of the annotation panel", () => {
   expect(host.querySelector(".paper-note")).toBeNull();
+});
+
+it("renders EPUB annotations in saved source order without requesting full-book blocks", async () => {
+  const blocks = [
+    {
+      id: "z-first",
+      label: "text",
+      text: "Where TypeScript is special",
+      location: { type: "epub" as const, href: "ch.xhtml" },
+    },
+    {
+      id: "a-next",
+      label: "text",
+      text: "At this point you may be thinking",
+      location: { type: "epub" as const, href: "ch.xhtml" },
+    },
+  ];
+  vi.mocked(api.epubBlocks).mockRejectedValue(
+    new Error("book source unavailable"),
+  );
+  const earlier = mark({
+    id: "earlier",
+    quote: blocks[0].text,
+    location: {
+      type: "epub",
+      href: "ch.xhtml",
+      blockId: blocks[0].id,
+      order: { chapter: 0, block: 0 },
+      start: 0,
+      progression: 0.08,
+    },
+  });
+  const later = mark({
+    id: "later",
+    quote: blocks[1].text,
+    location: {
+      type: "epub",
+      href: "ch.xhtml",
+      blockId: blocks[1].id,
+      order: { chapter: 0, block: 1 },
+      start: 0,
+    },
+  });
+  await act(async () =>
+    root.render(
+      <NotesPanel
+        document={paper({ id: "epub", type: "epub" })}
+        annotations={[later, earlier]}
+        messages={[]}
+        deleting={new Set()}
+        answering={new Set()}
+        {...handlers}
+      />,
+    ),
+  );
+  expect(cards()).toEqual([earlier.quote, later.quote]);
+  expect(api.epubBlocks).not.toHaveBeenCalled();
 });

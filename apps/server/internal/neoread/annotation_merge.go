@@ -6,7 +6,6 @@ import (
 	"math"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -208,9 +207,19 @@ func mergeSourceSentenceLinks(a, b Annotation, quote string) (json.RawMessage, b
 	return merged, true
 }
 
-func mergeAnnotationMark(a, b Annotation) (Annotation, bool) {
+func compatibleAnnotationMarks(a, b Annotation) bool {
+	// Unresolved locations cannot safely participate in a range union.
+	for _, location := range []json.RawMessage{a.Location, b.Location} {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(location, &fields) != nil {
+			continue
+		}
+		if string(fields["unresolved"]) == "true" {
+			return false
+		}
+	}
 	if (a.Kind != "underline" && a.Kind != "highlight") || a.Kind != b.Kind || a.DocumentID != b.DocumentID {
-		return a, false
+		return false
 	}
 	// Colors and tags classify marks. Geometric overlap must not erase a
 	// different classification, including during startup compaction.
@@ -220,12 +229,19 @@ func mergeAnnotationMark(a, b Annotation) (Annotation, bool) {
 		return slices.Compact(values)
 	}
 	if !strings.EqualFold(a.Color, b.Color) || !slices.Equal(tags(a.Tags), tags(b.Tags)) || a.AnswerID != b.AnswerID || a.Resolved != b.Resolved {
+		return false
+	}
+	return true
+}
+
+func mergeAnnotationMark(a, b Annotation, blockSets ...epubTranslationDocument) (Annotation, bool) {
+	if !compatibleAnnotationMarks(a, b) {
 		return a, false
 	}
 	if merged, ok := mergeReflowTextMark(a, b); ok {
 		return merged, true
 	}
-	// Source geometry alone cannot merge translated ranges.
+	// EPUB and PDF geometry cannot represent translated range unions.
 	for _, location := range []json.RawMessage{a.Location, b.Location} {
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(location, &fields) == nil {
@@ -234,9 +250,14 @@ func mergeAnnotationMark(a, b Annotation) (Annotation, bool) {
 			}
 		}
 	}
-	if merged, ok := mergeEPUBMark(a, b); ok {
+	var blocks epubTranslationDocument
+	if len(blockSets) > 0 {
+		blocks = blockSets[0]
+	}
+	if merged, ok := mergeEPUBBlockMark(a, b, blocks); ok {
 		return merged, true
 	}
+
 	var left, right annotationPDFLocation
 	if json.Unmarshal(a.Location, &left) != nil || json.Unmarshal(b.Location, &right) != nil || left.Type != "pdf" || right.Type != "pdf" || left.Page != right.Page || len(left.Rects) == 0 || len(right.Rects) == 0 {
 		return a, false
@@ -286,176 +307,9 @@ func mergeAnnotationMark(a, b Annotation) (Annotation, bool) {
 	return a, true
 }
 
-type annotationDOMPoint struct {
-	CSSSelector   string `json:"cssSelector"`
-	TextNodeIndex int    `json:"textNodeIndex"`
-	CharOffset    int    `json:"charOffset"`
-}
-type annotationDOMRange struct {
-	Start annotationDOMPoint `json:"start"`
-	End   annotationDOMPoint `json:"end"`
-}
-type annotationTextRange struct {
-	Start int `json:"start"`
-	End   int `json:"end"`
-}
-type annotationEPUBLocation struct {
-	Type    string `json:"type"`
-	Href    string `json:"href"`
-	Locator string `json:"locator"`
-}
-type annotationLocator struct {
-	Locations struct {
-		DOMRange  *annotationDOMRange  `json:"domRange"`
-		TextRange *annotationTextRange `json:"textRange"`
-	} `json:"locations"`
-}
-
-// Older locators have no text offsets. Compare only paths whose document order
-// is unambiguous; nth-of-type values across different tag names are incomparable.
-func compareAnnotationPoints(a, b annotationDOMPoint) (int, bool) {
-	if a.CSSSelector == "" || b.CSSSelector == "" {
-		return 0, false
-	}
-	if a.CSSSelector != b.CSSSelector {
-		left, right := strings.Split(a.CSSSelector, " > "), strings.Split(b.CSSSelector, " > ")
-		for i := 0; i < min(len(left), len(right)); i++ {
-			if left[i] == right[i] {
-				continue
-			}
-			tagA, numA, okA := strings.Cut(left[i], ":nth-of-type(")
-			tagB, numB, okB := strings.Cut(right[i], ":nth-of-type(")
-			if !okA || !okB || tagA != tagB {
-				return 0, false
-			}
-			nA, eA := strconv.Atoi(strings.TrimSuffix(numA, ")"))
-			nB, eB := strconv.Atoi(strings.TrimSuffix(numB, ")"))
-			if eA != nil || eB != nil {
-				return 0, false
-			}
-			return nA - nB, true
-		}
-		return 0, false
-	}
-	if a.TextNodeIndex != b.TextNodeIndex {
-		return a.TextNodeIndex - b.TextNodeIndex, true
-	}
-	return a.CharOffset - b.CharOffset, true
-}
-func mergeEPUBMark(a, b Annotation) (Annotation, bool) {
-	var left, right annotationEPUBLocation
-	if json.Unmarshal(a.Location, &left) != nil || json.Unmarshal(b.Location, &right) != nil || left.Type != "epub" || right.Type != "epub" || strings.Split(left.Href, "#")[0] != strings.Split(right.Href, "#")[0] {
-		return a, false
-	}
-	var l, r annotationLocator
-	if json.Unmarshal([]byte(left.Locator), &l) != nil || json.Unmarshal([]byte(right.Locator), &r) != nil || l.Locations.DOMRange == nil || r.Locations.DOMRange == nil {
-		return a, false
-	}
-	for _, locator := range []annotationLocator{l, r} {
-		rangeValue := locator.Locations.DOMRange
-		if rangeValue.Start.CSSSelector == "" || rangeValue.End.CSSSelector == "" || rangeValue.Start.CharOffset < 0 || rangeValue.End.CharOffset < 0 || rangeValue.Start.TextNodeIndex < 0 || rangeValue.End.TextNodeIndex < 0 {
-			return a, false
-		}
-		if offsets := locator.Locations.TextRange; offsets != nil && (offsets.Start < 0 || offsets.End <= offsets.Start) {
-			return a, false
-		}
-	}
-	cmp := func(leftEnd, rightEnd bool) (int, bool) {
-		if l.Locations.TextRange != nil && r.Locations.TextRange != nil {
-			x, y := l.Locations.TextRange.Start, r.Locations.TextRange.Start
-			if leftEnd {
-				x = l.Locations.TextRange.End
-			}
-			if rightEnd {
-				y = r.Locations.TextRange.End
-			}
-			return x - y, true
-		}
-		x, y := l.Locations.DOMRange.Start, r.Locations.DOMRange.Start
-		if leftEnd {
-			x = l.Locations.DOMRange.End
-		}
-		if rightEnd {
-			y = r.Locations.DOMRange.End
-		}
-		return compareAnnotationPoints(x, y)
-	}
-	lr, ok1 := cmp(false, true)
-	rl, ok2 := cmp(true, false)
-	starts, ok3 := cmp(false, false)
-	ends, ok4 := cmp(true, true)
-	if !ok1 || !ok2 || !ok3 || !ok4 || lr >= 0 || rl <= 0 {
-		return a, false
-	}
-	first, last := a, b
-	start, end := l.Locations.DOMRange.Start, r.Locations.DOMRange.End
-	if starts > 0 {
-		first = b
-		start = r.Locations.DOMRange.Start
-	}
-	if ends > 0 {
-		last = a
-		end = l.Locations.DOMRange.End
-	}
-	quote := first.Quote
-	switch {
-	case starts <= 0 && ends >= 0:
-		quote = a.Quote
-	case starts >= 0 && ends <= 0:
-		quote = b.Quote
-	default:
-		quote = joinAnnotationQuotes(first.Quote, last.Quote)
-	}
-	link, linked := mergeSourceSentenceLinks(a, b, quote)
-	if !linked {
-		return a, false
-	}
-	var location map[string]json.RawMessage
-	json.Unmarshal(first.Location, &location)
-	var firstLocation, lastLocation annotationEPUBLocation
-	json.Unmarshal(first.Location, &firstLocation)
-	json.Unmarshal(last.Location, &lastLocation)
-	var locator, lastLocator map[string]json.RawMessage
-	json.Unmarshal([]byte(firstLocation.Locator), &locator)
-	json.Unmarshal([]byte(lastLocation.Locator), &lastLocator)
-	var locations map[string]json.RawMessage
-	json.Unmarshal(locator["locations"], &locations)
-	locations["domRange"], _ = json.Marshal(annotationDOMRange{start, end})
-	delete(locations, "textRange")
-	if l.Locations.TextRange != nil && r.Locations.TextRange != nil {
-		locations["textRange"], _ = json.Marshal(annotationTextRange{min(l.Locations.TextRange.Start, r.Locations.TextRange.Start), max(l.Locations.TextRange.End, r.Locations.TextRange.End)})
-	}
-	locator["locations"], _ = json.Marshal(locations)
-	text := map[string]json.RawMessage{}
-	json.Unmarshal(locator["text"], &text)
-	if text == nil {
-		text = map[string]json.RawMessage{}
-	}
-	text["highlight"], _ = json.Marshal(quote)
-	var lastText map[string]json.RawMessage
-	json.Unmarshal(lastLocator["text"], &lastText)
-	delete(text, "after")
-	if after, ok := lastText["after"]; ok {
-		text["after"] = after
-	}
-	locator["text"], _ = json.Marshal(text)
-	raw, _ := json.Marshal(locator)
-	location["locator"], _ = json.Marshal(string(raw))
-	location["quote"], _ = json.Marshal(quote)
-	if len(link) > 0 {
-		location["sentenceLink"] = link
-	}
-	a.Location, _ = json.Marshal(location)
-	a.Quote = quote
-	if b.Note != "" && b.Note != a.Note {
-		a.Note = strings.TrimSpace(a.Note + "\n\n" + b.Note)
-	}
-	return a, true
-}
-
 // The same transaction handles deduplication and persistence so concurrent saves
 // cannot leave duplicates or temporarily remove a user's mark.
-func compactDocumentMarks(tx *sql.Tx, documentID string) ([]Annotation, map[string]string, error) {
+func compactDocumentMarks(tx *sql.Tx, documentID, incomingID string, loadBlocks func(Annotation, Annotation) epubTranslationDocument) ([]Annotation, map[string]string, error) {
 	rows, err := tx.Query("SELECT body FROM annotations WHERE document_id=? ORDER BY rowid", documentID)
 	if err != nil {
 		return nil, nil, err
@@ -482,23 +336,40 @@ func compactDocumentMarks(tx *sql.Tx, documentID string) ([]Annotation, map[stri
 		return nil, nil, err
 	}
 	aliases := map[string]string{}
+	updated := map[string]bool{}
 	for changed := true; changed; {
 		changed = false
-		for i := 0; i < len(items); i++ {
-			for j := i + 1; j < len(items); j++ {
-				merged, ok := mergeAnnotationMark(items[i], items[j])
-				if !ok {
-					continue
-				}
-				aliases[items[j].ID] = items[i].ID
-				items[i] = merged
-				items = append(items[:j], items[j+1:]...)
-				j--
-				changed = true
+		incoming := slices.IndexFunc(items, func(a Annotation) bool { return a.ID == incomingID })
+		if incoming < 0 {
+			break
+		}
+		// Only compare the incoming mark with existing marks, never old pairs.
+		for other := range items {
+			if other == incoming {
+				continue
 			}
+			i, j := min(incoming, other), max(incoming, other)
+			if !compatibleAnnotationMarks(items[i], items[j]) {
+				continue
+			}
+			blocks := loadBlocks(items[i], items[j])
+			merged, ok := mergeAnnotationMark(items[i], items[j], blocks)
+			if !ok {
+				continue
+			}
+			aliases[items[j].ID] = items[i].ID
+			incomingID = items[i].ID
+			updated[incomingID] = true
+			items[i] = merged
+			items = append(items[:j], items[j+1:]...)
+			changed = true
+			break
 		}
 	}
 	for _, a := range items {
+		if !updated[a.ID] {
+			continue
+		}
 		body, err := json.Marshal(a)
 		if err != nil {
 			return nil, nil, err
@@ -537,7 +408,7 @@ func (s *Store) saveAnnotation(a Annotation) (annotationSaveResult, error) {
 	if _, err = tx.Exec("INSERT INTO annotations VALUES(?,?,?)", a.ID, a.DocumentID, string(body)); err != nil {
 		return result, err
 	}
-	items, aliases, err := compactDocumentMarks(tx, a.DocumentID)
+	items, aliases, err := compactDocumentMarks(tx, a.DocumentID, a.ID, s.epubMergeBlocks)
 	if err != nil {
 		return result, err
 	}
@@ -558,37 +429,4 @@ func (s *Store) saveAnnotation(a Annotation) (annotationSaveResult, error) {
 	}
 	sort.Strings(result.ReplacedIDs)
 	return result, tx.Commit()
-}
-
-// Idempotent startup repair also handles marks saved before deduplication.
-func (s *Store) compactMarks() error {
-	tx, err := s.DB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	rows, err := tx.Query("SELECT DISTINCT document_id FROM annotations")
-	if err != nil {
-		return err
-	}
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		ids = append(ids, id)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, id := range ids {
-		if _, _, err = compactDocumentMarks(tx, id); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
 }

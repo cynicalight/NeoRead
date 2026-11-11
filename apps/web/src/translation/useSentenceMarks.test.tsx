@@ -46,7 +46,7 @@ const epubBlocks: EPUBReadingBlock[] = [
     id: t.blockId,
     text: "Original sentence.",
     label: "text",
-    location: { type: "epub", href: "chapter.xhtml", locator: "{}" },
+    location: { type: "epub", href: "chapter.xhtml" },
   },
 ];
 const events = {

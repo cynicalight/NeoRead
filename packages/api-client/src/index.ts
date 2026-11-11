@@ -480,7 +480,6 @@ export const api = {
             type: "epub",
             href: location.href,
             blockId: location.blockId,
-            locator: location.locator,
             start: location.start,
             end: location.end,
           },
@@ -506,7 +505,6 @@ export const api = {
                   type: "epub",
                   href: chapter.location.href,
                   blockId: chapter.location.blockId,
-                  locator: chapter.location.locator,
                 },
               }
             : chapter,

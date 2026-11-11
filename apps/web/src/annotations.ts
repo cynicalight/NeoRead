@@ -49,7 +49,7 @@ export function applySavedAnnotation(
   return next;
 }
 
-/** Reading order: page and vertical position for PDFs, progression for EPUBs. */
+/** Reading order comes from the saved location, without loading document text. */
 export function documentOrder(a: Annotation, b: Annotation) {
   const x = a.location,
     y = b.location;
@@ -59,8 +59,7 @@ export function documentOrder(a: Annotation, b: Annotation) {
       (x.rects?.[0]?.y ?? x.y ?? 0) - (y.rects?.[0]?.y ?? y.y ?? 0) ||
       (x.rects?.[0]?.x ?? 0) - (y.rects?.[0]?.x ?? 0)
     );
-  if (x.type === "epub" && y.type === "epub" && x.href === y.href)
-    return (x.progression ?? 0) - (y.progression ?? 0);
+  if (x.type === "epub" && y.type === "epub") return epubAnnotationOrder(a, b);
   return a.createdAt.localeCompare(b.createdAt);
 }
 
@@ -90,3 +89,60 @@ export const colorLabel = (
 
 export const validHighlightColor = (value: string) =>
   /^#[0-9a-f]{6}$/i.test(value);
+
+/** Keep successful writes visible and leave only unsaved parts available to retry. */
+export async function saveAnnotationParts<T extends Annotation>(
+  selection: ReaderSelection,
+  save: (part: {
+    text: string;
+    location: ReaderSelection["location"];
+  }) => Promise<T>,
+  saved: (annotation: T) => void,
+  pending: (selection: ReaderSelection) => void,
+): Promise<T> {
+  const parts = selection.parts?.length ? selection.parts : [selection];
+  let first: T | undefined;
+  for (let i = 0; i < parts.length; i++) {
+    pending({ ...selection, ...parts[i], parts: parts.slice(i) });
+    const result = await save(parts[i]);
+    saved(result);
+    first ??= result;
+  }
+  return first!;
+}
+
+/** EPUB block IDs are opaque; persist reading order with each annotation. */
+export function epubAnnotationOrder(a: Annotation, b: Annotation) {
+  const position = (annotation: Annotation): number[] | undefined => {
+    const location = annotation.location;
+    if (location.type !== "epub" || location.unresolved) return;
+    const translated = location.translation;
+    const source = translated?.ranges?.[0]?.location;
+    const order = location.order ?? source?.order;
+    if (
+      !order ||
+      !Number.isSafeInteger(order.chapter) ||
+      !Number.isSafeInteger(order.block) ||
+      order.chapter < 0 ||
+      order.block < 0
+    )
+      return;
+    return [
+      order.chapter,
+      order.block,
+      location.start ?? source?.start ?? 0,
+      translated ? 1 : 0,
+      translated?.ranges?.[0]?.start ?? translated?.start ?? 0,
+    ];
+  };
+  const x = position(a),
+    y = position(b);
+  if (x && y) {
+    for (let i = 0; i < x.length; i++) {
+      const difference = x[i] - y[i];
+      if (difference) return difference;
+    }
+  } else if (x || y) return x ? -1 : 1;
+  // Historical or unresolved marks stay accessible without a full-book backfill.
+  return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+}

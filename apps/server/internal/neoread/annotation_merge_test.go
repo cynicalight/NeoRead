@@ -154,20 +154,19 @@ func TestEPUBHighlightMerge(t *testing.T) {
 	if !ok || merged.Quote != "one two three" {
 		t.Fatalf("EPUB highlights not merged: %+v %v", merged, ok)
 	}
-	var location annotationEPUBLocation
+	var location struct{ Start, End int }
 	json.Unmarshal(merged.Location, &location)
-	var locator annotationLocator
-	json.Unmarshal([]byte(location.Locator), &locator)
-	if locator.Locations.TextRange.Start != 0 || locator.Locations.TextRange.End != 13 {
-		t.Fatalf("wrong EPUB highlight range: %+v", locator)
+	if location.Start != 0 || location.End != 13 {
+		t.Fatalf("wrong range: %+v", location)
 	}
+
 	duplicate, ok := mergeAnnotationMark(merged, merged)
 	if !ok || duplicate.Quote != merged.Quote {
 		t.Fatal("repeated EPUB highlight was not deduplicated")
 	}
 }
 
-func TestHighlightRestartRepair(t *testing.T) {
+func TestHighlightRestartPreservesHistoricalDuplicates(t *testing.T) {
 	s := testServer(t)
 	var doc Document
 	json.Unmarshal(upload(t, s, "reading-notes.pdf", sample(t, "reading-notes.pdf")).Body.Bytes(), &doc)
@@ -188,8 +187,8 @@ func TestHighlightRestartRepair(t *testing.T) {
 	defer store.DB.Close()
 	var count int
 	store.DB.QueryRow("SELECT COUNT(*) FROM annotations WHERE document_id=?", doc.ID).Scan(&count)
-	if count != 1 {
-		t.Fatalf("historical highlight duplicates remain: %d", count)
+	if count != 2 {
+		t.Fatalf("historical highlight duplicates changed: %d", count)
 	}
 }
 
@@ -252,7 +251,7 @@ func TestUnderlineMergeRepeatedPhrase(t *testing.T) {
 		t.Fatalf("repeated words lost: %q", merged.Quote)
 	}
 }
-func TestUnderlineBridgeAndRestartRepair(t *testing.T) {
+func TestUnderlineBridgeAndRestartPreservesHistoricalDuplicates(t *testing.T) {
 	s := testServer(t)
 	var doc Document
 	json.Unmarshal(upload(t, s, "reading-notes.pdf", sample(t, "reading-notes.pdf")).Body.Bytes(), &doc)
@@ -294,6 +293,11 @@ func TestUnderlineBridgeAndRestartRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.DB.Close()
+	var startupCount int
+	store.DB.QueryRow("SELECT count(*) FROM annotations").Scan(&startupCount)
+	if startupCount != 3 {
+		t.Fatalf("startup should preserve historical duplicates: %d", startupCount)
+	}
 	items, err := store.DB.Query("SELECT body FROM annotations ORDER BY rowid")
 	if err != nil {
 		t.Fatal(err)
@@ -307,16 +311,13 @@ func TestUnderlineBridgeAndRestartRepair(t *testing.T) {
 		records = append(records, a)
 	}
 	items.Close()
-	if len(records) != 2 || records[0].ID != "left" || records[1].Note != "Do not remove" {
+	if len(records) != 3 || records[0].ID != "left" || records[2].Note != "Do not remove" {
 		t.Fatalf("legacy repair damaged records: %+v", records)
-	}
-	if err := store.compactMarks(); err != nil {
-		t.Fatal(err)
 	}
 	var count int
 	store.DB.QueryRow("SELECT COUNT(*) FROM annotations").Scan(&count)
-	if count != 2 {
-		t.Fatalf("repair not idempotent: %d", count)
+	if count != 3 {
+		t.Fatalf("historical duplicates changed: %d", count)
 	}
 }
 func TestConcurrentUnderlineSaves(t *testing.T) {
@@ -349,9 +350,7 @@ func TestConcurrentUnderlineSaves(t *testing.T) {
 	}
 }
 func epubUnderline(id string, start, end int, quote string) Annotation {
-	selector := "html:nth-of-type(1) > body:nth-of-type(1) > p:nth-of-type(1)"
-	locator, _ := json.Marshal(map[string]any{"href": "chapter.xhtml", "type": "application/xhtml+xml", "locations": map[string]any{"domRange": annotationDOMRange{annotationDOMPoint{selector, 0, start}, annotationDOMPoint{selector, 0, end}}, "textRange": annotationTextRange{start, end}}, "text": map[string]string{"highlight": quote}})
-	location, _ := json.Marshal(annotationEPUBLocation{Type: "epub", Href: "chapter.xhtml", Locator: string(locator)})
+	location, _ := json.Marshal(map[string]any{"type": "epub", "href": "chapter.xhtml", "blockId": "test-block", "start": start, "end": end})
 	return Annotation{ID: id, DocumentID: "doc", Kind: "underline", Location: location, Quote: quote}
 }
 func TestEPUBUnderlineUnion(t *testing.T) {
@@ -361,13 +360,12 @@ func TestEPUBUnderlineUnion(t *testing.T) {
 	if !ok || merged.Quote != "one two three" {
 		t.Fatalf("EPUB merge: %+v %v", merged, ok)
 	}
-	var location annotationEPUBLocation
+	var location struct{ Start, End int }
 	json.Unmarshal(merged.Location, &location)
-	var locator annotationLocator
-	json.Unmarshal([]byte(location.Locator), &locator)
-	if locator.Locations.DOMRange.Start.CharOffset != 0 || locator.Locations.DOMRange.End.CharOffset != 13 || locator.Locations.TextRange.End != 13 {
-		t.Fatalf("wrong EPUB range: %+v", locator)
+	if location.Start != 0 || location.End != 13 {
+		t.Fatalf("wrong range: %+v", location)
 	}
+
 	contained := epubUnderline("c", 4, 7, "two")
 	merged, ok = mergeAnnotationMark(a, contained)
 	if !ok || merged.Quote != a.Quote {
@@ -377,16 +375,7 @@ func TestEPUBUnderlineUnion(t *testing.T) {
 	if _, ok = mergeAnnotationMark(a, separate); ok {
 		t.Fatal("merged touching EPUB ranges")
 	}
-	// Legacy exact DOM ranges can still merge without the newer text offsets.
-	var raw map[string]any
-	json.Unmarshal([]byte(location.Locator), &raw)
-	delete(raw["locations"].(map[string]any), "textRange")
-	encoded, _ := json.Marshal(raw)
-	location.Locator = string(encoded)
-	merged.Location, _ = json.Marshal(location)
-	if _, ok = mergeAnnotationMark(merged, b); !ok {
-		t.Fatal("legacy DOM range did not merge")
-	}
+
 }
 
 func TestLinkedAndTranslatedUnderlinesKeepTheirAnchors(t *testing.T) {
@@ -582,9 +571,7 @@ func TestHighlightRestartPreservesClassification(t *testing.T) {
 		if _, err := s.Store.DB.Exec("INSERT INTO annotations VALUES(?,?,?)", a.ID, doc.ID, string(body)); err != nil {
 			t.Fatal(err)
 		}
-		if item.id != "duplicate" {
-			expected[item.id] = string(body)
-		}
+		expected[item.id] = string(body)
 	}
 	root := s.Store.Root
 	s.Store.DB.Close()

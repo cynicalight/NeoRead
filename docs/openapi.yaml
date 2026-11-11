@@ -3768,7 +3768,6 @@
                                             },
                                           "href": { "type": "string" },
                                           "blockId": { "type": "string" },
-                                          "locator": { "type": "string" },
                                           "start":
                                             { "type": "integer", "minimum": 0 },
                                           "end":
@@ -3862,7 +3861,6 @@
                                             },
                                           "href": { "type": "string" },
                                           "blockId": { "type": "string" },
-                                          "locator": { "type": "string" },
                                         },
                                     },
                                   "fromPage":
@@ -7642,13 +7640,24 @@
               "properties":
                 {
                   "type": { "const": "epub" },
+                  "unresolved": { "type": "boolean" },
+                  "order":
+                    {
+                      "type": "object",
+                      "description": "Zero-based publication chapter and chapter-local block positions.",
+                      "properties":
+                        {
+                          "chapter": { "type": "integer", "minimum": 0 },
+                          "block": { "type": "integer", "minimum": 0 },
+                        },
+                      "required": ["chapter", "block"],
+                    },
                   "href": { "type": "string" },
                   "blockId": { "type": "string" },
                   "start": { "type": "integer", "minimum": 0 },
                   "end": { "type": "integer", "minimum": 0 },
                   "endBlockId": { "type": "string" },
                   "endHref": { "type": "string" },
-                  "locator": { "type": "string" },
                   "progression": { "type": "number" },
                   "quote": { "type": "string" },
                   "sentenceLink":

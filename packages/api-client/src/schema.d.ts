@@ -3351,7 +3351,6 @@ export interface paths {
                             type: "epub";
                             href: string;
                             blockId?: string;
-                            locator?: string;
                             start?: number;
                             end?: number;
                         };
@@ -3417,7 +3416,6 @@ export interface paths {
                             type: "epub";
                             href: string;
                             blockId?: string;
-                            locator?: string;
                         };
                         fromPage?: number;
                         toPage?: number;
@@ -5786,13 +5784,18 @@ export interface components {
         EPUBLocation: {
             /** @constant */
             type: "epub";
+            unresolved?: boolean;
+            /** @description Zero-based publication chapter and chapter-local block positions. */
+            order?: {
+                chapter: number;
+                block: number;
+            };
             href: string;
             blockId?: string;
             start?: number;
             end?: number;
             endBlockId?: string;
             endHref?: string;
-            locator?: string;
             progression?: number;
             quote?: string;
             sentenceLink?: components["schemas"]["SentenceLink"];

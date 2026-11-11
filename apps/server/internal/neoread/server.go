@@ -819,9 +819,15 @@ func (s *Server) saveAnnotation(w http.ResponseWriter, r *http.Request) {
 	a.DocumentID = d.ID
 	a.CreatedAt = now()
 	a.AnswerID, a.Resolved = "", false
-	if m, e := s.readTranslationSource(d.ID); e == nil {
-		if translations, e := s.visibleTranslations(d.ID, m); e == nil {
-			a = enrichTranslationAnnotation(a, translations)
+	var location struct {
+		Translation *translationMark `json:"translation"`
+	}
+	json.Unmarshal(a.Location, &location)
+	if location.Translation != nil {
+		if m, e := s.readTranslationSource(d.ID); e == nil {
+			if translations, e := s.visibleTranslations(d.ID, m); e == nil {
+				a = enrichTranslationAnnotation(a, translations)
+			}
 		}
 	}
 	result, err := s.Store.saveAnnotation(a)

@@ -26,6 +26,7 @@ import { isSelectionToolbar, selectionAnchor } from "./selection-anchor";
 import { sentenceBounds } from "./sentence-selection";
 import {
   blockOffset,
+  sourceEPUBSelection,
   blockRange,
   resolveEPUBLocation,
 } from "./epub-web-location";
@@ -489,7 +490,14 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       type: "epub",
       href: chapter.info.href,
       progression,
-      ...(block ? { blockId: block.id, start: offset, end: offset } : {}),
+      ...(block
+        ? {
+            blockId: block.id,
+            order: block.location.order,
+            start: offset,
+            end: offset,
+          }
+        : {}),
     };
     this.emitLocation();
     if (block) this.reportReadingAnchor(block.id);
@@ -618,26 +626,9 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       }
       if (this.disposed || revision !== this.navigation) return;
       const range = slices[0] && blockRange(this.container, slices[0]);
-      let legacy: {
-        locations?: {
-          fragments?: string[];
-          progression?: number;
-          domRange?: unknown;
-          textRange?: unknown;
-        };
-        text?: { highlight?: string };
-      } = {};
-      try {
-        const parsed = JSON.parse(location.locator || "{}");
-        if (parsed && typeof parsed === "object") legacy = parsed;
-      } catch {
-        /* Fall back to a saved quote. */
-      }
-      const progression = location.progression ?? legacy.locations?.progression;
+      const progression = location.progression;
       let target: HTMLElement | undefined;
-      const fragment =
-        location.href.split("#").slice(1).join("#") ||
-        legacy.locations?.fragments?.[0];
+      const fragment = location.href.split("#").slice(1).join("#");
       if (fragment) {
         let decoded = fragment;
         try {
@@ -651,11 +642,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       }
       if (
         !slices.length &&
-        (location.blockId ||
-          location.quote ||
-          legacy.text?.highlight ||
-          legacy.locations?.domRange ||
-          legacy.locations?.textRange)
+        (location.unresolved || location.blockId || location.quote)
       )
         throw new Error("未能唯一定位这段原文，笔记已保留。请使用书内搜索。");
       if (fragment && !target) throw new Error("未能定位此目录条目");
@@ -689,8 +676,15 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       if (!slices.length && !target && progression)
         this.container.scrollTop +=
           chapter.node.getBoundingClientRect().height * progression;
+      const anchor =
+        fragmentBlock ??
+        slices[0]?.block ??
+        (!progression && !location.href.includes("#")
+          ? chapter.info.blocks[0]
+          : undefined);
       this.location = {
         ...canonical,
+        ...(anchor?.location.order ? { order: anchor.location.order } : {}),
         ...(fragmentBlock
           ? {
               blockId: fragmentBlock.id,
@@ -709,13 +703,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       };
       // Search results and source notes use native selection; sync locations only
       // focus/scroll and must not open a toolbar over translated selections.
-      if (
-        range &&
-        location.quote &&
-        !location.translation &&
-        !location.locator &&
-        !this.opening
-      ) {
+      if (range && location.quote && !location.translation && !this.opening) {
         const last = slices.at(-1)!;
         const end = blockRange(this.container, last);
         if (end) range.setEnd(end.endContainer, end.endOffset);
@@ -816,6 +804,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
             type: "epub",
             href: chapter.info.href,
             blockId: first.block.id,
+            order: first.block.location.order,
             start: start - first.start,
             end: end - last.start,
             quote: match[0],
@@ -849,58 +838,20 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     const candidates = this.chapters
       .filter((c) => c.loaded && range.intersectsNode(c.node))
       .flatMap((c) => c.info.blocks);
-    const matches = candidates.filter((block) => {
-      const r = blockRange(this.container, {
-        block,
-        start: 0,
-        end: block.text.length,
-      });
-      return (
-        r &&
-        range.compareBoundaryPoints(Range.END_TO_START, r) < 0 &&
-        range.compareBoundaryPoints(Range.START_TO_END, r) > 0
-      );
-    });
-    const first = matches[0],
-      last = matches.at(-1);
-    if (!first || !last) return;
-    const location: EPUBLocation = {
-      type: "epub",
-      href: chapter.info.href,
-      blockId: first.id,
-      start: blockOffset(
-        this.container,
-        first,
-        range.startContainer,
-        range.startOffset,
-      ),
-      end: blockOffset(
-        this.container,
-        last,
-        range.endContainer,
-        range.endOffset,
-      ),
-      quote: selected.toString(),
-      progression:
-        (chapter.info.blocks
-          .slice(0, chapter.info.blocks.indexOf(first))
-          .reduce((n, b) => n + b.text.length, 0) +
-          blockOffset(
-            this.container,
-            first,
-            range.startContainer,
-            range.startOffset,
-          )) /
-        Math.max(1, chapter.info.characters),
-      ...(last.id !== first.id ? { endBlockId: last.id } : {}),
-      ...(last.location.href !== first.location.href
-        ? { endHref: last.location.href }
-        : {}),
-    };
+    const source = sourceEPUBSelection(this.container, range, candidates);
+    if (!source) return;
+    const firstIndex = chapter.info.blocks.findIndex(
+      (b) => b.id === source.location.blockId,
+    );
+    source.location.progression =
+      (chapter.info.blocks
+        .slice(0, firstIndex)
+        .reduce((n, b) => n + b.text.length, 0) +
+        (source.location.start ?? 0)) /
+      Math.max(1, chapter.info.characters);
     this.selection = {
       context: selectionContext(range, this.container),
-      text: selected.toString(),
-      location,
+      ...source,
       anchor: selectionAnchor(selected, pointer),
     };
     this.events.selection(this.selection);

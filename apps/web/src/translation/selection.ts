@@ -40,6 +40,7 @@ export function translatedSelection(
   translations: TranslationBlock[],
 ) {
   const ranges: NonNullable<TranslationLocation["ranges"]> = [];
+  const targetQuotes: string[] = [];
   const passages: PDFPassage[] = [],
     links: PDFSentenceLink[] = [];
   for (const node of host.querySelectorAll<HTMLElement>(
@@ -74,6 +75,7 @@ export function translatedSelection(
       })
       .map((n) => Number(n.dataset.sentence));
     if (!sentenceIndexes.length) continue;
+    if ("location" in block) targetQuotes.push(texText(clipped).trim());
     const before = clipped.cloneRange();
     before.selectNodeContents(node);
     before.setEnd(clipped.startContainer, clipped.startOffset);
@@ -132,7 +134,8 @@ export function translatedSelection(
     rect = range.getBoundingClientRect();
   const selection: ReaderSelection = {
     context: selectionContext(range, host),
-    text: texText(range).trim(),
+    text:
+      "location" in block ? targetQuotes.join("\n\n") : texText(range).trim(),
     anchor: {
       x: (rect.left + rect.right) / 2,
       top: rect.top,

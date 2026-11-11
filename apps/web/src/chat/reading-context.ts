@@ -29,7 +29,6 @@ export async function readingContext(
       : {
           type: "epub" as const,
           href: position.href,
-          locator: position.locator,
           progression: position.progression,
           blockId: position.blockId,
           start: position.start,
