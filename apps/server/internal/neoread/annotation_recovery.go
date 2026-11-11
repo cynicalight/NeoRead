@@ -26,6 +26,7 @@ type translationMarkRange struct {
 	Location        json.RawMessage `json:"location,omitempty"`
 	SourceText      string          `json:"sourceText,omitempty"`
 	TargetText      string          `json:"targetText,omitempty"`
+	RenderedText    string          `json:"renderedText,omitempty"`
 	Recovered       bool            `json:"recovered,omitempty"`
 	WholeSentence   bool            `json:"wholeSentence,omitempty"`
 	MatchedQuote    string          `json:"matchedQuote,omitempty"`

@@ -26,6 +26,10 @@ export type PDFLocation = {
     source: string;
     page: number;
     bounds: { x: number; y: number; width: number; height: number };
+    /** UTF-16 offsets in the rendered source paragraph at selection time. */
+    start?: number;
+    end?: number;
+    text?: string;
   }[];
   type: "pdf";
   page: number;
@@ -64,6 +68,8 @@ export type TranslationLocation = TranslationRecoveryAnchor & {
     start: number;
     end: number;
     quote: string;
+    /** Rendered paragraph text used to interpret the UTF-16 offsets. */
+    renderedText?: string;
     location?: EPUBLocation;
   })[];
 };
@@ -349,6 +355,8 @@ export interface SelectionAnchor {
   bottom: number;
 }
 export interface ReaderSelection {
+  /** Independent sides selected together, saved as separate highlights. */
+  parts?: ReaderSelection[];
   /** Nearby source text, captured before the DOM selection is cleared. */
   context?: { before: string; after: string };
   /** Transient renderer viewport position; never persist as a document anchor. */

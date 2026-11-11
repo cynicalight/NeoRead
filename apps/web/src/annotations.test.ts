@@ -1,6 +1,10 @@
 import { expect, it } from "vitest";
 import type { Annotation } from "@neoread/core";
-import { activeAnnotation, applySavedAnnotation } from "./annotations";
+import {
+  activeAnnotation,
+  annotationRequests,
+  applySavedAnnotation,
+} from "./annotations";
 const a: Annotation = {
   id: "a",
   documentId: "doc",
@@ -11,6 +15,45 @@ const a: Annotation = {
   color: "",
   createdAt: "",
 };
+it("creates independent source and translation highlight requests", () => {
+  const source = {
+    text: "source",
+    location: { type: "pdf" as const, page: 1, sourceAnchors: [] },
+  };
+  const translation = {
+    text: "译文",
+    location: {
+      type: "pdf" as const,
+      page: 1,
+      translation: {
+        blockId: "a",
+        sourceHash: "h",
+        sentenceIndexes: [0],
+        start: 0,
+        end: 2,
+      },
+    },
+  };
+  const selected = {
+    ...source,
+    text: "source 译文",
+    parts: [source, translation],
+  };
+  const requests = annotationRequests(
+    "highlight",
+    selected,
+    source.location,
+    "",
+    "#e6b94c",
+  );
+  expect(requests).toHaveLength(2);
+  expect(requests.map((r) => r.quote)).toEqual(["source", "译文"]);
+  expect(requests[0].location).not.toHaveProperty("translation");
+  expect(requests[1].location).not.toHaveProperty("sourceAnchors");
+  expect(
+    annotationRequests("note", selected, source.location, "note", "#e6b94c"),
+  ).toHaveLength(1);
+});
 it("replaces a merged underline in place and removes only superseded IDs", () => {
   const note = { ...a, id: "note", kind: "note" as const, note: "Keep this" };
   const result = applySavedAnnotation(

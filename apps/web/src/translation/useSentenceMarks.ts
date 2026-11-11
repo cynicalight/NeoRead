@@ -18,7 +18,7 @@ import type {
   SearchResult,
   TranslationBlock,
 } from "@neoread/core";
-import { translatedAnnotationRanges } from "./annotations";
+import { textRange, translatedAnnotationRanges } from "./annotations";
 import { sourcePassage, translatedSentenceRanges } from "./sentence-links";
 import { blockRange, resolveEPUBLocation } from "../readers/epub-web-location";
 import { epubSentenceSlice } from "./epub-links";
@@ -225,7 +225,8 @@ export function useSentenceMarks(
         }
         if (
           annotation.location.type !== "pdf" ||
-          annotation.location.translation ||
+          (annotation.location.translation &&
+            !annotation.location.sourceAnchors?.length) ||
           annotation.kind === "bookmark"
         )
           continue;
@@ -243,7 +244,7 @@ export function useSentenceMarks(
               candidates.find((block) => block.id === anchor.blockId) ??
               (candidates.length === 1 ? candidates[0] : undefined);
             return block
-              ? [{ blockId: block.id, sources: [anchor.source] }]
+              ? [{ blockId: block.id, sources: [anchor.source], anchor }]
               : [];
           },
         );
@@ -252,12 +253,25 @@ export function useSentenceMarks(
           hasReflowSource(host, p.blockId),
         );
         for (const passage of reflowed)
-          for (const source of passage.sources)
+          for (const source of passage.sources) {
+            const node = Array.from(
+              host.querySelectorAll<HTMLElement>("[data-reflow-source]"),
+            ).find((item) => item.dataset.reflowSource === passage.blockId);
+            const { anchor } = passage;
+            const exact =
+              node &&
+              anchor.text === node.textContent &&
+              anchor.start !== undefined &&
+              anchor.end !== undefined
+                ? textRange(node, anchor.start, anchor.end)
+                : undefined;
             marks.push(
-              ...reflowQuoteRanges(host, passage.blockId, source).map(
-                (range) => ({ annotation, range }),
-              ),
+              ...(exact
+                ? [exact]
+                : reflowQuoteRanges(host, passage.blockId, source)
+              ).map((range) => ({ annotation, range })),
             );
+          }
         // Ordinary source marks live in the PDF text layer; reflowed text
         // finds their quote in the paragraphs under the saved rectangles.
         // A text-layer quote is found across the paragraphs it covers.

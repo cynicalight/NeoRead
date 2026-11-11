@@ -89,6 +89,7 @@ it("keeps all sentences and annotation ranges when a selection crosses paragraph
   expect(result.selection.location.translation?.ranges?.[0]).toMatchObject({
     sourceText: "Second.",
     targetText: "第一句。第二句。",
+    renderedText: "第一句。第二句。",
     wholeSentence: true,
   });
   const annotation = {

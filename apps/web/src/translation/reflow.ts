@@ -191,13 +191,27 @@ export function reflowSourceSelection(
     const block = blocks.find((b) => b.id === node.dataset.reflowSource);
     if (!block) continue;
     const source = selectedSource(node, range).trim();
-    if (source)
+    if (source) {
+      const clipped = document.createRange();
+      clipped.selectNodeContents(node);
+      if (range.compareBoundaryPoints(Range.START_TO_START, clipped) > 0)
+        clipped.setStart(range.startContainer, range.startOffset);
+      if (range.compareBoundaryPoints(Range.END_TO_END, clipped) < 0)
+        clipped.setEnd(range.endContainer, range.endOffset);
+      const before = clipped.cloneRange();
+      before.selectNodeContents(node);
+      before.setEnd(clipped.startContainer, clipped.startOffset);
+      const start = before.toString().length;
       anchors.push({
         blockId: block.id,
         source,
         page: block.page,
         bounds: block.bounds,
+        start,
+        end: start + clipped.toString().length,
+        text: node.textContent ?? "",
       });
+    }
   }
   // Read text keeps restored formulas as TeX; anchors keep extracted text.
   const text = texText(range).trim();

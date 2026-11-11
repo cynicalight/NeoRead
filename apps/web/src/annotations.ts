@@ -1,4 +1,30 @@
-import type { Annotation, HighlightColor, ReaderTheme } from "@neoread/core";
+import type {
+  Annotation,
+  DocumentLocation,
+  HighlightColor,
+  ReaderSelection,
+  ReaderTheme,
+} from "@neoread/core";
+
+export function annotationRequests(
+  kind: Annotation["kind"],
+  selection: ReaderSelection | null | undefined,
+  target: DocumentLocation,
+  note: string,
+  color: string,
+) {
+  const parts =
+    (kind === "highlight" || kind === "underline") && selection?.parts?.length
+      ? selection.parts
+      : [selection];
+  return parts.map((part) => ({
+    kind,
+    location: kind === "bookmark" ? target : (part?.location ?? target),
+    quote: kind === "bookmark" ? "" : part?.text || "",
+    note,
+    color,
+  }));
+}
 
 export function activeAnnotation(items: Annotation[], ids: string[]) {
   const matches = items.filter((item) => ids.includes(item.id));

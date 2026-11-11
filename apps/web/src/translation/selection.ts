@@ -12,6 +12,27 @@ import type {
 import { sentenceAnchor } from "@neoread/core";
 import { texText } from "../chat/tex-text";
 
+/** The selected text on one side of an interleaved reflow view. */
+export function selectedSideText(
+  host: HTMLElement,
+  range: Range,
+  selector: string,
+) {
+  return Array.from(host.querySelectorAll<HTMLElement>(selector))
+    .flatMap((node) => {
+      if (!range.intersectsNode(node)) return [];
+      const clipped = document.createRange();
+      clipped.selectNodeContents(node);
+      if (range.compareBoundaryPoints(Range.START_TO_START, clipped) > 0)
+        clipped.setStart(range.startContainer, range.startOffset);
+      if (range.compareBoundaryPoints(Range.END_TO_END, clipped) < 0)
+        clipped.setEnd(range.endContainer, range.endOffset);
+      const text = texText(clipped).trim();
+      return text ? [text] : [];
+    })
+    .join("\n\n");
+}
+
 export function translatedSelection(
   host: HTMLElement,
   range: Range,
@@ -77,6 +98,7 @@ export function translatedSelection(
       targetText: translation.sentences
         .map((sentence) => sentence.target)
         .join(""),
+      renderedText: node.textContent ?? "",
       start,
       end: start + clipped.toString().length,
       quote,

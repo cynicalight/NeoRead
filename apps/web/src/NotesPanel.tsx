@@ -40,7 +40,12 @@ import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
 import { toast } from "sonner";
 import { annotationLabels } from "./AnnotationToolbar";
 import { copyText } from "./chat/clipboard";
-import { colorLabel, documentOrder, highlightPalette } from "./annotations";
+import {
+  colorLabel,
+  documentOrder,
+  highlightPalette,
+  validHighlightColor,
+} from "./annotations";
 import { useReaderStore } from "./store";
 
 export { documentOrder };
@@ -171,7 +176,17 @@ function NoteCard({
           </Button>
         </span>
       </div>
-      <Button variant="ghost" className="note-quote" onClick={onGo}>
+      <Button
+        variant="ghost"
+        className="note-quote"
+        style={
+          (a.kind === "highlight" || a.kind === "underline") &&
+          validHighlightColor(a.color)
+            ? { borderLeftColor: a.color }
+            : undefined
+        }
+        onClick={onGo}
+      >
         <AnnotationQuote
           quote={a.quote || locationLabel(a.location)}
           location={a.location}

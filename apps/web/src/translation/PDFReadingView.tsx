@@ -58,7 +58,10 @@ import { EPUBBlockOverlay } from "../readers/epub-block-focus";
 import { DeferredBlockFocus } from "../readers/deferred-block-focus";
 import { blockImageCache } from "./block-images";
 import { useSentenceMarks } from "./useSentenceMarks";
-import { translatedSelection as captureTranslationSelection } from "./selection";
+import {
+  selectedSideText,
+  translatedSelection as captureTranslationSelection,
+} from "./selection";
 import { installTranslationSelectionHighlight } from "./selection-highlight";
 import { READING_MARGIN, sourceFont, translationFont } from "../appearance";
 import { selectSentence } from "../readers/sentence-selection";
@@ -825,15 +828,41 @@ export function PDFReadingView({
     if (!selected?.rangeCount || !selected.toString().trim() || !pane.current)
       return;
     const range = selected.getRangeAt(0);
-    const start =
-      range.startContainer instanceof Element
-        ? range.startContainer
-        : range.startContainer.parentElement;
-    if (reflow && start?.closest("[data-reflow-source]")) {
+    if (reflow) {
       const source = reflowSourceSelection(pane.current, range, blocks);
-      if (source) {
-        selection.current = source;
-        events.selection(source);
+      const target = captureTranslationSelection(
+        pane.current,
+        range,
+        blocks,
+        translations,
+      )?.selection;
+      const value =
+        source && target
+          ? {
+              ...source,
+              parts: [
+                {
+                  ...source,
+                  text: selectedSideText(
+                    pane.current,
+                    range,
+                    "[data-reflow-source]",
+                  ),
+                },
+                {
+                  ...target,
+                  text: selectedSideText(
+                    pane.current,
+                    range,
+                    "[data-translation-block]",
+                  ),
+                },
+              ],
+            }
+          : (source ?? target);
+      if (value) {
+        selection.current = value;
+        events.selection(value);
       }
       return;
     }

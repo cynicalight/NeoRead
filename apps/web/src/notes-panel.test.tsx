@@ -134,6 +134,37 @@ it("lists records in reading order", () => {
   ]);
 });
 
+it("shows each highlight's saved color on its quote", async () => {
+  const colored = [
+    mark({ id: "yellow", quote: "yellow", color: "#e6b94c" }),
+    mark({ id: "green", quote: "green", color: "#6cc58c" }),
+    mark({ id: "blue", quote: "blue", color: "#5b9fe8", kind: "underline" }),
+    mark({ id: "red", quote: "red", color: "#e8746b" }),
+  ];
+  await act(async () =>
+    root.render(
+      <NotesPanel
+        document={paper({ id: "p" })}
+        annotations={colored}
+        messages={[]}
+        deleting={new Set()}
+        answering={new Set()}
+        {...handlers}
+      />,
+    ),
+  );
+  const borders = Array.from(
+    host.querySelectorAll<HTMLElement>(".note-quote"),
+    (node) => node.style.borderLeftColor,
+  );
+  expect(borders).toEqual([
+    "rgb(230, 185, 76)",
+    "rgb(108, 197, 140)",
+    "rgb(91, 159, 232)",
+    "rgb(232, 116, 107)",
+  ]);
+});
+
 it("searches quoted text and note content within the active filter", async () => {
   const search = host.querySelector<HTMLInputElement>(
     'input[aria-label="搜索批注内容"]',

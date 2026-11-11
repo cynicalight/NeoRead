@@ -116,6 +116,7 @@ import { useAnnotationUndo } from "./useAnnotationUndo";
 import { useAnnotationDeletion } from "./useAnnotationDeletion";
 import {
   activeAnnotation,
+  annotationRequests,
   applySavedAnnotation,
   highlightPalette,
 } from "./annotations";
@@ -632,27 +633,35 @@ export function Workspace({
     if (!target || annotationSaving.current) return;
     annotationSaving.current = true;
     setNoteSaving(written);
+    let savedCount = 0;
     try {
       const prepared =
         source && kind !== "bookmark" && !editingAnnotation
           ? ((await adapter?.prepareAnnotation?.(source)) ?? source)
           : source;
-      const a =
-        written && editingAnnotation
-          ? await api.updateAnnotationNote(
-              doc.id,
-              editingAnnotation.id,
-              noteText,
-            )
-          : await api.annotate(doc.id, {
-              kind,
-              location:
-                kind === "bookmark" ? target : (prepared?.location ?? target),
-              quote: kind === "bookmark" ? "" : source?.text || "",
-              note: noteText,
-              color,
-            });
-      setAnnotations((items) => applySavedAnnotation(items, a));
+      let a: Annotation | undefined;
+      if (written && editingAnnotation) {
+        const updated = await api.updateAnnotationNote(
+          doc.id,
+          editingAnnotation.id,
+          noteText,
+        );
+        setAnnotations((items) => applySavedAnnotation(items, updated));
+        a = updated;
+      } else {
+        for (const request of annotationRequests(
+          kind,
+          prepared,
+          target,
+          noteText,
+          color,
+        )) {
+          const saved = await api.annotate(doc.id, request);
+          setAnnotations((items) => applySavedAnnotation(items, saved));
+          a = saved;
+          savedCount++;
+        }
+      }
       adapter?.clearSelection();
       if (kind === "bookmark")
         toast.success("已添加书签", { id: "neoread-annotation-save" });
@@ -662,7 +671,11 @@ export function Workspace({
       setNote("");
       return a;
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(
+        savedCount
+          ? `部分高亮已保存，其余保存失败：${(e as Error).message}`
+          : (e as Error).message,
+      );
     } finally {
       annotationSaving.current = false;
       setNoteSaving(false);

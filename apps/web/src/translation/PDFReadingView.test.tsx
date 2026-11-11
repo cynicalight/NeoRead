@@ -1234,6 +1234,76 @@ it("selects reflowed source text as a PDF source mark", async () => {
     "translation",
   );
 });
+it("keeps both sides of a selection spanning reflowed paragraphs", async () => {
+  const second: PDFBlock = {
+    id: "p1-b2",
+    page: 1,
+    label: "text",
+    text: "Third sentence.",
+    bounds: { x: 0.1, y: 0.6, width: 0.3, height: 0.2 },
+  };
+  fixture.translations.push({
+    blockId: second.id,
+    sourceHash: "hash2",
+    status: "complete",
+    sentences: [{ source: second.text, target: "第三句。" }],
+  });
+  await renderView(reflowed, [second]);
+  await click("原文译文");
+  const first = host.querySelector(
+    '[data-reflow-source="p1-b1"] [data-source-sentence="0"]',
+  )!;
+  const last = host.querySelector(
+    '[data-reflow-source="p1-b2"] [data-source-sentence="0"]',
+  )!;
+  const range = document.createRange();
+  range.setStart(first.firstChild!, 0);
+  range.setEnd(last.firstChild!, 5);
+  Object.assign(range, {
+    getBoundingClientRect: () => new DOMRect(0, 0, 100, 100),
+  });
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  await act(async () =>
+    last.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
+  );
+  expect(fixture.ready!.getSelection()?.parts).toMatchObject([
+    {
+      text: "First sentence. Second sentence.\n\nThird",
+      location: { sourceAnchors: [{ blockId: "p1-b1" }, { blockId: "p1-b2" }] },
+    },
+    {
+      text: "第一句。第二句。",
+      location: {
+        translation: {
+          ranges: [{ blockId: "p1-b1", quote: "第一句。第二句。" }],
+        },
+      },
+    },
+  ]);
+  expect(fixture.ready!.getSelection()?.parts?.[0].location).not.toHaveProperty(
+    "translation",
+  );
+  expect(fixture.ready!.getSelection()?.parts?.[1].location).not.toHaveProperty(
+    "sourceAnchors",
+  );
+  const translated = host.querySelector(
+    '[data-translation-block="p1-b1"] [data-sentence="0"]',
+  )!;
+  range.setStart(translated.firstChild!, 0);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  await act(async () =>
+    last.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
+  );
+  expect(fixture.ready!.getSelection()?.parts).toMatchObject([
+    { text: "Third", location: { sourceAnchors: [{ blockId: "p1-b2" }] } },
+    {
+      text: "第一句。第二句。",
+      location: { translation: { ranges: [{ blockId: "p1-b1" }] } },
+    },
+  ]);
+});
 it("offers paragraph actions and focuses reflowed paragraphs unless disabled", async () => {
   const blockAction = vi.fn();
   Object.assign(events, { blockAction });

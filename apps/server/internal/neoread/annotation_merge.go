@@ -209,17 +209,6 @@ func mergeSourceSentenceLinks(a, b Annotation, quote string) (json.RawMessage, b
 }
 
 func mergeAnnotationMark(a, b Annotation) (Annotation, bool) {
-	// Translated ranges live in another coordinate space. Their source geometry
-	// cannot be united without also updating the translated ranges.
-	for _, location := range []json.RawMessage{a.Location, b.Location} {
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(location, &fields) != nil {
-			continue
-		}
-		if value := fields["translation"]; len(value) > 0 && string(value) != "null" {
-			return a, false
-		}
-	}
 	if (a.Kind != "underline" && a.Kind != "highlight") || a.Kind != b.Kind || a.DocumentID != b.DocumentID {
 		return a, false
 	}
@@ -232,6 +221,18 @@ func mergeAnnotationMark(a, b Annotation) (Annotation, bool) {
 	}
 	if !strings.EqualFold(a.Color, b.Color) || !slices.Equal(tags(a.Tags), tags(b.Tags)) || a.AnswerID != b.AnswerID || a.Resolved != b.Resolved {
 		return a, false
+	}
+	if merged, ok := mergeReflowTextMark(a, b); ok {
+		return merged, true
+	}
+	// Source geometry alone cannot merge translated ranges.
+	for _, location := range []json.RawMessage{a.Location, b.Location} {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(location, &fields) == nil {
+			if value := fields["translation"]; len(value) > 0 && string(value) != "null" {
+				return a, false
+			}
+		}
 	}
 	if merged, ok := mergeEPUBMark(a, b); ok {
 		return merged, true

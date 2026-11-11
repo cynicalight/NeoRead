@@ -175,8 +175,24 @@ it("turns a reflowed source selection into per-paragraph source anchors", () => 
     page: 1,
     quote: "text. Beta",
     sourceAnchors: [
-      { blockId: "a", source: "text.", page: 1, bounds: blocks[0].bounds },
-      { blockId: "b", source: "Beta", page: 2, bounds: blocks[1].bounds },
+      {
+        blockId: "a",
+        source: "text.",
+        page: 1,
+        bounds: blocks[0].bounds,
+        start: 6,
+        end: 11,
+        text: "Alpha text.",
+      },
+      {
+        blockId: "b",
+        source: "Beta",
+        page: 2,
+        bounds: blocks[1].bounds,
+        start: 0,
+        end: 4,
+        text: "Beta text.",
+      },
     ],
   });
   host.remove();
