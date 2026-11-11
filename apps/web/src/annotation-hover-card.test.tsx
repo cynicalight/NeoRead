@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
+import { reportDiagnostic } from "./diagnostics";
+vi.mock("./diagnostics", () => ({ reportDiagnostic: vi.fn() }));
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Annotation, ReaderAnnotationTarget } from "@neoread/core";
@@ -48,6 +50,7 @@ beforeEach(() => {
       disconnect() {}
     },
   );
+  vi.mocked(reportDiagnostic).mockClear();
   edit.mockClear();
   remove.mockClear();
   host = document.createElement("div");
@@ -126,10 +129,7 @@ it("deletes the chosen note from the card", async () => {
   expect(remove).toHaveBeenCalledExactlyOnceWith(annotations[0]);
 });
 
-const editor = (
-  value: string,
-  initial = "",
-): AnnotationNoteEditor => ({
+const editor = (value: string, initial = ""): AnnotationNoteEditor => ({
   anchor: target.anchor,
   kind: "note",
   editing: !!initial,
@@ -180,7 +180,8 @@ it("cannot save an empty new note", async () => {
 
 it("stays open after being dragged away from the highlight", async () => {
   await render(target);
-  const grip = document.querySelector<HTMLButtonElement>('[aria-label="拖动"]')!;
+  const grip =
+    document.querySelector<HTMLButtonElement>('[aria-label="拖动"]')!;
   grip.setPointerCapture = () => {};
   await act(async () =>
     grip.dispatchEvent(
@@ -210,4 +211,115 @@ it("stays open after being dragged away from the highlight", async () => {
     await vi.advanceTimersByTimeAsync(400);
   });
   expect(document.body.textContent).toContain("具体批注内容");
+});
+
+it("renders saved Markdown in the hover preview", async () => {
+  await render(target, [{ ...annotations[0], note: "# 要点\n\n**重点**" }]);
+  expect(
+    document.querySelector("[data-annotation-preview] h1")?.textContent,
+  ).toBe("要点");
+  expect(
+    document.querySelector("[data-annotation-preview] strong")?.textContent,
+  ).toBe("重点");
+});
+
+it("focuses the rich editor and saves Markdown with the keyboard shortcut", async () => {
+  const draft = editor("# 标题\n\n**内容**", "# 标题\n\n**内容**");
+  await render(null, annotations, draft);
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(
+        document.querySelector(".ProseMirror[aria-label='编辑批注']"),
+      ).not.toBeNull(),
+    );
+  });
+  const rich = document.querySelector<HTMLElement>(".ProseMirror")!;
+  expect(document.activeElement).toBe(rich);
+  expect(rich.querySelector("h1")?.textContent).toBe("标题");
+  expect(draft.onChange).not.toHaveBeenCalled();
+  await act(async () =>
+    rich.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  expect(draft.onSave).toHaveBeenCalledOnce();
+  await act(async () =>
+    rich.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        ctrlKey: true,
+        isComposing: true,
+        bubbles: true,
+      }),
+    ),
+  );
+  expect(draft.onSave).toHaveBeenCalledOnce();
+});
+
+it("preserves unsupported annotation content in editable source and reports its own fallback", async () => {
+  const draft = editor("<section>保留原内容</section>");
+  await render(null, annotations, draft);
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("暂不支持的格式"),
+    );
+  });
+  const source = document.querySelector<HTMLTextAreaElement>("textarea")!;
+  expect(reportDiagnostic).toHaveBeenCalledWith({
+    level: "warn",
+    event: "annotation_note.editor.initialize_fallback",
+    detail: "unsupported_format",
+  });
+  expect(source.value).toBe(draft.value);
+  expect(source.disabled).toBe(false);
+  expect(draft.onChange).not.toHaveBeenCalled();
+});
+
+it("blocks further editing and shortcut submission while saving", async () => {
+  const draft = { ...editor("**保存中**"), saving: true };
+  await render(null, annotations, draft);
+  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
+  expect(input.disabled).toBe(true);
+  await act(async () =>
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        ctrlKey: true,
+        bubbles: true,
+      }),
+    ),
+  );
+  expect(draft.onSave).not.toHaveBeenCalled();
+});
+
+it("keeps source-mode HTML visible as inert text in saved previews", async () => {
+  const note = '<section>保留原内容</section>\n<script>alert("x")</script>';
+  await render(target, [{ ...annotations[0], note }]);
+  const preview = document.querySelector(
+    "[data-annotation-preview] .message-markdown",
+  )!;
+  expect(preview.textContent).toContain(note);
+  expect(preview.querySelector("section,script")).toBeNull();
+});
+
+it("renders editor-generated line breaks while retaining Markdown links and literal code", async () => {
+  await render(target, [
+    {
+      ...annotations[0],
+      note: "第一行<br />第二行\n\n`<section>` [链接](https://example.com)",
+    },
+  ]);
+  const preview = document.querySelector(
+    "[data-annotation-preview] .message-markdown",
+  )!;
+  expect(preview.querySelector("br")).not.toBeNull();
+  expect(preview.querySelector("code")?.textContent).toBe("<section>");
+  expect(preview.querySelector("a")?.getAttribute("href")).toBe(
+    "https://example.com",
+  );
 });

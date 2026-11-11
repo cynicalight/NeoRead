@@ -17,20 +17,33 @@ export function PaperNoteRichEditor({
   onChange,
   onBlur,
   actions,
+  ariaLabel = "编辑论文笔记",
+  placeholder = "使用 Markdown 记录要点、疑问和启发…",
+  autoFocus = false,
+  className = "",
+  diagnosticScope = "paper_note",
 }: {
   body: string;
   disabled: boolean;
   onChange: (body: string) => void;
-  onBlur: () => void;
+  onBlur?: () => void;
   actions?: ReactNode;
+  ariaLabel?: string;
+  placeholder?: string;
+  autoFocus?: boolean;
+  className?: string;
+  diagnosticScope?: "paper_note" | "annotation_note";
 }) {
   const [source, setSource] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reason, setReason] = useState("");
   const container = useRef<HTMLDivElement>(null);
-  const editorRef = useRef<{ setMarkdown: (body: string) => void } | null>(
-    null,
-  );
+  const sourceInput = useRef<HTMLTextAreaElement>(null);
+  const focusRequested = useRef(false);
+  const editorRef = useRef<{
+    setMarkdown: (body: string) => void;
+    focus?: () => void;
+  } | null>(null);
   const showError = (
     error: unknown,
     stage: "import" | "initialize" | "synchronize",
@@ -41,7 +54,7 @@ export function PaperNoteRichEditor({
     try {
       reportDiagnostic({
         level: unsupported ? "warn" : "error",
-        event: `paper_note.editor.${stage}_fallback`,
+        event: `${diagnosticScope}.editor.${stage}_fallback`,
         // Parser errors can contain Markdown in their message and stack.
         // Log only the controlled cause/type, never the exception text.
         detail: unsupported
@@ -90,6 +103,7 @@ export function PaperNoteRichEditor({
                 latest.current.body = markdown;
                 latest.current.onChange(markdown);
               },
+              { ariaLabel },
             )
           : undefined;
       })
@@ -103,6 +117,8 @@ export function PaperNoteRichEditor({
         editorRef.current = editor;
         stage = "synchronize";
         editor.setMarkdown(latest.current.body);
+        if (autoFocus && document.activeElement === sourceInput.current)
+          focusRequested.current = true;
         setLoading(false);
       })
       .catch((error: unknown) => {
@@ -115,17 +131,29 @@ export function PaperNoteRichEditor({
       mount.remove();
       void destroy?.();
     };
-  }, [source, disabled]);
+  }, [source, disabled, ariaLabel, autoFocus]);
   const showSource = source || disabled || loading || !!reason;
+  useLayoutEffect(() => {
+    if (showSource || !focusRequested.current) return;
+    focusRequested.current = false;
+    editorRef.current?.focus?.();
+  }, [showSource]);
   return (
-    <div className="paper-note-workspace">
+    <div className={`paper-note-workspace ${className}`}>
       <div className="paper-note-toolbar">
-        <div className="flex gap-1" role="group" aria-label="笔记编辑模式">
+        <div
+          className="flex gap-1"
+          role="group"
+          aria-label={`${ariaLabel}模式`}
+        >
           <Button
             variant={source ? "ghost" : "secondary"}
             size="xs"
             aria-pressed={!source}
-            onClick={() => setSource(false)}
+            onClick={() => {
+              focusRequested.current = autoFocus;
+              setSource(false);
+            }}
           >
             编辑
           </Button>
@@ -147,8 +175,10 @@ export function PaperNoteRichEditor({
       )}
       {showSource && (
         <Textarea
-          aria-label="编辑论文笔记"
-          placeholder="使用 Markdown 记录要点、疑问和启发…"
+          ref={sourceInput}
+          aria-label={ariaLabel}
+          placeholder={placeholder}
+          autoFocus={autoFocus && !disabled}
           disabled={disabled}
           value={body}
           onChange={(event) => {

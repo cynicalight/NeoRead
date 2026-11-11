@@ -199,6 +199,7 @@ export async function createPaperNoteEditor(
   host: HTMLElement,
   markdown: string | (() => string),
   onChange: (markdown: string) => void,
+  { ariaLabel = "编辑论文笔记" }: { ariaLabel?: string } = {},
 ) {
   let ready = false;
   let currentMarkdown = "";
@@ -209,7 +210,8 @@ export async function createPaperNoteEditor(
       ctx.set(defaultValueCtx, "");
       ctx.set(editorViewOptionsCtx, {
         attributes: {
-          "aria-label": "编辑论文笔记",
+          role: "textbox",
+          "aria-label": ariaLabel,
           "aria-multiline": "true",
           spellcheck: "false",
         },
@@ -296,7 +298,10 @@ export async function createPaperNoteEditor(
     };
     setMarkdown(typeof markdown === "function" ? markdown() : markdown);
     ready = true;
-    return Object.assign(editor, { setMarkdown });
+    return Object.assign(editor, {
+      setMarkdown,
+      focus: () => editor.ctx.get(editorViewCtx).focus(),
+    });
   } catch (error) {
     await editor.destroy();
     throw error;

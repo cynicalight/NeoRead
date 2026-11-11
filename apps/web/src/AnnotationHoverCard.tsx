@@ -17,7 +17,8 @@ import {
   PopoverContent,
   PopoverTitle,
 } from "@neoread/ui/components/popover";
-import { Textarea } from "@neoread/ui/components/textarea";
+import { PaperNoteRichEditor } from "./PaperNoteRichEditor";
+import { MessageMarkdown } from "./chat/MessageMarkdown";
 import {
   Tooltip,
   TooltipContent,
@@ -103,7 +104,6 @@ export function AnnotationHoverCard({
   const inside = useRef(false);
   // A card moved by the user stays until dismissed, not until pointer leave.
   const pinned = useRef(false);
-  const input = useRef<HTMLTextAreaElement>(null);
   const cancel = () => clearTimeout(timer.current);
   const close = () => {
     cancel();
@@ -140,10 +140,6 @@ export function AnnotationHoverCard({
       window.removeEventListener("resize", interrupt);
     };
   }, []);
-  const editing = !!editor;
-  useEffect(() => {
-    if (editing) input.current?.focus({ preventScroll: true });
-  }, [editing]);
   const anchor = editor?.anchor ?? shown?.anchor;
   const key = anchorKey(anchor);
   // Keep the drag offset while a preview turns into its editor.
@@ -238,10 +234,10 @@ export function AnnotationHoverCard({
           side="right"
           align="start"
           sideOffset={12}
-          initialFocus={editor ? input : false}
+          initialFocus={false}
           finalFocus={false}
           style={{ translate: `${offset.x}px ${offset.y}px` }}
-          className="max-h-[min(24rem,70vh)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto"
+          className={`max-h-[min(30rem,80vh)] max-w-[calc(100vw-2rem)] overflow-y-auto ${editor ? "w-96" : "w-72"}`}
           data-annotation-preview=""
           onPointerEnter={() => {
             inside.current = true;
@@ -265,26 +261,32 @@ export function AnnotationHoverCard({
           <PopoverTitle className="sr-only">{title}</PopoverTitle>
           {editor ? (
             <>
-              <Textarea
-                ref={input}
-                aria-label={title}
-                placeholder={
-                  editor.kind === "question" ? "想弄清楚什么？" : "批注内容…"
-                }
-                className="max-h-[min(16rem,45vh)] min-h-20 resize-none"
-                value={editor.value}
-                onChange={(e) => editor.onChange(e.target.value)}
-                onKeyDown={(e) => {
+              <div
+                onKeyDownCapture={(event) => {
                   if (
-                    e.key === "Enter" &&
-                    (e.metaKey || e.ctrlKey) &&
-                    !e.nativeEvent.isComposing
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey) &&
+                    !event.nativeEvent.isComposing
                   ) {
-                    e.preventDefault();
+                    event.preventDefault();
+                    event.stopPropagation();
                     if (canSave) editor.onSave();
                   }
                 }}
-              />
+              >
+                <PaperNoteRichEditor
+                  body={editor.value}
+                  disabled={editor.saving}
+                  ariaLabel={title}
+                  placeholder={
+                    editor.kind === "question" ? "想弄清楚什么？" : "批注内容…"
+                  }
+                  autoFocus
+                  className="annotation-markdown-editor"
+                  diagnosticScope="annotation_note"
+                  onChange={editor.onChange}
+                />
+              </div>
               <div className="flex items-center gap-1">
                 {grip}
                 <div className="ml-auto flex gap-1">
@@ -315,9 +317,11 @@ export function AnnotationHoverCard({
                 key={annotation.id}
                 className="border-b pb-2 last:border-0 last:pb-0"
               >
-                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                  {annotation.note}
-                </p>
+                <MessageMarkdown
+                  content={annotation.note}
+                  animated={false}
+                  literalHtml
+                />
                 <div className="mt-1 flex items-center gap-1">
                   {index === 0 && grip}
                   <div className="ml-auto flex gap-1">
