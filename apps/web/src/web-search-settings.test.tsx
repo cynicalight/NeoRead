@@ -146,3 +146,32 @@ it("serializes a blur and rapid toggles without losing permissions or a new key"
     await h.close();
   }
 });
+
+it("switches to keyless Keenable without carrying a saved key to another address", async () => {
+  const save = vi.fn(async () => true),
+    h = await harness(save);
+  try {
+    const tab = (name: string) =>
+      [...h.host.querySelectorAll('[role="tab"]')].find(
+        (element) => element.textContent === name,
+      ) as HTMLElement;
+    await act(async () => tab("Keenable").click());
+    expect(save).toHaveBeenLastCalledWith({
+      ...value,
+      provider: "keenable",
+      url: "https://api.keenable.ai",
+      hasKey: false,
+    });
+    expect(h.url()).toBeNull();
+    expect(h.host.textContent).toContain("无需 API Key");
+    await act(async () => tab("DeepSeek").click());
+    expect(save).toHaveBeenLastCalledWith({
+      ...value,
+      provider: "deepseek",
+      url: "https://api.deepseek.com",
+      hasKey: false,
+    });
+  } finally {
+    await h.close();
+  }
+});

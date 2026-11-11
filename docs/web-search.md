@@ -3,20 +3,23 @@
 在「设置 → Agent → 联网搜索」配置，聊天输入框不再提供单轮开关。设置持久保存在本机书库的 AI 连接配置中，切换文档、切换会话和重启应用后保持。
 
 - 勾选「允许 CLI 原生联网搜索」即自动保存，之后 Codex 的新问题可按需搜索。当前支持 Codex；Claude Code / Kimi 不因此获得联网工具。
-- 「搜索 API」可选关闭或 DeepSeek。选择 DeepSeek 即保存服务类型，再填写独立的搜索 API 地址和 Key，地址与 Key 在失焦或回车时自动保存。默认地址为 `https://api.deepseek.com`，也可填写采用相同 Search / Fetch 协议的兼容服务；不自动复用聊天模型的地址和 Key。
+- 「搜索 API」可选关闭、DeepSeek 或 Keenable。选择 DeepSeek 即保存服务类型，再填写独立的搜索 API 地址和 Key，地址与 Key 在失焦或回车时自动保存。默认地址为 `https://api.deepseek.com`，也可填写采用相同 Search / Fetch 协议的兼容服务；不自动复用聊天模型的地址和 Key。
+- 选择 Keenable 即可使用，无需 Key。地址固定为 `https://api.keenable.ai`，不显示地址输入框；可选填写 Key 以提高限额（未填写时每个 IP 每秒 10 次、每小时 1000 次）。切换搜索服务时已保存的 Key 不会带到另一个地址。
 - 开关与搜索服务选择即时保存，地址和 Key 输入结束后自动保存。配置对后续问题生效，不中断已经开始的生成。默认两条路径均关闭。重新生成保留原问题记录的联网权限，同时受当前设置约束；关闭设置后不能通过旧问题或请求参数重新取得搜索权限。开启设置后如需为原来未联网的问题搜索，应重新发送该问题。
 
 ## 支持范围
 
 - **Codex**：使用 App Server 原生 `web_search="live"`，支持搜索、打开网页及页内查找。保留只读沙箱，关闭 Shell、Apps、插件等其他能力，逐项禁用继承的 MCP，仅注册当前文档工具。会话缓存包含联网模式；恢复会话时重新应用并核验配置。图片问答、翻译等生成路径也采用相同的 MCP 隔离入口；翻译不启用联网。
-- **API / 内置 Pi**：聊天模型和搜索服务分别配置。首版搜索适配器支持 DeepSeek Search / Fetch 协议，模型须通过现有的工具调用检测。请求发送到明确配置的搜索地址：根地址追加 `/v1/tools/search` 或 `/v1/tools/fetch`，已以 `/v1` 结尾的地址追加 `/tools/search` 或 `/tools/fetch`；兼容服务的路径前缀保留。Go 执行搜索请求，独立搜索 Key 不交给 Pi worker 或聊天模型。
+- **API / 内置 Pi**：聊天模型和搜索服务分别配置。搜索适配器支持 DeepSeek Search / Fetch 协议和 Keenable，模型须通过现有的工具调用检测。DeepSeek 请求发送到明确配置的搜索地址：根地址追加 `/v1/tools/search` 或 `/v1/tools/fetch`，已以 `/v1` 结尾的地址追加 `/tools/search` 或 `/tools/fetch`；兼容服务的路径前缀保留。Keenable 未填写 Key 时使用 `POST /v1/search/public` 和 `GET /v1/fetch/public`，填写 Key 后使用 `/v1/search` 和 `/v1/fetch` 并发送 `X-API-Key`；请求均带 `X-Keenable-Title: NeoRead`。Go 执行搜索请求，独立搜索 Key 不交给 Pi worker 或聊天模型。
 - **Claude / Kimi**：本轮不增加联网工具。既有适配器权限核查中发现的问题不因本功能而视为已修复。
 
 开启联网的请求失败时不自动切换到另一个后端，避免用户收到未执行联网却被当作搜索结果的回答。
 
+Keenable 参考：[API 文档](https://docs.keenable.ai)。
+
 DeepSeek 参考：[Search & Fetch 指南](https://api-docs.deepseek.com/zh-cn/guides/search/)、[Search](https://api-docs.deepseek.com/zh-cn/api/search/)、[Fetch](https://api-docs.deepseek.com/zh-cn/api/fetch/)。这两项是独立工具 API，未向 Chat Completions 请求添加未经支持的 `enable_search` 参数。
 
-DeepSeek Fetch 明确返回内容不存在时，执行记录显示“此网址无法读取”，不会加入已读来源。临时服务或响应格式失败显示“暂未取得结果”；模型可使用已有资料或其他来源继续，不能声称已读取失败的网页。认证、余额及权限错误继续显示可操作提示。
+DeepSeek Fetch 明确返回内容不存在（或 Keenable Fetch 返回 404 `page_not_found`）时，执行记录显示“此网址无法读取”，不会加入已读来源。临时服务或响应格式失败显示“暂未取得结果”；模型可使用已有资料或其他来源继续，不能声称已读取失败的网页。认证、余额及权限错误继续显示可操作提示。
 
 直接搜索服务只对明确的临时 HTTP 状态（408、429、500、502、503、504）最多尝试三次，默认等待 1 秒和 2 秒，并遵守更长的 `Retry-After`。所有尝试共用两分钟工具时限和相同请求体。网络异常、读取失败及格式错误不自动重放；取消立即传播。诊断事件 `web.tool.retry` 和 `web.tool.deferred` 不记录密钥、查询词或上游正文。
 
@@ -36,13 +39,13 @@ Codex 的 `item/started`、`item/completed` 和 `item/mcpToolCall/progress` 经 
 
 联网授权受保存的搜索设置控制，并保存在用户问题的 `webSearch` 字段中。请求省略此字段时采用当前设置；显式 false 可关闭本轮；显式 true 不能越过设置中已关闭的权限。不接受文档内容或模型输出修改权限。关闭时不注册 API 网页工具，并将 Codex 搜索设为 disabled；历史网页资料只作为历史快照。
 
-DeepSeek 只收到必要查询词或指定 URL，不发送整篇文档及聊天历史。Fetch 请求在本机检查协议、凭据、localhost、内网和链路本地 IP，包括 DNS 解析结果；实际网页抓取由 DeepSeek 执行，远端抓取和跳转策略仍由其安全策略负责。Search/Fetch API 目标由用户在设置中明确指定，不跟随 API HTTP 重定向。搜索服务要求 HTTPS，本机兼容服务可使用 HTTP。更改服务地址时必须重新填写 Key；同一地址留空才可保留原 Key，移除密钥同时关闭搜索 API。配置返回值仅含 hasKey，不回传 Key。错误展示不包含原始上游响应体。
+DeepSeek 或 Keenable 只收到必要查询词或指定 URL，不发送整篇文档及聊天历史。Fetch 请求在本机检查协议、凭据、localhost、内网和链路本地 IP，包括 DNS 解析结果；实际网页抓取由所选搜索服务执行，远端抓取和跳转策略仍由其安全策略负责。Search/Fetch API 目标由用户在设置中明确指定，不跟随 API HTTP 重定向。搜索服务要求 HTTPS，本机兼容服务可使用 HTTP。更改服务地址时必须重新填写 Key；同一地址留空才可保留原 Key，移除密钥同时关闭搜索 API。配置返回值仅含 hasKey，不回传 Key。错误展示不包含原始上游响应体。
 
 Codex 原生搜索请求由 App Server/服务端执行，NeoRead 收到的是执行通知，无法在每次请求前审核或改写其底层 HTTP 请求。当前授权和只读配置不等于完整进程级网络/文件系统隔离。
 
 ## 验证与人工检查
 
-自动化覆盖配置持久保存、遗漏字段保留、密钥隔离与更换地址保护、CLI 开关约束、模型与搜索服务使用不同地址/Key、IPC 工具生命周期、继承 MCP 的禁用、DeepSeek 请求协议、权限关闭、完整来源快照保存、预算提醒、内网 URL、重定向、取消和限流；Pi worker 使用本地模型响应替身，不访问商业模型服务。
+自动化覆盖配置持久保存、遗漏字段保留、密钥隔离与更换地址保护、CLI 开关约束、模型与搜索服务使用不同地址/Key、IPC 工具生命周期、继承 MCP 的禁用、DeepSeek 与 Keenable 请求协议（含重试和 404 不可用结果）、权限关闭、完整来源快照保存、预算提醒、内网 URL、重定向、取消和限流；Pi worker 使用本地模型响应替身，不访问商业模型服务。
 
 可选原生 CLI 配置预检：在 `apps/server` 运行 `NEOREAD_TEST_CODEX_WEB_PREFLIGHT=1 go test ./internal/neoread -run '^TestCodexWebPreflightNative$' -count=1`。只初始化实际安装的 CLI 并核验配置，不启动模型回合或调用 MCP。
 

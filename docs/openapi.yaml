@@ -7119,13 +7119,13 @@
                   "provider":
                     {
                       "type": "string",
-                      "enum": ["", "deepseek"],
+                      "enum": ["", "deepseek", "keenable"],
                       "description": "Empty disables the search API.",
                     },
                   "url":
                     {
                       "type": "string",
-                      "description": "DeepSeek Search/Fetch compatible base URL. Independent of the chat model endpoint.",
+                      "description": "DeepSeek Search/Fetch compatible base URL. Independent of the chat model endpoint. Fixed to https://api.keenable.ai for keenable, which works without a key.",
                     },
                   "key": { "type": "string", "writeOnly": true },
                   "hasKey":
