@@ -2465,6 +2465,62 @@ kbd {
   flex-direction: column;
   gap: 12px;
 }
+[data-slot="dialog-content"] .image-preview-pin {
+  position: absolute;
+  top: 8px;
+  right: 44px;
+}
+.image-preview-dialog [data-slot="dialog-header"] {
+  padding-right: 64px;
+}
+.floating-image {
+  position: fixed;
+  z-index: 45;
+  overflow: hidden;
+  border-radius: 8px;
+  background: white;
+  box-shadow:
+    0 8px 32px #0003,
+    0 0 0 1px var(--border);
+}
+.floating-image .floating-image-drag {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  cursor: grab;
+  transform: none;
+  transition: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.floating-image-drag:active {
+  cursor: grabbing;
+}
+.floating-image-drag img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.floating-image-close,
+.floating-image-resize {
+  position: absolute;
+  right: 4px;
+  box-shadow: 0 1px 4px #0002;
+}
+.floating-image-close {
+  top: 4px;
+}
+.floating-image-resize {
+  bottom: 4px;
+  cursor: nwse-resize;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
 .image-preview-controls {
   display: flex;
   align-items: center;
