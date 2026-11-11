@@ -4,7 +4,11 @@ import {
   formulaHighlightRules,
   markFormulas,
 } from "./formula-highlight";
-import { annotationsAtPoint, annotationsInRects } from "./annotation-hover";
+import {
+  annotationsAtPoint,
+  annotationsInRects,
+  inside,
+} from "./annotation-hover";
 import { SentenceHover } from "./sentence-hover";
 import { useEffect, useId, useRef } from "react";
 import type { RefObject } from "react";
@@ -18,31 +22,21 @@ import type {
   SearchResult,
   TranslationBlock,
 } from "@neoread/core";
-import { textRange, translatedAnnotationRanges } from "./annotations";
+import { translatedAnnotationRanges } from "./annotations";
 import { sourcePassage, translatedSentenceRanges } from "./sentence-links";
-import { blockRange, resolveEPUBLocation } from "../readers/epub-web-location";
+import { blockRange } from "../readers/epub-web-location";
 import { epubSentenceSlice } from "./epub-links";
 import { searchRanges } from "./search-ranges";
-import { overlap } from "../readers/pdf-reading";
 import {
   hasReflowSource,
-  reflowQuoteRanges,
   reflowSourceRanges,
-  reflowMarkRanges,
   segmentSentences,
 } from "./reflow";
+import { pdfSourceMarkRanges } from "./pdf-source-marks";
 
 type Mark = { annotation: Annotation; range: Range };
 const hit = (range: Range, x: number, y: number) =>
-  Array.from(range.getClientRects()).some(
-    (r) =>
-      r.width &&
-      r.height &&
-      x >= r.left &&
-      x <= r.right &&
-      y >= r.top &&
-      y <= r.bottom,
-  );
+  Array.from(range.getClientRects()).some((r) => inside(r, x, y));
 
 /** Saved marks stay on their origin side; hover may still link sentences. */
 export function useSentenceMarks(
@@ -88,6 +82,9 @@ export function useSentenceMarks(
     let marks: Mark[] = [],
       names: string[] = [],
       frame = 0;
+    // The EPUB adapter draws its own source marks; read them when hit-testing,
+    // since it repaints on its own schedule.
+    const allMarks = () => [...marks, ...(engine.annotationRanges?.() ?? [])];
     const searchName = `${prefix}-search`;
     const cache = new Map<string, Range[]>();
     let geometry = new WeakMap<Range, DOMRect[]>();
@@ -99,18 +96,8 @@ export function useSentenceMarks(
       }
       return rects;
     };
-    const containsPoint = (range: Range, x: number, y: number) => {
-      const rects = rectsOf(range);
-      return rects.some(
-        (r) =>
-          r.width &&
-          r.height &&
-          x >= r.left &&
-          x <= r.right &&
-          y >= r.top &&
-          y <= r.bottom,
-      );
-    };
+    const containsPoint = (range: Range, x: number, y: number) =>
+      rectsOf(range).some((r) => inside(r, x, y));
     const sourceRanges = (t: TranslationBlock, i: number) => {
       const key = `${t.blockId}:${i}`;
       if (!cache.has(key)) {
@@ -203,113 +190,17 @@ export function useSentenceMarks(
       clearFormulaMarks(host, prefix);
       names = [];
       marks = translatedAnnotationRanges(host, annotations, translations);
-      for (const annotation of annotations) {
-        if (
-          annotation.location.type === "epub" &&
-          !annotation.location.translation &&
-          annotation.kind !== "bookmark"
-        ) {
-          const epubBlocks = blocks.filter(
-            (b): b is EPUBReadingBlock => "location" in b,
-          );
-          for (const slice of resolveEPUBLocation(
-            {
-              ...annotation.location,
-              quote: annotation.location.quote || annotation.quote,
-            },
-            epubBlocks,
-          )) {
-            const range = blockRange(host, slice);
-            if (range) marks.push({ annotation, range });
-          }
-        }
-        if (
-          annotation.location.type !== "pdf" ||
-          (annotation.location.translation &&
-            !annotation.location.sourceAnchors?.length) ||
-          annotation.kind === "bookmark"
-        )
-          continue;
-        const passages = annotation.location.sourceAnchors?.flatMap(
-          (anchor) => {
-            const normalize = (text: string) =>
-              text.replace(/\s/g, "").toLowerCase();
-            const candidates = blocks.filter(
-              (block) =>
-                "page" in block &&
-                block.page === anchor.page &&
-                normalize(block.text).includes(normalize(anchor.source)),
-            );
-            const block =
-              candidates.find((block) => block.id === anchor.blockId) ??
-              (candidates.length === 1 ? candidates[0] : undefined);
-            return block
-              ? [{ blockId: block.id, sources: [anchor.source], anchor }]
-              : [];
-          },
-        );
-        // Reflowed text has no PDF text layer; find the saved quote in it.
-        const reflowed = (passages ?? []).filter((p) =>
-          hasReflowSource(host, p.blockId),
-        );
-        for (const passage of reflowed)
-          for (const source of passage.sources) {
-            const node = Array.from(
-              host.querySelectorAll<HTMLElement>("[data-reflow-source]"),
-            ).find((item) => item.dataset.reflowSource === passage.blockId);
-            const { anchor } = passage;
-            const exact =
-              node &&
-              anchor.text === node.textContent &&
-              anchor.start !== undefined &&
-              anchor.end !== undefined
-                ? textRange(node, anchor.start, anchor.end)
-                : undefined;
-            marks.push(
-              ...(exact
-                ? [exact]
-                : reflowQuoteRanges(host, passage.blockId, source)
-              ).map((range) => ({ annotation, range })),
-            );
-          }
-        // Ordinary source marks live in the PDF text layer; reflowed text
-        // finds their quote in the paragraphs under the saved rectangles.
-        // A text-layer quote is found across the paragraphs it covers.
-        const location = annotation.location;
-        if (!passages?.length && location.quote?.trim()) {
-          const covered = blocks.flatMap((block) =>
-            "page" in block &&
-            block.page === location.page &&
-            hasReflowSource(host, block.id) &&
-            (!location.rects?.length ||
-              location.rects.some((r) => overlap(r, block.bounds) > 0))
-              ? [block.id]
-              : [],
-          );
-          marks.push(
-            ...reflowMarkRanges(host, covered, location.quote).map((range) => ({
-              annotation,
-              range,
-            })),
-          );
-        }
-        if (passages?.length && !reflowed.length)
-          marks.push(
-            ...(engine.sentenceRanges?.(passages) ?? []).map((range) => ({
-              annotation,
-              range,
-            })),
-          );
-      }
+      for (const annotation of annotations)
+        for (const range of pdfSourceMarkRanges(
+          host,
+          annotation,
+          blocks,
+          engine,
+        ))
+          marks.push({ annotation, range });
       const groups = new Map<string, Range[]>();
       const rules: string[] = [];
       for (const mark of marks) {
-        // The EPUB adapter already paints saved source annotations.
-        if (
-          mark.annotation.location.type === "epub" &&
-          !mark.annotation.location.translation
-        )
-          continue;
         const color = /^#[\da-f]{6}$/i.test(mark.annotation.color)
           ? mark.annotation.color.toLowerCase()
           : "#e6b94c";
@@ -449,7 +340,7 @@ export function useSentenceMarks(
       const direct = annotationsAtPoint(
         host,
         latest.current.annotations,
-        marks,
+        allMarks(),
         point.x,
         point.y,
         rectsOf,
@@ -560,7 +451,12 @@ export function useSentenceMarks(
       );
       activeMarked = [
         ...new Set([
-          ...annotationsInRects(host, latest.current.annotations, marks, rects),
+          ...annotationsInRects(
+            host,
+            latest.current.annotations,
+            allMarks(),
+            rects,
+          ),
           ...direct.annotations,
         ]),
       ];
@@ -570,7 +466,7 @@ export function useSentenceMarks(
     // Only the marked text opens the note; the rest of the sentence hovers.
     const applyPoint = (x: number, y: number) => {
       const hit = activeMarked.length
-        ? annotationsAtPoint(host, activeMarked, marks, x, y, rectsOf)
+        ? annotationsAtPoint(host, activeMarked, allMarks(), x, y, rectsOf)
         : { annotations: [], rects: [] };
       report(hit.annotations, hit.rects, x);
       if (hit.annotations.length) hover.clear(true);
@@ -636,7 +532,7 @@ export function useSentenceMarks(
       const target = event.target instanceof Element ? event.target : undefined;
       if (target?.closest("a,button,input,textarea,[data-block-action]"))
         return;
-      const matches = marks.filter((m) =>
+      const matches = allMarks().filter((m) =>
         hit(m.range, event.clientX, event.clientY),
       );
       if (!matches.length) return;

@@ -595,6 +595,8 @@ export interface ReaderAdapter {
     scroll?: boolean,
   ): Promise<void>;
   sentenceRanges?(passages: PDFPassage[]): Range[];
+  /** Source marks the adapter draws itself, with their current ranges. */
+  annotationRanges?(): { annotation: Annotation; range: Range }[];
   prepareAnnotation?(selection: ReaderSelection): Promise<ReaderSelection>;
   focusPassages?(passages: PDFPassage[], scroll?: boolean): Promise<void>;
   matchSentences?(
