@@ -1,7 +1,7 @@
 {
   "name": "@neoread/desktop",
   "productName": "NeoRead",
-  "version": "0.10.0",
+  "version": "0.12.1",
   "private": true,
   "type": "module",
   "main": "dist/entry.cjs",
