@@ -254,7 +254,7 @@ function wpsFolder({ platform, home, appData }: CitePluginOptions) {
 }
 
 const wpsEntry =
-  /\s*<jsplugin\b[^>]*\bname="(?:neoread-cite|reader-cite)"[^>]*\/>/g;
+  /\s*<jsplugin(?:online)?\b[^>]*\bname="(?:neoread-cite|reader-cite)"[^>]*\/>/g;
 
 /** Adds NeoRead's add-in to a WPS jsaddons XML file, replacing an older entry. */
 export function registerWPS(
@@ -267,7 +267,7 @@ export function registerWPS(
   const url = WPS_URL + key + "/";
   const entry =
     file === "publish"
-      ? `<jsplugin url="${url}" type="wps" enable="enable_dev" install="null" version="${WPS_VERSION}" name="${WPS_NAME}"/>`
+      ? `<jspluginonline url="${url}" type="wps" enable="enable_dev" install="null" version="${WPS_VERSION}" name="${WPS_NAME}"/>`
       : `<jsplugin name="${WPS_NAME}" type="wps" url="${url}" version="${WPS_VERSION}"/>`;
   const base = unregisterWPS(
     xml.trim() ||
@@ -287,15 +287,18 @@ export async function citePluginStatus(
 ): Promise<CitePluginStatus[]> {
   const word = await wordLocations(options);
   const wps = wpsFolder(options);
-  const registered = async (folder: string) =>
-    (
-      await readFile(join(folder, "publish.xml"), "utf8").catch(
-        (error: NodeJS.ErrnoException) => {
-          if (error.code === "ENOENT" || error.code === "ENOTDIR") return "";
-          throw error;
-        },
-      )
-    ).includes(`name="${WPS_NAME}"`);
+  const registered = async (folder: string) => {
+    const xml = await readFile(join(folder, "publish.xml"), "utf8").catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT" || error.code === "ENOTDIR") return "";
+        throw error;
+      },
+    );
+    const entry = xml.match(
+      /<jspluginonline\b[^>]*\bname="neoread-cite"[^>]*\/>/,
+    );
+    return !!entry && /\benable="(?:enable|enable_dev)"/.test(entry[0]);
+  };
   return [
     {
       kind: "word",

@@ -68,6 +68,7 @@ describe("WPS registration", () => {
       'url="http://127.0.0.1:17841/wps/' + bootstrapKey + '/"',
     );
     expect(once).toContain('name="wps-zotero"');
+    expect(once).toContain("<jspluginonline ");
     expect(unregisterWPS(once)).toBe(xml);
   });
 
@@ -77,6 +78,35 @@ describe("WPS registration", () => {
     );
     expect(() => registerWPS("<other/>", "jsplugins", bootstrapKey)).toThrow();
   });
+
+  it("replaces both online and legacy registrations without duplicating the add-in", () => {
+    const xml =
+      '<jsplugins><jsplugin name="reader-cite"/><jspluginonline name="neoread-cite" enable="disable"/><jspluginonline name="other"/></jsplugins>';
+    const registered = registerWPS(xml, "publish", bootstrapKey);
+    expect(registered.match(/name="neoread-cite"/g)).toHaveLength(1);
+    expect(registered).toContain("<jspluginonline url=");
+    expect(registered).not.toContain('name="reader-cite"');
+    expect(unregisterWPS(registered)).toBe(
+      '<jsplugins><jspluginonline name="other"/></jsplugins>',
+    );
+  });
+
+  it.each([
+    '<jsplugin name="neoread-cite" enable="enable_dev"/>',
+    '<jspluginonline name="neoread-cite" enable="disable"/>',
+  ])(
+    "does not report an inactive WPS registration as installed (%s)",
+    async (entry) => {
+      const { options } = await setup("win32");
+      const folder = join(options.appData, "kingsoft/wps/jsaddons");
+      await mkdir(folder, { recursive: true });
+      await writeFile(
+        join(folder, "publish.xml"),
+        `<jsplugins>${entry}</jsplugins>`,
+      );
+      expect((await citePluginStatus(options))[1].installed).toBe(false);
+    },
+  );
 });
 
 describe("Windows Word folders", () => {
