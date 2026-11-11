@@ -1,13 +1,9 @@
 // @vitest-environment jsdom
 import { expect, it } from "vitest";
 import type { PDFBlock, TranslationBlock } from "@neoread/core";
-import {
-  reflowQuoteRanges,
-  reflowSourceParts,
-  reflowSourceSelection,
-  reflowBlockText,
-  reflowMarkRanges,
-} from "./reflow";
+import { reflowSourceParts, reflowBlockText } from "./reflow";
+import { reflowMarkRanges, reflowQuoteRanges } from "./reflow-marks";
+import { reflowSourceSelection } from "./reflow-selection";
 
 const translated = (
   sentences: TranslationBlock["sentences"],

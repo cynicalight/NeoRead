@@ -48,11 +48,8 @@ import {
   showsOriginal,
   TranslationText,
 } from "./TranslationText";
-import {
-  reflowBlockText,
-  reflowSourceSelection,
-  restoredSource,
-} from "./reflow";
+import { reflowBlockText, restoredSource } from "./reflow";
+import { reflowSourceSelection } from "./reflow-selection";
 import { copyText } from "../chat/clipboard";
 import { EPUBBlockOverlay } from "../readers/epub-block-focus";
 import { DeferredBlockFocus } from "../readers/deferred-block-focus";

@@ -32,11 +32,10 @@ import {
   compact,
   hasReflowSource,
   reflowSourceElement,
-  reflowQuoteRanges,
   reflowSourceRanges,
-  reflowMarkRanges,
   segmentSentences,
 } from "./reflow";
+import { reflowMarkRanges, reflowQuoteRanges } from "./reflow-marks";
 
 type Mark = { annotation: Annotation; range: Range };
 const hit = (range: Range, x: number, y: number) =>
