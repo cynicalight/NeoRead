@@ -10,6 +10,8 @@ import { Textarea } from "@neoread/ui/components/textarea";
 import { reportDiagnostic } from "./diagnostics";
 import { diagnosticError } from "../../../packages/neoread-core/src/diagnostics";
 import "./chat/markdown.css";
+import { PaperNoteMathEditor } from "./PaperNoteMathEditor";
+import type { MathEditRequest } from "./paper-note-math";
 
 export function PaperNoteRichEditor({
   body,
@@ -35,6 +37,10 @@ export function PaperNoteRichEditor({
   diagnosticScope?: "paper_note" | "annotation_note";
 }) {
   const [source, setSource] = useState(false);
+  const [mathEdit, setMathEdit] = useState<
+    (MathEditRequest & { id: number }) | null
+  >(null);
+  const mathEditSequence = useRef(0);
   const [loading, setLoading] = useState(true);
   const [reason, setReason] = useState("");
   const container = useRef<HTMLDivElement>(null);
@@ -103,7 +109,13 @@ export function PaperNoteRichEditor({
                 latest.current.body = markdown;
                 latest.current.onChange(markdown);
               },
-              { ariaLabel },
+              {
+                ariaLabel,
+                onEditMath: (request) => {
+                  if (active)
+                    setMathEdit({ ...request, id: ++mathEditSequence.current });
+                },
+              },
             )
           : undefined;
       })
@@ -161,7 +173,10 @@ export function PaperNoteRichEditor({
             variant={source ? "secondary" : "ghost"}
             size="xs"
             aria-pressed={source}
-            onClick={() => setSource(true)}
+            onClick={() => {
+              setMathEdit(null);
+              setSource(true);
+            }}
           >
             源码
           </Button>
@@ -189,6 +204,13 @@ export function PaperNoteRichEditor({
           }}
           onBlur={onBlur}
           className="paper-note-editor-input"
+        />
+      )}
+      {!showSource && mathEdit && (
+        <PaperNoteMathEditor
+          key={mathEdit.id}
+          request={mathEdit}
+          onClose={() => setMathEdit(null)}
         />
       )}
       <div

@@ -4622,3 +4622,12 @@ textarea.paper-note-editor-input {
 [data-annotation-preview] .message-markdown > :first-child {
   margin-top: 0;
 }
+
+.paper-note-rich [data-note-math] {
+  cursor: pointer;
+  border-radius: 3px;
+}
+.paper-note-rich [data-note-math]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}

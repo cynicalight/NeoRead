@@ -264,6 +264,10 @@ export function AnnotationHoverCard({
               <div
                 onKeyDownCapture={(event) => {
                   if (
+                    (event.target as Element).closest("[data-note-math-editor]")
+                  )
+                    return;
+                  if (
                     event.key === "Enter" &&
                     (event.metaKey || event.ctrlKey) &&
                     !event.nativeEvent.isComposing

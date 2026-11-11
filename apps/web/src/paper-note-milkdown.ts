@@ -19,10 +19,14 @@ import { history } from "@milkdown/kit/plugin/history";
 import { EditorState, Selection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { $node, $remark } from "@milkdown/kit/utils";
-import katex from "katex";
-import remarkMath from "remark-math";
+import { Slice } from "@milkdown/kit/prose/model";
+import { visit } from "unist-util-visit";
+import {
+  paperNoteMath,
+  normalizeMathLists,
+  type MathEditRequest,
+} from "./paper-note-math";
 import type { Root, RootContent } from "mdast";
-import "katex/dist/katex.min.css";
 
 const isLineBreak = (value: string) => /^<br\s*\/?\s*>$/i.test(value.trim());
 // Keep the original HTML spelling in Markdown, but show a real inline break.
@@ -31,60 +35,6 @@ const lineBreakHTML = htmlSchema.extendSchema((previous) => (ctx) => ({
   toDOM: (node) =>
     isLineBreak(node.attrs.value) ? ["br"] : previous(ctx).toDOM!(node),
 }));
-
-const mathPlugin = $remark("paperNoteMath", () => remarkMath);
-const mathNode = (display: boolean) => {
-  const id = display ? "paper_math_block" : "paper_math_inline";
-  return $node(id, () => ({
-    group: display ? "block" : "inline",
-    inline: !display,
-    atom: true,
-    selectable: true,
-    attrs: { value: { default: "", validate: "string" } },
-    parseDOM: [
-      {
-        tag: `[data-note-math="${id}"]`,
-        getAttrs: (dom) => ({
-          value: (dom as HTMLElement).dataset.value ?? "",
-        }),
-      },
-    ],
-    toDOM: (node) => {
-      const dom = document.createElement(display ? "div" : "span");
-      dom.dataset.noteMath = id;
-      dom.dataset.value = node.attrs.value;
-      dom.className = display ? "markdown-math display" : "markdown-math";
-      dom.title = "在源码中编辑公式";
-      dom.contentEditable = "false";
-      // Only KaTeX produces this HTML, with the same safety limits as previews.
-      dom.innerHTML = katex.renderToString(node.attrs.value, {
-        displayMode: display,
-        throwOnError: false,
-        trust: false,
-        strict: "warn",
-        maxExpand: 100,
-        maxSize: 20,
-      });
-      return dom;
-    },
-    parseMarkdown: {
-      match: (node) => node.type === (display ? "math" : "inlineMath"),
-      runner: (state, node, type) => {
-        state.addNode(type, { value: node.value });
-      },
-    },
-    toMarkdown: {
-      match: (node) => node.type.name === id,
-      runner: (state, node) => {
-        state.addNode(
-          display ? "math" : "inlineMath",
-          undefined,
-          node.attrs.value,
-        );
-      },
-    },
-  }));
-};
 
 // Keep destinations as Markdown data; editing must never navigate or fetch.
 const inertLink = linkSchema.extendSchema((previous) => (ctx) => ({
@@ -199,7 +149,13 @@ export async function createPaperNoteEditor(
   host: HTMLElement,
   markdown: string | (() => string),
   onChange: (markdown: string) => void,
-  { ariaLabel = "编辑论文笔记" }: { ariaLabel?: string } = {},
+  {
+    ariaLabel = "编辑论文笔记",
+    onEditMath,
+  }: {
+    ariaLabel?: string;
+    onEditMath?: (request: MathEditRequest) => void;
+  } = {},
 ) {
   let ready = false;
   let currentMarkdown = "";
@@ -214,6 +170,36 @@ export async function createPaperNoteEditor(
           "aria-label": ariaLabel,
           "aria-multiline": "true",
           spellcheck: "false",
+        },
+        handlePaste(view, event) {
+          const text = event.clipboardData?.getData("text/plain");
+          if (
+            !text ||
+            event.clipboardData?.getData("text/html") ||
+            view.state.selection.$from.parent.type.spec.code ||
+            view.state.selection.$from
+              .marks()
+              .some((mark) => mark.type.spec.code)
+          )
+            return false;
+          const tree = ctx.get(remarkCtx).parse(text);
+          let hasMath = false;
+          visit(tree, ["math", "inlineMath"], () => {
+            hasMath = true;
+          });
+          if (!hasMath) return false;
+          try {
+            assertSupported(tree);
+          } catch {
+            return false;
+          }
+          const doc = ctx.get(parserCtx)(text);
+          view.dispatch(
+            view.state.tr
+              .replaceSelection(Slice.maxOpen(doc.content))
+              .scrollIntoView(),
+          );
+          return true;
         },
         handleDOMEvents: {
           click(view, event) {
@@ -241,6 +227,7 @@ export async function createPaperNoteEditor(
         },
         dispatchTransaction(this: EditorView, transaction) {
           const previous = this.state.doc;
+          if (transaction.docChanged) normalizeMathLists(transaction);
           const next = this.state.apply(transaction);
           this.updateState(next);
           // Selection, mount, and mode switches must never rewrite raw Markdown.
@@ -257,9 +244,7 @@ export async function createPaperNoteEditor(
     .use(history)
     .use(
       [
-        mathPlugin,
-        mathNode(false),
-        mathNode(true),
+        ...paperNoteMath(onEditMath),
         inertLink,
         inertImage,
         taskCheckbox,
