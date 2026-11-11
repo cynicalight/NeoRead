@@ -22,6 +22,10 @@ var examplePaper embed.FS
 // OpenLibrary runs after desktop Reader migration and opens the resulting
 // library before deciding whether it needs an example. The caller holds
 // LockLibrary throughout initialization. OpenStore never seeds documents.
+//
+// The example and the automatic tour happen once per library. The guide
+// preference commits with the example, so its presence records that the
+// library was already initialized, even after the user purges every document.
 func OpenLibrary(root string) (store *Store, err error) {
 	store, err = OpenStore(root)
 	if err != nil {
@@ -33,17 +37,24 @@ func OpenLibrary(root string) (store *Store, err error) {
 			store = nil
 		}
 	}()
-	var count int
+	var count, initialized int
 	if err = store.DB.QueryRow("SELECT count(*) FROM documents").Scan(&count); err != nil {
 		return store, err
 	}
-	if count != 0 {
+	if err = store.DB.QueryRow("SELECT count(*) FROM settings WHERE key='preferences:guide'").Scan(&initialized); err != nil {
+		return store, err
+	}
+	if count != 0 || initialized != 0 {
 		// Existing documents, including migrated papers and retained trash, identify
 		// an existing user. Keep release-note and manual-tour preferences intact.
 		_, err = store.DB.Exec(`INSERT INTO settings(key,value) VALUES('preferences:guide','{"onboarded":true}')
    ON CONFLICT(key) DO UPDATE SET value=json_set(value,'$.onboarded',json('true'))`)
 		if err == nil {
-			slog.Info("library.example_skipped", "reasonCode", "existing_documents")
+			reason := "existing_documents"
+			if count == 0 {
+				reason = "already_initialized"
+			}
+			slog.Info("library.example_skipped", "reasonCode", reason)
 		}
 		return store, err
 	}
