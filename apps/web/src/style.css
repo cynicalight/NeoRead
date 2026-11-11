@@ -1729,7 +1729,7 @@ kbd {
   border-radius: 9px;
   margin-bottom: 12px;
 }
-.note-card > div {
+.note-card > div:first-child {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1739,10 +1739,6 @@ kbd {
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-}
-.note-editor > textarea {
-  grid-column: 1 / -1;
-  min-width: 0;
 }
 .note-card [data-slot="badge"] {
   font-size: 9px;
@@ -1762,9 +1758,8 @@ kbd {
   width: 100%;
   overflow-wrap: anywhere;
 }
-.note-card p {
+.note-card > .message-markdown {
   font-size: 11px;
-  white-space: pre-wrap;
   line-height: 1.8;
 }
 .page-navigation {
@@ -4597,4 +4592,42 @@ textarea.paper-note-editor-input {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Compact Markdown editing shares the paper-note parser and typography. */
+.annotation-markdown-editor {
+  gap: 8px;
+  min-width: 0;
+}
+.annotation-markdown-editor .paper-note-rich,
+.annotation-markdown-editor textarea.paper-note-editor-input {
+  flex: none;
+  height: clamp(8rem, 28vh, 16rem);
+  min-height: 0;
+  scrollbar-width: none;
+}
+.annotation-markdown-editor .paper-note-rich::-webkit-scrollbar,
+.annotation-markdown-editor
+  textarea.paper-note-editor-input::-webkit-scrollbar {
+  display: none;
+}
+.annotation-markdown-editor .paper-note-rich .ProseMirror,
+.annotation-markdown-editor textarea.paper-note-editor-input {
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.annotation-markdown-editor .ProseMirror > :first-child,
+.note-card > .message-markdown > :first-child,
+[data-annotation-preview] .message-markdown > :first-child {
+  margin-top: 0;
+}
+
+.paper-note-rich [data-note-math] {
+  cursor: pointer;
+  border-radius: 3px;
+}
+.paper-note-rich [data-note-math]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }

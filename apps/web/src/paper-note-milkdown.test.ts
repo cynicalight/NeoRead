@@ -3,14 +3,18 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { editorViewCtx, parserCtx, serializerCtx } from "@milkdown/kit/core";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import { closeHistory } from "@milkdown/kit/prose/history";
-import { DOMParser, DOMSerializer } from "@milkdown/kit/prose/model";
+import { Slice, DOMParser, DOMSerializer } from "@milkdown/kit/prose/model";
 import { createPaperNoteEditor } from "./paper-note-milkdown";
 
 const editors: Awaited<ReturnType<typeof createPaperNoteEditor>>[] = [];
-const create = async (body: string, change = vi.fn()) => {
+const create = async (
+  body: string,
+  change = vi.fn(),
+  options: Parameters<typeof createPaperNoteEditor>[3] = {},
+) => {
   const host = document.createElement("div");
   document.body.append(host);
-  const editor = await createPaperNoteEditor(host, body, change);
+  const editor = await createPaperNoteEditor(host, body, change, options);
   editors.push(editor);
   return { editor, view: editor.ctx.get(editorViewCtx), change, host };
 };
@@ -239,4 +243,192 @@ it("preserves br inside code and roundtrips table cell breaks", async () => {
   expect((await create(saved)).view.state.doc.toJSON()).toEqual(
     view.state.doc.toJSON(),
   );
+});
+
+const typeText = (
+  view: import("@milkdown/kit/prose/view").EditorView,
+  text: string,
+) => {
+  for (const char of text) {
+    const { from, to } = view.state.selection;
+    const handled = view.someProp("handleTextInput", (handler) =>
+      handler(view, from, to, char, () => view.state.tr.insertText(char)),
+    );
+    if (!handled) view.dispatch(view.state.tr.insertText(char));
+  }
+};
+
+it("turns typed inline and display math into formulas in rich mode", async () => {
+  const { view, editor } = await create("");
+  typeText(view, "$x_1$");
+  expect(view.dom.querySelectorAll(".katex")).toHaveLength(1);
+  expect(editor.ctx.get(serializerCtx)(view.state.doc)).toContain("$x_1$");
+  editor.setMarkdown("");
+  typeText(view, String.raw`$\frac{a}{b}$`);
+  expect(view.dom.querySelector(".katex")).not.toBeNull();
+  expect(view.state.doc.firstChild?.firstChild?.attrs.value).toBe(
+    String.raw`\frac{a}{b}`,
+  );
+  editor.setMarkdown("");
+  typeText(view, "$$x^2$$");
+  expect(view.state.doc.firstChild?.type.name).toBe("paper_math_block");
+  expect(
+    view.dom.querySelector(".markdown-math.display .katex"),
+  ).not.toBeNull();
+});
+
+it("starts an editable display formula with dollar fences and Enter, while respecting IME", async () => {
+  const onEditMath = vi.fn();
+  const { view, editor } = await create("", vi.fn(), { onEditMath });
+  typeText(view, "$$");
+  view.dispatch(
+    view.state.tr.setSelection(TextSelection.atEnd(view.state.doc)),
+  );
+  key(view, "Enter", { isComposing: true });
+  expect(onEditMath).not.toHaveBeenCalled();
+  expect(view.dom.querySelector("[data-note-math]")).toBeNull();
+  editor.setMarkdown("");
+  typeText(view, "$$");
+  view.dispatch(
+    view.state.tr.setSelection(TextSelection.atEnd(view.state.doc)),
+  );
+  expect(key(view, "Enter")).toBe(true);
+  expect(onEditMath).toHaveBeenCalledOnce();
+  expect(onEditMath.mock.calls[0][0].display).toBe(true);
+  expect(onEditMath.mock.calls[0][0].update("x^2")).toBe(true);
+  expect(view.state.doc.firstChild?.attrs.value).toBe("x^2");
+});
+
+it("edits formulas synchronously, supports undo, and rejects stale editors after replacement", async () => {
+  const onEditMath = vi.fn();
+  const { view, editor, change } = await create("$x_1$", vi.fn(), {
+    onEditMath,
+  });
+  (view.dom.querySelector("[data-note-math]") as HTMLElement).click();
+  const request = onEditMath.mock.calls[0][0];
+  expect(request.update("x_2")).toBe(true);
+  expect(change.mock.calls.at(-1)?.[0]).toContain("$x_2$");
+  expect(request.update("x_3")).toBe(true);
+  expect(change.mock.calls.at(-1)?.[0]).toContain("$x_3$");
+  const formula = view.dom.querySelector<HTMLElement>("[data-note-math]")!;
+  formula.focus();
+  const undo = new KeyboardEvent("keydown", {
+    key: "z",
+    ctrlKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+  formula.dispatchEvent(undo);
+  expect(undo.defaultPrevented).toBe(true);
+  expect(view.state.doc.firstChild?.firstChild?.attrs.value).toBe("x_1");
+  editor.setMarkdown("$external$");
+  expect(request.update("stale")).toBe(false);
+  expect(view.state.doc.firstChild?.firstChild?.attrs.value).toBe("external");
+});
+
+it("pastes Markdown math into rich content and keeps surrounding text", async () => {
+  const { view, editor } = await create("before after");
+  view.dispatch(
+    view.state.tr.setSelection(TextSelection.create(view.state.doc, 8)),
+  );
+  const event = {
+    clipboardData: {
+      getData: (type: string) => (type === "text/plain" ? "$x_1$" : ""),
+    },
+  } as ClipboardEvent;
+  expect(
+    view.someProp("handlePaste", (handler) =>
+      handler(view, event, Slice.empty),
+    ),
+  ).toBe(true);
+  const saved = editor.ctx.get(serializerCtx)(view.state.doc);
+  expect(saved).toContain("before $x_1$after");
+  expect(view.dom.querySelector(".katex")).not.toBeNull();
+});
+
+it("keeps code and escaped dollars literal and serializes cleared math without empty fences", async () => {
+  const { view, editor } = await create("`code`");
+  view.dispatch(
+    view.state.tr.setSelection(TextSelection.create(view.state.doc, 3)),
+  );
+  typeText(view, "$x$");
+  expect(view.dom.querySelector(".katex")).toBeNull();
+  editor.setMarkdown("");
+  typeText(view, "\\$x$");
+  expect(view.dom.querySelector(".katex")).toBeNull();
+  editor.setMarkdown("$x$");
+  view.dispatch(view.state.tr.setNodeAttribute(1, "value", ""));
+  const saved = editor.ctx.get(serializerCtx)(view.state.doc);
+  expect(saved).not.toContain("$");
+});
+
+it("inserts block math inside lists without losing the item or following content", async () => {
+  const onEditMath = vi.fn();
+  const { view, editor } = await create("- first\n- middle\n- last", vi.fn(), {
+    onEditMath,
+  });
+  let target = 0;
+  view.state.doc.descendants((node, pos) => {
+    if (node.type.name === "paragraph" && node.textContent === "middle")
+      target = pos + 1;
+  });
+  const tr = view.state.tr.insertText("$$", target, target + 6);
+  view.dispatch(tr.setSelection(TextSelection.create(tr.doc, target + 2)));
+  expect(view.state.selection.$from.parent.textContent).toBe("$$");
+  expect(key(view, "Enter")).toBe(true);
+  expect(onEditMath.mock.calls[0][0].update("x^2")).toBe(true);
+  const saved = editor.ctx.get(serializerCtx)(view.state.doc);
+  expect(saved).toContain("first");
+  expect(saved).toContain("last");
+  expect(view.state.doc.firstChild?.type.name).toBe("bullet_list");
+  expect(view.dom.querySelector("li [data-note-math]")).not.toBeNull();
+  const parsed = editor.ctx.get(parserCtx)(saved);
+  expect(parsed.firstChild?.type.name).toBe("bullet_list");
+  const values: string[] = [];
+  parsed.descendants((node) => {
+    if (node.type.name === "paper_math_block") values.push(node.attrs.value);
+  });
+  expect(values).toContain("x^2");
+});
+
+it("keeps formula edits attached to their node after surrounding text moves", async () => {
+  const onEditMath = vi.fn();
+  const { view, editor } = await create("word $x$", vi.fn(), { onEditMath });
+  view.dom.querySelector<HTMLElement>("[data-note-math]")!.click();
+  view.dispatch(view.state.tr.insertText("before ", 1));
+  expect(onEditMath.mock.calls[0][0].update("y")).toBe(true);
+  expect(editor.ctx.get(serializerCtx)(view.state.doc)).toContain(
+    "before word $y$",
+  );
+});
+
+it("preserves pasted block math when a tight list is serialized and reopened", async () => {
+  const { view, editor } = await create("- first\n- middle\n- last");
+  let from = 0;
+  view.state.doc.descendants((node, pos) => {
+    if (node.type.name === "paragraph" && node.textContent === "middle")
+      from = pos + 1;
+  });
+  view.dispatch(
+    view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, from, from + 6),
+    ),
+  );
+  const event = {
+    clipboardData: {
+      getData: (type: string) => (type === "text/plain" ? "$$\nx^2\n$$" : ""),
+    },
+  } as ClipboardEvent;
+  expect(
+    view.someProp("handlePaste", (handler) =>
+      handler(view, event, Slice.empty),
+    ),
+  ).toBe(true);
+  const saved = editor.ctx.get(serializerCtx)(view.state.doc);
+  editor.setMarkdown(saved + "\n");
+  expect(
+    view.dom.querySelector("li [data-note-math]")?.getAttribute("data-value"),
+  ).toBe("x^2");
+  expect(saved).toContain("first");
+  expect(saved).toContain("last");
 });
