@@ -82,7 +82,7 @@ func connectPiFixture(t *testing.T, s *Server, provider, key string) {
 func TestPiConnectionReplacementInvalidatesOldChecks(t *testing.T) {
 	s := testServer(t)
 	fakePiConnection(t, s, "codex", "")
-	connectPiFixture(t, s, "openai-api", "fixture-key")
+	connectPiFixture(t, s, "kimi-code-key", "fixture-key")
 	initial := s.aiConfig()
 	old := initial.piConnections["codex"].pi.AuthPath
 	if !capable(initial, "codex", false) {
@@ -108,30 +108,27 @@ func TestPiConnectionReplacementInvalidatesOldChecks(t *testing.T) {
 	if _, ok := s.piAPIConnection("codex"); ok {
 		t.Fatal("credential still active")
 	}
-	if _, ok := s.piAPIConnection("openai-api"); !ok {
+	if _, ok := s.piAPIConnection("kimi-code-key"); !ok {
 		t.Fatal("disconnecting OAuth also removed the API key")
 	}
 }
 
 func TestPiProviderKeyLoginUsesSDK(t *testing.T) {
-	for _, provider := range []string{"openai-api", "claude-api", "kimi-api", "kimi-code-key"} {
-		t.Run(provider, func(t *testing.T) {
-			s := testServer(t)
-			connectPiFixture(t, s, provider, "test-secret-key")
-			connection, ok := s.piAPIConnection(provider)
-			if !ok {
-				t.Fatal("Pi did not persist the connection")
-			}
-			content, err := os.ReadFile(connection.pi.AuthPath)
-			if err != nil || !strings.Contains(string(content), "test-secret-key") {
-				t.Fatal("credential missing", err)
-			}
-			response := request(t, s, "GET", "/api/ai/models?provider="+provider, nil)
-			var models []AgentModel
-			if err := json.Unmarshal(response.Body.Bytes(), &models); err != nil || len(models) == 0 {
-				t.Fatal("Pi model catalog unavailable", response.Code, err)
-			}
-		})
+	const provider = "kimi-code-key"
+	s := testServer(t)
+	connectPiFixture(t, s, provider, "test-secret-key")
+	connection, ok := s.piAPIConnection(provider)
+	if !ok {
+		t.Fatal("Pi did not persist the connection")
+	}
+	content, err := os.ReadFile(connection.pi.AuthPath)
+	if err != nil || !strings.Contains(string(content), "test-secret-key") {
+		t.Fatal("credential missing", err)
+	}
+	response := request(t, s, "GET", "/api/ai/models?provider="+provider, nil)
+	var models []AgentModel
+	if err := json.Unmarshal(response.Body.Bytes(), &models); err != nil || len(models) == 0 {
+		t.Fatal("Pi model catalog unavailable", response.Code, err)
 	}
 }
 

@@ -163,3 +163,63 @@ func TestSaveConfigRetainsUnavailableProviderEfforts(t *testing.T) {
 		})
 	}
 }
+
+func TestAPIAddressChangeDoesNotReuseSavedKey(t *testing.T) {
+	s := testServer(t)
+	previous := APIConnection{URL: "https://previous.example/v1", Protocol: "openai", Key: "fixture-private-key"}
+	if err := s.writeAIConfig(AIConfig{API: previous}); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, s, "PUT", "/api/ai/config", strings.NewReader(`{"api":{"url":"https://another.example/v1","hasKey":true}}`))
+	if w.Code != 400 || s.aiConfig().API != previous {
+		t.Fatal("address change must not reuse the saved key", w.Code)
+	}
+	w = request(t, s, "PUT", "/api/ai/config", strings.NewReader(`{"api":{"url":"https://another.example/v1","hasKey":false}}`))
+	if w.Code != 200 || s.aiConfig().API.Key != "" {
+		t.Fatal("keyless endpoints should remain supported", w.Code)
+	}
+}
+
+func TestRetiredAPICardMigratesActiveConnection(t *testing.T) {
+	s := testServer(t)
+	const revision = "123456789012345678901234567890ab"
+	dir := s.piAuthDir("claude-api")
+	authPath := filepath.Join(dir, revision, "auth.json")
+	if err := atomicFile(authPath, []byte(`{"anthropic":{"type":"api_key","key":"fixture-api-key"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicFile(filepath.Join(dir, "active"), []byte(revision)); err != nil {
+		t.Fatal(err)
+	}
+	previous := AIConfig{Primary: "claude-api", Models: map[string]string{"claude-api": "claude-test"}}
+	if err := s.writeAIConfig(previous); err != nil {
+		t.Fatal(err)
+	}
+	current := s.aiConfig()
+	if current.Primary != "api" || current.API.URL != "https://api.anthropic.com/v1" ||
+		current.API.Protocol != "anthropic" || current.API.Key != "fixture-api-key" ||
+		current.Models["api"] != "claude-test" || len(current.APIModels) != 1 || current.APIModels[0] != "claude-test" {
+		t.Fatal("active API connection was not migrated")
+	}
+	public := request(t, s, "GET", "/api/ai/config", nil)
+	if strings.Contains(public.Body.String(), "fixture-api-key") {
+		t.Fatal("migrated key was exposed")
+	}
+	providers := request(t, s, "GET", "/api/providers", nil)
+	for id := range retiredAPIProviders {
+		if strings.Contains(providers.Body.String(), id) {
+			t.Fatal("retired API card is still offered", id)
+		}
+	}
+	previous.API = APIConnection{URL: "https://existing.example/v1", Protocol: "openai", Key: "existing-key"}
+	if err := s.writeAIConfig(previous); err != nil {
+		t.Fatal(err)
+	}
+	current = s.aiConfig()
+	if current.Primary != "" || current.API != previous.API {
+		t.Fatal("existing shared API configuration was overwritten or silently selected")
+	}
+	if _, err := os.Stat(authPath); err != nil {
+		t.Fatal("legacy credentials should remain on disk", err)
+	}
+}

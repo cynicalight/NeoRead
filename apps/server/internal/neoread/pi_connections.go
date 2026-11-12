@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -26,16 +27,70 @@ type piProviderSpec struct {
 	provider, method, url, protocol string
 }
 
-var piProviderOrder = []string{"codex", "claude", "kimi", "openai-api", "claude-api", "kimi-api", "kimi-code-key"}
+var piProviderOrder = []string{"codex", "claude", "kimi", "kimi-code-key"}
 
 var piProviders = map[string]piProviderSpec{
 	"codex":         {"openai", "oauth", "https://api.openai.com/v1", "responses"},
 	"claude":        {"anthropic", "oauth", "https://api.anthropic.com/v1", "anthropic"},
 	"kimi":          {"kimi-coding", "oauth", "https://api.kimi.com/coding/v1", "openai"},
-	"openai-api":    {"openai", "api_key", "https://api.openai.com/v1", "responses"},
-	"claude-api":    {"anthropic", "api_key", "https://api.anthropic.com/v1", "anthropic"},
-	"kimi-api":      {"moonshotai-cn", "api_key", "https://api.moonshot.cn/v1", "openai"},
 	"kimi-code-key": {"kimi-coding", "api_key", "https://api.kimi.com/coding/v1", "openai"},
+}
+
+// The former API-key cards used Pi's per-provider files. Only an active
+// connection is imported into the shared API slot during an upgrade.
+var retiredAPIProviders = map[string]piProviderSpec{
+	"openai-api": {"openai", "api_key", "https://api.openai.com/v1", "responses"},
+	"claude-api": {"anthropic", "api_key", "https://api.anthropic.com/v1", "anthropic"},
+	"kimi-api":   {"moonshotai-cn", "api_key", "https://api.moonshot.cn/v1", "openai"},
+}
+
+func (s *Server) migrateRetiredAPI(c *AIConfig) {
+	previous := c.Primary
+	spec, retired := retiredAPIProviders[previous]
+	if !retired {
+		return
+	}
+	// A different saved API connection should be selected explicitly.
+	c.Primary = ""
+	if c.API.URL != "" || c.API.Key != "" {
+		return
+	}
+	dir := s.piAuthDir(previous)
+	revision, err := os.ReadFile(filepath.Join(dir, "active"))
+	if err != nil || !chatMessageIDPattern.Match(revision) {
+		return
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, string(revision), "auth.json"))
+	if err != nil {
+		return
+	}
+	var credentials map[string]struct {
+		Type string `json:"type"`
+		Key  string `json:"key"`
+	}
+	if json.Unmarshal(raw, &credentials) != nil {
+		return
+	}
+	credential := credentials[spec.provider]
+	if credential.Type != "api_key" || strings.TrimSpace(credential.Key) == "" {
+		return
+	}
+	c.API = APIConnection{URL: spec.url, Protocol: spec.protocol, Key: credential.Key}
+	c.Primary = "api"
+	for _, models := range []map[string]string{c.Models, c.TranslationModels, c.VisionModels} {
+		if models != nil {
+			model := models[previous]
+			models["api"] = model
+			if model != "" && len(model) <= 200 && len(c.APIModels) < 50 && !slices.Contains(c.APIModels, model) {
+				c.APIModels = append(c.APIModels, model)
+			}
+		}
+	}
+	for _, efforts := range []map[string]map[string]string{c.Efforts, c.TranslationEfforts, c.VisionEfforts} {
+		if efforts != nil && efforts[previous] != nil {
+			efforts["api"] = efforts[previous]
+		}
+	}
 }
 
 type piLoginSession struct {

@@ -2,7 +2,7 @@
 
 ## 内置 Pi 与模型连接
 
-当前模型生成由内置 Pi worker 执行。设置中的 ChatGPT、Claude 和 Kimi Code 账号授权，以及独立的厂商 API Key 连接，都使用 Pi SDK 的 provider 接口。Go 服务在私有临时目录运行 worker，通过版本化 JSONL 交换请求、模型事件、工具调用与会话进度。模型侧读取工具仍由 Go 校验文档、会话、权限及预算。前端继续订阅同一 SSE 事件，保存以模型完成和本地事务提交为准。
+当前模型生成由内置 Pi worker 执行。设置中的 ChatGPT、Claude 和 Kimi Code 账号使用 Pi SDK 授权。OpenAI、Anthropic、Kimi 开放平台及兼容服务通过同一个 API 入口填写地址、协议和 Key。Go 服务在私有临时目录运行 worker，通过版本化 JSONL 交换请求、模型事件、工具调用与会话进度。模型侧读取工具仍由 Go 校验文档、会话、权限及预算。前端继续订阅同一 SSE 事件，保存以模型完成和本地事务提交为准。
 
 `POST /api/ai/auth/{provider}` 通过 NDJSON 返回浏览器授权链接、设备验证码、手动授权提示或终态。手动授权输入通过 `POST /api/ai/auth/{provider}/input` 绑定当前授权尝试。凭据以 NeoRead 连接为单位保存在本机。账号授权与 API Key 连接可并存，更换或断开连接会使旧能力结果失效。旧会话从已保存的消息和引用接续。
 

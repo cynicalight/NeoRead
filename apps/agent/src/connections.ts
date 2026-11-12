@@ -10,11 +10,10 @@ import {
 } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
-import { moonshotaiCnProvider } from "@earendil-works/pi-ai/providers/moonshotai-cn";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 
 export interface PiConnection {
-  provider: "openai" | "anthropic" | "kimi-coding" | "moonshotai-cn";
+  provider: "openai" | "anthropic" | "kimi-coding";
   method: AuthType;
   authPath: string;
 }
@@ -23,7 +22,6 @@ const providers = {
   openai: openaiProvider,
   anthropic: anthropicProvider,
   "kimi-coding": kimiCodingProvider,
-  "moonshotai-cn": moonshotaiCnProvider,
 };
 
 export function connectionProvider(connection: PiConnection): Provider {

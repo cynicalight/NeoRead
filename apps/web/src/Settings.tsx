@@ -80,16 +80,7 @@ import { AppearancePicker } from "./AppearancePicker";
 import { AgentDeck, type DeckItem } from "./AgentDeck";
 import { recentAgentCalls } from "./agentUsage";
 // Checks run automatically for this many API models; the rest on demand.
-const agentConnections = [
-  "codex",
-  "claude",
-  "kimi",
-  "openai-api",
-  "claude-api",
-  "kimi-api",
-  "kimi-code-key",
-  "api",
-];
+const agentConnections = ["codex", "claude", "kimi", "kimi-code-key", "api"];
 const autoAPIChecks = 12;
 export function Settings({
   open,
@@ -530,12 +521,10 @@ export function Settings({
     const installed = providers.find((p) => p.id === name)?.installed;
     if (name === "api") {
       if (!installed) return "需要先配置 API Key";
-      if (apiReady("text") && apiReady("vision")) return "";
+      if (apiReady("text")) return "";
       if (apiPending()) return "正在检测，请稍候";
       if (apiModelsError) return "无法获取模型列表，请检查 API 配置";
-      return apiReady("text")
-        ? "没有图片理解能力"
-        : "没有通过文本推理检测的模型";
+      return "没有通过文本推理检测的模型";
     }
     if (loading || (testing.has(name) && !config?.capabilities[name]))
       return "正在检测，请稍候";

@@ -149,6 +149,7 @@ func (s *Server) readAIConfig() AIConfig {
 		}
 		c.Capabilities[k] = v
 	}
+	s.migrateRetiredAPI(&c)
 	return c
 }
 func (s *Server) writeAIConfig(c AIConfig) error {
@@ -213,6 +214,9 @@ func capable(c AIConfig, p string, vision bool) bool {
 func publicConfig(c AIConfig) AIConfig {
 	capabilities := make(map[string]Capability, len(c.Capabilities))
 	for provider, capability := range c.Capabilities {
+		if _, retired := retiredAPIProviders[provider]; retired {
+			continue
+		}
 		if _, native := piProviders[provider]; native && capability.Fingerprint != configPrint(c, provider) {
 			continue
 		}
@@ -383,10 +387,14 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 	if c.ImageAPI.Key == "" && c.ImageAPI.HasKey {
 		c.ImageAPI.Key = old.ImageAPI.Key
 	}
+	c.API.URL = strings.TrimSpace(c.API.URL)
 	if c.API.Key == "" && c.API.HasKey {
+		if old.API.Key != "" && resolveAPIEndpoint(c.API).Base != resolveAPIEndpoint(old.API).Base {
+			fail(w, 400, "API 地址已更改，请重新填写 API Key")
+			return
+		}
 		c.API.Key = old.API.Key
 	}
-	c.API.URL = strings.TrimSpace(c.API.URL)
 	c.API.Key = strings.TrimSpace(c.API.Key)
 	c.API.Model = ""
 	c.API.HasKey = false
