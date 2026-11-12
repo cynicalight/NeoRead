@@ -13,7 +13,6 @@ import (
 	"image/color"
 	"image/png"
 	"log/slog"
-	"neoread.local/server/internal/runtimeenv"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,6 +26,7 @@ import (
 )
 
 type APIConnection struct {
+	pi       *piConnection
 	Protocol string `json:"protocol,omitempty"`
 	URL      string `json:"url"`
 	Model    string `json:"model"`
@@ -47,10 +47,11 @@ type Capability struct {
 	Fingerprint         string `json:"-"`
 }
 type AIConfig struct {
-	WebSearch *WebSearchConfig             `json:"webSearch,omitempty"`
-	Primary   string                       `json:"primary"`
-	Models    map[string]string            `json:"models"`
-	Efforts   map[string]map[string]string `json:"efforts,omitempty"`
+	piConnections map[string]APIConnection
+	WebSearch     *WebSearchConfig             `json:"webSearch,omitempty"`
+	Primary       string                       `json:"primary"`
+	Models        map[string]string            `json:"models"`
+	Efforts       map[string]map[string]string `json:"efforts,omitempty"`
 	// Translation choices are independent of chat. An empty model means
 	// NeoRead picks the fast tier from the live catalog.
 	TranslationModels  map[string]string            `json:"translationModels,omitempty"`
@@ -103,14 +104,23 @@ type AIResult struct {
 	Fallback  bool
 }
 
-func validAgent(p string) bool { return p == "codex" || p == "claude" || p == "kimi" || p == "api" }
+func validAgent(p string) bool {
+	_, ok := piProviders[p]
+	return p == "api" || ok
+}
 func (s *Server) aiConfig() AIConfig {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	return s.readAIConfig()
 }
 func (s *Server) readAIConfig() AIConfig {
-	c := AIConfig{Models: map[string]string{}, Capabilities: map[string]Capability{}}
+	connections := map[string]APIConnection{}
+	for provider := range piProviders {
+		if c, ok := s.piAPIConnection(provider); ok {
+			connections[provider] = c
+		}
+	}
+	c := AIConfig{piConnections: connections, Models: map[string]string{}, Capabilities: map[string]Capability{}}
 	b, err := os.ReadFile(filepath.Join(s.Store.Root, "ai-connections.json"))
 	if err != nil {
 		return c
@@ -120,6 +130,7 @@ func (s *Server) readAIConfig() AIConfig {
 		return c
 	}
 	c = stored.Config
+	c.piConnections = connections
 	if c.Models == nil {
 		c.Models = map[string]string{}
 	}
@@ -186,8 +197,7 @@ func configPrint(c AIConfig, p string) string {
 		// Checked per model, never as a whole.
 		return ""
 	} else {
-		path, _ := runtimeenv.LookPath(context.Background(), p)
-		value = []string{p, path, c.Models[p]}
+		value = []string{p, piConnectionIdentity(c.piConnections[p]), c.Models[p], c.VisionModels[p]}
 	}
 	b, _ := json.Marshal(value)
 	h := sha256.Sum256(b)
@@ -201,6 +211,14 @@ func capable(c AIConfig, p string, vision bool) bool {
 	return v.Fingerprint == configPrint(c, p) && v.Text && (!vision || v.Vision)
 }
 func publicConfig(c AIConfig) AIConfig {
+	capabilities := make(map[string]Capability, len(c.Capabilities))
+	for provider, capability := range c.Capabilities {
+		if _, native := piProviders[provider]; native && capability.Fingerprint != configPrint(c, provider) {
+			continue
+		}
+		capabilities[provider] = capability
+	}
+	c.Capabilities = capabilities
 	if c.WebSearch != nil {
 		search := *c.WebSearch
 		search.HasKey = search.Key != ""
@@ -302,6 +320,7 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	old := s.readAIConfig()
+	c.piConnections = old.piConnections
 	if c.WebSearch == nil {
 		c.WebSearch = old.WebSearch
 	} else if err := mergeWebSearchConfig(c.WebSearch, old.WebSearch); err != nil {
@@ -494,19 +513,12 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 	s.wakeProcessing()
 }
 
-// CLI probes use model defaults. API probes exercise saved reasoning settings;
+// Connection probes exercise the saved model and reasoning settings;
 // catalog failures still allow a selected model to be tested.
 func (s *Server) probeConnection(parent context.Context, c AIConfig, p string, in AIInput, timeout time.Duration) (string, *int64, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	model := c.Models[p]
-	if model == "" && validAgent(p) {
-		// Test the model chat will actually use. Catalog failure keeps the CLI default.
-		if models, err := s.modelCatalog(ctx, p); err == nil {
-			model = defaultTaskModel(taskChat, p, models)
-		}
-	}
-	var adapter Adapter = cliAdapter{s.Store.Root, p, model}
+	var adapter Adapter = piProviderAdapter{s, p, c, taskChat}
 	if model, ok := strings.CutPrefix(p, "api:"); ok {
 		// Exercise the same parameter builder as generation, including the
 		// saved effort. A successful probe establishes acceptance, not efficacy.

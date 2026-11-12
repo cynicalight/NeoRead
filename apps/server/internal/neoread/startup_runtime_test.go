@@ -52,27 +52,29 @@ func TestThemeAvailableBeforeRecovery(t *testing.T) {
 	}
 }
 func TestDesktopRuntimeRequiresAuthenticationAndValidStage(t *testing.T) {
-	t.Setenv("PATH", os.Getenv("PATH"))
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"} {
+		t.Setenv(key, os.Getenv(key))
+	}
 	previous := runtimeenv.Default
 	runtimeenv.Default = runtimeenv.New(true)
 	t.Cleanup(func() { runtimeenv.Default.Stop(); runtimeenv.Default = previous })
 	s := testServer(t)
-	r := httptest.NewRequest("POST", "http://127.0.0.1:17840/api/desktop-runtime/path", strings.NewReader(`{"PATH":"injected"}`))
+	r := httptest.NewRequest("POST", "http://127.0.0.1:17840/api/desktop-runtime/network", strings.NewReader(`{"HTTPS_PROXY":"http://127.0.0.1:7890"}`))
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, r)
 	if w.Code != 401 {
 		t.Fatal(w.Code)
 	}
-	if result := request(t, s, "POST", "/api/desktop-runtime/path", strings.NewReader(`{"HOME":"injected"}`)); result.Code != 400 {
+	if result := request(t, s, "POST", "/api/desktop-runtime/network", strings.NewReader(`{"HOME":"injected"}`)); result.Code != 400 {
 		t.Fatal(result.Code)
 	}
-	if result := request(t, s, "POST", "/api/desktop-runtime/path", strings.NewReader(`{"PATH":"safe-test-path"}`)); result.Code != 200 {
+	if result := request(t, s, "POST", "/api/desktop-runtime/network", strings.NewReader(`{"HTTPS_PROXY":"http://127.0.0.1:7890"}`)); result.Code != 200 {
 		t.Fatal(result.Code)
 	}
-	if os.Getenv("PATH") != "safe-test-path" {
-		t.Fatal("PATH not applied")
+	if os.Getenv("HTTPS_PROXY") != "http://127.0.0.1:7890" {
+		t.Fatal("proxy not applied")
 	}
-	if result := request(t, s, "POST", "/api/desktop-runtime/path", strings.NewReader(`{"PATH":"replacement"}`)); result.Code != 400 {
+	if result := request(t, s, "POST", "/api/desktop-runtime/network", strings.NewReader(`{"HTTPS_PROXY":"http://127.0.0.1:7891"}`)); result.Code != 400 {
 		t.Fatal("accepted duplicate", result.Code)
 	}
 }

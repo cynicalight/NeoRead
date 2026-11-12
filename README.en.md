@@ -15,7 +15,7 @@ A local-first EPUB / PDF reader for books and papers, with side-by-side translat
 </picture>
 </p>
 
-NeoRead treats EPUB and PDF as core document formats. It separates books and papers into two libraries and shares contents, search, bilingual reading, annotation, and chat tools across both. Documents, reading progress, and notes stay on your machine. AI features can use an already authenticated Claude Code, Codex CLI, or Kimi Code CLI without a separate API key in NeoRead, or connect to an OpenAI- or Anthropic-compatible API with your own endpoint and key.
+NeoRead treats EPUB and PDF as core document formats. It separates books and papers into two libraries and shares contents, search, bilingual reading, annotation, and chat tools across both. Documents, reading progress, and notes stay on your machine. The built-in Pi runtime supports ChatGPT, Claude, and Kimi Code account connections, provider API keys, and custom compatible endpoints.
 
 Download installers from [GitHub Releases](https://github.com/cynicalight/NeoRead/releases): DMG for Apple Silicon Macs and EXE for Windows x64. Intel Mac builds are paused and Linux installers are not provided; you can also run from source. Installers have no trusted developer certificate and may require approval in your system security settings. See the [packaging and release guide (Chinese)](docs/releasing.md) for the workflow and validation scope.
 
@@ -41,7 +41,7 @@ Download installers from [GitHub Releases](https://github.com/cynicalight/NeoRea
 **AI assistance**
 
 - **Questions and explanations**: translate or explain selections, quote multiple excerpts, summarize the current EPUB chapter or PDF page, revisit conversation history, and cancel generation. Questions include the paper title and abstract by default, with optional chapter text; questions about quoted excerpts include the surrounding chapter. Source references in answers jump back to the text and flash the source block.
-- **CLI or API**: detect local Claude Code / Codex CLI / Kimi Code CLI installations and login status and use your existing account through the official CLI, or configure an API connection using OpenAI Chat Completions or Anthropic Messages. Question answering and translation can use separate models and reasoning effort levels.
+- **Account and API connections**. Sign in to a provider account or configure an API key in Settings. Question answering and translation can use separate models and reasoning levels.
 
 **Desktop app**
 
@@ -70,7 +70,7 @@ Captured from the app.
 
 | Library                                                                                                                                                                                                                                        | Agent settings                                                                                                          |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| <img src="https://github.com/user-attachments/assets/28f238d3-c223-49c8-8c9b-5309e8e09a03" alt="Book library" /> | <img src="website/assets/screenshots/settings-dark.webp" alt="Agent settings with Codex, Claude Code and Kimi Code" /> |
+| <img src="https://github.com/user-attachments/assets/28f238d3-c223-49c8-8c9b-5309e8e09a03" alt="Book library" /> | <img src="website/assets/screenshots/settings-dark.webp" alt="Agent settings" /> |
 
 ## Quick start
 
@@ -95,17 +95,7 @@ node apps/desktop/node_modules/electron/install.js
 
 AI is optional. Local reading, search, and annotations do not require an AI account.
 
-**Through a CLI**: install the official CLI you want to use and sign in from your terminal:
-
-```sh
-# Use Codex
-codex login
-
-# Or use Claude Code
-claude auth login
-```
-
-NeoRead does not install CLIs, read their credential files, or implement its own OAuth flow. Account permissions, quotas, model availability, and billing depend on the CLI login and the provider. Older CLI versions may need an upgrade to support the integration's command-line options.
+**Connect an account.** Open the ChatGPT, Claude, or Kimi Code card in Settings and follow the browser or device-code prompts. Available models depend on the connected account and its capability checks.
 
 **Through an API**: choose API in Settings and enter the endpoint, key, and model. The request protocol is detected automatically for official endpoints, or you can choose OpenAI Chat Completions or Anthropic Messages manually; relay endpoints keep the root path you enter. The key is stored only by the local backend, and the interface only shows whether one is configured. See [API provider compatibility (Chinese)](docs/api-provider-compatibility.md) for per-provider reasoning effort rules.
 
@@ -113,9 +103,9 @@ Open NeoRead settings, choose a primary Agent, and check the text and image capa
 
 The app bundles approximately 67 MB of layout-model weights, so the first PDF analysis can extract layout and locate image regions offline. Weights are fetched and verified during the build, not committed to Git. Python and PaddlePaddle do not need to be installed. Without a verified primary Agent, reading and region hover remain available while translation waits for configuration. Processing resumes after restart and reuses saved translations. Scanned pages are explicitly marked incomplete because OCR is not available.
 
-**Using AI sends relevant content off your machine.** Capability tests use a synthetic image. With a verified primary Agent configured, imported PDF body text and captions are sent for translation and formula images for LaTeX conversion; figures and tables are not sent for interpretation. EPUB chapter text is sent only after you click “Translate chapter”. When you request a translation, explanation, summary, or send a question, NeoRead passes the selected excerpts, the paper title and abstract, any included chapter or current page context, and recent conversation history to the CLI or API service. Chapter and context lengths are limited; a summary of the current page is not a summary of the entire paper.
+**Using AI sends relevant content off your machine.** Capability tests use a synthetic image. With a verified primary Agent configured, imported PDF body text and captions are sent for translation and formula images for LaTeX conversion; figures and tables are not sent for interpretation. EPUB chapter text is sent only after you click “Translate chapter”. When you request a translation, explanation, summary, or send a question, NeoRead passes the selected excerpts, the paper title and abstract, any included chapter or current page context, and recent conversation history to the selected model service. Chapter and context lengths are limited; a summary of the current page is not a summary of the entire paper.
 
-CLIs run in temporary empty directories. Claude is configured with tools and MCP disabled. Codex runs in a read-only sandbox with shell tools disabled. Raw CLI logs are not shown as answers. Codex streams text through App Server, Claude uses stream-json, Kimi uses ACP message chunks, and API connections use SSE. Text and image conversations both forward incremental output. See the [frontend integration contract (Chinese)](docs/agent-streaming-contract.md).
+Pi workers run in private temporary directories and access documents through NeoRead tools. Text and image requests stream incrementally, and answers are saved after the model completes. See the [frontend integration contract (Chinese)](docs/agent-streaming-contract.md).
 
 ## Local data
 
@@ -135,7 +125,7 @@ library/
 ├── books/              # Original EPUB files
 ├── papers/             # Original PDF files
 ├── cache/              # EPUB resources; Markdown, images, and drafts under PDF analysis
-└── ai-work/            # Temporary CLI directories, removed after requests finish
+└── ai-work/            # Temporary Pi worker directories, removed after requests finish
 ```
 
 Desktop runtime logs are kept in `userData/logs/` for up to 7 days and are never uploaded automatically. Close the application before backing up the entire data directory. The local API uses a randomly generated token for each launch and validates Host / Origin. EPUB imports check archive size and resource paths, and sanitize active content. Original files remain unchanged.
@@ -163,7 +153,7 @@ pnpm api:generate  # Regenerate client types from OpenAPI
 
 The project website lives in `website/` as static HTML, CSS and JavaScript with no build step. Preview it locally with `python3 -m http.server 4321 -d website` and open `http://127.0.0.1:4321/`.
 
-Tests cover document imports, persistence, resource access boundaries, CLI and API protocols, PDF parsing, and selected frontend regressions. Passing builds and tests does not replace manual checks with real documents and the application UI. See the [verification notes](docs/verification.md) (Chinese).
+Tests cover document imports, persistence, resource access boundaries, Pi worker and model protocols, PDF parsing, and selected frontend regressions. Passing builds and tests does not replace manual checks with real documents and the application UI. See the [verification notes](docs/verification.md) (Chinese).
 
 ## Technology and structure
 

@@ -22,7 +22,10 @@ async function harness(save: (config: WebSearchConfig) => Promise<boolean>) {
       <WebSearchSettings value={value} disabled={false} onSave={save} />,
     ),
   );
-  const toggle = () => host.querySelector('[role="switch"]') as HTMLElement;
+  const choose = (label: string) =>
+    [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+      (tab) => tab.textContent?.trim() === label,
+    )!;
   const url = () => host.querySelector('input[id$="-url"]') as HTMLInputElement;
   const password = () =>
     host.querySelector("input[type=password]") as HTMLInputElement;
@@ -44,21 +47,21 @@ async function harness(save: (config: WebSearchConfig) => Promise<boolean>) {
     host.remove();
     vi.unstubAllGlobals();
   };
-  return { host, toggle, url, password, type, blur, close };
+  return { host, choose, url, password, type, blur, close };
 }
 
-it("saves a toggle click immediately without a Save button and preserves the masked key", async () => {
+it("saves a search provider change immediately without a Save button and preserves the masked key", async () => {
   const save = vi.fn(async () => true),
     h = await harness(save);
   try {
     expect(h.password().value).toBe("");
     expect(h.host.textContent).not.toContain("保存联网设置");
-    await act(async () => h.toggle().click());
+    await act(async () => h.choose("关闭").click());
     expect(save).toHaveBeenCalledExactlyOnceWith({
       ...value,
-      cliEnabled: true,
+      provider: "",
     });
-    expect(h.toggle().getAttribute("aria-checked")).toBe("true");
+    expect(h.choose("关闭").getAttribute("aria-selected")).toBe("true");
   } finally {
     await h.close();
   }
@@ -68,8 +71,8 @@ it("rolls back a rejected toggle save and displays the failure", async () => {
   const save = vi.fn(async () => false),
     h = await harness(save);
   try {
-    await act(async () => h.toggle().click());
-    expect(h.toggle().getAttribute("aria-checked")).toBe("false");
+    await act(async () => h.choose("关闭").click());
+    expect(h.choose("DeepSeek").getAttribute("aria-selected")).toBe("true");
     expect(h.host.querySelector('[role="alert"]')?.textContent).toContain(
       "保存失败",
     );
@@ -107,41 +110,6 @@ it("auto-saves a changed address only with a replacement key, retains failed edi
       key: undefined,
       hasKey: false,
     });
-  } finally {
-    await h.close();
-  }
-});
-
-it("serializes a blur and rapid toggles without losing permissions or a new key", async () => {
-  const pending: Array<(result: boolean) => void> = [];
-  const save = vi.fn(
-    (_config: WebSearchConfig) =>
-      new Promise<boolean>((resolve) => pending.push(resolve)),
-  );
-  const h = await harness(save);
-  try {
-    await act(async () => h.toggle().click());
-    await h.type(h.password(), "new-key");
-    await h.blur(h.password());
-    await act(async () => h.toggle().click());
-    expect(save).toHaveBeenCalledTimes(1);
-    await act(async () => pending.shift()!(true));
-    expect(save).toHaveBeenLastCalledWith({
-      ...value,
-      cliEnabled: true,
-      key: "new-key",
-      hasKey: false,
-    });
-    await act(async () => pending.shift()!(true));
-    expect(save).toHaveBeenLastCalledWith({
-      ...value,
-      cliEnabled: false,
-      key: undefined,
-    });
-    await act(async () => pending.shift()!(true));
-    expect(h.toggle().getAttribute("aria-checked")).toBe("false");
-    expect(h.password().value).toBe("");
-    expect(h.host.querySelector('[aria-busy="true"]')).toBeNull();
   } finally {
     await h.close();
   }

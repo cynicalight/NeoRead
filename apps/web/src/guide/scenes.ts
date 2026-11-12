@@ -85,8 +85,8 @@ const agentCards = [0, 1, 2, 3].map((i) => ({
   h: 70,
 }));
 const providers = [
-  { name: "Codex", mark: "C", tint: "#10a37f" },
-  { name: "Claude Code", mark: "*", tint: "#d97757" },
+  { name: "ChatGPT", mark: "C", tint: "#10a37f" },
+  { name: "Claude", mark: "*", tint: "#d97757" },
   { name: "Kimi", mark: "K", tint: "#3b3b3b" },
   { name: "API", mark: "API", tint: "#6366f1" },
 ];
@@ -160,7 +160,7 @@ function checking(
   ];
 }
 
-const sdkOptions = ["Codex", "Claude Code", "Kimi", "API"];
+const sdkOptions = ["ChatGPT", "Claude", "Kimi", "API"];
 const menuRow = (x: number, y: number, w: number, i: number) => ({
   x: x + 4,
   y: y + 4 + i * 26,
@@ -202,10 +202,10 @@ const detect = scene({
             ? checking(f, "open", 1300)
             : checking(f, "recheck", 900),
         },
-        { badge: "未安装" },
+        { badge: "未连接" },
         { badge: "未配置", note: "点击卡片配置你的 API Key" },
       ];
-      agentPanel(f, f.after("pick") ? "Claude Code" : "Codex", states);
+      agentPanel(f, f.after("pick") ? "Claude" : "ChatGPT", states);
       if (f.hover(refreshButton))
         tooltip(
           f,
@@ -216,53 +216,13 @@ const detect = scene({
       if (f.between("sdk", "pick"))
         menu(f, sdkSelect.x, sdkSelect.y + 30, sdkSelect.w, sdkOptions, {
           appear: f.progress("sdk", 150),
-          selected: "Codex",
+          selected: "ChatGPT",
         });
     });
   },
 });
 
-// Terminal login, then a recheck in NeoRead.
-const term: Rect = { x: 22, y: 46, w: 360, h: 300 };
-const loginPanel: Rect = { x: 400, y: 96, w: 220, h: 170 };
-const loginRefresh = {
-  x: loginPanel.x + loginPanel.w - 34,
-  y: loginPanel.y + 12,
-  w: 22,
-  h: 22,
-};
-
-const loginCommand = "claude auth login";
-
-const loginScript = script({ x: 200, y: 372 })
-  .wait(400)
-  .move({ x: 210, y: 210 }, 600)
-  .click("focus")
-  .wait(200)
-  .type("cmd", loginCommand)
-  .wait(400)
-  .mark("browser")
-  .wait(1300)
-  .mark("done")
-  .wait(800)
-  .move(loginRefresh, 800)
-  .click("recheck")
-  .wait(1600)
-  .build(1800);
-
-const terminalLines = (f: Frame) => {
-  const lines: TerminalLine[] = [
-    { text: `~ % ${f.typed(loginCommand, "cmd")}` },
-  ];
-  if (f.after("browser"))
-    lines.push({ text: "Opening browser to sign in…", color: "#a1a1aa" });
-  if (f.after("done")) {
-    lines.push({ text: "Login successful.", color: "#4ade80" });
-    lines.push({ text: "~ % " });
-  }
-  return lines;
-};
-
+// Account connection in the NeoRead settings dialog.
 interface TerminalLine {
   text: string;
   color?: string;
@@ -301,55 +261,36 @@ function terminal(f: Frame, r: Rect, lines: TerminalLine[], focus: boolean) {
   }
 }
 
+const loginAction: Rect = { x: 226, y: 185, w: 188, h: 32 };
 const login = scene({
-  script: loginScript,
+  script: script({ x: 320, y: 340 })
+    .wait(450)
+    .move(loginAction, 600)
+    .click("authorize")
+    .wait(1400)
+    .mark("connected")
+    .build(1400),
   draw(f) {
     const { p, c } = f;
     chrome(f);
-    terminal(f, term, terminalLines(f), f.after("focus"));
-
-    p.text("NeoRead", loginPanel.x, 36, {
-      size: 11,
-      weight: 600,
-      color: c.mutedForeground,
-    });
-    p.box(loginPanel, { fill: c.popover, radius: 12, shadow: 14 });
-    p.text("Agent 连接", loginPanel.x + 16, loginPanel.y + 23, {
-      size: 12,
-      weight: 600,
-    });
-    button(f, loginRefresh, "", "ghost", { icon: glyphs.refresh });
-    const r = {
-      x: loginPanel.x + 14,
-      y: loginPanel.y + 46,
-      w: loginPanel.w - 28,
-      h: 72,
-    };
-    p.box(r, { stroke: c.border, radius: 10 });
-    providerMark(f, r.x + 12, r.y + 12, "*", "#d97757");
-    p.text("Claude Code", r.x + 42, r.y + 23, { size: 12.5, weight: 600 });
-    const state: [CheckState, CheckState] = f.after("recheck")
-      ? checking(f, "recheck", 700)
-      : ["failed", "failed"];
-    checks(f, r.x + 14, r.y + 52, state);
-    if (f.hover(loginRefresh))
-      tooltip(f, center(loginRefresh).x, loginRefresh.y - 2, "重新检测 Agent");
-    if (!f.after("recheck"))
-      p.text("登录后回到这里重新检测", loginPanel.x + 16, loginPanel.y + 140, {
-        size: 10.5,
-        color: c.mutedForeground,
-      });
-    else
-      p.alpha(f.progress("recheck", 300, 1200), () =>
-        p.text("可以开始使用了", loginPanel.x + 16, loginPanel.y + 140, {
-          size: 10.5,
-          color: c.success,
-        }),
-      );
+    p.box(
+      { x: 176, y: 110, w: 288, h: 150 },
+      { fill: c.popover, radius: 12, shadow: 14 },
+    );
+    p.text("ChatGPT", 202, 147, { size: 15, weight: 600 });
+    button(
+      f,
+      loginAction,
+      f.after("connected")
+        ? "已连接"
+        : f.after("authorize")
+          ? "正在授权"
+          : "使用 ChatGPT 账号登录",
+      "primary",
+    );
   },
 });
 
-// API key.
 const urlInput = { x: D.x + 20, y: D.y + 62, w: D.w - 40, h: 28 };
 const keyInput = { x: D.x + 20, y: D.y + 98, w: D.w - 100, h: 28 };
 const saveButton = { x: D.x + D.w - 72, y: D.y + 98, w: 52, h: 28 };
@@ -382,10 +323,10 @@ const apiScene = scene({
     library(f);
     dialog(f, D, 1, () => {
       if (!f.after("api", 120)) {
-        agentPanel(f, "Codex", [
+        agentPanel(f, "ChatGPT", [
           { checks: ["passed", "passed"] },
           { checks: ["passed", "passed"] },
-          { badge: "未安装" },
+          { badge: "未连接" },
           { badge: "未配置", note: "点击卡片配置你的 API Key" },
         ]);
         return;
@@ -484,7 +425,7 @@ const models = scene({
       tabs(f, settingsTabs, ["Agent", "显示", "阅读", "论文库"], 0);
       p.text("Agent 连接", D.x + 22, D.y + 99, { size: 12, weight: 600 });
       p.text("Agent SDK", D.x + 22, D.y + 124, { size: 11.5 });
-      select(f, sdkSelect, "Codex");
+      select(f, sdkSelect, "ChatGPT");
       const luna = f.after("luna");
       const low = f.after("low");
       p.text("问答", D.x + 22, modelRows.chat, { size: 11.5 });

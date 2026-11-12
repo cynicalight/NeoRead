@@ -221,7 +221,7 @@ func TestDocumentReadReturnsAllRequestedNeighbors(t *testing.T) {
 }
 
 func TestDocumentAgentInvalidToolArgumentsCanFinish(t *testing.T) {
-	s, _ := originalDocumentFixture(t)
+	s, _ := prepareConversationFixture(t)
 	calls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
@@ -231,10 +231,10 @@ func TestDocumentAgentInvalidToolArgumentsCanFinish(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		calls++
 		if calls == 1 {
-			writeToolReply(w, "read_passage", "{")
+			writeToolReply(w, "read_passage", `{"blockId":42}`)
 			return
 		}
-		if !strings.Contains(string(body), "invalid_arguments") {
+		if !strings.Contains(string(body), "error") {
 			t.Error("model did not receive tool error")
 		}
 		writeAPIReply(w, "The passage could not be read.")

@@ -5,19 +5,13 @@ import (
 )
 
 func TestDocumentContextSources(t *testing.T) {
-	if n := codexConfiguredWindow([]byte(`{"config":{"model_context_window":872000,"model_auto_compact_token_limit":800000,"unrelated_secret":"must-not-persist"}}`)); n != 872000 {
-		t.Fatal(n)
-	}
-	if n := codexConfiguredWindow([]byte(`{"config":{"model_auto_compact_token_limit":800000}}`)); n != 0 {
-		t.Fatal("compact threshold substituted for context window")
-	}
 	for _, tc := range []struct {
 		reported, manual, want int
 		source                 string
 	}{
-		{872000, 0, 872000, "codex_config"}, {872000, 32768, 32768, "manual_cap+codex_config"}, {16384, 65536, 16384, "codex_config"}, {0, 32768, 32768, "manual"}, {0, 0, 65536, "fallback_estimate"},
+		{872000, 0, 872000, "pi_models"}, {872000, 32768, 32768, "manual_cap+pi_models"}, {16384, 65536, 16384, "pi_models"}, {0, 32768, 32768, "manual"}, {0, 0, 65536, "fallback_estimate"},
 	} {
-		n, source := resolveDocumentContext(tc.reported, tc.manual, "codex_config")
+		n, source := resolveDocumentContext(tc.reported, tc.manual, "pi_models")
 		if n != tc.want || source != tc.source {
 			t.Fatal(tc, n, source)
 		}
@@ -26,12 +20,12 @@ func TestDocumentContextSources(t *testing.T) {
 	if err := a.prepareReading(t.Context(), AIInput{Prompt: "question"}); err != nil {
 		t.Fatal(err)
 	}
-	a.updateContextWindow(872000, 0, "codex_config")
+	a.updateContextWindow(872000, 0, "pi_models")
 	if a.contextTokens != 872000 || a.sourceTokens < 600000 {
 		t.Fatal("config ignored", a.contextTokens, a.sourceTokens)
 	}
-	a.updateContextWindow(256000, 12000, "codex_runtime")
-	if a.contextTokens != 256000 || a.runtimeUsedTokens != 12000 || a.contextSource != "codex_runtime" {
+	a.updateContextWindow(256000, 12000, "pi_runtime")
+	if a.contextTokens != 256000 || a.runtimeUsedTokens != 12000 || a.contextSource != "pi_runtime" {
 		t.Fatal("runtime window ignored")
 	}
 }

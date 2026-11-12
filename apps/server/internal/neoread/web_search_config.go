@@ -57,8 +57,5 @@ func webSearchEnabled(c AIConfig, provider string) bool {
 	if c.WebSearch == nil {
 		return false
 	}
-	if provider == "codex" {
-		return c.WebSearch.CLIEnabled
-	}
-	return provider == "api" && validSearchConnection(searchAPIConnection(c))
+	return validAgent(provider) && validSearchConnection(searchAPIConnection(c))
 }

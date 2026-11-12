@@ -48,7 +48,6 @@ type documentToolTrace struct {
 type documentAgent struct {
 	chat                  *chatInput
 	sessionID             string
-	codexCache            *documentCodexCache
 	canViewPages          bool
 	conversation          *documentConversation
 	conversationEvents    []toolCompletionMessage

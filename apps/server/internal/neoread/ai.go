@@ -1,72 +1,32 @@
 package neoread
 
 import (
-	"context"
 	"encoding/json"
-	"neoread.local/server/internal/runtimeenv"
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 )
 
 type Provider struct {
+	AuthMethod    string `json:"authMethod,omitempty"`
 	ID            string `json:"id"`
 	Installed     bool   `json:"installed"`
 	Authenticated bool   `json:"authenticated"`
 	Status        string `json:"status"`
 }
 
-func providerStatus(ctx context.Context, name string) Provider {
-	p := Provider{ID: name, Status: "未安装"}
-	exe, err := runtimeenv.LookPath(ctx, name)
-	if err != nil {
-		return p
-	}
-	p.Installed = true
-	if name == "kimi" {
-		p.Status = "请测试可用性"
-		return p
-	}
-	args := []string{"login", "status"}
-	if name == "claude" {
-		args = []string{"auth", "status"}
-	}
-	child, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	cmd := runtimeenv.CommandContext(child, exe, args...)
-	output, err := cmd.Output()
-	p.Authenticated = err == nil
-	if name == "claude" && err == nil {
-		var auth struct {
-			LoggedIn bool `json:"loggedIn"`
-		}
-		if json.Unmarshal(output, &auth) == nil {
-			p.Authenticated = auth.LoggedIn
-		}
-	}
-	if p.Authenticated {
-		p.Status = "已登录"
-	} else {
-		p.Status = "登录状态未确认，请测试实际可用性"
-	}
-	return p
-}
 func (s *Server) providers(w http.ResponseWriter, r *http.Request) {
-	out := []Provider{}
-	for _, name := range []string{"codex", "claude", "kimi"} {
-		if r.URL.Query().Get("auth") == "skip" {
-			_, err := runtimeenv.LookPath(r.Context(), name)
-			status := "未安装"
-			if err == nil {
-				status = "待检测"
-			}
-			out = append(out, Provider{ID: name, Installed: err == nil, Status: status})
-		} else {
-			out = append(out, providerStatus(r.Context(), name))
+	config := s.aiConfig()
+	out := make([]Provider, 0, len(piProviderOrder)+1)
+	for _, name := range piProviderOrder {
+		_, connected := config.piConnections[name]
+		status := "未连接"
+		if connected {
+			status = "已连接"
 		}
+		out = append(out, Provider{ID: name, AuthMethod: piProviders[name].method, Installed: connected, Authenticated: connected, Status: status})
 	}
-	respond(w, 200, append(out, apiProvider(s.aiConfig().API)))
+	respond(w, 200, append(out, apiProvider(config.API)))
 }
 
 // The API agent has nothing to install; a saved endpoint counts as installed

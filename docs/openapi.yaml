@@ -2521,55 +2521,6 @@
                 ],
             },
         },
-      "/api/documents/{id}/codex-handoff":
-        {
-          "post":
-            {
-              "description": "Fork the last committed Codex reading turn into an independent conversation with local document and chat snapshots. Does not generate a model answer or change the NeoRead conversation. Repeated requests for the same snapshot reuse the fork.",
-              "parameters":
-                [
-                  {
-                    "in": "path",
-                    "name": "id",
-                    "required": true,
-                    "schema": { "type": "string" },
-                  },
-                  {
-                    "in": "query",
-                    "name": "sessionId",
-                    "required": false,
-                    "schema": { "type": "string" },
-                  },
-                ],
-              "responses":
-                {
-                  "200":
-                    {
-                      "description": "Prepared independent Codex conversation",
-                      "content":
-                        {
-                          "application/json":
-                            {
-                              "schema":
-                                { "$ref": "#/components/schemas/CodexHandoff" },
-                            },
-                        },
-                    },
-                  "default":
-                    {
-                      "description": "Document unavailable, no committed Codex conversation, active generation, or handoff failed",
-                      "content":
-                        {
-                          "application/json":
-                            {
-                              "schema":
-                                { "$ref": "#/components/schemas/Error" },
-                            },
-                        },
-                    },
-                },
-            },
-        },
       "/api/documents/{id}/chat":
         {
           "post":
@@ -3275,6 +3226,134 @@
                   "default":
                     {
                       "description": "Error",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+      "/api/ai/auth/{provider}":
+        {
+          "parameters":
+            [
+              {
+                "in": "path",
+                "name": "provider",
+                "required": true,
+                "schema":
+                  { "type": "string", "enum": ["codex", "claude", "kimi"] },
+              },
+            ],
+          "post":
+            {
+              "description": "Connect a built-in Pi provider with account authorization or an API key. The NDJSON stream emits auth_url, device_code, manual_code, complete or error.",
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "properties": { "key": { "type": "string" } },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Connection events",
+                      "content":
+                        {
+                          "application/x-ndjson":
+                            { "schema": { "type": "string" } },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Connection rejected",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+          "delete":
+            {
+              "description": "Remove the local credential for a built-in Pi provider.",
+              "responses":
+                {
+                  "204": { "description": "Disconnected" },
+                  "default":
+                    {
+                      "description": "Disconnection rejected",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+      "/api/ai/auth/{provider}/input":
+        {
+          "post":
+            {
+              "description": "Submit a manual authorization code to a pending Pi login.",
+              "parameters":
+                [
+                  {
+                    "in": "path",
+                    "name": "provider",
+                    "required": true,
+                    "schema": { "type": "string" },
+                  },
+                ],
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "required": ["runId", "value"],
+                              "properties":
+                                {
+                                  "runId": { "type": "string" },
+                                  "value": { "type": "string" },
+                                },
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "204": { "description": "Code accepted by pending login" },
+                  "default":
+                    {
+                      "description": "Invalid or expired login attempt",
                       "content":
                         {
                           "application/json":
@@ -5875,25 +5954,6 @@
                   "size": { "type": "integer", "minimum": 0 },
                 },
             },
-          "CodexHandoff":
-            {
-              "type": "object",
-              "required": ["threadId", "url", "directory"],
-              "properties":
-                {
-                  "threadId": { "type": "string", "format": "uuid" },
-                  "url":
-                    {
-                      "type": "string",
-                      "description": "Local codex://threads/<threadId> link",
-                    },
-                  "directory":
-                    {
-                      "type": "string",
-                      "description": "Absolute path of the independent document snapshot",
-                    },
-                },
-            },
           "OverviewContent":
             {
               "type": "object",
@@ -6683,7 +6743,13 @@
                       "type": "string",
                       "enum": ["codex", "claude", "kimi", "api"],
                     },
-                  "installed": { "type": "boolean" },
+                  "installed":
+                    {
+                      "type": "boolean",
+                      "description": "Whether the connection is configured.",
+                    },
+                  "authMethod":
+                    { "type": "string", "enum": ["oauth", "api_key"] },
                   "authenticated": { "type": "boolean" },
                   "status": { "type": "string" },
                 },

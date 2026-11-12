@@ -19,6 +19,8 @@ import (
 // Each run has an isolated worker. Only a successful, settled result is returned
 // for the caller's message + continuation transaction.
 type piRequest struct {
+	DisableRetry       bool                `json:"disableRetry,omitempty"`
+	Connection         *piConnection       `json:"connection,omitempty"`
 	Mode               string              `json:"mode,omitempty"`
 	DurableCheckpoints bool                `json:"durableCheckpoints,omitempty"`
 	Version            int                 `json:"version"`
@@ -34,7 +36,16 @@ type piRequest struct {
 	Images             []map[string]string `json:"images,omitempty"`
 	Tools              []map[string]any    `json:"tools"`
 }
+type piCatalogModel struct {
+	AgentModel
+	Efforts []string `json:"supportedEfforts"`
+}
+
 type piEvent struct {
+	ErrorCode   ErrorKind                                            `json:"errorCode"`
+	Code        string                                               `json:"code"`
+	URL         string                                               `json:"url"`
+	Models      []piCatalogModel                                     `json:"models"`
 	CanContinue bool                                                 `json:"canContinue"`
 	Version     int                                                  `json:"version"`
 	RunID       string                                               `json:"runId"`
@@ -56,7 +67,13 @@ func piImage(data []byte) map[string]string {
 }
 
 func runPiWorker(ctx context.Context, root string, request piRequest, event func(piEvent) error, tool func(string, json.RawMessage) ([]any, error)) (piEvent, error) {
-	node, worker := os.Getenv("NEOREAD_NODE"), os.Getenv("NEOREAD_AGENT")
+	return runPiOperation(ctx, root, "start", request.RunID, request, request.DurableCheckpoints, event, tool, nil)
+}
+
+var piNodePath = func() string { return os.Getenv("NEOREAD_NODE") }
+
+func runPiOperation(ctx context.Context, root, operation, runID string, request any, durable bool, event func(piEvent) error, tool func(string, json.RawMessage) ([]any, error), loginInput <-chan string) (piEvent, error) {
+	node, worker := piNodePath(), os.Getenv("NEOREAD_AGENT")
 	if node == "" || worker == "" {
 		return piEvent{}, generationError(ErrorConfiguration, "pi 运行时不可用，请重新构建或安装 NeoRead")
 	}
@@ -91,8 +108,21 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 		}
 	}()
 	encoder := json.NewEncoder(input)
-	if err = encoder.Encode(map[string]any{"type": "start", "input": request}); err != nil {
+	if err = encoder.Encode(map[string]any{"type": operation, "input": request}); err != nil {
 		return piEvent{}, err
+	}
+	if loginInput != nil {
+		// Login has no tool/checkpoint writes. Read stdout while the callback and
+		// optional manual input race; waiting inline would block a browser callback.
+		go func() {
+			select {
+			case value := <-loginInput:
+				if encoder.Encode(map[string]string{"type": "authInput", "runId": runID, "value": value}) != nil {
+					cancel()
+				}
+			case <-child.Done():
+			}
+		}()
 	}
 	reader := bufio.NewReader(output)
 	var complete piEvent
@@ -107,7 +137,7 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 			return piEvent{}, generationError(ErrorProtocol, "pi 输出读取失败或事件未完成")
 		}
 		var e piEvent
-		if json.Unmarshal(line, &e) != nil || e.Version != 1 || e.RunID != request.RunID || complete.Type != "" {
+		if json.Unmarshal(line, &e) != nil || e.Version != 1 || e.RunID != runID || complete.Type != "" {
 			return piEvent{}, generationError(ErrorProtocol, "pi 返回了无效的运行事件")
 		}
 		switch e.Type {
@@ -118,7 +148,7 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 			seen[e.ID] = true
 			if len(e.Args) > 4096 {
 				content := []any{map[string]string{"type": "text", "text": `{"error":"invalid_arguments","message":"Tool arguments exceed the size limit. Use shorter arguments or available evidence."}`}}
-				if err = encoder.Encode(map[string]any{"type": "toolResult", "runId": request.RunID, "id": e.ID, "content": content}); err != nil {
+				if err = encoder.Encode(map[string]any{"type": "toolResult", "runId": runID, "id": e.ID, "content": content}); err != nil {
 					return piEvent{}, err
 				}
 				continue
@@ -127,11 +157,11 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 			if callErr != nil {
 				return piEvent{}, callErr
 			}
-			if err = encoder.Encode(map[string]any{"type": "toolResult", "runId": request.RunID, "id": e.ID, "content": content}); err != nil {
+			if err = encoder.Encode(map[string]any{"type": "toolResult", "runId": runID, "id": e.ID, "content": content}); err != nil {
 				return piEvent{}, err
 			}
 		case "checkpoint":
-			if !request.DurableCheckpoints || e.ID == "" || checkpoints[e.ID] || len(e.Entries) == 0 || !json.Valid(e.Entries) {
+			if !durable || e.ID == "" || checkpoints[e.ID] || len(e.Entries) == 0 || !json.Valid(e.Entries) {
 				return piEvent{}, generationError(ErrorProtocol, "pi 继续位置事件无效")
 			}
 			checkpoints[e.ID] = true
@@ -141,11 +171,11 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 			if err = event(e); err != nil {
 				return piEvent{}, err
 			}
-			if err = encoder.Encode(map[string]any{"type": "checkpointAck", "runId": request.RunID, "id": e.ID}); err != nil {
+			if err = encoder.Encode(map[string]any{"type": "checkpointAck", "runId": runID, "id": e.ID}); err != nil {
 				return piEvent{}, err
 			}
 		case "complete":
-			if strings.TrimSpace(e.Text) == "" || len(e.Entries) == 0 || !json.Valid(e.Entries) {
+			if operation == "start" && (strings.TrimSpace(e.Text) == "" || len(e.Entries) == 0 || !json.Valid(e.Entries)) {
 				return piEvent{}, generationError(ErrorProtocol, "pi 未返回完整回答和会话状态")
 			}
 			complete = e
@@ -156,7 +186,28 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 				}
 			}
 			// Do not surface upstream bodies, prompts or credentials from child errors.
-			return piEvent{}, generationError(ErrorProtocol, "pi 模型调用失败或未正常结束，请检查模型配置后重试")
+			if err := ctx.Err(); err != nil {
+				return piEvent{}, err
+			}
+			switch e.ErrorCode {
+			case ErrorAuthentication, ErrorPermission:
+				return piEvent{}, generationError(e.ErrorCode, "模型授权失效，请检查连接后重试")
+			case ErrorBilling, ErrorLimit:
+				return piEvent{}, generationError(e.ErrorCode, "模型额度或请求频率达到上限")
+			case ErrorTimeout:
+				return piEvent{}, generationError(ErrorTimeout, "模型请求超时")
+			case ErrorUpstream:
+				return piEvent{}, generationError(ErrorUpstream, "模型服务请求失败")
+			default:
+				return piEvent{}, generationError(ErrorProtocol, "pi 模型调用失败或未正常结束，请检查模型配置后重试")
+			}
+		case "auth_url", "device_code", "manual_code":
+			if operation != "login" || event == nil {
+				return piEvent{}, generationError(ErrorProtocol, "pi 返回了无效授权事件")
+			}
+			if err := event(e); err != nil {
+				return piEvent{}, err
+			}
 		case "draft", "reasoning", "activity", "usage":
 			if event != nil {
 				if err = event(e); err != nil {
@@ -204,12 +255,18 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 	}
 
 	endpoint := resolveAPIEndpoint(c)
+	if a != nil {
+		if override := a.server.documentContextOverride(); override > 0 {
+			req.ContextWindow = override
+		}
+	}
 	request, _, window := newPiRequest(c, req)
 	request.Prompt, request.System = in.Prompt, chatInstructions
 	if in.Chat.piRunID != "" {
 		request.RunID = in.Chat.piRunID
 	}
 	request.DurableCheckpoints = in.Chat.piCheckpoint != nil
+	request.DisableRetry = in.Chat.SessionID == ""
 	for _, image := range in.images() {
 		request.Images = append(request.Images, piImage(image))
 	}
@@ -226,7 +283,7 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 			return GenerateResult{}, err
 		}
 		a.updateContextWindow(window, 0, "pi_model")
-		key := sourceKey("pi-v1\n" + endpoint.Protocol + "\n" + c.URL + "\n" + c.Key + "\n" + req.Model + "\n" + req.Effort)
+		key := sourceKey("pi-v1\n" + endpoint.Protocol + "\n" + piConnectionIdentity(c) + "\n" + req.Model + "\n" + req.Effort)
 		missed, err := a.beginConversation(ctx, in, key)
 		if err != nil {
 			return GenerateResult{}, err
@@ -277,7 +334,7 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 		if provider == "" {
 			provider = "api"
 		}
-		key := sourceKey("pi-text-v1\n" + endpoint.Protocol + "\n" + c.URL + "\n" + c.Key + "\n" + req.Model + "\n" + req.Effort)
+		key := sourceKey("pi-text-v1\n" + endpoint.Protocol + "\n" + piConnectionIdentity(c) + "\n" + req.Model + "\n" + req.Effort)
 		state, err := in.Chat.server.Store.documentConversation(ctx, in.Chat.DocumentID, conversationProvider(in.Chat.SessionID, provider), key)
 		if err != nil {
 			return GenerateResult{}, err
@@ -502,6 +559,58 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 	return result, nil
 }
 
+// Non-document calls use the same worker without session checkpoints or tools.
+func streamPiPrompt(ctx context.Context, root string, c APIConnection, req completionRequest, in AIInput, emit func(ProviderEvent) error) (GenerateResult, error) {
+	request, _, _ := newPiRequest(c, req)
+	request.Prompt, request.System = in.Prompt, in.systemPrompt()
+	request.DisableRetry = true
+	for _, image := range in.images() {
+		request.Images = append(request.Images, piImage(image))
+	}
+	var reasoning strings.Builder
+	var published strings.Builder
+	result, err := runPiWorker(ctx, root, request, func(e piEvent) error {
+		switch e.Type {
+		case "draft":
+			if e.Reset {
+				return nil
+			}
+			published.WriteString(e.Text)
+			if emit != nil {
+				return emit(ProviderEvent{Text: e.Text})
+			}
+		case "reasoning":
+			reasoning.WriteString(e.Text)
+			if emit != nil {
+				return emit(ProviderEvent{Reasoning: e.Text})
+			}
+		case "usage":
+			if emit != nil {
+				return emit(ProviderEvent{Metrics: []ModelTokens{{
+					Model: e.Model, Tokens: &TokenCounts{
+						InputTokens: e.Usage.Input + e.Usage.CacheRead + e.Usage.CacheWrite, OutputTokens: e.Usage.Output,
+						TotalTokens:       e.Usage.Input + e.Usage.CacheRead + e.Usage.CacheWrite + e.Usage.Output,
+						CachedInputTokens: &e.Usage.CacheRead, CacheWriteInputTokens: &e.Usage.CacheWrite,
+					},
+				}}})
+			}
+		}
+		return nil
+	}, nil)
+	if err != nil {
+		return GenerateResult{}, err
+	}
+	if text := published.String(); text != "" && !strings.HasPrefix(result.Text, text) {
+		return GenerateResult{}, generationError(ErrorProtocol, "pi 流式回答与完成结果不一致")
+	}
+	if emit != nil && len(result.Text) > published.Len() {
+		if err := emit(ProviderEvent{Text: result.Text[published.Len():]}); err != nil {
+			return GenerateResult{}, err
+		}
+	}
+	return GenerateResult{Text: result.Text, Reasoning: reasoning.String(), FinishReason: "stop"}, nil
+}
+
 // newPiRequest builds the model request for the configured API protocol.
 func newPiRequest(c APIConnection, req completionRequest) (piRequest, string, int) {
 	endpoint := resolveAPIEndpoint(c)
@@ -514,8 +623,14 @@ func newPiRequest(c APIConnection, req completionRequest) (piRequest, string, in
 	payload := map[string]any{}
 	rule.apply(payload, endpoint.Protocol, req.Effort, rule.resolve(req.Effort))
 	applyOutputLimit(payload, endpoint.Protocol, req.MaxOutput)
-	request := piRequest{Version: 1, RunID: id(), Key: c.Key, Effort: "off", Payload: payload, Endpoint: endpoint.Base + path, Tools: []map[string]any{}}
+	if c.pi == nil && api == "openai-completions" {
+		payload["n"] = 1
+	}
+	request := piRequest{Connection: c.pi, Version: 1, RunID: id(), Key: c.Key, Effort: "off", Payload: payload, Endpoint: endpoint.Base + path, Tools: []map[string]any{}}
 	request.Model = map[string]any{"id": req.Model, "name": req.Model, "api": api, "provider": "neoread-api", "baseUrl": endpoint.Base, "reasoning": false, "input": []string{"text", "image"}, "contextWindow": window, "maxTokens": min(8192, window/4), "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "compat": map[string]any{"supportsStore": false, "supportsDeveloperRole": false, "supportsReasoningEffort": false, "maxTokensField": "max_tokens"}}
+	if c.pi != nil {
+		request.Model["provider"] = c.pi.Provider
+	}
 	if api == "anthropic-messages" {
 		delete(request.Model, "compat")
 	}
@@ -546,6 +661,6 @@ func piUsageStatus(status string) string {
 }
 
 func piResumeBinding(c APIConnection, req completionRequest) string {
-	identity := c.URL + "\n" + c.Key
+	identity := piConnectionIdentity(c)
 	return sourceKey(identity + "\n" + resolveAPIEndpoint(c).Protocol + "\n" + req.Model + "\n" + req.Effort + "\n" + jsonText([]bool{req.Tools, req.Vision}))
 }

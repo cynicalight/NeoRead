@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
-	"time"
 )
 
 func TestConnectionStages(t *testing.T) {
@@ -43,17 +41,6 @@ func TestConnectionStages(t *testing.T) {
 	}
 	if vision.Code != 200 || !cap.Text || cap.Vision || cap.Error == "" || calls != 2 {
 		t.Fatalf("vision failure must preserve text without repeating its probe: calls=%d response=%s", calls, vision.Body.String())
-	}
-}
-
-func TestConnectionProbeWithoutLoginOrCatalog(t *testing.T) {
-	fakeAgent(t, "claude", "user-settings")
-	s := testServer(t)
-	w := request(t, s, "POST", "/api/ai/test/claude?capability=text", nil)
-	var cap Capability
-	_ = json.Unmarshal(w.Body.Bytes(), &cap)
-	if w.Code != 200 || !cap.Text {
-		t.Fatalf("working CLI must pass despite unavailable login/catalog: %s", w.Body.String())
 	}
 }
 
@@ -107,21 +94,3 @@ func TestConnectionProbeRejectsStaleResult(t *testing.T) {
 // Opt-in: sends only a fixed text prompt and a generated color chart. Credentials
 // and real documents are never read by the test. Vision availability is reported
 // independently because the CLI may point at a text-only model.
-func TestLiveClaudeCapabilities(t *testing.T) {
-	if os.Getenv("NEOREAD_TEST_CLAUDE") != "1" {
-		t.Skip("set NEOREAD_TEST_CLAUDE=1 to check the local CLI")
-	}
-	s := testServer(t)
-	for _, stage := range []string{"text", "vision"} {
-		start := time.Now()
-		w := request(t, s, "POST", "/api/ai/test/claude?capability="+stage, nil)
-		var cap Capability
-		if err := json.Unmarshal(w.Body.Bytes(), &cap); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("%s elapsed=%s status=%d text=%t vision=%t error=%q", stage, time.Since(start).Round(time.Millisecond), w.Code, cap.Text, cap.Vision, cap.Error)
-		if w.Code != 200 || !cap.Text {
-			t.Fatalf("working terminal text lost: %s", w.Body.String())
-		}
-	}
-}

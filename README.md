@@ -12,7 +12,7 @@
   <img src="website/assets/screenshots/pdf-bilingual-ai.webp" alt="NeoRead 的 PDF 双语阅读界面：左侧目录，中间原文与译文，右侧 AI 助读" />
 </p>
 
-NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库分开管理，提供目录、搜索、双语对照、批注与 AI 助读。文档、阅读进度和笔记保存在本机。AI 功能可以通过已登录的 Claude Code、Codex CLI 或 Kimi Code CLI 调用，无需在 NeoRead 中另填 API Key；也可以填写 API 地址和 Key，接入 OpenAI 或 Anthropic 兼容接口。
+NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库分开管理，提供目录、搜索、双语对照、批注与 AI 助读。文档、阅读进度和笔记保存在本机。AI 由内置 Pi 运行。用户可以登录 ChatGPT、Claude 或 Kimi Code，也可以使用厂商 API Key 或自定义兼容接口。
 
 可从[官网](https://neoread.app/)了解项目，或在 [GitHub Releases](https://github.com/cynicalight/NeoRead/releases) 下载安装包：macOS（Apple Silicon）DMG 与 Windows x64 EXE。Intel Mac 安装包暂停构建，Linux 不提供安装包，也可以从源码运行。安装包没有受系统信任的开发者证书，首次运行可能需要允许系统安全提示。流程与验证范围见[安装包与发版说明](docs/releasing.md)。
 
@@ -50,8 +50,8 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 **AI 助读**
 
 - **问答与解释**：选区翻译与解释、多选区引用、EPUB 当前章节或 PDF 当前页总结、对话历史和生成取消。普通提问默认附带论文标题和摘要，可开启章节正文；引用选段提问时附带所在章节。回答中的出处可跳回原文并闪烁定位。
-- **在 Codex 中继续**：完成 Codex 文档阅读对话后，从 Agent 顶栏打开独立的 Codex App 对话，保留已有上下文并附带原文和聊天快照。关闭 NeoRead 后也可继续阅读；两边后续消息不自动同步。
-- **两种接入方式**：检测本机 Claude Code / Codex CLI / Kimi Code CLI 的安装与登录状态，通过官方 CLI 使用已有账户；或在设置中配置 API 连接，支持 OpenAI Chat Completions 与 Anthropic Messages 协议。问答与翻译可分别选择模型和思考强度。
+
+- **订阅与 API 连接**：在设置中登录厂商账号或配置 API Key。问答和翻译可以分别选择模型和思考强度。
 
 | AI 回答引用 |
 | --- |
@@ -84,7 +84,7 @@ NeoRead 以 EPUB 和 PDF 为两种核心文档格式，将图书库与论文库�
 
 | 书库                                                                                                                                                                                                                         | Agent 设置                                                                                                     |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| <img src="https://github.com/user-attachments/assets/28f238d3-c223-49c8-8c9b-5309e8e09a03" alt="图书库" /> | <img src="website/assets/screenshots/settings-dark.webp" alt="Agent 设置：Codex、Claude Code 与 Kimi Code" /> |
+| <img src="https://github.com/user-attachments/assets/28f238d3-c223-49c8-8c9b-5309e8e09a03" alt="图书库" /> | <img src="website/assets/screenshots/settings-dark.webp" alt="Agent 设置" /> |
 
 ## 快速开始
 
@@ -109,17 +109,7 @@ node apps/desktop/node_modules/electron/install.js
 
 AI 是可选功能。本地阅读、搜索和批注不需要登录 AI 账户。
 
-**通过 CLI 接入**：先安装所需的官方 CLI，并在终端完成登录：
-
-```sh
-# 使用 Codex
-codex login
-
-# 或使用 Claude Code
-claude auth login
-```
-
-NeoRead 不安装 CLI、不读取其凭据文件，也不自行实现 OAuth。账户权限、额度、模型可用性与计费方式由 CLI 登录和对应服务决定。旧版 CLI 可能需要升级才能支持桥接参数。
+**通过账号接入**。在「设置 → Agent」里打开 ChatGPT、Claude 或 Kimi Code 卡片，然后按浏览器授权或设备验证码提示操作。连接使用对应厂商的订阅权限，最终可用的模型以该账号的检测结果为准。
 
 **通过 API 接入**：在设置中选择 API，填写地址、Key 和模型。请求协议默认按官方地址自动识别，也可手动选择 OpenAI Chat Completions 或 Anthropic Messages；中转地址保持填写的根路径。Key 只保存在本机后端，界面只显示是否已配置。各厂商思考强度的适配规则见 [API 厂商适配](docs/api-provider-compatibility.md)。
 
@@ -127,9 +117,9 @@ NeoRead 不安装 CLI、不读取其凭据文件，也不自行实现 OAuth。�
 
 应用内置约 67 MB 的版面模型，首次解析 PDF 即可离线提取版面和定位图片区域；无需安装 Python 或 PaddlePaddle。模型在构建时获取并校验，权重不进入 Git。未配置通过能力测试的主 Agent 时，正文阅读和图片区域悬停仍可用，翻译显示等待配置。退出后会恢复任务并复用已保存译文；扫描页尚不支持 OCR，会明确标记正文不完整。
 
-**调用 AI 时，相关内容会离开本机。** 图片能力测试使用合成图片；启用主 Agent 后，导入 PDF 的正文和图题会发送翻译，公式图片会发送转换为 LaTeX；图表和表格不会发送解析。EPUB 只在点击“翻译本章”后发送该章正文。触发翻译、解释、总结或发送问题后，NeoRead 会将选区、论文标题与摘要、按需附带的章节或当前页面上下文及最近对话交给 CLI 或 API 服务。章节和上下文有长度限制；当前页总结不等于整篇论文总结。
+**调用 AI 时，相关内容会离开本机。** 图片能力测试使用合成图片；启用主 Agent 后，导入 PDF 的正文和图题会发送翻译，公式图片会发送转换为 LaTeX；图表和表格不会发送解析。EPUB 只在点击“翻译本章”后发送该章正文。触发翻译、解释、总结或发送问题后，NeoRead 会将选区、论文标题与摘要、按需附带的章节或当前页面上下文及最近对话交给所选的模型服务。章节和上下文有长度限制；当前页总结不等于整篇论文总结。
 
-CLI 在临时空目录中运行。Claude 配置为禁用工具与 MCP；Codex 使用只读沙箱并禁用 shell 工具。CLI 的原始日志不会作为回答显示。Codex 通过 App Server 接收增量文字，Claude 使用 stream-json，Kimi 使用 ACP 消息片段，API 使用 SSE；纯文字和图片对话均逐段传输。前端对接约定见 [Agent 流式输出文档](docs/agent-streaming-contract.md)。
+Pi worker 在私有临时目录运行，通过 NeoRead 提供的工具按权限读取文档。纯文字和图片对话均增量传输，回答在模型完成后才保存。参见 [Agent 流式输出文档](docs/agent-streaming-contract.md)。
 
 ## 本地数据
 
@@ -153,7 +143,7 @@ library/
 ├── books/              # EPUB 原文件
 ├── papers/             # PDF 原文件
 ├── cache/              # EPUB 资源；PDF analysis 下的 Markdown、图片与解析稿
-└── ai-work/            # CLI 临时目录，请求结束后移除
+└── ai-work/            # Pi worker 临时目录，请求结束后移除
 ```
 
 桌面版的运行日志保存在 `userData/logs/`，最多保留 7 天，不会自动上传。备份前先关闭应用，再复制整个数据目录。本地 API 使用每次启动随机生成的 token，并校验 Host / Origin。EPUB 导入会检查压缩包大小、资源路径并清理活动内容；原文件保持原样。
@@ -181,7 +171,7 @@ pnpm api:generate  # 从 OpenAPI 重新生成客户端类型
 
 项目官网位于 `website/`，是无需构建的静态 HTML / CSS / JavaScript。本地预览：`python3 -m http.server 4321 -d website`，然后打开 `http://127.0.0.1:4321/`。
 
-测试覆盖文档导入、持久化、资源访问边界、CLI 与 API 协议、PDF 解析与部分前端回归。构建和测试通过不能替代真实文档与界面的人工检查，详见[验证记录](docs/verification.md)。
+测试覆盖文档导入、持久化、资源访问边界、Pi worker 与模型协议、PDF 解析与部分前端回归。构建和测试通过不能替代真实文档与界面的人工检查，详见[验证记录](docs/verification.md)。
 
 ## 技术与结构
 

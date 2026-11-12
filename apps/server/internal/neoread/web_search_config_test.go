@@ -82,12 +82,10 @@ func TestSearchSettingsValidationAndSavedPermissions(t *testing.T) {
 		t.Fatal("selecting a provider without a key authorized search")
 	}
 	c.WebSearch = &WebSearchConfig{Provider: "deepseek", URL: "http://127.0.0.1:1234/v1", Key: "search-secret"}
-	if !webSearchEnabled(c, "api") || webSearchEnabled(c, "codex") || webSearchEnabled(c, "claude") || webSearchEnabled(c, "kimi") {
-		t.Fatal("permissions crossed provider boundaries")
-	}
-	c.WebSearch.CLIEnabled = true
-	if !webSearchEnabled(c, "codex") {
-		t.Fatal("CLI setting was ignored")
+	for _, provider := range []string{"api", "codex", "claude", "kimi"} {
+		if !webSearchEnabled(c, provider) {
+			t.Fatal("valid search connection unavailable", provider)
+		}
 	}
 	encoded, _ := json.Marshal(publicConfig(c))
 	if strings.Contains(string(encoded), "search-secret") {

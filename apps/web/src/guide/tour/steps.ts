@@ -89,8 +89,8 @@ export interface TourStep {
 }
 
 export const agentNames: Record<string, string> = {
-  codex: "Codex",
-  claude: "Claude Code",
+  codex: "ChatGPT",
+  claude: "Claude",
   kimi: "Kimi",
   api: "API",
 };
@@ -119,7 +119,7 @@ const apiKey = `${tour("api-form")} input[aria-label="API Key"]`;
 const deepseek = "https://platform.deepseek.com/api_keys";
 const localAgents = ["codex", "claude", "kimi"];
 const connections = [
-  { value: "local", label: "本地 CLI Agent" },
+  { value: "local", label: "内置模型连接" },
   { value: "api", label: "API Key" },
 ];
 
@@ -172,7 +172,7 @@ function agentView(s: TourState): TourView {
   if (!s.method)
     return {
       title: "选择连接方式",
-      body: "问答和翻译由 AI 完成。可以使用本机已登录的 Codex、Claude Code 或 Kimi CLI，也可以填写 OpenAI 兼容接口的 API Key。",
+      body: "问答和翻译由 AI 完成。可以登录 ChatGPT、Claude 或 Kimi Code，也可以使用 API Key。",
       focus: [tour("agent-connection")],
       pointer: { gesture: "hover", target: ".tour-options" },
       ...choice,
@@ -205,7 +205,7 @@ function agentView(s: TourState): TourView {
       title: `选择 ${agentNames[first]}`,
       body: api
         ? "API 已有模型通过检测，点击 API 卡片选择它，问答和翻译会使用这个 Key。"
-        : `${names} 的 CLI 已在${s.shell}中登录，NeoRead 用的是 CLI，不是 Codex App。点击卡片选择要使用的 Agent，问答和翻译会使用它当前的登录账户与计费方式。`,
+        : `${names} 已连接。问答和翻译会使用所选连接的账号和计费方式。`,
       focus: [card(first)],
       click: [deck],
       revealAgent: first,
@@ -236,7 +236,7 @@ function agentView(s: TourState): TourView {
   if (s.detecting || mine.some((a) => a.status === "pending"))
     return {
       title: "正在检测本机 Agent",
-      body: `NeoRead 调用的是命令行里的 Codex、Claude Code 和 Kimi CLI，不是 Codex App 或 Claude 桌面版。请在${s.shell}中确认 CLI 已登录，例如运行 \`codex login\` 或 \`claude auth login\`。`,
+      body: "打开模型卡片完成账号授权或填写 API Key，再查看检测结果。",
       focus: [deck],
       click: [deck],
       ...choice,
@@ -245,7 +245,7 @@ function agentView(s: TourState): TourView {
   return failed.length
     ? {
         title: "Agent 还不能使用",
-        body: "没有可用的 agent，通常是 CLI 还没有登录。[[请在 mac 终端 / windows powershell 中运行 `codex login` / `claude auth login` / `kimi`]]，然后点右上角重新检测，或者改用 API Key。",
+        body: "先打开一个模型卡片完成连接，再重新检测模型能力。",
         focus: [deck],
         click: [deck, '[data-slot="agent-deck"] [aria-label="刷新全部状态"]'],
         pointer: {
@@ -256,7 +256,7 @@ function agentView(s: TourState): TourView {
       }
     : {
         title: "没有找到本机 Agent",
-        body: `未检测到 Codex、Claude Code 或 Kimi CLI。只装了 Codex App 或 Claude 桌面版不行，需要在${s.shell}中安装 CLI 并登录，然后点右上角重新检测，或者改用 API Key。`,
+        body: "请选择一个模型服务登录，或填写 API Key。",
         focus: [deck],
         click: [deck, '[data-slot="agent-deck"] [aria-label="刷新全部状态"]'],
         pointer: {
