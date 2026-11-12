@@ -4303,6 +4303,8 @@ export interface paths {
                 content: {
                     "application/json": {
                         from: string;
+                        /** @description Return 409 without changing any document if the affected count differs from the confirmed count. */
+                        expectedCount?: number;
                         to?: string;
                     };
                 };

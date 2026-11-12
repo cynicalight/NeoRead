@@ -846,10 +846,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(to === undefined ? { from } : { from, to }),
     }),
-  changeLibraryTag: (library: LibraryMode, from: string, to?: string) =>
+  changeLibraryTag: (
+    library: LibraryMode,
+    from: string,
+    to?: string,
+    expectedCount?: number,
+  ) =>
     request<{ changed: number }>(`/api/libraries/${library}/tags`, {
       method: "POST",
-      body: JSON.stringify(to === undefined ? { from } : { from, to }),
+      body: JSON.stringify({ from, to, expectedCount }),
     }),
   libraryPreferences: () =>
     request<LibraryPreferences>("/api/preferences/library"),
