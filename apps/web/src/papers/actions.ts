@@ -64,7 +64,10 @@ export async function patchPapers(changes: [Document, Patch][]) {
   let message = "";
   for (const [doc, patch] of changes) {
     try {
-      await api.update(doc.id, patch);
+      await api.update(
+        doc.id,
+        patch.folders ? { ...patch, expectedFolders: doc.folders } : patch,
+      );
     } catch (e) {
       failed++;
       message = (e as Error).message;
@@ -219,12 +222,10 @@ export async function dropPaperCategory(
   const categories = paperCategories(paperPrefs(), papers());
   try {
     const move = categoryDrop(categories, from, target, placement);
-    const prefs = renameCategoryPreferences(
-      paperPrefs(),
-      categories,
-      from,
-      move.path,
-    );
+    const prefs =
+      from === move.path
+        ? { ...paperPrefs() }
+        : renameCategoryPreferences(paperPrefs(), categories, from, move.path);
     prefs.categories = move.categories;
     if (placement === "inside")
       prefs.collapsed = prefs.collapsed?.filter(

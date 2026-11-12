@@ -1845,6 +1845,7 @@
                                           "maxLength": 40,
                                         },
                                     },
+                                  "expectedFolders": { "type": "array", "items": { "type": "string" }, "description": "When replacing folders, reject a stale membership snapshot with HTTP 409." },
                                   "folders":
                                     {
                                       "type": "array",
