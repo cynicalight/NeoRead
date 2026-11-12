@@ -24,7 +24,7 @@ func (s *Server) providers(w http.ResponseWriter, r *http.Request) {
 		if connected {
 			status = "已连接"
 		}
-		out = append(out, Provider{ID: name, AuthMethod: piProviders[name].method, Installed: connected, Authenticated: connected, Status: status})
+		out = append(out, Provider{ID: name, AuthMethod: "oauth", Installed: connected, Authenticated: connected, Status: status})
 	}
 	respond(w, 200, append(out, apiProvider(config.API)))
 }

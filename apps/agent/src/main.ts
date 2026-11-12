@@ -66,7 +66,6 @@ lines.on("line", (line) => {
         runId: string;
         connection: PiConnection;
         deviceId: string;
-        value?: string;
       };
       runId = input.runId;
       const fetch = globalThis.fetch;
@@ -99,8 +98,6 @@ lines.on("line", (line) => {
                   });
               },
               prompt: (prompt) => {
-                if (prompt.type === "secret" && input.value)
-                  return Promise.resolve(input.value);
                 if (prompt.type === "select" && prompt.options[0])
                   return Promise.resolve(prompt.options[0].id);
                 if (prompt.type !== "manual_code")
@@ -211,10 +208,7 @@ lines.on("line", (line) => {
                 message.content = part.text;
             }
           }
-          if (
-            input.connection?.provider === "openai" &&
-            input.connection.method === "oauth"
-          ) {
+          if (input.connection?.provider === "openai") {
             payload.store = false;
             payload.stream = true;
             for (const field of [

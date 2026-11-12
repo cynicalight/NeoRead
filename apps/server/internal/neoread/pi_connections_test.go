@@ -28,13 +28,12 @@ lines.once("line", (line) => {
   const { type, input } = JSON.parse(line);
   const send = (event) => process.stdout.write(JSON.stringify({version: 1, runId: input.runId, ...event}) + "\n");
   if (type === "login") {
-    if (input.connection.method === "oauth")
-      send({type: "auth_url", url: ({
+    send({type: "auth_url", url: ({
         openai: "https://auth.openai.com/api/accounts/authorize?state=fixture",
         anthropic: "https://claude.ai/oauth/authorize?state=fixture",
         "kimi-coding": "https://auth.kimi.com/device"
       })[input.connection.provider]});
-    writeFileSync(input.connection.authPath, JSON.stringify({type: input.connection.method}), {mode: 0o600});
+    writeFileSync(input.connection.authPath, JSON.stringify({type: "oauth"}), {mode: 0o600});
     send({type: "complete"});
   } else if (type === "catalog") {
     send({type: "complete", models: [{id: "fixture", name: "Fixture"}]});
@@ -56,7 +55,7 @@ lines.once("line", (line) => {
 	if provider == "" {
 		return
 	}
-	connectPiFixture(t, s, provider, "fixture-key")
+	connectPiFixture(t, s, provider)
 	config := s.aiConfig()
 	config.Primary = provider
 	config.Capabilities[provider] = Capability{Text: true, Vision: true, Fingerprint: configPrint(config, provider)}
@@ -65,30 +64,27 @@ lines.once("line", (line) => {
 	}
 }
 
-func connectPiFixture(t *testing.T, s *Server, provider, key string) {
+func connectPiFixture(t *testing.T, s *Server, provider string) {
 	t.Helper()
-	if piProviders[provider].method == "oauth" {
-		key = ""
-	}
-	response := request(t, s, "POST", "/api/ai/auth/"+provider, strings.NewReader(jsonText(map[string]string{"key": key})))
+	response := request(t, s, "POST", "/api/ai/auth/"+provider, strings.NewReader("{}"))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"type":"complete"`) {
 		t.Fatal(response.Code, response.Body.String())
-	}
-	if key != "" && strings.Contains(response.Body.String(), key) {
-		t.Fatal("connection returned the API key")
 	}
 }
 
 func TestPiConnectionReplacementInvalidatesOldChecks(t *testing.T) {
 	s := testServer(t)
 	fakePiConnection(t, s, "codex", "")
-	connectPiFixture(t, s, "kimi-code-key", "fixture-key")
 	initial := s.aiConfig()
+	initial.API = APIConnection{URL: "https://api.example/v1", Key: "fixture-api-key"}
+	if err := s.writeAIConfig(initial); err != nil {
+		t.Fatal(err)
+	}
 	old := initial.piConnections["codex"].pi.AuthPath
 	if !capable(initial, "codex", false) {
 		t.Fatal("initial capability unavailable")
 	}
-	connectPiFixture(t, s, "codex", "")
+	connectPiFixture(t, s, "codex")
 	replaced := s.aiConfig()
 	if replaced.piConnections["codex"].pi.AuthPath == old || capable(replaced, "codex", false) {
 		t.Fatal("old account or checks survived replacement")
@@ -108,27 +104,26 @@ func TestPiConnectionReplacementInvalidatesOldChecks(t *testing.T) {
 	if _, ok := s.piAPIConnection("codex"); ok {
 		t.Fatal("credential still active")
 	}
-	if _, ok := s.piAPIConnection("kimi-code-key"); !ok {
+	if s.aiConfig().API != initial.API {
 		t.Fatal("disconnecting OAuth also removed the API key")
 	}
 }
 
-func TestPiProviderKeyLoginUsesSDK(t *testing.T) {
-	const provider = "kimi-code-key"
+func TestRetiredKimiCodeKeyIsNotOffered(t *testing.T) {
 	s := testServer(t)
-	connectPiFixture(t, s, provider, "test-secret-key")
-	connection, ok := s.piAPIConnection(provider)
-	if !ok {
-		t.Fatal("Pi did not persist the connection")
+	if err := s.writeAIConfig(AIConfig{Primary: retiredKimiCodeKey}); err != nil {
+		t.Fatal(err)
 	}
-	content, err := os.ReadFile(connection.pi.AuthPath)
-	if err != nil || !strings.Contains(string(content), "test-secret-key") {
-		t.Fatal("credential missing", err)
+	if config := s.aiConfig(); config.Primary != "" || config.API.URL != "" {
+		t.Fatal("retired Kimi Code key remained selected or was migrated")
 	}
-	response := request(t, s, "GET", "/api/ai/models?provider="+provider, nil)
-	var models []AgentModel
-	if err := json.Unmarshal(response.Body.Bytes(), &models); err != nil || len(models) == 0 {
-		t.Fatal("Pi model catalog unavailable", response.Code, err)
+	providers := request(t, s, "GET", "/api/providers", nil)
+	if providers.Code != 200 || strings.Contains(providers.Body.String(), retiredKimiCodeKey) {
+		t.Fatal("retired Kimi Code key was listed")
+	}
+	response := request(t, s, "POST", "/api/ai/auth/"+retiredKimiCodeKey, strings.NewReader(`{"key":"test-secret-key"}`))
+	if response.Code != http.StatusNotFound {
+		t.Fatal("retired Kimi Code key authorization is still accepted", response.Code)
 	}
 }
 

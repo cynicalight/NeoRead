@@ -8,18 +8,15 @@ import { openExternalLink } from "./reading-links";
 
 export function PiConnectionPanel({
   provider,
-  authMethod,
   connected,
   onBack,
   onChange,
 }: {
   provider: string;
-  authMethod?: "oauth" | "api_key";
   connected: boolean;
   onBack: () => void;
   onChange: () => void;
 }) {
-  const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [authURL, setAuthURL] = useState("");
@@ -28,12 +25,6 @@ export function PiConnectionPanel({
   const [manualCode, setManualCode] = useState("");
   const active = useRef<AbortController>(null);
   useEffect(() => () => active.current?.abort(), []);
-  const oauth = authMethod
-    ? authMethod === "oauth"
-    : ["codex", "claude", "kimi"].includes(provider);
-  const keyLabel =
-    provider === "kimi-code-key" ? "Kimi Code 套餐 API Key" : "API Key";
-
   const connect = async () => {
     const operation = new AbortController();
     active.current = operation;
@@ -44,24 +35,16 @@ export function PiConnectionPanel({
     setManualRun("");
     setManualCode("");
     try {
-      await api.connectPiProvider(
-        provider,
-        oauth ? "" : key.trim(),
-        operation.signal,
-        (event) => {
-          if ("runId" in event) {
-            setManualRun(event.runId);
-          } else {
-            setAuthURL(event.url);
-            setDeviceCode(event.code ?? "");
-            void openExternalLink(event.url);
-          }
-        },
-      );
-      if (!operation.signal.aborted) {
-        setKey("");
-        onChange();
-      }
+      await api.connectPiProvider(provider, operation.signal, (event) => {
+        if ("runId" in event) {
+          setManualRun(event.runId);
+        } else {
+          setAuthURL(event.url);
+          setDeviceCode(event.code ?? "");
+          void openExternalLink(event.url);
+        }
+      });
+      if (!operation.signal.aborted) onChange();
     } catch (e) {
       if (!operation.signal.aborted)
         setError(e instanceof Error ? e.message : "连接失败");
@@ -103,18 +86,6 @@ export function PiConnectionPanel({
         {providerLabel(provider)}
       </Button>
       {connected && <p className="text-sm text-muted-foreground">已连接</p>}
-      {!oauth && (
-        <label className="block space-y-2 text-sm">
-          <span>{keyLabel}</span>
-          <Input
-            type="password"
-            autoComplete="off"
-            value={key}
-            onChange={(event) => setKey(event.target.value)}
-            disabled={busy}
-          />
-        </label>
-      )}
       {deviceCode && (
         <p role="status" className="text-sm">
           设备验证码 <code className="select-all">{deviceCode}</code>
@@ -146,15 +117,8 @@ export function PiConnectionPanel({
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button
-          disabled={busy || (!oauth && !key.trim())}
-          onClick={() => void connect()}
-        >
-          {busy
-            ? "正在连接"
-            : oauth
-              ? `使用 ${providerLabel(provider)} 账号登录`
-              : "保存并连接"}
+        <Button disabled={busy} onClick={() => void connect()}>
+          {busy ? "正在连接" : `使用 ${providerLabel(provider)} 账号登录`}
         </Button>
         {authURL && (
           <Button

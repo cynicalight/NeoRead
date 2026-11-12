@@ -214,8 +214,7 @@ export async function runAgent(
   } else if (
     !(await modelRuntime.listCredentials({ signal })).some(
       (credential) =>
-        credential.providerId === model.provider &&
-        credential.type === input.connection?.method,
+        credential.providerId === model.provider && credential.type === "oauth",
     )
   ) {
     throw new Error("请先连接模型服务");

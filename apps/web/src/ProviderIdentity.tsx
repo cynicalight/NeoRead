@@ -29,11 +29,6 @@ const providers = {
   "openai-api": { Icon: OpenAI, Avatar: OpenAI.Avatar, label: "OpenAI API" },
   "claude-api": { Icon: Claude, Avatar: Claude.Avatar, label: "Claude API" },
   "kimi-api": { Icon: Kimi, Avatar: Kimi.Avatar, label: "Kimi 开放平台" },
-  "kimi-code-key": {
-    Icon: Kimi,
-    Avatar: Kimi.Avatar,
-    label: "Kimi Code 套餐密钥",
-  },
   api: { Icon: APIIcon, Avatar: APIAvatar, label: "API" },
 };
 

@@ -2910,7 +2910,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Connect a built-in Pi provider with account authorization or an API key. The NDJSON stream emits auth_url, device_code, manual_code, complete or error. */
+        /** @description Connect a built-in Pi provider with account authorization. The NDJSON stream emits auth_url, device_code, manual_code, complete or error. */
         post: {
             parameters: {
                 query?: never;
@@ -2922,9 +2922,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        key?: string;
-                    };
+                    "application/json": Record<string, never>;
                 };
             };
             responses: {
@@ -5467,7 +5465,7 @@ export interface components {
             /** @description Whether the connection is configured. */
             installed: boolean;
             /** @enum {string} */
-            authMethod?: "oauth" | "api_key";
+            authMethod?: "oauth";
             authenticated: boolean;
             status: string;
         };

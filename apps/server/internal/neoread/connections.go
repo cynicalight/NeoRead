@@ -214,7 +214,7 @@ func capable(c AIConfig, p string, vision bool) bool {
 func publicConfig(c AIConfig) AIConfig {
 	capabilities := make(map[string]Capability, len(c.Capabilities))
 	for provider, capability := range c.Capabilities {
-		if _, retired := retiredAPIProviders[provider]; retired {
+		if _, retired := retiredAPIProviders[provider]; retired || provider == retiredKimiCodeKey {
 			continue
 		}
 		if _, native := piProviders[provider]; native && capability.Fingerprint != configPrint(c, provider) {

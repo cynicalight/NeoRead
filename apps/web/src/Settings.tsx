@@ -80,7 +80,7 @@ import { AppearancePicker } from "./AppearancePicker";
 import { AgentDeck, type DeckItem } from "./AgentDeck";
 import { recentAgentCalls } from "./agentUsage";
 // Checks run automatically for this many API models; the rest on demand.
-const agentConnections = ["codex", "claude", "kimi", "kimi-code-key", "api"];
+const agentConnections = ["codex", "claude", "kimi", "api"];
 const autoAPIChecks = 12;
 export function Settings({
   open,
@@ -1173,9 +1173,6 @@ export function Settings({
                       <PiConnectionPanel
                         key={piDetails}
                         provider={piDetails}
-                        authMethod={
-                          providers.find((p) => p.id === piDetails)?.authMethod
-                        }
                         connected={installed(piDetails)}
                         onBack={() => setPiDetails(null)}
                         onChange={() => {

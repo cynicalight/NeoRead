@@ -3252,7 +3252,7 @@
             ],
           "post":
             {
-              "description": "Connect a built-in Pi provider with account authorization or an API key. The NDJSON stream emits auth_url, device_code, manual_code, complete or error.",
+              "description": "Connect a built-in Pi provider with account authorization. The NDJSON stream emits auth_url, device_code, manual_code, complete or error.",
               "requestBody":
                 {
                   "required": true,
@@ -3263,7 +3263,7 @@
                           "schema":
                             {
                               "type": "object",
-                              "properties": { "key": { "type": "string" } },
+                              "additionalProperties": false,
                             },
                         },
                     },
@@ -6749,7 +6749,7 @@
                       "description": "Whether the connection is configured.",
                     },
                   "authMethod":
-                    { "type": "string", "enum": ["oauth", "api_key"] },
+                    { "type": "string", "enum": ["oauth"] },
                   "authenticated": { "type": "boolean" },
                   "status": { "type": "string" },
                 },

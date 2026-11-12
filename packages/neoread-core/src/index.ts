@@ -620,7 +620,7 @@ export function locationLabel(location?: DocumentLocation): string {
     : `章节进度 ${Math.round((location.progression ?? 0) * 100)}%`;
 }
 export interface Provider {
-  authMethod?: "oauth" | "api_key";
+  authMethod?: "oauth";
   id: "codex" | "claude" | "kimi" | "api";
   installed: boolean;
   authenticated: boolean;

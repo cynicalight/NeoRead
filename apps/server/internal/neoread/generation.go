@@ -263,11 +263,8 @@ func (g *GenerationService) generate(ctx context.Context, in AIInput, interactiv
 	if errorKind(err) == ErrorSave || errorKind(err) == ErrorBusy {
 		return AIResult{}, err
 	}
-	if adapter, ok := primary.Adapter.(piProviderAdapter); ok {
-		if connection := adapter.config.piConnections[g.primary].pi; connection != nil &&
-			(connection.Method == "oauth" || g.primary == "kimi-code-key") {
-			return AIResult{}, err
-		}
+	if adapter, ok := primary.Adapter.(piProviderAdapter); ok && adapter.config.piConnections[g.primary].pi != nil {
+		return AIResult{}, err
 	}
 	if visible || in.Chat != nil && in.Chat.WebSearch {
 		return AIResult{}, err

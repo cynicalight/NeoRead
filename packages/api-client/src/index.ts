@@ -846,7 +846,6 @@ export const api = {
     }),
   connectPiProvider: async (
     provider: string,
-    key: string,
     signal: AbortSignal,
     onEvent: (
       event:
@@ -863,7 +862,7 @@ export const api = {
           "Content-Type": "application/json",
           Accept: "application/x-ndjson",
         },
-        body: JSON.stringify({ key }),
+        body: "{}",
         signal,
       },
     );

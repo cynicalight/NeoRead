@@ -19,33 +19,37 @@ import (
 
 type piConnection struct {
 	Provider string `json:"provider"`
-	Method   string `json:"method"`
 	AuthPath string `json:"authPath"`
 }
 
 type piProviderSpec struct {
-	provider, method, url, protocol string
+	provider, url, protocol string
 }
 
-var piProviderOrder = []string{"codex", "claude", "kimi", "kimi-code-key"}
+var piProviderOrder = []string{"codex", "claude", "kimi"}
 
 var piProviders = map[string]piProviderSpec{
-	"codex":         {"openai", "oauth", "https://api.openai.com/v1", "responses"},
-	"claude":        {"anthropic", "oauth", "https://api.anthropic.com/v1", "anthropic"},
-	"kimi":          {"kimi-coding", "oauth", "https://api.kimi.com/coding/v1", "openai"},
-	"kimi-code-key": {"kimi-coding", "api_key", "https://api.kimi.com/coding/v1", "openai"},
+	"codex":  {"openai", "https://api.openai.com/v1", "responses"},
+	"claude": {"anthropic", "https://api.anthropic.com/v1", "anthropic"},
+	"kimi":   {"kimi-coding", "https://api.kimi.com/coding/v1", "openai"},
 }
 
 // The former API-key cards used Pi's per-provider files. Only an active
 // connection is imported into the shared API slot during an upgrade.
 var retiredAPIProviders = map[string]piProviderSpec{
-	"openai-api": {"openai", "api_key", "https://api.openai.com/v1", "responses"},
-	"claude-api": {"anthropic", "api_key", "https://api.anthropic.com/v1", "anthropic"},
-	"kimi-api":   {"moonshotai-cn", "api_key", "https://api.moonshot.cn/v1", "openai"},
+	"openai-api": {"openai", "https://api.openai.com/v1", "responses"},
+	"claude-api": {"anthropic", "https://api.anthropic.com/v1", "anthropic"},
+	"kimi-api":   {"moonshotai-cn", "https://api.moonshot.cn/v1", "openai"},
 }
+
+const retiredKimiCodeKey = "kimi-code-key"
 
 func (s *Server) migrateRetiredAPI(c *AIConfig) {
 	previous := c.Primary
+	if previous == retiredKimiCodeKey {
+		c.Primary = ""
+		return
+	}
 	spec, retired := retiredAPIProviders[previous]
 	if !retired {
 		return
@@ -160,7 +164,7 @@ func (s *Server) piAPIConnection(provider string) (APIConnection, bool) {
 	if _, err := os.Stat(path); err != nil {
 		return APIConnection{}, false
 	}
-	return APIConnection{URL: spec.url, Protocol: spec.protocol, pi: &piConnection{spec.provider, spec.method, path}}, true
+	return APIConnection{URL: spec.url, Protocol: spec.protocol, pi: &piConnection{spec.provider, path}}, true
 }
 
 func piConnectionIdentity(c APIConnection) string {
@@ -196,8 +200,7 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	body.Key = strings.TrimSpace(body.Key)
-	if (spec.method == "api_key" && body.Key == "") || (spec.method == "oauth" && body.Key != "") || len(body.Key) > 4096 {
+	if strings.TrimSpace(body.Key) != "" {
 		fail(w, 400, "认证参数无效")
 		return
 	}
@@ -225,14 +228,10 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 			_ = os.RemoveAll(newDir)
 		}
 	}()
-	deviceID := ""
-	if spec.method == "oauth" {
-		var err error
-		deviceID, err = s.piDeviceID()
-		if err != nil {
-			fail(w, 500, "无法保存设备标识")
-			return
-		}
+	deviceID, err := s.piDeviceID()
+	if err != nil {
+		fail(w, 500, "无法保存设备标识")
+		return
 	}
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.Header().Set("Cache-Control", "no-store")
@@ -242,13 +241,10 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 		}
 		return http.NewResponseController(w).Flush()
 	}
-	connection := piConnection{spec.provider, spec.method, filepath.Join(newDir, "auth.json")}
-	_, err := runPiOperation(ctx, s.Store.Root, "login", runID, map[string]any{
-		"runId": runID, "connection": connection, "deviceId": deviceID, "value": body.Key,
+	connection := piConnection{spec.provider, filepath.Join(newDir, "auth.json")}
+	_, err = runPiOperation(ctx, s.Store.Root, "login", runID, map[string]any{
+		"runId": runID, "connection": connection, "deviceId": deviceID,
 	}, false, func(e piEvent) error {
-		if spec.method != "oauth" {
-			return generationError(ErrorProtocol, "API Key 连接返回了意外的授权事件")
-		}
 		switch e.Type {
 		case "manual_code":
 			session.acceptInput.Store(true)
