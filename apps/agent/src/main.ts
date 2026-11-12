@@ -69,6 +69,18 @@ lines.on("line", (line) => {
         value?: string;
       };
       runId = input.runId;
+      const fetch = globalThis.fetch;
+      let errorCode = "";
+      globalThis.fetch = async (url, options) => {
+        try {
+          const response = await fetch(url, options);
+          errorCode = upstreamError(response.status);
+          return response;
+        } catch (error) {
+          errorCode = "network";
+          throw error;
+        }
+      };
       const operation =
         message.type === "catalog"
           ? connectionModels(input.connection, controller.signal).then(
@@ -113,7 +125,7 @@ lines.on("line", (line) => {
       void operation
         .then((result) => send({ type: "complete", ...result }))
         .catch(() => {
-          send({ type: "error" });
+          send({ type: "error", errorCode });
           process.exitCode = 1;
         })
         .finally(() => {

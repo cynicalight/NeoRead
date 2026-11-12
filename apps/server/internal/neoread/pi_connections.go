@@ -207,7 +207,9 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}, nil, session.input)
 	if err == nil {
-		_, err = os.Stat(connection.AuthPath)
+		if _, statErr := os.Stat(connection.AuthPath); statErr != nil {
+			err = generationError(ErrorSave, "无法保存本地授权凭据")
+		}
 	}
 	if err == nil {
 		err = ctx.Err()
@@ -215,7 +217,9 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		s.configMu.Lock()
 		old, hadOld := s.piAPIConnection(provider)
-		err = atomicFile(filepath.Join(dir, "active"), []byte(runID))
+		if saveErr := atomicFile(filepath.Join(dir, "active"), []byte(runID)); saveErr != nil {
+			err = generationError(ErrorSave, "无法激活本地授权凭据")
+		}
 		s.configMu.Unlock()
 		if err == nil {
 			committed = true
@@ -227,17 +231,28 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	status := "complete"
+	kind := ErrorKind("")
 	level := slog.LevelInfo
 	if err != nil {
 		status, level = "failed", slog.LevelError
+		kind = errorKind(err)
 		if errors.Is(ctx.Err(), context.Canceled) {
-			status, level = "cancelled", slog.LevelInfo
+			status, level, kind = "cancelled", slog.LevelInfo, ErrorCanceled
 		}
 		if r.Context().Err() == nil {
-			_ = send(map[string]string{"type": "error", "error": "连接未完成，请检查账号授权或网络后重试"})
+			message := "连接未完成，请检查账号授权或网络后重试"
+			switch kind {
+			case ErrorNetwork, ErrorTimeout:
+				message = "无法连接授权服务，请检查网络或桌面代理设置后重试"
+			case ErrorAuthentication, ErrorPermission:
+				message = "授权服务拒绝了请求，请检查账号权限后重试"
+			case ErrorSave:
+				message = "授权凭据无法保存，请检查本地书库权限后重试"
+			}
+			_ = send(map[string]string{"type": "error", "error": message})
 		}
 	}
-	s.diagnosticEvent(level, "ai.connection.finish", "requestId", requestID(ctx), "provider", provider, "runId", runID, "status", status, "durationMs", time.Since(started).Milliseconds())
+	s.diagnosticEvent(level, "ai.connection.finish", "requestId", requestID(ctx), "provider", provider, "runId", runID, "status", status, "errorCode", kind, "durationMs", time.Since(started).Milliseconds())
 }
 
 func (s *Server) logoutPiProvider(w http.ResponseWriter, r *http.Request) {

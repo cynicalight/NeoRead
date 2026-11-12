@@ -85,7 +85,20 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 	child, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := runtimeenv.CommandContext(child, node, worker)
-	cmd.Dir, cmd.Env, cmd.Stderr = work, append(os.Environ(), "ELECTRON_RUN_AS_NODE=1"), io.Discard
+	// Node fetch needs its startup flag to use the desktop proxy environment.
+	// Keep local model endpoints direct even when the worker runs outside Electron.
+	bypass := os.Getenv("no_proxy")
+	if bypass == "" {
+		bypass = os.Getenv("NO_PROXY")
+	}
+	bypass = strings.Trim(bypass+",localhost,127.0.0.1,[::1]", ",")
+	cmd.Dir, cmd.Stderr = work, io.Discard
+	cmd.Env = append(os.Environ(),
+		"ELECTRON_RUN_AS_NODE=1",
+		"NODE_USE_ENV_PROXY=1",
+		"NO_PROXY="+bypass,
+		"no_proxy="+bypass,
+	)
 	cmd.WaitDelay = 3 * time.Second
 	input, err := cmd.StdinPipe()
 	if err != nil {
@@ -196,6 +209,8 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 				return piEvent{}, generationError(e.ErrorCode, "模型额度或请求频率达到上限")
 			case ErrorTimeout:
 				return piEvent{}, generationError(ErrorTimeout, "模型请求超时")
+			case ErrorNetwork:
+				return piEvent{}, generationError(ErrorNetwork, "无法连接模型服务")
 			case ErrorUpstream:
 				return piEvent{}, generationError(ErrorUpstream, "模型服务请求失败")
 			default:
