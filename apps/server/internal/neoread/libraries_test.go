@@ -323,6 +323,16 @@ func TestMovePaperSubtreeWithPreferences(t *testing.T) {
 		t.Fatal(got)
 	}
 	check("AI/ML")
+	patchMembership := func(before, after string) int {
+		return request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"expectedFolders":`+before+`,"folders":`+after+`}`)).Code
+	}
+	if got := patchMembership(`["ML/Vision","Other"]`, `["ML/Vision","Other","New"]`); got != 409 {
+		t.Fatalf("stale membership write returned %d", got)
+	}
+	check("AI/ML")
+	if got := patchMembership(`["AI/ML/Vision","Other"]`, `["AI/ML/Vision","Other","New"]`); got != 200 {
+		t.Fatal(got)
+	}
 }
 
 func TestShortcutPreferences(t *testing.T) {

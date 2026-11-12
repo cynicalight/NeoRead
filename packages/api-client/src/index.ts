@@ -670,6 +670,7 @@ export const api = {
       category?: Document["category"];
       tags?: string[];
       folders?: string[];
+      expectedFolders?: string[];
       favorite?: boolean;
       progress?: DocumentLocation;
       percentage?: number;

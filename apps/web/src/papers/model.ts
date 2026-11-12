@@ -589,7 +589,9 @@ export function categoryDrop(
   if (withinCategory(target, from))
     throw new Error("不能将分类移到自身或其子分类中");
   const parent = placement === "inside" ? target : categoryParent(target);
-  const path = [parent, categoryLeaf(from)].filter(Boolean).join("/");
+  const path = sameName(parent, categoryParent(from))
+    ? from
+    : [parent, categoryLeaf(from)].filter(Boolean).join("/");
   const ordered = flattenCategories(categoryTree(categories)).map(
     (node) => node.name,
   );
@@ -598,7 +600,7 @@ export function categoryDrop(
     throw new Error("目标位置已有同名分类");
   const moved = ordered
     .filter((name) => withinCategory(name, from))
-    .map((name) => path + name.slice(from.length));
+    .map((name) => (path === from ? name : path + name.slice(from.length)));
   if (!moved.every(validCategory))
     throw new Error("移动后的分类路径超过 40 字符或名称无效");
   let at = remaining.indexOf(target);

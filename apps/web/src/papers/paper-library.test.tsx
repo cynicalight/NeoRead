@@ -452,6 +452,7 @@ it("toggles a colored category with its number key", async () => {
   );
   expect(api.update).toHaveBeenCalledExactlyOnceWith("b", {
     folders: ["Todo"],
+    expectedFolders: [],
   });
 });
 

@@ -15,3 +15,17 @@ it("rejects cycles, collisions and overlong descendant paths", () => {
   const long = "x".repeat(37);
   expect(() => categoryDrop(["A", "A/B", long], "A", long, "inside")).toThrow();
 });
+
+it("keeps the original path spelling when sorting siblings under mixed-case parents", () => {
+  expect(
+    categoryDrop(
+      ["ml", "ml/NLP", "ML/Vision", "mL/Vision/CV"],
+      "ML/Vision",
+      "ml/NLP",
+      "before",
+    ),
+  ).toEqual({
+    path: "ML/Vision",
+    categories: ["ml", "ML/Vision", "mL/Vision/CV", "ml/NLP"],
+  });
+});

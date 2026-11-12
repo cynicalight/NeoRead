@@ -1731,6 +1731,8 @@ export interface paths {
                         /** @enum {unknown} */
                         category?: "book" | "article" | "paper";
                         tags?: string[];
+                        /** @description When replacing folders, reject a stale membership snapshot with HTTP 409. */
+                        expectedFolders?: string[];
                         folders?: string[];
                         favorite?: boolean;
                         progress?: components["schemas"]["DocumentLocation"];
