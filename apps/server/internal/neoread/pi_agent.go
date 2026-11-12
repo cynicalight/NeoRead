@@ -70,10 +70,15 @@ func runPiWorker(ctx context.Context, root string, request piRequest, event func
 	return runPiOperation(ctx, root, "start", request.RunID, request, request.DurableCheckpoints, event, tool, nil)
 }
 
-var piNodePath = func() string { return os.Getenv("NEOREAD_NODE") }
+var piRuntimePaths = func() (node, worker string, err error) {
+	return os.Getenv("NEOREAD_NODE"), os.Getenv("NEOREAD_AGENT"), nil
+}
 
 func runPiOperation(ctx context.Context, root, operation, runID string, request any, durable bool, event func(piEvent) error, tool func(string, json.RawMessage) ([]any, error), loginInput <-chan string) (piEvent, error) {
-	node, worker := piNodePath(), os.Getenv("NEOREAD_AGENT")
+	node, worker, err := piRuntimePaths()
+	if err != nil {
+		return piEvent{}, err
+	}
 	if node == "" || worker == "" {
 		return piEvent{}, generationError(ErrorConfiguration, "pi 运行时不可用，请重新构建或安装 NeoRead")
 	}

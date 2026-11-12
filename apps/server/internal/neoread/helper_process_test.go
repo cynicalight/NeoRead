@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -13,18 +14,26 @@ func TestMain(m *testing.M) {
 		runMissingPageCorpusProcess()
 		os.Exit(0)
 	}
-	node, err := exec.LookPath("node")
-	if err == nil {
-		root, err := filepath.Abs("../../../agent")
-		if err == nil {
+	if node, err := exec.LookPath("node"); err == nil {
+		// Go-only suites never request a Pi worker and can run without pnpm install.
+		buildWorker := sync.OnceValues(func() (string, error) {
+			root, err := filepath.Abs("../../../agent")
+			if err != nil {
+				return "", err
+			}
 			build := exec.Command(node, "build.mjs")
 			build.Dir = root
 			if output, err := build.CombinedOutput(); err != nil {
-				fmt.Fprintf(os.Stderr, "build test Pi worker: %v\n%s", err, output)
-				os.Exit(1)
+				return "", fmt.Errorf("build test Pi worker: %w\n%s", err, output)
 			}
-			piNodePath = func() string { return node }
-			os.Setenv("NEOREAD_AGENT", filepath.Join(root, "dist/main.mjs"))
+			return filepath.Join(root, "dist/main.mjs"), nil
+		})
+		piRuntimePaths = func() (string, string, error) {
+			if worker := os.Getenv("NEOREAD_AGENT"); worker != "" {
+				return node, worker, nil
+			}
+			worker, err := buildWorker()
+			return node, worker, err
 		}
 	}
 	os.Exit(m.Run())

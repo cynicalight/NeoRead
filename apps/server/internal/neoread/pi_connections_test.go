@@ -149,7 +149,11 @@ func TestPiManualLoginInputBelongsToOneAttempt(t *testing.T) {
 }
 
 func TestPiLoginUsesConfiguredProxy(t *testing.T) {
-	help, err := exec.Command(piNodePath(), "--help").Output()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node runtime is unavailable")
+	}
+	help, err := exec.Command(node, "--help").Output()
 	if err != nil || !strings.Contains(string(help), "--use-env-proxy") {
 		t.Skip("Node runtime does not support environment proxies")
 	}
