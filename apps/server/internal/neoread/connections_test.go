@@ -156,3 +156,53 @@ func TestLiveCodex(t *testing.T) {
 		t.Logf("document image transcript received (%d bytes)", len(answer))
 	}
 }
+
+func TestSaveConfigRetainsUnavailableProviderEfforts(t *testing.T) {
+	for _, field := range []string{"efforts", "translationEfforts", "visionEfforts"} {
+		t.Run(field, func(t *testing.T) {
+			store, err := OpenStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.DB.Close()
+			s := NewServer(store, "test", "")
+			payload := map[string]any{
+				"primary": "api",
+				field: map[string]map[string]string{
+					"neoread":              {"model": "medium"},
+					"unavailable-provider": {"model": "future-level"},
+					"api":                  {"model": "high"},
+				},
+			}
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := httptest.NewRecorder()
+			s.putAIConfig(response, httptest.NewRequest(http.MethodPut, "/api/ai/config", bytes.NewReader(raw)))
+			if response.Code != http.StatusOK {
+				t.Fatalf("save returned %d: %s", response.Code, response.Body.String())
+			}
+			var saved map[string]any
+			stored, err := json.Marshal(s.aiConfig())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(stored, &saved); err != nil {
+				t.Fatal(err)
+			}
+			want, _ := json.Marshal(payload[field])
+			got, _ := json.Marshal(saved[field])
+			if !bytes.Equal(got, want) {
+				t.Fatalf("efforts changed: got %s, want %s", got, want)
+			}
+			payload[field] = map[string]map[string]string{"api": {"model": "invalid"}}
+			raw, _ = json.Marshal(payload)
+			response = httptest.NewRecorder()
+			s.putAIConfig(response, httptest.NewRequest(http.MethodPut, "/api/ai/config", bytes.NewReader(raw)))
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("invalid active effort accepted: %d", response.Code)
+			}
+		})
+	}
+}
