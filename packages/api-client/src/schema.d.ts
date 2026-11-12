@@ -4539,6 +4539,10 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
+                        /** @description When moving a paper folder, persist updated paper library preferences in the same transaction. */
+                        paperPreferences?: {
+                            [key: string]: unknown;
+                        };
                         from: string;
                         to?: string;
                     };

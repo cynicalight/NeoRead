@@ -12,6 +12,8 @@ import {
   useReaderStore,
 } from "../store";
 import {
+  categoryDrop,
+  type CategoryPlacement,
   cleanCategory,
   paperCategories,
   removeCategoryPreferences,
@@ -207,6 +209,38 @@ export async function renameCategory(from: string, to: string) {
   followCategory(from, to);
   await refreshLibrary().catch(() => {});
   return true;
+}
+
+export async function dropPaperCategory(
+  from: string,
+  target: string,
+  placement: CategoryPlacement,
+) {
+  const categories = paperCategories(paperPrefs(), papers());
+  try {
+    const move = categoryDrop(categories, from, target, placement);
+    const prefs = renameCategoryPreferences(
+      paperPrefs(),
+      categories,
+      from,
+      move.path,
+    );
+    prefs.categories = move.categories;
+    if (placement === "inside")
+      prefs.collapsed = prefs.collapsed?.filter(
+        (name) => name.toLowerCase() !== target.toLowerCase(),
+      );
+    await updateLibraryPreferences(
+      { papers: prefs },
+      from === move.path ? undefined : { from, to: move.path },
+    );
+    if (from !== move.path) {
+      followCategory(from, move.path);
+      await refreshLibrary();
+    }
+  } catch (error) {
+    toast.error((error as Error).message);
+  }
 }
 
 /** Delete a category and its subcategories; their papers stay. */

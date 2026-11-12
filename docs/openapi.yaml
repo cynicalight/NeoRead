@@ -4983,6 +4983,7 @@
                               "type": "object",
                               "properties":
                                 {
+                                  "paperPreferences": { "type": "object", "additionalProperties": true, "description": "When moving a paper folder, persist updated paper library preferences in the same transaction." },
                                   "from": { "type": "string", "minLength": 1 },
                                   "to":
                                     {
