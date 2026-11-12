@@ -24,7 +24,8 @@ import {
 import { Badge } from "@neoread/ui/components/badge";
 import { Button } from "@neoread/ui/components/button";
 import { Input } from "@neoread/ui/components/input";
-import { Textarea } from "@neoread/ui/components/textarea";
+import { PaperNoteRichEditor } from "./PaperNoteRichEditor";
+import { MessageMarkdown } from "./chat/MessageMarkdown";
 import { ScrollArea } from "@neoread/ui/components/scroll-area";
 import {
   Collapsible,
@@ -193,18 +194,29 @@ function NoteCard({
         />
       </Button>
       {editing ? (
-        <div className="note-editor">
-          <Textarea
+        <div
+          className="note-editor"
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && !saving) setEditing(false);
+          }}
+        >
+          <PaperNoteRichEditor
+            body={draft}
+            disabled={saving}
+            ariaLabel={question ? "问题" : "批注"}
+            placeholder={question ? "想弄清楚什么？" : "批注内容…"}
             autoFocus
-            aria-label={question ? "问题" : "批注"}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setEditing(false);
-            }}
+            className="annotation-markdown-editor"
+            diagnosticScope="annotation_note"
+            onChange={setDraft}
           />
           <div className="grid grid-cols-2 gap-1">
-            <Button size="xs" variant="ghost" onClick={() => setEditing(false)}>
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={saving}
+              onClick={() => setEditing(false)}
+            >
               取消
             </Button>
             <Button
@@ -223,7 +235,9 @@ function NoteCard({
           </div>
         </div>
       ) : (
-        a.note && <p>{a.note}</p>
+        a.note && (
+          <MessageMarkdown content={a.note} animated={false} literalHtml />
+        )
       )}
       {question && !editing && (
         <div className="note-question">

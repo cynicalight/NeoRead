@@ -281,3 +281,54 @@ it("renders EPUB annotations in saved source order without requesting full-book 
   expect(cards()).toEqual([earlier.quote, later.quote]);
   expect(api.epubBlocks).not.toHaveBeenCalled();
 });
+
+it("renders Markdown in saved sidebar annotations", async () => {
+  await act(async () =>
+    root.render(
+      <NotesPanel
+        document={paper({ id: "p" })}
+        annotations={[mark({ kind: "note", note: "## 要点\n\n**重点**" })]}
+        messages={[]}
+        deleting={new Set()}
+        answering={new Set()}
+        {...handlers}
+      />,
+    ),
+  );
+  expect(host.querySelector(".note-card h2")?.textContent).toBe("要点");
+  expect(host.querySelector(".note-card strong")?.textContent).toBe("重点");
+});
+
+it("retains the Markdown draft and close warning when saving fails", async () => {
+  handlers.onSave.mockResolvedValueOnce(false);
+  await act(async () => button("编辑批注").click());
+  await act(async () => button("源码").click());
+  const field = host.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => type(field, "# 尚未保存\n\n**草稿**"));
+  await act(async () => button("保存").click());
+  expect(handlers.onSave).toHaveBeenCalledWith(annotations[3], {
+    note: "# 尚未保存\n\n**草稿**",
+    tags: ["existing-tag"],
+  });
+  expect(host.querySelector("textarea")?.value).toBe("# 尚未保存\n\n**草稿**");
+  expect(tabCloseWarning("p")?.message).toContain("批注尚未保存");
+});
+
+it("keeps unsupported HTML visible as inert text in saved sidebar annotations", async () => {
+  const note = "<section>保留原内容</section>";
+  await act(async () =>
+    root.render(
+      <NotesPanel
+        document={paper({ id: "p" })}
+        annotations={[mark({ kind: "note", note })]}
+        messages={[]}
+        deleting={new Set()}
+        answering={new Set()}
+        {...handlers}
+      />,
+    ),
+  );
+  const preview = host.querySelector(".note-card .message-markdown")!;
+  expect(preview.textContent).toBe(note);
+  expect(preview.querySelector("section")).toBeNull();
+});
