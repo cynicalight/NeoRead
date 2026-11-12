@@ -286,6 +286,11 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, efforts := range []map[string]map[string]string{c.Efforts, c.TranslationEfforts, c.VisionEfforts} {
 		for provider, models := range efforts {
+			// Preserve settings from providers unavailable in this build when
+			// clients round-trip the shared configuration.
+			if !validAgent(provider) {
+				continue
+			}
 			for _, effort := range models {
 				if !validEffort(provider, effort) {
 					fail(w, 400, "无效的 Effort 档位")
