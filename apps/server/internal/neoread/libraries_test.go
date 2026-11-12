@@ -294,6 +294,37 @@ func TestFoldersNestButTagsStayFlat(t *testing.T) {
 	}
 }
 
+func TestMovePaperSubtreeWithPreferences(t *testing.T) {
+	s := testServer(t)
+	w := uploadTo(t, s, "papers", "p.pdf", testPDF(1))
+	var d Document
+	_ = json.Unmarshal(w.Body.Bytes(), &d)
+	request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"folders":["ML/Vision","Other"]}`))
+	request(t, s, "PUT", "/api/preferences/library", strings.NewReader(`{"mode":"books","papers":{"categories":["ML","ML/Vision","AI"]}}`))
+	move := func(prefs string) int {
+		return request(t, s, "POST", "/api/libraries/papers/folders", strings.NewReader(`{"from":"ML","to":"AI/ML","paperPreferences":`+prefs+`}`)).Code
+	}
+	if got := move(`{"oversize":"` + strings.Repeat("x", 64<<10) + `"}`); got != 400 {
+		t.Fatal(got)
+	}
+	check := func(folder string) {
+		t.Helper()
+		doc, err := s.Store.Document(d.ID)
+		if err != nil || strings.Join(doc.Folders, ",") != folder+"/Vision,Other" {
+			t.Fatal(doc.Folders, err)
+		}
+		prefs := request(t, s, "GET", "/api/preferences/library", nil).Body.String()
+		if !strings.Contains(prefs, `"mode":"books"`) || !strings.Contains(prefs, `"`+folder+`/Vision"`) {
+			t.Fatal(prefs)
+		}
+	}
+	check("ML")
+	if got := move(`{"categories":["AI","AI/ML","AI/ML/Vision"]}`); got != 200 {
+		t.Fatal(got)
+	}
+	check("AI/ML")
+}
+
 func TestShortcutPreferences(t *testing.T) {
 	s := testServer(t)
 	if w := request(t, s, "PUT", "/api/preferences/shortcuts", strings.NewReader(`{"readerLeft":{"key":"b","shift":true}}`)); w.Code != 200 {
