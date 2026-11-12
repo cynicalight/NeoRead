@@ -792,7 +792,6 @@ export interface APIConnection {
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export interface WebSearchConfig {
-  cliEnabled: boolean;
   provider: "" | "deepseek";
   url: string;
   key?: string;

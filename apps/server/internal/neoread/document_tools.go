@@ -75,7 +75,6 @@ type documentAgent struct {
 	evidenceTokens        int
 	prepared              bool
 	activity              func(string, string, string) error
-	abort                 context.CancelFunc
 	contextSource         string
 	contextOverride       int
 	reservedTokens        int
@@ -96,7 +95,7 @@ func (a *documentAgent) resetAttempt(provider string) {
 	}
 	a.ID = id()
 	a.provider = provider
-	a.canViewPages = provider == "codex" || provider == "claude"
+	a.canViewPages = false
 	a.Traces = nil
 	a.Evidence = nil
 	a.bytes = 0
@@ -158,14 +157,8 @@ func strictToolArguments(raw json.RawMessage, v any) error {
 	return nil
 }
 func (a *documentAgent) call(ctx context.Context, tool string, args json.RawMessage) (json.RawMessage, error) {
-	return a.callAttempt(ctx, "", tool, args)
-}
-func (a *documentAgent) callAttempt(ctx context.Context, attempt, tool string, args json.RawMessage) (json.RawMessage, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if attempt != "" && attempt != a.ID {
-		return nil, errDocumentAttemptEnded
-	}
 	if a.fatal != nil {
 		return nil, a.fatal
 	}

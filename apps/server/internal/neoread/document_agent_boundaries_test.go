@@ -127,60 +127,6 @@ func TestDocumentAgentCancelAndDeleteStopAPI(t *testing.T) {
 		})
 	}
 }
-func TestDocumentMCPAuthenticationRevocationAndAttemptScope(t *testing.T) {
-	_, a := originalDocumentFixture(t)
-	url, token, stop, err := serveDocumentMCP(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stop()
-	call := func(auth, origin string) (int, string) {
-		r, _ := http.NewRequest("POST", url, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_outline","arguments":{}}}`))
-		r.Header.Set("Authorization", "Bearer "+auth)
-		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Accept", "application/json, text/event-stream")
-		r.Header.Set("MCP-Protocol-Version", "2025-11-25")
-		if origin != "" {
-			r.Header.Set("Origin", origin)
-		}
-		response, e := http.DefaultClient.Do(r)
-		if e != nil {
-			t.Fatal(e)
-		}
-		defer response.Body.Close()
-		data, _ := io.ReadAll(response.Body)
-		return response.StatusCode, string(data)
-	}
-	if status, _ := call("test-secret", ""); status != 401 {
-		t.Fatal("main API token accepted")
-	}
-	if status, _ := call(token, "https://example.com"); status != 403 {
-		t.Fatal("foreign origin accepted")
-	}
-	if status, body := call(token, ""); status != 200 || !strings.Contains(body, "firstBlockId") {
-		t.Fatalf("MCP call %d %s", status, body)
-	}
-	foreign, _ := http.NewRequest("POST", url, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
-	foreign.Host = "example.com"
-	foreign.Header.Set("Authorization", "Bearer "+token)
-	response, e := http.DefaultClient.Do(foreign)
-	if e != nil {
-		t.Fatal(e)
-	}
-	response.Body.Close()
-	if response.StatusCode != 403 {
-		t.Fatal("MCP SDK did not reject non-loopback Host")
-	}
-	a.resetAttempt("api")
-	if _, body := call(token, ""); !strings.Contains(body, "尝试已结束") {
-		t.Fatal("previous attempt capability reused")
-	}
-	stop()
-	if _, e := http.Get(url); e == nil {
-		t.Fatal("revoked endpoint reachable")
-	}
-}
-
 func TestDocumentToolCapabilityVersionDoesNotInvalidateText(t *testing.T) {
 	s := testServer(t)
 	config := AIConfig{API: APIConnection{URL: "http://127.0.0.1:1"}, Models: map[string]string{"api": "test"}, Capabilities: map[string]Capability{}}

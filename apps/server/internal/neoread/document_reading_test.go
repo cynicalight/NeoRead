@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-// A local fake app-server exercises the real authenticated MCP transport and
-// native cancellation path, without requiring a CLI login or a model call.
 func writeReadingCalls(w http.ResponseWriter, count int, block, reasoning string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	calls := []any{}

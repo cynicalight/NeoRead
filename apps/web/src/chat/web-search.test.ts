@@ -4,7 +4,6 @@ import { webSearchEnabled } from "./web-search";
 
 it("uses saved search permissions independently of the chat model connection", () => {
   const config: WebSearchConfig = {
-    cliEnabled: false,
     provider: "deepseek",
     url: "https://search.example/v1",
     hasKey: true,

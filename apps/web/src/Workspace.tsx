@@ -902,7 +902,6 @@ export function Workspace({
     try {
       const captured = await readingContext(
         adapter,
-        provider,
         selected,
         useSection,
         attachments.length > 0,

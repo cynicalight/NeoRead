@@ -6,7 +6,6 @@ import type { WebSearchConfig } from "@neoread/core";
 import { WebSearchSettings } from "./WebSearchSettings";
 
 const value: WebSearchConfig = {
-  cliEnabled: false,
   provider: "deepseek",
   url: "https://search.example/v1",
   hasKey: true,

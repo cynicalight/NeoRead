@@ -286,9 +286,20 @@ func (s *Server) getAIConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
-	var c AIConfig
-	if !decode(w, r, &c) {
+	var body struct {
+		AIConfig
+		WebSearch *struct {
+			WebSearchConfig
+			// Ignore the retired switch in requests from older clients.
+			CLIEnabled bool `json:"cliEnabled"`
+		} `json:"webSearch"`
+	}
+	if !decode(w, r, &body) {
 		return
+	}
+	c := body.AIConfig
+	if body.WebSearch != nil {
+		c.WebSearch = &body.WebSearch.WebSearchConfig
 	}
 	if c.Primary != "" && !validAgent(c.Primary) {
 		fail(w, 400, "请选择主 Agent")
@@ -406,7 +417,7 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, 200, publicConfig(c))
 	if c.WebSearch != nil {
-		s.diagnosticEvent(slog.LevelInfo, "web.search.config_saved", "requestId", requestID(r.Context()), "cliEnabled", c.WebSearch.CLIEnabled, "searchProvider", c.WebSearch.Provider, "hasKey", c.WebSearch.Key != "")
+		s.diagnosticEvent(slog.LevelInfo, "web.search.config_saved", "requestId", requestID(r.Context()), "searchProvider", c.WebSearch.Provider, "hasKey", c.WebSearch.Key != "")
 	}
 	s.wakeProcessing()
 }

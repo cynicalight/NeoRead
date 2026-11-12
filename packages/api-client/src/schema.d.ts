@@ -5651,8 +5651,6 @@ export interface components {
         /** @enum {string} */
         ReasoningEffort: "low" | "medium" | "high" | "max";
         WebSearchConfig: {
-            /** @description Allow supported CLI native web search. Currently Codex. */
-            cliEnabled: boolean;
             /**
              * @description Empty disables the search API.
              * @enum {string}

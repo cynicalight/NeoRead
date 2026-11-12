@@ -7177,11 +7177,6 @@
               "type": "object",
               "properties":
                 {
-                  "cliEnabled":
-                    {
-                      "type": "boolean",
-                      "description": "Allow supported CLI native web search. Currently Codex.",
-                    },
                   "provider":
                     {
                       "type": "string",
@@ -7200,7 +7195,7 @@
                       "description": "An empty key with hasKey=true preserves the saved key only at the same address.",
                     },
                 },
-              "required": ["cliEnabled", "provider", "url", "hasKey"],
+              "required": ["provider", "url", "hasKey"],
             },
           "AIConfig":
             {

@@ -136,11 +136,10 @@ func TestPiDeepSeekWebToolsBridge(t *testing.T) {
 	}
 }
 
-func TestNativeWebCitationsKeepDocumentValidationAndStreaming(t *testing.T) {
+func TestUnresolvedWebCitationsKeepDocumentValidationAndStreaming(t *testing.T) {
 	c := &chatInput{WebSearch: true}
-	c.rememberNativeWebSource("turn0search0", "https://example.com/docs")
 	text := "Before citeturn0search0S2 after"
-	want := "Before [网页来源](https://example.com/docs)[S2] after"
+	want := "Before 〔网页引用未解析，见执行记录〕[S2] after"
 	stream := webCitationStream{normalize: c.normalizeWebCitations}
 	out := ""
 	for _, r := range text {

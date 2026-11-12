@@ -6,7 +6,6 @@ import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
 
 const defaultURL = "https://api.deepseek.com";
 const defaults: WebSearchConfig = {
-  cliEnabled: false,
   provider: "",
   url: defaultURL,
   hasKey: false,

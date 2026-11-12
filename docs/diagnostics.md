@@ -147,7 +147,7 @@ API 厂商规则、实际强度映射、上游错误分类和请求关联字段�
 
 ## 联网搜索配置与权限
 
-`web.search.config_saved / config_rejected` 记录保存结果、CLI 是否启用、搜索服务类型和是否配置密钥；`web.search.permissions` 记录一次提问请求的提供方、请求的联网状态及设置核验后的授权结果，均带 `requestId`。不采集搜索服务地址、任何 Key、搜索词、网页内容或问题正文。
+`web.search.config_saved / config_rejected` 记录保存结果、搜索服务类型和是否配置密钥；`web.search.permissions` 记录一次提问请求的提供方、请求的联网状态及设置核验后的授权结果，均带 `requestId`。不采集搜索服务地址、任何 Key、搜索词、网页内容或问题正文。
 
 ## PDF 显示渲染
 

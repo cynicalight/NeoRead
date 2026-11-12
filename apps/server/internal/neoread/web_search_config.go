@@ -8,11 +8,10 @@ import (
 // WebSearchConfig is independent of the model connection and is never sent to a
 // model or worker. Only Go uses its key to execute the selected search protocol.
 type WebSearchConfig struct {
-	CLIEnabled bool   `json:"cliEnabled"`
-	Provider   string `json:"provider"`
-	URL        string `json:"url"`
-	Key        string `json:"key,omitempty"`
-	HasKey     bool   `json:"hasKey"`
+	Provider string `json:"provider"`
+	URL      string `json:"url"`
+	Key      string `json:"key,omitempty"`
+	HasKey   bool   `json:"hasKey"`
 }
 
 const defaultSearchURL = "https://api.deepseek.com"

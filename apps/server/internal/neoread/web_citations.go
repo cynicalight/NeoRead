@@ -7,33 +7,10 @@ import (
 
 var nativeWebSourceID = regexp.MustCompile(`^turn[0-9]+(?:search|view|fetch)[0-9]+$`)
 
-// Native web ids are a different namespace from NeoRead's validated S citations.
-// Resolve only ids actually returned with a public URL; never guess by result order.
-func (c *chatInput) rememberNativeWebSource(id, url string) {
-	if !nativeWebSourceID.MatchString(id) {
-		return
-	}
-	url = displayWebURL(url)
-	if url == "" {
-		return
-	}
-	c.toolMu.Lock()
-	defer c.toolMu.Unlock()
-	if c.nativeWebRefs == nil {
-		c.nativeWebRefs = map[string]string{}
-	}
-	c.nativeWebRefs[id] = url
-}
 func (c *chatInput) normalizeWebCitations(text string) string {
 	if c == nil || !c.WebSearch {
 		return text
 	}
-	c.toolMu.Lock()
-	refs := map[string]string{}
-	for k, v := range c.nativeWebRefs {
-		refs[k] = v
-	}
-	c.toolMu.Unlock()
 	return documentCitationPattern.ReplaceAllStringFunc(text, func(marker string) string {
 		if !strings.HasSuffix(marker, "") {
 			return marker
@@ -51,11 +28,9 @@ func (c *chatInput) normalizeWebCitations(text string) string {
 			if !nativeWebSourceID.MatchString(source) {
 				return marker
 			}
-			if url := refs[source]; url != "" {
-				out = append(out, "[网页来源]("+strings.NewReplacer("(", "%28", ")", "%29").Replace(url)+")")
-			} else {
-				out = append(out, "〔网页引用未解析，见执行记录〕")
-			}
+			// Native search identifiers in historical or generated text have no
+			// URL in the Pi search results. Keep them out of the document ledger.
+			out = append(out, "〔网页引用未解析，见执行记录〕")
 		}
 		return strings.Join(out, "")
 	})

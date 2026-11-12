@@ -9,7 +9,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	if os.Getenv("NEOREAD_AGENT_MODE") == "corpus-worker" {
+	if os.Getenv("NEOREAD_CORPUS_TEST_CHILD") == "1" {
 		runMissingPageCorpusProcess()
 		os.Exit(0)
 	}
