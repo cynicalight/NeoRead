@@ -6,7 +6,7 @@
     <title>NeoRead — 本地优先的 EPUB / PDF 阅读器</title>
     <meta
       name="description"
-      content="NeoRead 是一个本地优先的 EPUB / PDF 阅读器：论文库与图书库、原文译文对照、批注与引用导出，以及通过你已登录的 Claude Code、Codex 或 Kimi CLI 调用的 AI 助读。"
+      content="NeoRead 是一个本地优先的 EPUB / PDF 阅读器：论文库与图书库、原文译文对照、批注与引用导出，以及通过内置 Pi 接入订阅账号和 API Key 的 AI 助读。"
     />
     <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)" />
@@ -120,8 +120,8 @@
         </svg>
         <div class="hero-copy wrap">
           <h1 class="reveal" data-en="Read deeper.<br /><em>Stay with the text.</em>">读得更深，<br /><em>始终回到原文。</em></h1>
-          <p class="hero-sub reveal" data-en="A local-first PDF / EPUB reader with a paper library and a book library. Papers read side by side with their translation, and highlights, search and AI help stay anchored to the source — documents stay on your machine, and AI runs through the Claude Code, Codex or Kimi CLI you already use.">
-            本地优先的 PDF / EPUB 阅读器，分论文库与图书库。论文可以原文译文逐段对照，批注、搜索与 AI 助读都锚定在原文——文档留在本机，AI 通过你已登录的 Claude Code、Codex 或 Kimi CLI 调用。
+          <p class="hero-sub reveal" data-en="A local-first PDF / EPUB reader with a paper library and a book library. Papers read side by side with their translation, and highlights, search and AI help stay anchored to the source — documents stay on your machine, and you can connect an AI account or API key in Settings.">
+            本地优先的 PDF / EPUB 阅读器，分论文库与图书库。论文可以原文译文逐段对照，批注、搜索与 AI 助读都锚定在原文——文档留在本机，可在设置中连接 AI 账号或填写 API Key。
           </p>
           <div class="hero-cta reveal">
             <a class="btn btn-primary" href="https://github.com/cynicalight/NeoRead/releases/latest" target="_blank" rel="noopener">
@@ -416,13 +416,12 @@
 
             <article class="card reveal">
               <h3 data-en="The AI account you already have">用你已有的 AI 账户</h3>
-              <p data-en="NeoRead detects locally installed CLIs and runs a real text and vision test. Pick separate models for chat and translation. No API key, no unofficial OAuth.">检测本机已安装的 CLI，用真实请求测试文本与识图能力；问答与翻译可分别选择模型。无需 API Key，不读取凭据文件。</p>
+              <p data-en="Connect ChatGPT, Claude, Kimi Code, or an API key in Settings. NeoRead checks text and image capabilities and lets you pick separate models for chat and translation.">在设置中连接 ChatGPT、Claude、Kimi Code 或 API Key。NeoRead 会检测文字与识图能力，问答与翻译可分别选择模型。</p>
               <div class="viz">
                 <div class="providers" id="providers">
-                  <div class="prov"><span class="brand-avatar brand-claude" style="--bg: #d97757"><svg><use href="#b-claude" /></svg></span><span class="name">Claude Code</span><span class="caps"><span class="cap"><i class="spin"></i><svg class="icon"><use href="#i-check" /></svg><span data-en="Text">文本</span></span><span class="cap"><i class="spin"></i><svg class="icon"><use href="#i-check" /></svg><span data-en="Vision">识图</span></span></span></div>
-                  <div class="prov"><span class="brand-avatar brand-openai" style="--bg: #000"><svg><use href="#b-openai" /></svg></span><span class="name">Codex</span><span class="caps"><span class="cap"><i class="spin"></i><svg class="icon"><use href="#i-check" /></svg><span data-en="Text">文本</span></span><span class="cap"><i class="spin"></i><svg class="icon"><use href="#i-check" /></svg><span data-en="Vision">识图</span></span></span></div>
+                  <div class="prov"><span class="brand-avatar brand-claude" style="--bg: #d97757"><svg><use href="#b-claude" /></svg></span><span class="name">Claude</span><span class="caps"><span class="cap"><i class="spin"></i><svg class="icon"><use href="#i-check" /></svg><span data-en="Text">文本</span></span><span class="cap"><i class="spin"></i><svg class="icon"><use href="#i-check" /></svg><span data-en="Vision">识图</span></span></span></div>
+                  <div class="prov"><span class="brand-avatar brand-openai" style="--bg: #000"><svg><use href="#b-openai" /></svg></span><span class="name">ChatGPT</span><span class="caps"><span class="cap"><i class="spin"></i><svg class="icon"><use href="#i-check" /></svg><span data-en="Text">文本</span></span><span class="cap"><i class="spin"></i><svg class="icon"><use href="#i-check" /></svg><span data-en="Vision">识图</span></span></span></div>
                   <div class="prov"><span class="brand-avatar brand-kimi" style="--bg: #000"><svg><use href="#b-kimi" /></svg></span><span class="name">Kimi Code</span><span class="caps"><span class="cap"><i class="spin"></i><svg class="icon"><use href="#i-check" /></svg><span data-en="Text">文本</span></span><span class="cap"><i class="spin"></i><svg class="icon"><use href="#i-check" /></svg><span data-en="Vision">识图</span></span></span></div>
-                  <div class="term">claude auth login</div>
                 </div>
               </div>
             </article>
@@ -513,7 +512,7 @@
             <ul class="list">
               <li><svg class="icon"><use href="#i-shield" /></svg><div><b data-en="Loopback only">只监听本机回环地址</b><span data-en="The Go service binds to a random 127.0.0.1 port with a per-launch token, and stops when the app closes.">Go 服务绑定 127.0.0.1 的随机端口，每次启动生成新令牌，应用关闭即停止。</span></div></li>
               <li><svg class="icon"><use href="#i-file" /></svg><div><b data-en="Untrusted documents, sanitized">文档内容按不可信处理</b><span data-en="EPUB imports check archive size and paths, and active content is removed before rendering.">EPUB 导入时检查压缩包大小与资源路径，并在渲染前移除活动内容。</span></div></li>
-              <li><svg class="icon"><use href="#i-terminal" /></svg><div><b data-en="You decide what AI sees">由你决定 AI 看到什么</b><span data-en="Questions send the selection, current chapter or page, and recent conversation; translation sends text and captions. Everything goes through the official CLI, from an empty temporary directory.">提问时只发送选区、当前章节或页面与近期对话，翻译时发送正文与图题；均经由官方 CLI，在临时空目录中运行。</span></div></li>
+              <li><svg class="icon"><use href="#i-terminal" /></svg><div><b data-en="You decide what AI sees">由你决定 AI 看到什么</b><span data-en="Questions send the selection, relevant passages, and recent conversation to the configured model provider. Translation sends text and captions.">提问时会把选区、相关原文和近期对话发送到已配置的模型服务。翻译时发送正文与图题。</span></div></li>
               <li><svg class="icon"><use href="#i-search" /></svg><div><b data-en="Lookups send identifiers only">在线补全只发编号</b><span data-en="Automatic paper lookup sends only the DOI or arXiv ID found in the file, and can be turned off in Settings.">自动补全论文信息只发送识别到的 DOI 或 arXiv 编号，可在设置中关闭。</span></div></li>
             </ul>
           </div>
@@ -524,7 +523,7 @@
             <div class="row">├── papers/         <span class="c" data-en="# original PDF files"># 原始 PDF</span></div>
             <div class="row">├── models/         <span class="c" data-en="# verified local layout model"># 经校验的本地版面模型</span></div>
             <div class="row">├── cache/          <span class="c" data-en="# EPUB resources, PDF analysis"># EPUB 资源、PDF 解析稿</span></div>
-            <div class="row">└── ai-work/        <span class="c" data-en="# temporary CLI dirs, removed after use"># 临时 CLI 目录，用完即删</span></div>
+            <div class="row">└── ai-work/        <span class="c" data-en="# temporary Pi worker directories"># Pi worker 临时目录</span></div>
             <div class="host"><i></i>127.0.0.1:<span id="port">49213</span> · token ••••••••</div>
           </div>
         </div>
@@ -549,11 +548,8 @@ pnpm desktop</div>
             </div>
             <div class="qs-card reveal">
               <span class="n">2</span>
-              <h3 data-en="Sign in to a CLI (optional)">登录一个 CLI（可选）</h3>
-              <p data-en="Reading, search and notes work without AI. For AI help, sign in with the official CLI.">阅读、搜索与笔记都不需要 AI。想用 AI 助读时，用官方 CLI 登录即可。</p>
-              <div class="code"><button class="icon-btn copy" type="button" aria-label="复制"><svg class="icon"><use href="#i-copy" /></svg></button>claude auth login
-<span class="c"># or</span>
-codex login</div>
+              <h3 data-en="Connect an AI account (optional)">连接 AI 账号（可选）</h3>
+              <p data-en="Reading, search and notes work without AI. For AI help, open Settings → Agent and sign in or enter an API key.">阅读、搜索与笔记都不需要 AI。使用 AI 助读时，在「设置 → Agent」登录账号或填写 API Key。</p>
             </div>
             <div class="qs-card reveal">
               <span class="n">3</span>
@@ -575,11 +571,11 @@ codex login</div>
           <div class="faq reveal">
             <details>
               <summary data-en="Do I need an API key?">需要填写 API Key 吗？</summary>
-              <p data-en="No. NeoRead calls the official Claude Code, Codex or Kimi CLI you have already signed in to. Permissions, quotas, models and billing follow that CLI account.">不需要。NeoRead 调用你已登录的官方 Claude Code、Codex 或 Kimi CLI；权限、额度、模型与计费都跟随该 CLI 账户。</p>
+              <p data-en="You can connect a supported subscription account or enter an API key. Permissions, model availability, and billing depend on the selected connection.">可以连接支持的订阅账号，也可以填写 API Key。权限、额度、模型和计费由所选连接决定。</p>
             </details>
             <details>
               <summary data-en="Are my documents uploaded?">我的文档会被上传吗？</summary>
-              <p data-en="Documents stay local. With a main agent enabled, the text and captions of imported PDFs are sent for translation and formula images are sent for conversion to LaTeX; figures and tables are not sent. Questions, explanations and summaries send the selection or current chapter / page and recent conversation through the CLI. Paper lookup sends only the DOI or arXiv ID.">文档本身留在本机。启用主 Agent 后，导入 PDF 的正文与图题会发送翻译，公式图片会发送转换为 LaTeX，图表和表格不会发送；提问、解释或总结时，选区或当前章节 / 页面以及近期对话会经由 CLI 发送。论文信息补全只发送 DOI 或 arXiv 编号。</p>
+              <p data-en="Documents stay local. With a main agent enabled, the text and captions of imported PDFs are sent for translation and formula images are sent for conversion to LaTeX; figures and tables are not sent. Questions, explanations and summaries send the selection, relevant passages, and recent conversation to the configured model provider. Paper lookup sends only the DOI or arXiv ID.">文档本身留在本机。启用主 Agent 后，导入 PDF 的正文与图题会发送翻译，公式图片会发送转换为 LaTeX，图表和表格不会发送；提问、解释或总结时，选区、相关原文和近期对话会发送到已配置的模型服务。论文信息补全只发送 DOI 或 arXiv 编号。</p>
             </details>
             <details>
               <summary data-en="How do the paper and book libraries differ?">论文库和图书库有什么区别？</summary>
