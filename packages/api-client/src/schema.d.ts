@@ -3346,6 +3346,11 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
+                        /**
+                         * @description Explicitly retranslate this finished book chapter, keeping old translations until replacements complete. Rejects pending or running chapter work.
+                         * @default false
+                         */
+                        retranslate?: boolean;
                         location: {
                             /** @enum {string} */
                             type: "epub";
@@ -3486,6 +3491,11 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
+                        /**
+                         * @description Explicitly retranslate this finished book chapter, keeping old translations until replacements complete. Rejects pending or running chapter work.
+                         * @default false
+                         */
+                        retranslate?: boolean;
                         fromPage: number;
                         toPage: number;
                     };

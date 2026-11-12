@@ -85,8 +85,9 @@ func (s *Server) requestTranslationRange(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req struct {
-		FromPage int `json:"fromPage"`
-		ToPage   int `json:"toPage"`
+		FromPage    int  `json:"fromPage"`
+		ToPage      int  `json:"toPage"`
+		Retranslate bool `json:"retranslate"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -117,6 +118,30 @@ func (s *Server) requestTranslationRange(w http.ResponseWriter, r *http.Request)
 			fail(w, 500, "无法读取译文")
 			return
 		}
+	}
+	if req.Retranslate {
+		if d.Library != "books" || known == nil || len(unparsedPages(known, req.FromPage, req.ToPage)) > 0 {
+			fail(w, 409, "请先完成本章解析和翻译")
+			return
+		}
+		chapter := m
+		chapter.Blocks = nil
+		for _, b := range m.Blocks {
+			if b.Page >= req.FromPage && b.Page <= req.ToPage {
+				chapter.Blocks = append(chapter.Blocks, b)
+			}
+		}
+		if err = s.prepareChapterRetranslation(d.ID, chapter); err != nil {
+			fail(w, 409, "无法开始本章重译，请等待当前翻译完成后重试")
+			return
+		}
+		result, err := s.queueTranslationInput(d, chapter)
+		if err != nil {
+			fail(w, 500, "无法安排翻译任务")
+			return
+		}
+		respond(w, 202, result)
+		return
 	}
 	start, end, ok := chapterWindow(known, items, req.FromPage, req.ToPage)
 	if !ok {

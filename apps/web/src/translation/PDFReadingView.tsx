@@ -1005,12 +1005,13 @@ export function PDFReadingView({
           status={chapterStatus}
           stale={chapterStale}
           title={bookChapter && chapterTitle(outline.current, bookChapter)}
-          onRequest={async () => {
+          onRequest={async (retranslate = false) => {
             if (!bookChapter) return;
             const result = await api.translateRange(
               doc.id,
               bookChapter.fromPage,
               bookChapter.toPage,
+              retranslate,
             );
             if (result.parsing) toast("正在解析本章，完成后开始翻译");
           }}

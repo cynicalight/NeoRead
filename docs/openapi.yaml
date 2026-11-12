@@ -3755,6 +3755,12 @@
                               "required": ["location"],
                               "properties":
                                 {
+                                  "retranslate":
+                                    {
+                                      "type": "boolean",
+                                      "default": false,
+                                      "description": "Explicitly retranslate this finished book chapter, keeping old translations until replacements complete. Rejects pending or running chapter work.",
+                                    },
                                   "location":
                                     {
                                       "type": "object",
@@ -3972,6 +3978,12 @@
                               "required": ["fromPage", "toPage"],
                               "properties":
                                 {
+                                  "retranslate":
+                                    {
+                                      "type": "boolean",
+                                      "default": false,
+                                      "description": "Explicitly retranslate this finished book chapter, keeping old translations until replacements complete. Rejects pending or running chapter work.",
+                                    },
                                   "fromPage":
                                     { "type": "integer", "minimum": 1 },
                                   "toPage": { "type": "integer", "minimum": 1 },
