@@ -124,60 +124,11 @@ func TestGenerationFallbackPolicy(t *testing.T) {
 		})
 	}
 }
-func TestAgentCancellationHandshake(t *testing.T) {
-	for _, p := range []string{"codex", "kimi"} {
-		for _, mode := range []string{"protocol-cancel", "ignore-cancel"} {
-			t.Run(p+"/"+mode, func(t *testing.T) {
-				ack := fakeAgent(t, p, mode)
-				s := testServer(t)
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
-				text := ""
-				start := time.Now()
-				_, err := invokeCLI(ctx, s.Store.Root, p, "", AIInput{Prompt: "test"}, func(part string) { text += part; cancel() })
-				if !errors.Is(err, context.Canceled) || text != "你好" {
-					t.Fatalf("text=%q err=%v", text, err)
-				}
-				if _, err := os.Stat(ack); err != nil {
-					t.Fatal("missing protocol cancel", err)
-				}
-				if time.Since(start) > 2*time.Second {
-					t.Fatal("cancel exceeded grace period")
-				}
-				entries, err := os.ReadDir(filepath.Join(s.Store.Root, "ai-work"))
-				if err != nil || len(entries) != 0 {
-					t.Fatal("work directory leak", err)
-				}
-			})
-		}
-	}
-}
-func TestAgentTerminalAndIdentity(t *testing.T) {
-	for _, tc := range []struct {
-		p, mode string
-		ok      bool
-	}{{"claude", "late", true}, {"claude", "exit-error", false}, {"kimi", "identity", true}, {"kimi", "version", false}} {
-		t.Run(tc.p+"/"+tc.mode, func(t *testing.T) {
-			fakeAgent(t, tc.p, tc.mode)
-			s := testServer(t)
-			var text string
-			result, err := invokeCLI(t.Context(), s.Store.Root, tc.p, "", AIInput{Prompt: "test"}, func(p string) { text += p })
-			if tc.ok {
-				if err != nil || text != "你好，世界" || result != text {
-					t.Fatal(result, text, err)
-				}
-			} else if err == nil {
-				t.Fatal("expected failure")
-			}
-		})
-	}
-}
-
 func TestChatSaveFailureAndWriteFailure(t *testing.T) {
 	for _, mode := range []string{"save", "write", "flush"} {
 		t.Run(mode, func(t *testing.T) {
-			fakeAgent(t, "claude", "success")
 			s, _ := imageFixture(t)
+			fakePiConnection(t, s, "claude", "")
 			if mode == "save" {
 				// SQLite trigger fails only assistant insertion; user record stays intact.
 				_, err := s.Store.DB.Exec(`CREATE TRIGGER reject_assistant BEFORE INSERT ON messages WHEN json_extract(NEW.body,'$.role')='assistant' BEGIN SELECT RAISE(FAIL,'test'); END`)
@@ -226,13 +177,8 @@ var _ http.ResponseWriter = (*brokenWriter)(nil)
 func TestHTTPDisconnectCancelsGeneration(t *testing.T) {
 	for _, provider := range []string{"codex", "claude", "kimi"} {
 		t.Run(provider, func(t *testing.T) {
-			fakeAgent(t, provider, "cancel")
 			s, _ := imageFixture(t)
-			c := AIConfig{Primary: provider, Models: map[string]string{}, Capabilities: map[string]Capability{}}
-			c.Capabilities[provider] = Capability{Text: true, Fingerprint: configPrint(c, provider)}
-			if err := s.writeAIConfig(c); err != nil {
-				t.Fatal(err)
-			}
+			fakePiConnection(t, s, provider, "cancel")
 			server := httptest.NewServer(s.Handler())
 			defer server.Close()
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -246,7 +192,7 @@ func TestHTTPDisconnectCancelsGeneration(t *testing.T) {
 			scan := bufio.NewScanner(res.Body)
 			saw := false
 			for scan.Scan() {
-				if scan.Text() == "event: delta" {
+				if scan.Text() == "event: draft" {
 					saw = true
 					break
 				}
@@ -285,8 +231,8 @@ func (w lostDoneWriter) Write(b []byte) (int, error) {
 	return w.ResponseRecorder.Write(b)
 }
 func TestDoneLossDoesNotRollbackSavedAnswer(t *testing.T) {
-	fakeAgent(t, "claude", "success")
 	s, _ := imageFixture(t)
+	fakePiConnection(t, s, "claude", "")
 	req := httptest.NewRequest("POST", "http://127.0.0.1:17840/api/documents/doc/chat", strings.NewReader(`{"provider":"claude","prompt":"test","context":""}`))
 	req.Header.Set("Authorization", "Bearer test-secret")
 	w := lostDoneWriter{httptest.NewRecorder()}

@@ -22,15 +22,16 @@ type modelCatalogEntry struct {
 	expires time.Time
 }
 
-// Reuse metadata already loaded by the picker. Never hold a lock while a CLI
-// starts; canceled callers should not block another conversation.
+// Reuse metadata already loaded by the picker for the same connection.
 func (s *Server) modelCatalog(ctx context.Context, provider string) ([]AgentModel, error) {
 	if provider == "api" {
 		return s.apiAgentModels(ctx, s.aiConfig())
 	}
-	return s.cachedCatalog(ctx, provider, func(ctx context.Context) ([]AgentModel, error) {
-		return discoverModels(ctx, s.Store.Root, provider)
-	})
+	c, ok := s.piAPIConnection(provider)
+	if !ok {
+		return nil, generationError(ErrorAuthentication, "请先连接模型服务")
+	}
+	return s.piModelCatalog(ctx, c, provider)
 }
 
 func (s *Server) cachedCatalog(ctx context.Context, key string, discover func(context.Context) ([]AgentModel, error)) ([]AgentModel, error) {
@@ -87,45 +88,4 @@ func (s *Server) cachedCatalog(ctx context.Context, key string, discover func(co
 	case <-pending.done:
 		return pending.models, pending.err
 	}
-}
-
-// NeoRead exposes exactly four levels. Provider-specific values remain inside
-// this adapter. Prefer the same semantic level; clamp to the closest supported
-// tier when a model has fewer controls. Ultra is a delegation mode, not Max.
-func nativeEffort(provider, level, modelID string, models []AgentModel) string {
-	var selected *AgentModel
-	for i := range models {
-		m := &models[i]
-		matches := m.ID == modelID || (modelID == "" && m.Default)
-		for _, alias := range m.Aliases {
-			matches = matches || alias == modelID
-		}
-		if matches {
-			selected = m
-			break
-		}
-	}
-	preferences := map[string][]string{
-		"low":    {"low", "minimal", "none", "off", "on", "medium", "high"},
-		"medium": {"medium", "on", "high", "low", "minimal"},
-		"high":   {"high", "xhigh", "max", "medium", "on", "low"},
-		"max":    {"max", "xhigh", "high", "medium", "on", "low"},
-	}
-	if selected == nil {
-		// Custom model IDs have no advertised capabilities. Use the SDK's common
-		// vocabulary and let it report an unsupported configuration explicitly.
-		if provider == "kimi" && level == "medium" {
-			return "high"
-		}
-		return level
-	}
-	for _, candidate := range preferences[level] {
-		for _, supported := range selected.SupportedEfforts {
-			if supported == candidate {
-				return candidate
-			}
-		}
-	}
-	// Models such as Haiku expose no reasoning control: omit the parameter.
-	return ""
 }

@@ -3,8 +3,6 @@ package neoread
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"time"
 	"unicode/utf8"
 )
@@ -12,7 +10,7 @@ import (
 const defaultDocumentContextTokens = 65536
 
 // A conservative estimate of consumed text, not billable usage. Window capacity
-// is obtained separately from provider metadata or effective Codex config.
+// is obtained separately from provider metadata.
 func estimateDocumentTokens(text string) int {
 	ascii, other := 0, 0
 	for _, r := range text {
@@ -64,17 +62,6 @@ func resolveDocumentContext(reported, override int, source string) (int, string)
 	}
 	return defaultDocumentContextTokens, "fallback_estimate"
 }
-func codexConfiguredWindow(raw []byte) int {
-	var v struct {
-		Config struct {
-			Window int `json:"model_context_window"`
-		} `json:"config"`
-	}
-	if json.Unmarshal(raw, &v) != nil {
-		return 0
-	}
-	return validContextWindow(v.Config.Window)
-}
 func (s *Server) overviewContextWindow(ctx context.Context) (int, string) {
 	config := s.aiConfig()
 	window, source := 0, ""
@@ -86,19 +73,11 @@ func (s *Server) overviewContextWindow(ctx context.Context) (int, string) {
 		if err == nil {
 			window, source = req.ContextWindow, "api_models"
 		}
-	case "codex":
-		work, err := os.MkdirTemp(filepath.Join(s.Store.Root, "ai-work"), "overview-config-")
-		if err == nil {
-			defer os.RemoveAll(work)
-			session, e := newCodexSession(work, config.Models["codex"])
-			if e == nil {
-				defer session.close()
-				if session.initializeControl(child) == nil {
-					raw, e := session.control(child, "config/read", map[string]any{"includeLayers": false, "cwd": work})
-					if e == nil {
-						window, source = codexConfiguredWindow(raw), "codex_config"
-					}
-				}
+	default:
+		if _, ok := config.piConnections[config.Primary]; ok {
+			adapter := piProviderAdapter{s, config.Primary, config, taskChat}
+			if _, req, err := adapter.resolve(child, false); err == nil {
+				window, source = req.ContextWindow, "pi_models"
 			}
 		}
 	}

@@ -1,3 +1,4 @@
+import { connectionRuntime, type PiConnection } from "./connections";
 import {
   createAgentSession,
   createExtensionRuntime,
@@ -31,9 +32,11 @@ export interface AgentRequest {
   prompt: string;
   mode?: "prompt" | "continue";
   durableCheckpoints?: boolean;
+  disableRetry?: boolean;
   system: string;
   model: Model<Api>;
   key: string;
+  connection?: PiConnection;
   payload?: Record<string, unknown>;
   endpoint?: string;
   effort: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -63,6 +66,8 @@ export class AgentRunError extends Error {
 }
 
 // 不把中断在工具执行过程中的状态当作可续接模型请求，避免重跑结果未知的工具。
+const retryableCheckpointError = "NeoRead 可重试的模型调用错误";
+
 function canContinueSession(manager: SessionManager): boolean {
   const messages = manager.buildSessionProjection().messages;
   const pending = new Set<string>();
@@ -84,7 +89,8 @@ function canContinueSession(manager: SessionManager): boolean {
       last.role === "custom" ||
       last.role === "toolResult" ||
       (last.role === "assistant" &&
-        isRetryableAssistantError(last) &&
+        (last.errorMessage === retryableCheckpointError ||
+          isRetryableAssistantError(last)) &&
         !isContextOverflow(last)))
   );
 }
@@ -148,14 +154,19 @@ export async function runAgent(
     )
   )
     throw new Error("不支持的模型协议");
-  const modelRuntime = await ModelRuntime.create({
-    credentials: new InMemoryCredentialStore(),
-    modelsStore: new InMemoryModelsStore(),
-    modelsPath: null,
-    refreshOnCreate: false,
-    allowModelNetwork: false,
-    signal,
-  });
+  const connected = input.connection
+    ? await connectionRuntime(input.connection, signal)
+    : undefined;
+  const modelRuntime =
+    connected?.runtime ??
+    (await ModelRuntime.create({
+      credentials: new InMemoryCredentialStore(),
+      modelsStore: new InMemoryModelsStore(),
+      modelsPath: null,
+      refreshOnCreate: false,
+      allowModelNetwork: false,
+      signal,
+    }));
   let checkpointBarrier = Promise.resolve();
   let checkpointFailure: Error | undefined;
   const native =
@@ -184,7 +195,7 @@ export async function runAgent(
     name: "NeoRead",
     baseUrl: model.baseUrl,
     models: [model],
-    auth: {
+    auth: connected?.provider.auth ?? {
       apiKey: {
         name: "NeoRead API",
         resolve: async () => ({
@@ -195,10 +206,19 @@ export async function runAgent(
     api,
   });
   modelRuntime.registerNativeProvider(provider);
-  await modelRuntime.setRuntimeApiKey(
-    model.provider,
-    input.key || "neoread-keyless",
-  );
+  if (!connected) {
+    await modelRuntime.setRuntimeApiKey(
+      model.provider,
+      input.key || "neoread-keyless",
+    );
+  } else if (
+    !(await modelRuntime.listCredentials({ signal })).some(
+      (credential) =>
+        credential.providerId === model.provider && credential.type === "oauth",
+    )
+  ) {
+    throw new Error("请先连接模型服务");
+  }
   const resourceLoader: ResourceLoader = {
     getExtensions: () => ({
       extensions: [],
@@ -252,7 +272,7 @@ export async function runAgent(
     thinkingLevel: input.effort,
     settingsManager: SettingsManager.inMemory({
       retry: {
-        enabled: true,
+        enabled: !input.disableRetry,
         maxRetries: 2,
         baseDelayMs: 500,
         maxAgentDelayMs: 2000,
@@ -274,17 +294,27 @@ export async function runAgent(
     const entries = JSON.parse(
       JSON.stringify([manager.getHeader(), ...manager.getEntries()]),
     ) as FileEntry[];
-    // 上游错误可能回显凭据；只清理 SDK 错误文案，不改会话 ID、正文或工具结果。
-    if (input.key)
-      for (const entry of entries)
-        if (
-          entry.type === "message" &&
-          entry.message.role === "assistant" &&
-          entry.message.errorMessage
-        )
-          entry.message.errorMessage = entry.message.errorMessage
-            .split(input.key)
-            .join("[redacted]");
+    // Provider errors can echo credentials. Persist only the retry decision for
+    // account connections; keep existing key redaction for custom API requests.
+    for (const entry of entries) {
+      if (
+        entry.type !== "message" ||
+        entry.message.role !== "assistant" ||
+        !entry.message.errorMessage
+      )
+        continue;
+      if (input.connection) {
+        entry.message.errorMessage =
+          isRetryableAssistantError(entry.message) &&
+          !isContextOverflow(entry.message)
+            ? retryableCheckpointError
+            : "NeoRead 模型调用失败";
+      } else if (input.key) {
+        entry.message.errorMessage = entry.message.errorMessage
+          .split(input.key)
+          .join("[redacted]");
+      }
+    }
     return entries;
   };
   const checkpoint = (

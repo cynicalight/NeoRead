@@ -75,21 +75,32 @@ func TestAnthropicDocumentRetrievalConversation(t *testing.T) {
 			t.Errorf("wrong protocol: %s", r.URL.Path)
 		}
 		var payload struct {
-			System   string
+			System   json.RawMessage
 			Messages []completionMessage
 			Tools    []any
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Error(err)
 		}
-		if len(payload.Tools) > 0 || payload.System == "" {
+		if len(payload.Tools) > 0 || len(payload.System) == 0 {
 			t.Error("invalid retrieval payload")
 		}
 		if !strings.Contains(jsonText(payload.Messages), "first-turn-marker") {
 			t.Error("lost conversation history")
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, anthropicTestWire("answer"))
+		for _, frame := range strings.Split(anthropicTestWire("answer"), "\n\n") {
+			if strings.HasPrefix(frame, "data: ") {
+				var event struct{ Type string }
+				if err := json.Unmarshal([]byte(strings.TrimPrefix(frame, "data: ")), &event); err != nil {
+					t.Error(err)
+				}
+				fmt.Fprintf(w, "event: %s\n", event.Type)
+			}
+			if frame != "" {
+				fmt.Fprintf(w, "%s\n\n", frame)
+			}
+		}
 	}))
 	defer upstream.Close()
 	configureDocumentAPI(t, s, upstream.URL)
@@ -113,8 +124,8 @@ func TestAnthropicDocumentRetrievalConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var state documentConversation
-	if err := json.Unmarshal([]byte(raw), &state); err != nil || len(state.Messages) != 5 {
-		t.Fatalf("conversation not persisted: %v %d", err, len(state.Messages))
+	if err := json.Unmarshal([]byte(raw), &state); err != nil || len(state.PiEntries) == 0 {
+		t.Fatalf("conversation not persisted: %v %d", err, len(state.PiEntries))
 	}
 }
 

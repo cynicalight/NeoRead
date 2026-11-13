@@ -215,11 +215,11 @@ describe("tour steps", () => {
     });
     expect(view?.click).toEqual(['[aria-label="切换侧栏"]']);
   });
-  it("offers only local CLI and API connection methods", () => {
+  it("offers built-in and custom API connection methods", () => {
     const { view } = at(1, inSettings);
     expect(view?.title).toBe("选择连接方式");
     expect(view?.options?.map((o) => [o.label, !!o.disabled])).toEqual([
-      ["本地 CLI Agent", false],
+      ["内置模型连接", false],
       ["API Key", false],
     ]);
   });
@@ -291,7 +291,7 @@ describe("tour steps", () => {
       { id: "claude", status: "ready" as const },
     ];
     const view = at(1, { ...local, agents }).view;
-    expect(view?.title).toBe("选择 Claude Code");
+    expect(view?.title).toBe("选择 Claude");
     expect(view?.click).toEqual(['[data-tour="agent-deck"][data-spread]']);
     expect(view?.focus).toEqual([
       '[data-tour="agent-deck"][data-spread] [data-tour="agent-card"][data-agent="claude"]',
@@ -307,10 +307,10 @@ describe("tour steps", () => {
       ...local,
       agents: [{ id: "codex", status: "failed" }],
     }).view;
-    expect(failed?.body).toContain("`codex login`");
-    expect(failed?.body).toContain("mac 终端 / windows powershell");
+    expect(failed?.body).toContain("完成连接");
+
     expect(at(1, { ...local, detecting: true }).view?.body).toContain(
-      "不是 Codex App",
+      "账号授权",
     );
     expect(failed?.click).toContain(
       '[data-slot="agent-deck"] [aria-label="刷新全部状态"]',

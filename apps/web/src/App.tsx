@@ -103,10 +103,12 @@ export function App() {
   const mode = libraryMode(libraryPreferences);
   const papers = mode === "papers";
   const documents = allDocuments.filter((d) => d.library === mode);
-  const pinnedBooks = (libraryPreferences.papers?.pinned || []).flatMap((key) => {
-    const doc = documents.find((d) => `doc:${d.id}` === key);
-    return doc ? [doc] : [];
-  });
+  const pinnedBooks = (libraryPreferences.papers?.pinned || []).flatMap(
+    (key) => {
+      const doc = documents.find((d) => `doc:${d.id}` === key);
+      return doc ? [doc] : [];
+    },
+  );
   const resolvedTheme = useResolvedTheme(theme);
   const { jobs, error: processingError } = useProcessing();
   useUpdateProgress();
@@ -958,14 +960,7 @@ export function App() {
           job={jobs.find((job) => job.documentId === usageDocument?.id)}
           onClose={() => setUsageDocument(null)}
         />
-        <Settings
-          open={settings}
-          onOpenChange={setSettings}
-          onOpenGuide={() => {
-            setSettings(false);
-            setGuide(true);
-          }}
-        />
+        <Settings open={settings} onOpenChange={setSettings} />
         <ImportPaperDialog
           open={importingPaper}
           onOpenChange={setImportingPaper}

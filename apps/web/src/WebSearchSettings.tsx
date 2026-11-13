@@ -1,13 +1,11 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { WebSearchConfig } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
-import { Switch } from "@neoread/ui/components/switch";
 import { Input } from "@neoread/ui/components/input";
 import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
 
 const defaultURL = "https://api.deepseek.com";
 const defaults: WebSearchConfig = {
-  cliEnabled: false,
   provider: "",
   url: defaultURL,
   hasKey: false,
@@ -27,9 +25,7 @@ export function WebSearchSettings({
   const id = useId();
   const saved = useRef(value ?? defaults);
   const queue = useRef(Promise.resolve());
-  const cliPending = useRef(0),
-    providerPending = useRef(0);
-  const [cliEnabled, setCLIEnabled] = useState(value?.cliEnabled ?? false);
+  const providerPending = useRef(0);
   const [provider, setProvider] = useState(value?.provider ?? "");
   const [url, setURL] = useState(value?.url || defaultURL);
   const [key, setKey] = useState("");
@@ -39,9 +35,6 @@ export function WebSearchSettings({
   useEffect(() => {
     saved.current = value ?? defaults;
   }, [value]);
-  useEffect(() => {
-    if (!cliPending.current) setCLIEnabled(value?.cliEnabled ?? false);
-  }, [value?.cliEnabled]);
   useEffect(() => {
     if (!providerPending.current) setProvider(value?.provider ?? "");
   }, [value?.provider]);
@@ -80,13 +73,6 @@ export function WebSearchSettings({
     queue.current = task.then(() => {});
     return task;
   };
-  const saveCLI = (checked: boolean) => {
-    setCLIEnabled(checked);
-    cliPending.current++;
-    void persist((latest) => ({ ...latest, cliEnabled: checked })).then(() => {
-      if (!--cliPending.current) setCLIEnabled(saved.current.cliEnabled);
-    });
-  };
   const saveProvider = (next: WebSearchConfig["provider"]) => {
     setProvider(next);
     providerPending.current++;
@@ -121,18 +107,6 @@ export function WebSearchSettings({
         联网搜索
       </h3>
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-4 text-sm">
-          <span id={`${id}-cli`}>允许 CLI 原生联网搜索</span>
-          <Switch
-            aria-labelledby={`${id}-cli`}
-            checked={cliEnabled}
-            disabled={disabled}
-            onCheckedChange={(checked) => saveCLI(checked === true)}
-          />
-        </div>
-        <p className="text-xs leading-5 text-muted-foreground">
-          目前支持 Codex，使用 CLI 自身的联网能力。
-        </p>
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2">
           <label id={`${id}-provider`} className="text-sm">
             搜索 API

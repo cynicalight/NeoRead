@@ -3,7 +3,6 @@ package neoread
 import (
 	"archive/zip"
 	"bytes"
-	"context"
 	"encoding/json"
 	"encoding/xml"
 	"io"
@@ -370,20 +369,6 @@ func TestLocationValidation(t *testing.T) {
 		t.Fatal("zero page")
 	}
 }
-func TestClaudeEventParsing(t *testing.T) {
-	part, done, bad := claudeEvent([]byte(`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"你好"}}}`))
-	if part != "你好" || done || bad {
-		t.Fatal(part, done, bad)
-	}
-	part, _, _ = claudeEvent([]byte(`{"type":"stream_event","parent_tool_use_id":"child","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"private"}}}`))
-	if part != "" {
-		t.Fatal("child message leaked")
-	}
-	_, done, bad = claudeEvent([]byte(`{"type":"result","subtype":"error_max_turns","is_error":true}`))
-	if !bad || done {
-		t.Fatal("failure ignored")
-	}
-}
 func TestStoreReopen(t *testing.T) {
 	root := t.TempDir()
 	s, e := OpenStore(root)
@@ -405,44 +390,6 @@ func TestStoreReopen(t *testing.T) {
 		t.Fatal(value, e)
 	}
 }
-func TestProviderMissing(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	if providerStatus(context.Background(), "codex").Installed {
-		t.Fatal("reported absent CLI as installed")
-	}
-}
-func TestChatWithFakeCLI(t *testing.T) {
-	s := testServer(t)
-	fakeAgent(t, "codex", "success")
-	capture := filepath.Join(t.TempDir(), "prompt.json")
-	t.Setenv("NEOREAD_AGENT_CAPTURE", capture)
-	w := upload(t, s, "paper.pdf", sample(t, "reading-notes.pdf"))
-	var d Document
-	json.Unmarshal(w.Body.Bytes(), &d)
-	w = request(t, s, "POST", "/api/documents/"+d.ID+"/chat", strings.NewReader(`{"provider":"codex","prompt":"Explain","context":"Some text"}`))
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "event: done") || !strings.Contains(w.Body.String(), "你好") || !strings.Contains(w.Body.String(), "，世界") {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	w = request(t, s, "GET", "/api/documents/"+d.ID+"/messages", nil)
-	var messages []Message
-	json.Unmarshal(w.Body.Bytes(), &messages)
-	if len(messages) != 2 {
-		t.Fatal(w.Body.String())
-	}
-	if messages[0].Context != "Some text" {
-		t.Fatal("source excerpts were not persisted")
-	}
-	w = request(t, s, "POST", "/api/documents/"+d.ID+"/chat", strings.NewReader(`{"provider":"codex","prompt":"Explain the previous excerpt","context":"A new page"}`))
-	if !strings.Contains(w.Body.String(), "event: done") {
-		t.Fatal(w.Body.String())
-	}
-	prompt, e := os.ReadFile(capture)
-	if e != nil || strings.Count(string(prompt), "Some text") != 1 || !strings.Contains(string(prompt), "Explain") || !strings.Contains(string(prompt), "A new page") {
-		t.Fatal("prior context missing from follow-up", e)
-	}
-
-}
-
 func TestEPUBDeclaredMediaTypeSanitized(t *testing.T) {
 	s := testServer(t)
 	original := sample(t, "the-art-of-reading.epub")

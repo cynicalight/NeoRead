@@ -5,37 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // Inspect instructions at the provider boundary, for text and image requests.
-func TestCLISystemPrompt(t *testing.T) {
-	for _, provider := range []string{"codex", "claude", "kimi"} {
-		for _, vision := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/image=%t", provider, vision), func(t *testing.T) {
-				fakeAgent(t, provider, "success")
-				s := testServer(t)
-				capture := filepath.Join(t.TempDir(), "system.txt")
-				t.Setenv("NEOREAD_SYSTEM_CAPTURE", capture)
-				in := AIInput{Prompt: "Explain the supplied formula."}
-				if vision {
-					in.Image = []byte{1}
-				}
-				if _, err := invokeCLI(t.Context(), s.Store.Root, provider, "", in, nil); err != nil {
-					t.Fatal(err)
-				}
-				data, err := os.ReadFile(capture)
-				if err != nil || !strings.Contains(string(data), readerSystemPrompt) {
-					t.Fatalf("shared system prompt missing: %v", err)
-				}
-			})
-		}
-	}
-}
-
 func TestAPISystemPrompt(t *testing.T) {
 	for _, vision := range []bool{false, true} {
 		t.Run(fmt.Sprintf("image=%t", vision), func(t *testing.T) {
