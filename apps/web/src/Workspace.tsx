@@ -1327,6 +1327,7 @@ export function Workspace({
                   onDeleteBookmark={removeAnnotation}
                   location={location}
                   go={move}
+                  visible={active && left && leftTab === "toc"}
                 />
               </TabsContent>
               <TabsContent
