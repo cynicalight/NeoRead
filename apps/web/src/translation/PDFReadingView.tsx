@@ -317,9 +317,9 @@ export function PDFReadingView({
   useEffect(() => {
     if (pane.current) return installTranslationSelectionHighlight(pane.current);
   }, [mode, doc.id]);
-  const translate = async (blockId = "") => {
+  const translate = async (blockId: string) => {
     try {
-      await api.translate(doc.id, blockId);
+      await api.translate(doc.id, blockId, true);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -1282,7 +1282,10 @@ export function PDFReadingView({
                     renderImage={blockImages?.url}
                     imageTheme={imageKey}
                     retry={() => void translate(block.id)}
-                    paused={processing?.enabled === false}
+                    paused={
+                      processing?.enabled === false ||
+                      processing?.status === "paused"
+                    }
                   />
                 );
                 const indicator = noteIndexes.length > 0 && (
@@ -1421,7 +1424,10 @@ export function PDFReadingView({
                 renderImage={blockImages?.url}
                 imageTheme={imageKey}
                 retry={() => void translate(popup.block.id)}
-                paused={processing?.enabled === false}
+                paused={
+                  processing?.enabled === false ||
+                  processing?.status === "paused"
+                }
               />
               <Button
                 variant="ghost"

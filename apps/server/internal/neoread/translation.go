@@ -139,7 +139,7 @@ ON previous.document_id=t.document_id AND previous.block_id=t.block_id AND previ
 		if value, ok := saved[t.BlockID+":"+t.SourceHash]; ok {
 			t = value
 		} else if mismatch {
-			t.Status, t.Error = "failed", "重新解析后匹配错误"
+			t.Status, t.Error = "failed", "重新解析后匹配错误，需要重新翻译"
 		} else if replaced || d.Library == "books" || d.Type == "epub" {
 			t.Status = "idle"
 		}
@@ -252,10 +252,17 @@ func (s *Server) requestTranslation(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		BlockID string `json:"blockId"`
+		Force   bool   `json:"force"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
+	if req.Force && strings.TrimSpace(req.BlockID) == "" {
+		fail(w, 400, "重新翻译需要指定段落")
+		return
+	}
+	s.processingControlMu.Lock()
+	defer s.processingControlMu.Unlock()
 	if req.BlockID == "" && (d.Library == "books" || d.Type == "epub") {
 		fail(w, 400, "图书请按章节翻译")
 		return
@@ -268,8 +275,31 @@ func (s *Server) requestTranslation(w http.ResponseWriter, r *http.Request) {
 	s.processingMu.Lock()
 	defer s.processingMu.Unlock()
 	p, err := s.Store.processing(d.ID)
-	if err != nil || !p.Enabled {
+	if err != nil || (!req.Force && !p.Enabled) {
 		fail(w, 409, "请先开始翻译")
+		return
+	}
+	if req.Force {
+		if p.Retranslating || s.blockedProcessing[d.ID] || p.Phase == "learning" {
+			fail(w, 409, "正文仍在解析中")
+			return
+		}
+		items, readErr := s.translations(d.ID, selectTranslationBlocks(m, []string{req.BlockID}))
+		if readErr != nil {
+			fail(w, 500, "无法读取译文")
+			return
+		}
+		if len(items) == 0 {
+			fail(w, 404, "没有可翻译的段落")
+			return
+		}
+		if err = s.queueTranslationBlock(p, items[0]); err != nil {
+			s.diagnosticEvent(slog.LevelError, "translation.block_queue_failed", "documentId", d.ID, "blockId", req.BlockID, "errorCode", ErrorSave)
+			fail(w, 500, "无法保存翻译任务")
+			return
+		}
+		s.diagnosticEvent(slog.LevelInfo, "translation.block_queued", "documentId", d.ID, "blockId", req.BlockID)
+		respond(w, 202, map[string]bool{"queued": true})
 		return
 	}
 	items, err := s.translations(d.ID, m)

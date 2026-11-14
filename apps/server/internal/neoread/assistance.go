@@ -84,6 +84,7 @@ func (s *Server) setAssistance(w http.ResponseWriter, r *http.Request) {
 	s.blockedProcessing[d.ID] = true
 	// Disable before joining, so neither serial queue can claim a new stage.
 	p.Enabled = false
+	p.TranslationBlocks = nil
 	p.Status = "paused"
 	if e = s.Store.saveProcessing(p); e != nil {
 		delete(s.blockedProcessing, d.ID)

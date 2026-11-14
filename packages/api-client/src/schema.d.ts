@@ -3362,6 +3362,7 @@ export interface paths {
             };
         };
         put?: never;
+        /** @description Queue unfinished translation units. With force=true, blockId is required and only that unit is explicitly retranslated, including completed or paused units; unrelated units and automatic translation policy remain unchanged. */
         post: {
             parameters: {
                 query?: never;
@@ -3375,11 +3376,16 @@ export interface paths {
                 content: {
                     "application/json": {
                         blockId?: string;
+                        /**
+                         * @description Explicitly retranslate only blockId. Requires a nonempty blockId.
+                         * @default false
+                         */
+                        force?: boolean;
                     };
                 };
             };
             responses: {
-                /** @description Translation queued; completed blocks are retained */
+                /** @description Translation queued; completed blocks are retained unless their blockId is explicitly forced */
                 202: {
                     headers: {
                         [name: string]: unknown;
@@ -5543,6 +5549,8 @@ export interface components {
             enabled?: boolean;
             readonly manualTranslation?: boolean;
             readonly retranslating?: boolean;
+            /** @description Explicitly requested paragraph IDs processed by the existing translation lane without resuming unrelated paused work. */
+            readonly translationBlocks?: string[];
             /** @description Changes when a reparse publishes new source; readers reload source and translations. */
             readonly layoutRevision?: string;
             readonly autoTranslateMaxPages?: number;

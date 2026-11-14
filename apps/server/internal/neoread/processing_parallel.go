@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 )
 
 // The translation lane owns its counters and state. Serialize read/merge/write in
@@ -21,6 +22,15 @@ func mergeProcessing(current, update Processing) Processing {
 		}
 		if update.Status == "complete" {
 			current.Retranslating = false
+			current.TranslationBlocks = slices.DeleteFunc(current.TranslationBlocks, func(blockID string) bool {
+				return slices.Contains(update.TranslationBlocks, blockID)
+			})
+			if len(update.TranslationBlocks) > 0 && update.Translating != nil {
+				current.Translating = update.Translating
+			}
+			if len(current.TranslationBlocks) > 0 {
+				current.Translating = &ProcessingStage{Status: "queued", Detail: "等待翻译指定段落"}
+			}
 		}
 	} else {
 		if stage := current.Translating; stage != nil {
@@ -43,7 +53,7 @@ func mergeProcessing(current, update Processing) Processing {
 }
 func aggregateProcessing(p *Processing) {
 	normalizeNoTextProcessing(p)
-	if !p.Enabled {
+	if !p.Enabled && len(p.TranslationBlocks) == 0 {
 		p.Status, p.Detail = "paused", "翻译已暂停"
 		return
 	}
@@ -70,12 +80,12 @@ func (s *Server) processTranslation(ctx context.Context, p *Processing) error {
 	work := *p
 	work.lane, work.Phase, work.Status = "translating", "translating", "running"
 	work.Warning = ""
-	var m translationInput
+	var m, source translationInput
 	runErr := s.Store.saveProcessing(work)
 	if runErr == nil && work.Retranslating {
 		runErr = s.refreshRetranslationLayout(ctx, &work)
 	}
-	if runErr == nil && !work.Enabled {
+	if runErr == nil && !work.Enabled && len(work.TranslationBlocks) == 0 {
 		latest, err := s.Store.processing(p.DocumentID)
 		if err == nil {
 			*p = latest
@@ -84,6 +94,10 @@ func (s *Server) processTranslation(ctx context.Context, p *Processing) error {
 	}
 	if runErr == nil {
 		m, runErr = s.readTranslationSource(work.DocumentID)
+		source = m
+		if runErr == nil && len(work.TranslationBlocks) > 0 {
+			m = selectTranslationBlocks(m, work.TranslationBlocks)
+		}
 	}
 	if runErr == nil {
 		if layout, ok := m.(layoutManifest); ok && work.Retranslating {
@@ -108,6 +122,29 @@ func (s *Server) processTranslation(ctx context.Context, p *Processing) error {
 					break
 				}
 			}
+		}
+	}
+	if work.Status == "complete" && len(work.TranslationBlocks) > 0 {
+		items, err := s.translations(work.DocumentID, source)
+		if err != nil {
+			runErr = err
+			work.Status, work.Detail = "failed", err.Error()
+		} else {
+			work.TranslationsDone, work.TranslationsTotal = 0, len(items)
+			stage := &ProcessingStage{Status: "complete", Detail: "已完成"}
+			for _, item := range items {
+				switch item.Status {
+				case "complete":
+					work.TranslationsDone++
+				case "failed":
+					stage.Status, stage.Detail = "failed", "部分段落翻译失败"
+				case "pending", "running":
+					if stage.Status != "failed" {
+						stage.Status, stage.Detail = "paused", "其余段落等待手动翻译"
+					}
+				}
+			}
+			work.Translating = stage
 		}
 	}
 	var saveErr error

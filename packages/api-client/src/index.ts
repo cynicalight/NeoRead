@@ -450,10 +450,10 @@ export const api = {
     }
     return response.blob();
   },
-  translate: (id: string, blockId = "") =>
+  translate: (id: string, blockId = "", force = false) =>
     request<{ queued: boolean }>(`/api/documents/${id}/translations`, {
       method: "POST",
-      body: JSON.stringify({ blockId }),
+      body: JSON.stringify({ blockId, force }),
     }),
   /** Queues the entire page range through the shared translation workers. */
   translateRange: (id: string, fromPage: number, toPage: number) =>

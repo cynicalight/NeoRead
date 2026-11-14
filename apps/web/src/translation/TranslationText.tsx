@@ -2,6 +2,7 @@ import { FormulaRow } from "./FormulaRow";
 import type { PDFBlock, TranslationBlock } from "@neoread/core";
 import { blockImageURL } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
+import { RotateCcw } from "lucide-react";
 import {
   lazy,
   Suspense,
@@ -214,7 +215,10 @@ function TranslationContent({
   block: DisplayBlock;
   translation?: TranslationBlock;
   documentId: string;
-  /** Requests this block; also used for blocks that were never requested. */
+  /**
+   * Explicitly requests this one block, replacing any finished translation;
+   * also offered for blocks that are idle or held by a paused job.
+   */
   retry: () => void;
   paused?: boolean;
   linked?: number[];
@@ -286,12 +290,15 @@ function TranslationContent({
                   重试公式
                 </Button>
               </>
-            ) : idle ? (
-              <Button variant="ghost" size="sm" onClick={retry}>
-                转换公式
-              </Button>
+            ) : idle || halted ? (
+              <>
+                {halted && <span>翻译已暂停</span>}
+                <Button variant="ghost" size="sm" onClick={retry}>
+                  转换公式
+                </Button>
+              </>
             ) : (
-              <span>{halted ? "翻译已暂停" : "公式转换中…"}</span>
+              <span>公式转换中…</span>
             )}
           </div>
         )}
@@ -312,24 +319,36 @@ function TranslationContent({
           />
         )
       ) : translation?.status === "complete" ? (
-        <div
-          className="translation-sentences"
-          data-translation-block={markTranslation ? block.id : undefined}
-        >
-          {translation.sentences.map((sentence, i) => (
-            <div
-              key={i}
-              className="translation-sentence"
-              data-sentence={i}
-              data-linked={linked.includes(i) || undefined}
-            >
-              <MessageMarkdown
-                content={sentence.target}
-                blockId={block.id}
-                onCitation={onCitation}
-              />
-            </div>
-          ))}
+        <div className="translation-complete">
+          <div
+            className="translation-sentences"
+            data-translation-block={markTranslation ? block.id : undefined}
+          >
+            {translation.sentences.map((sentence, i) => (
+              <div
+                key={i}
+                className="translation-sentence"
+                data-sentence={i}
+                data-linked={linked.includes(i) || undefined}
+              >
+                <MessageMarkdown
+                  content={sentence.target}
+                  blockId={block.id}
+                  onCitation={onCitation}
+                />
+              </div>
+            ))}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="translation-retranslate"
+            title="重新翻译此段"
+            aria-label="重新翻译此段"
+            onClick={retry}
+          >
+            <RotateCcw />
+          </Button>
         </div>
       ) : (
         <div className="translation-pending" role="status">
@@ -342,9 +361,9 @@ function TranslationContent({
                   ? "翻译已暂停"
                   : "正在翻译中…"}
           </span>
-          {(translation?.status === "failed" || idle) && (
+          {(translation?.status === "failed" || idle || halted) && (
             <Button variant="ghost" size="sm" onClick={retry}>
-              {idle ? "翻译此段" : "重试此段"}
+              {translation?.status === "failed" ? "重新翻译此段" : "翻译此段"}
             </Button>
           )}
         </div>

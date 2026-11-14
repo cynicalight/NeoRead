@@ -61,8 +61,8 @@ export function AssistanceControls({
     job?.phase === "learning" && !job.retranslating && !complete;
   const parsingPending = paperParsing && job.status !== "failed";
   const [action, label]: [Action, string] =
-    job?.enabled && job.status === "failed"
-      ? ["resume", "重试翻译"]
+    job?.enabled && (job.status === "failed" || job.status === "paused")
+      ? ["resume", job.status === "failed" ? "重试翻译" : "继续翻译"]
       : job?.enabled && !complete
         ? ["pause", "暂停翻译"]
         : !job?.enabled

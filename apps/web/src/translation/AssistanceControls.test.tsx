@@ -172,20 +172,27 @@ it("offers continuation when an interrupted retranslation still has readable old
   expect(host.querySelector('[aria-label="重新解析并翻译"]')).toBeNull();
 });
 
-it("a failed paper job offers a retry", async () => {
-  await render(1, { ...paused, enabled: true, status: "failed" });
-  expect(host.textContent).toContain("重试翻译");
-  vi.mocked(api.setAssistance).mockResolvedValue({
-    ...paused,
-    enabled: true,
-    status: "queued",
-    updatedAt: "2026-10-07T00:00:01Z",
-  });
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>("button")!.click(),
-  );
-  expect(api.setAssistance).toHaveBeenCalledWith("book", "resume");
-});
+it.each([
+  ["failed", "重试翻译"],
+  ["paused", "继续翻译"],
+] as const)(
+  "an enabled but inactive %s paper resumes only on request",
+  async (status, label) => {
+    await render(1, { ...paused, enabled: true, status });
+    expect(host.textContent).toContain(label);
+    expect(host.textContent).not.toContain("暂停翻译");
+    vi.mocked(api.setAssistance).mockResolvedValue({
+      ...paused,
+      enabled: true,
+      status: "queued",
+      updatedAt: "2026-10-07T00:00:01Z",
+    });
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    expect(api.setAssistance).toHaveBeenCalledWith("book", "resume");
+  },
+);
 
 it("offers manual translation after local parsing instead of resuming a translation", async () => {
   await render(1, {

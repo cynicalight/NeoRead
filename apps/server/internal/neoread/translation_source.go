@@ -1,6 +1,35 @@
 package neoread
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
+
+// Keep the concrete input so PDF formula conversion and EPUB anchors retain
+// their existing processing paths.
+func selectTranslationBlocks(input translationInput, ids []string) translationInput {
+	switch m := input.(type) {
+	case layoutManifest:
+		blocks := make([]PDFBlock, 0, len(ids))
+		for _, block := range m.Blocks {
+			if slices.Contains(ids, block.ID) {
+				blocks = append(blocks, block)
+			}
+		}
+		m.Blocks = blocks
+		return m
+	case epubTranslationDocument:
+		blocks := make(epubTranslationDocument, 0, len(ids))
+		for _, block := range m {
+			if slices.Contains(ids, block.ID) {
+				blocks = append(blocks, block)
+			}
+		}
+		return blocks
+	default:
+		panic("unsupported translation input")
+	}
+}
 
 // Translation operates on ordered text, independently of PDF geometry or EPUB DOM.
 type translationInput interface {

@@ -116,7 +116,8 @@ export function EPUBReadingView({
     doc.progress?.type === "epub" ? doc.progress : { type: "epub", href: "" },
   );
   const [source, setSource] = useState({ layoutRevision, document: doc });
-  if (source.document.id !== doc.id) setSource({ layoutRevision, document: doc });
+  if (source.document.id !== doc.id)
+    setSource({ layoutRevision, document: doc });
   else if (source.layoutRevision !== layoutRevision) {
     setSource({
       layoutRevision,
@@ -666,11 +667,11 @@ export function EPUBReadingView({
         void engine.current?.goTo(target).catch((e) => toast.error(e.message));
     });
   };
-  const retry = (id = "") => {
+  const retry = (id: string) => {
     const block = live.current.blocks.find((b) => b.id === id);
     if (block) pinAnchor(blockAnchor(block));
     void api
-      .translate(doc.id, id)
+      .translate(doc.id, id, true)
       .then(refreshChapter)
       .catch((e) => toast.error(e.message));
   };
@@ -865,7 +866,10 @@ export function EPUBReadingView({
                   block={block}
                   documentId={doc.id}
                   translation={translations.find((t) => t.blockId === id)}
-                  paused={processing?.enabled === false}
+                  paused={
+                    processing?.enabled === false ||
+                    processing?.status === "paused"
+                  }
                   retry={() => retry(id)}
                 />,
                 node,
@@ -1037,7 +1041,10 @@ export function EPUBReadingView({
                     translation={translations.find(
                       (t) => t.blockId === block.id,
                     )}
-                    paused={processing?.enabled === false}
+                    paused={
+                      processing?.enabled === false ||
+                      processing?.status === "paused"
+                    }
                     retry={() => retry(block.id)}
                   />
                 </section>

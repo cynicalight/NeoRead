@@ -19,7 +19,7 @@ func assertReparseMismatch(t *testing.T, s *Server, documentID, blockID, status 
 		if item.BlockID != blockID {
 			continue
 		}
-		if item.Status != status || (status == "failed" && item.Error != "重新解析后匹配错误") {
+		if item.Status != status || (status == "failed" && item.Error != "重新解析后匹配错误，需要重新翻译") {
 			t.Fatal("incorrect visible historical state", item)
 		}
 		return

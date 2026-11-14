@@ -1,7 +1,11 @@
 package neoread
 
 import (
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"slices"
 	"unicode/utf8"
 )
 
@@ -86,6 +90,66 @@ func (s *Server) queueTranslationInput(d Document, input translationInput) (tran
 		return result, err
 	}
 	return result, nil
+}
+
+// Callers hold processingMu. Snapshot and queue the replacement atomically so
+// readers and annotation reconciliation retain the last successful translation.
+func (s *Server) queueTranslationBlock(p Processing, item TranslationBlock) error {
+	active := p.Translating != nil && (p.Translating.Status == "running" || p.Translating.Status == "queued")
+	if active && (item.Status == "running" || item.Status == "pending") && (p.Enabled || slices.Contains(p.TranslationBlocks, item.BlockID)) {
+		return nil
+	}
+	s.translationMu.Lock()
+	defer s.translationMu.Unlock()
+	s.Store.processingWriteMu.Lock()
+	defer s.Store.processingWriteMu.Unlock()
+	tx, err := s.Store.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`INSERT INTO translation_previous(document_id,block_id,source_hash,body)
+SELECT document_id,block_id,source_hash,body FROM translations
+WHERE document_id=? AND block_id=? AND source_hash=? AND status='complete'
+ON CONFLICT(document_id,block_id,source_hash) DO UPDATE SET body=excluded.body`, p.DocumentID, item.BlockID, item.SourceHash); err != nil {
+		return err
+	}
+	visible := item
+	item.Status, item.Error, item.FormulaMarkdown = "pending", "", ""
+	item.Sentences = []TranslationSentence{}
+	if _, err = tx.Exec(`INSERT INTO translations(document_id,block_id,source_hash,status,body) VALUES(?,?,?,?,?)
+ON CONFLICT(document_id,block_id,source_hash) DO UPDATE SET status=excluded.status,body=excluded.body`, p.DocumentID, item.BlockID, item.SourceHash, item.Status, jsonText(item)); err != nil {
+		return err
+	}
+	if (!p.Enabled || len(p.TranslationBlocks) > 0 || !active) && !slices.Contains(p.TranslationBlocks, item.BlockID) {
+		p.TranslationBlocks = append(p.TranslationBlocks, item.BlockID)
+	}
+	if p.Translating == nil || p.Translating.Status != "running" {
+		p.Translating = &ProcessingStage{Status: "queued", Detail: "等待翻译指定段落"}
+	}
+	aggregateProcessing(&p)
+	p.UpdatedAt = now()
+	if _, err = tx.Exec("UPDATE document_processing SET phase=?,status=?,body=? WHERE document_id=?", p.Phase, p.Status, jsonText(p), p.DocumentID); err != nil {
+		return err
+	}
+	if visible.Status != "complete" {
+		var previous string
+		err = tx.QueryRow("SELECT body FROM translation_previous WHERE document_id=? AND block_id=? AND source_hash=?", p.DocumentID, item.BlockID, item.SourceHash).Scan(&previous)
+		if err == nil {
+			if err = json.Unmarshal([]byte(previous), &visible); err != nil {
+				return err
+			}
+		} else if errors.Is(err, sql.ErrNoRows) {
+			visible = item
+		} else {
+			return err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	s.publishTranslation(p.DocumentID, visible)
+	return nil
 }
 
 // Requesting a range is explicit consent, so it also resumes paused processing.

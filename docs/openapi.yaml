@@ -3744,6 +3744,7 @@
             },
           "post":
             {
+              "description": "Queue unfinished translation units. With force=true, blockId is required and only that unit is explicitly retranslated, including completed or paused units; unrelated units and automatic translation policy remain unchanged.",
               "parameters":
                 [
                   {
@@ -3763,7 +3764,16 @@
                           "schema":
                             {
                               "type": "object",
-                              "properties": { "blockId": { "type": "string" } },
+                              "properties":
+                                {
+                                  "blockId": { "type": "string" },
+                                  "force":
+                                    {
+                                      "type": "boolean",
+                                      "default": false,
+                                      "description": "Explicitly retranslate only blockId. Requires a nonempty blockId.",
+                                    },
+                                },
                             },
                         },
                     },
@@ -3772,7 +3782,7 @@
                 {
                   "202":
                     {
-                      "description": "Translation queued; completed blocks are retained",
+                      "description": "Translation queued; completed blocks are retained unless their blockId is explicitly forced",
                       "content":
                         {
                           "application/json":
@@ -6941,6 +6951,13 @@
                   "enabled": { "type": "boolean" },
                   "manualTranslation": { "type": "boolean", "readOnly": true },
                   "retranslating": { "type": "boolean", "readOnly": true },
+                  "translationBlocks":
+                    {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "readOnly": true,
+                      "description": "Explicitly requested paragraph IDs processed by the existing translation lane without resuming unrelated paused work.",
+                    },
                   "layoutRevision":
                     {
                       "type": "string",
