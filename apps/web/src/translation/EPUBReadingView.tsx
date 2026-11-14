@@ -226,7 +226,6 @@ export function EPUBReadingView({
     mode,
     events,
   );
-  const visible = reflow ? [] : blocks;
   // Each translated paragraph gets a node inside (or, for runs of a mixed
   // container, right after) its source block. Chapter reloads replace the
   // source DOM, so disconnected nodes are recreated on the next block change.
@@ -568,7 +567,7 @@ export function EPUBReadingView({
     const translated =
       live.current.reflow && live.current.mode === "source"
         ? undefined
-        : translatedSelection(host, range, visible, translations)?.selection;
+        : translatedSelection(host, range, blocks, translations)?.selection;
     // The native EPUB adapter already captured source-only selections, including
     // their pointer anchor and context. Only override translated/mixed ranges.
     if (!translated) return;
@@ -1007,83 +1006,86 @@ export function EPUBReadingView({
                   : "正在读取正文段落…"}
               </p>
             )}
-            {visible.map((block) => (
-              <section
-                key={block.id}
-                data-translation-block={block.id}
-                data-block-kind={block.image ? "image" : "text"}
-                data-label={block.label}
-                data-chapter={block.location.href}
-                data-hovered={hoveredBlock === block.id || undefined}
-                data-focused={focusedBlock === block.id || undefined}
-                aria-current={focusedBlock === block.id || undefined}
-                tabIndex={0}
-                onPointerDown={(event) => {
-                  cancelFocus();
-                  pressedBlock.current =
-                    event.button === 0
-                      ? { id: block.id, x: event.clientX, y: event.clientY }
-                      : undefined;
-                }}
-                onClick={(event) => {
-                  const pressed = pressedBlock.current;
-                  pressedBlock.current = undefined;
-                  if (
-                    (event.target as Element).closest(
-                      "a, button, input, textarea, select, [role=button], [contenteditable=true]",
-                    ) ||
-                    window.getSelection()?.toString().trim() ||
-                    (event.detail > 0 &&
-                      (!pressed ||
-                        pressed.id !== block.id ||
-                        Math.hypot(
-                          event.clientX - pressed.x,
-                          event.clientY - pressed.y,
-                        ) > 5))
-                  )
-                    return;
-                  if (theme.blockFocus !== false)
-                    deferredFocus.schedule(event.detail, () => {
-                      if (!window.getSelection()?.toString().trim())
-                        focusBlock(block.id, "translation");
-                    });
-                }}
-                onKeyDown={(event) => {
-                  if (
-                    event.target === event.currentTarget &&
-                    (event.key === "Enter" || event.key === " ")
-                  ) {
-                    event.preventDefault();
-                    focusBlock(block.id, "translation");
-                  }
-                }}
-                onPointerEnter={(event) => {
-                  if (!event.buttons && !dragging.current)
-                    hover("translation", block.id);
-                }}
-                onPointerMove={(event) => {
-                  if (!event.buttons && !dragging.current)
-                    hover("translation", block.id);
-                }}
-                onPointerLeave={() => hover("translation")}
-              >
-                <TranslationText
-                  block={block}
-                  imageURL={
-                    block.image
-                      ? publicationURL(doc.id, block.image)
-                      : undefined
-                  }
-                  documentId={doc.id}
-                  translation={translations.find((t) => t.blockId === block.id)}
-                  paused={
-                    processing?.enabled === false ||
-                    processing?.status === "paused"
-                  }
-                  retry={() => retry(block.id)}
-                />
-              </section>
-            ))}
+            {!reflow &&
+              blocks.map((block) => (
+                <section
+                  key={block.id}
+                  data-translation-block={block.id}
+                  data-block-kind={block.image ? "image" : "text"}
+                  data-label={block.label}
+                  data-chapter={block.location.href}
+                  data-hovered={hoveredBlock === block.id || undefined}
+                  data-focused={focusedBlock === block.id || undefined}
+                  aria-current={focusedBlock === block.id || undefined}
+                  tabIndex={0}
+                  onPointerDown={(event) => {
+                    cancelFocus();
+                    pressedBlock.current =
+                      event.button === 0
+                        ? { id: block.id, x: event.clientX, y: event.clientY }
+                        : undefined;
+                  }}
+                  onClick={(event) => {
+                    const pressed = pressedBlock.current;
+                    pressedBlock.current = undefined;
+                    if (
+                      (event.target as Element).closest(
+                        "a, button, input, textarea, select, [role=button], [contenteditable=true]",
+                      ) ||
+                      window.getSelection()?.toString().trim() ||
+                      (event.detail > 0 &&
+                        (!pressed ||
+                          pressed.id !== block.id ||
+                          Math.hypot(
+                            event.clientX - pressed.x,
+                            event.clientY - pressed.y,
+                          ) > 5))
+                    )
+                      return;
+                    if (theme.blockFocus !== false)
+                      deferredFocus.schedule(event.detail, () => {
+                        if (!window.getSelection()?.toString().trim())
+                          focusBlock(block.id, "translation");
+                      });
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      event.target === event.currentTarget &&
+                      (event.key === "Enter" || event.key === " ")
+                    ) {
+                      event.preventDefault();
+                      focusBlock(block.id, "translation");
+                    }
+                  }}
+                  onPointerEnter={(event) => {
+                    if (!event.buttons && !dragging.current)
+                      hover("translation", block.id);
+                  }}
+                  onPointerMove={(event) => {
+                    if (!event.buttons && !dragging.current)
+                      hover("translation", block.id);
+                  }}
+                  onPointerLeave={() => hover("translation")}
+                >
+                  <TranslationText
+                    block={block}
+                    imageURL={
+                      block.image
+                        ? publicationURL(doc.id, block.image)
+                        : undefined
+                    }
+                    documentId={doc.id}
+                    translation={translations.find(
+                      (t) => t.blockId === block.id,
+                    )}
+                    paused={
+                      processing?.enabled === false ||
+                      processing?.status === "paused"
+                    }
+                    retry={() => retry(block.id)}
+                  />
+                </section>
+              ))}
           </div>
         }
       />
