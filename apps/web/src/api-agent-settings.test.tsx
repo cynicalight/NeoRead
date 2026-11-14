@@ -32,6 +32,7 @@ vi.mock("@neoread/api", () => ({
       available: [],
     })),
     providers: vi.fn(),
+    agentQuota: vi.fn(async () => ({ error: "未读取" })),
     aiConfig: vi.fn(),
     saveAIConfig: vi.fn(),
     testAI: vi.fn(),

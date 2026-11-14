@@ -2899,6 +2899,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ai/quota": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Claude weekly quota or Codex app allowance availability */
+        get: {
+            parameters: {
+                query: {
+                    provider: "codex" | "claude";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Quota or an explicit unavailable reason */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            remaining?: number;
+                            /** Format: date-time */
+                            resetsAt?: string;
+                            error?: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ai/auth/{provider}": {
         parameters: {
             query?: never;

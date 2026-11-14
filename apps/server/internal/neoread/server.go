@@ -237,6 +237,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/documents/{id}/chat-usage", s.chatUsage)
 	mux.HandleFunc("GET /api/ai/config", s.getAIConfig)
 	mux.HandleFunc("GET /api/ai/models", s.agentModels)
+	mux.HandleFunc("GET /api/ai/quota", s.agentQuota)
 	mux.HandleFunc("PUT /api/ai/config", s.putAIConfig)
 	mux.HandleFunc("POST /api/ai/test/{provider}", s.testConnection)
 	mux.HandleFunc("POST /api/libraries/{library}/tags", s.changeLibraryLabels("tags"))

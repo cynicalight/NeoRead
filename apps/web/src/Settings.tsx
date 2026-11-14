@@ -1,5 +1,6 @@
 import { PiConnectionPanel } from "./PiConnectionPanel";
 import { loadModelCatalog } from "./model-catalog";
+import { useLocalQuota, type LocalQuota } from "./useLocalQuota";
 import { Switch } from "@neoread/ui/components/switch";
 import { PaperServiceSettings } from "./papers/PaperServiceSettings";
 import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
@@ -82,6 +83,35 @@ import { recentAgentCalls } from "./agentUsage";
 // Checks run automatically for this many API models; the rest on demand.
 const agentConnections = ["codex", "claude", "kimi", "api"];
 const autoAPIChecks = 12;
+const quotaDateTime = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+// Codex uses this app's authorization allowance; Claude uses its weekly window.
+const providerQuota = (
+  provider: "codex" | "claude",
+  quota?: LocalQuota,
+): DeckItem["quota"] => {
+  const remaining =
+    quota?.remaining === undefined ? undefined : Math.round(quota.remaining);
+  return {
+    label: provider === "codex" ? "本应用额度" : "周额度剩余",
+    value: !quota ? "…" : remaining === undefined ? "—" : `${remaining}%`,
+    percent: remaining,
+    hint:
+      quota &&
+      (quota.error ??
+        (remaining === undefined
+          ? "未返回额度"
+          : quota.resetsAt
+            ? `下次重置 ${quotaDateTime.format(new Date(quota.resetsAt))}`
+            : "下次重置时间未知")),
+  };
+};
 export function Settings({
   open,
   onOpenChange,
@@ -118,6 +148,8 @@ export function Settings({
       /* Storage may be unavailable. */
     }
   };
+  const [quotaNonce, setQuotaNonce] = useState(0);
+  const localQuota = useLocalQuota(open, quotaNonce);
   const [searchSaving, setSearchSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   // Whether a detection has finished since the dialog opened.
@@ -280,7 +312,9 @@ export function Settings({
         "此 API Key 不符合图片理解要求：拉取到的模型都没有通过图片理解检测。",
       );
   };
-  const refresh = async (force = false) => {
+  const refresh = async (force = false, fromQueue = false) => {
+    // A connection refresh hides old-account quotas even while checks queue.
+    if (force && !fromQueue) setQuotaNonce((n) => n + 1);
     if (refreshing.current) {
       if (force) refreshQueued.current = true;
       return;
@@ -362,7 +396,7 @@ export function Settings({
       setModelRefresh((n) => n + 1);
       if (refreshQueued.current) {
         refreshQueued.current = false;
-        void refresh(true);
+        void refresh(true, true);
       }
     }
   };
@@ -688,6 +722,10 @@ export function Settings({
             : !testing.has(name) &&
               providerReady(name, "text") &&
               providerReady(name, "vision"),
+        quota:
+          ready && (name === "codex" || name === "claude")
+            ? providerQuota(name, localQuota[name])
+            : undefined,
         tour: "agent-card",
         extra: (
           <Button

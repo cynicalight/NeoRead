@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@neoread/ui/components/button";
+import { Progress } from "@neoread/ui/components/progress";
 import { cn } from "@neoread/ui/lib/utils";
 import {
   Dialog,
@@ -38,6 +39,7 @@ export interface DeckItem {
   checks?: ReactNode;
   /** Every check passed: the row folds into one check after a pause. */
   passed?: boolean;
+  quota?: { label: string; value: string; percent?: number; hint?: string };
   /** `agent-card` for agents, read by the guided tour. */
   tour: "agent-card";
   /** A control placed beside the detail arrow in the open deck. */
@@ -92,6 +94,31 @@ function CardFace({ item, detail }: { item: DeckItem; detail?: ReactNode }) {
         <span className="ml-auto flex items-center text-xs text-muted-foreground">
           {item.sideStatus}
         </span>
+      )}
+      {item.quota && (
+        <div
+          className="flex min-w-0 flex-1 flex-col justify-center gap-2 px-3"
+          title={item.quota.hint}
+        >
+          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>{item.quota.label}</span>
+            <span className="text-sm font-medium text-foreground tabular-nums">
+              {item.quota.value}
+            </span>
+          </div>
+          {item.quota.percent !== undefined && (
+            <Progress
+              value={item.quota.percent}
+              aria-label={item.quota.label}
+              aria-valuetext={`${item.quota.percent}%`}
+            />
+          )}
+          {item.quota.hint && (
+            <span className="truncate text-[10px] text-muted-foreground">
+              {item.quota.hint}
+            </span>
+          )}
+        </div>
       )}
       <div
         className={cn(
