@@ -251,7 +251,7 @@ func (m *PaperMetadata) ApplyManual(patch map[string]json.RawMessage) error {
 	if short, ok := values["venueShort"]; ok && short.(string) != "" && venue == "" {
 		return errors.New("出处简称须有对应出处")
 	}
-	if _, ok := values["venue"]; ok {
+	if venue != m.Venue {
 		m.VenueShort = ""
 	}
 	for key, value := range values {

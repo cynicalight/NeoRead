@@ -252,6 +252,47 @@ func TestVenueShortManualValidationAndInvalidation(t *testing.T) {
 	}
 }
 
+func TestVenuePatchKeepsAbbreviationUnlessChanged(t *testing.T) {
+	for _, source := range []string{"lookup", "manual"} {
+		for _, tc := range []struct {
+			name, patch, venue, short string
+		}{
+			{"date only", `{"date":"2024"}`, "Old Venue", "OLD"},
+			{"same venue with date", `{"venue":"Old Venue","date":"2024"}`, "Old Venue", "OLD"},
+			{"normalized same venue", `{"venue":"  Old Venue  ","date":"2024"}`, "Old Venue", "OLD"},
+			{"clear abbreviation", `{"venue":"Old Venue","venueShort":"","date":"2024"}`, "Old Venue", ""},
+			{"edit abbreviation", `{"venueShort":"NEW","date":"2024"}`, "Old Venue", "NEW"},
+			{"change venue", `{"venue":"New Venue","date":"2024"}`, "New Venue", ""},
+			{"change both", `{"venue":"New Venue","venueShort":"NEW","date":"2024"}`, "New Venue", "NEW"},
+		} {
+			t.Run(source+"/"+tc.name, func(t *testing.T) {
+				s := testServer(t)
+				d := venueTestDocument(t, s, PaperMetadata{
+					Venue: "Old Venue", VenueShort: "OLD",
+					Sources: map[string]string{"venue": source, "venueShort": source},
+				})
+				w := request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"metadata":`+tc.patch+`}`))
+				var updated Document
+				if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &updated) != nil {
+					t.Fatal(w.Code, w.Body.String())
+				}
+				saved, err := s.Store.Document(d.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, got := range []Document{updated, saved} {
+					if got.Metadata.Venue != tc.venue || got.Metadata.VenueShort != tc.short || got.Metadata.Date != "2024" {
+						t.Fatalf("unexpected metadata after patch: %+v", got.Metadata)
+					}
+					if tc.short == "OLD" && got.Metadata.Sources["venueShort"] != source {
+						t.Fatalf("unchanged abbreviation lost its source: %+v", got.Metadata)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestVenueLookupReplacesManualValues(t *testing.T) {
 	for _, tc := range []struct {
 		name, venue, manual, source string
