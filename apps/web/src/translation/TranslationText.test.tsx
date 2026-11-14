@@ -208,6 +208,55 @@ it("retains the placeholder and exposes an independent retry after failure", asy
   await act(async () => host.querySelector("button")?.click());
   expect(retry).toHaveBeenCalledOnce();
 });
+it.each(["text", "display_formula"])(
+  "retains the previous %s result with a visible error and retry after replacement fails",
+  async (label) => {
+    const retry = vi.fn();
+    const previous: TranslationBlock = {
+      blockId: base.id,
+      sourceHash: "previous",
+      status: "failed",
+      sentences:
+        label === "text" ? [{ source: "Original", target: "旧译文" }] : [],
+      formulaMarkdown: label === "display_formula" ? "$$x=1$$" : undefined,
+      error: "重译失败",
+    };
+    await act(async () =>
+      root.render(
+        <TranslationText
+          block={{
+            ...base,
+            label,
+            image: label === "text" ? undefined : base.image,
+          }}
+          translation={previous}
+          documentId="doc"
+          retry={retry}
+        />,
+      ),
+    );
+    if (label === "text") {
+      expect(
+        host.querySelector(".translation-sentences")?.textContent,
+      ).toContain("旧译文");
+    } else {
+      expect(host.querySelector(".translation-formula .katex")).not.toBeNull();
+    }
+    expect(host.querySelector('[role="status"]')?.textContent).toContain(
+      "重译失败",
+    );
+    const button =
+      label === "text"
+        ? host.querySelector<HTMLButtonElement>('[aria-label="重新翻译此段"]')
+        : [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+            (item) => item.textContent === "重试公式",
+          );
+    expect(button).toBeTruthy();
+    await act(async () => button!.click());
+    expect(retry).toHaveBeenCalledOnce();
+  },
+);
+
 it("replaces a loaded layout crop with a display-sized render", async () => {
   vi.stubGlobal("devicePixelRatio", 2);
   const renderImage = vi.fn(async () => "blob:sharp");

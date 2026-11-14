@@ -110,7 +110,7 @@ it("uses chronological status ordering for variable timestamp precision", async 
     status: "complete",
     updatedAt: "2026-10-08T00:00:00.123Z",
   });
-  expect(host.textContent).toContain("翻译完成");
+  expect(host.querySelector('[aria-label="翻译完成"]')?.textContent).toBe("");
   expect(host.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
 });
 
@@ -124,7 +124,7 @@ it("keeps completion visible and requires confirmation before retranslation", as
     translationsTotal: 2,
   };
   await render(1, ready);
-  expect(host.textContent).toContain("翻译完成");
+  expect(host.querySelector('[aria-label="翻译完成"]')?.textContent).toBe("");
   const restart = () =>
     host.querySelector<HTMLButtonElement>('[aria-label="重新解析并翻译"]')!;
   await act(async () => restart().click());
@@ -146,7 +146,7 @@ it("keeps completion visible and requires confirmation before retranslation", as
   await act(async () => restart().click());
   vi.mocked(api.setAssistance).mockRejectedValueOnce(new Error("暂时无法开始"));
   await act(async () => dialogButton("开始重新解析并翻译").click());
-  expect(host.textContent).toContain("翻译完成");
+  expect(host.querySelector('[aria-label="翻译完成"]')?.textContent).toBe("");
   expect(toast.error).toHaveBeenCalledWith("暂时无法开始");
   expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
   vi.mocked(api.setAssistance).mockResolvedValueOnce({

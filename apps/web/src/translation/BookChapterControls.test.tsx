@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Processing } from "@neoread/core";
 import { api, type ChapterTranslationStatus } from "@neoread/api";
-import { BookChapterControls, completionLabelMs } from "./BookChapterControls";
+import { BookChapterControls } from "./BookChapterControls";
 import {
   chapterPhase,
   useChapterTranslation,
@@ -200,20 +200,32 @@ it("keeps a finished chapter finished and stale counts inert during a paragraph 
   expect(button().disabled).toBe(true);
 });
 
-it("names a completion seen in view for three seconds, then keeps only the check", async () => {
+it("keeps completion icon-only and confirms chapter retranslation", async () => {
   await render(counts({ running: 1, complete: 3 }));
   await render(counts({ complete: 3, failed: 1 }));
-  expect(host.textContent).toBe("翻译完成");
-  expect(button().getAttribute("aria-label")).toBe("翻译完成：第一章");
-  await act(async () => vi.advanceTimersByTime(completionLabelMs));
   expect(host.textContent).toBe("");
-  expect(button().querySelector("svg")).not.toBeNull();
+  expect(button().getAttribute("aria-label")).toBe("翻译完成：第一章");
+  const restart = host.querySelector<HTMLButtonElement>(
+    '[aria-label="重新翻译本章"]',
+  )!;
+  expect(restart.querySelector("svg")).not.toBeNull();
+  await act(async () => restart.click());
+  expect(onRequest).not.toHaveBeenCalled();
+  const confirm = [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[role="alertdialog"] button',
+    ),
+  ].find((b) => b.textContent === "开始重新翻译")!;
+  await act(async () => confirm.click());
+  expect(onRequest).toHaveBeenCalledWith(true);
+  expect(onChange).toHaveBeenCalled();
 });
 
-it("shows only the check when arriving at a finished chapter", async () => {
+it("shows both icons when arriving at a finished chapter", async () => {
   await render(counts({ key: "c1", idle: 4 }));
   await render(counts({ key: "c2", complete: 4 }), job, "第 3–9 页");
   expect(host.textContent).toBe("");
+  expect(host.querySelectorAll("button")).toHaveLength(2);
   expect(button().getAttribute("aria-label")).toBe("翻译完成：第 3–9 页");
   await act(async () => button().click());
   expect(onRequest).not.toHaveBeenCalled();

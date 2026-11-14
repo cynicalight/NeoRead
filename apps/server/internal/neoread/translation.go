@@ -77,7 +77,7 @@ func (s *Server) translationRecords(documentID string, m translationInput, visib
 	if projectHistory {
 		body := "t.body"
 		if visible {
-			body = "CASE WHEN t.status='failed' THEN t.body ELSE COALESCE(previous.body,t.body) END"
+			body = "CASE WHEN t.status='failed' AND previous.block_id IS NOT NULL THEN json_set(previous.body,'$.status','failed','$.error',json_extract(t.body,'$.error')) ELSE COALESCE(previous.body,t.body) END"
 		}
 		query = `SELECT body, translated, current FROM (
 SELECT ` + body + ` AS body, t.status='complete' OR previous.block_id IS NOT NULL AS translated, 1 AS current, t.block_id
@@ -221,11 +221,14 @@ func (s *Server) saveTranslation(documentID string, t TranslationBlock, source .
 	visible := t
 	if t.Status == "complete" {
 		_, err = tx.Exec("DELETE FROM translation_previous WHERE document_id=? AND block_id=? AND source_hash=?", documentID, t.BlockID, t.SourceHash)
-	} else if t.Status != "failed" {
+	} else {
 		var previous string
 		err = tx.QueryRow("SELECT body FROM translation_previous WHERE document_id=? AND block_id=? AND source_hash=?", documentID, t.BlockID, t.SourceHash).Scan(&previous)
 		if err == nil {
 			err = json.Unmarshal([]byte(previous), &visible)
+			if err == nil && t.Status == "failed" {
+				visible.Status, visible.Error = t.Status, t.Error
+			}
 		} else if errors.Is(err, sql.ErrNoRows) {
 			err = nil
 		}

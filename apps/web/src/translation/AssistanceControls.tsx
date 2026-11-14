@@ -87,9 +87,16 @@ export function AssistanceControls({
     <div className="assistance-controls">
       <Button
         variant="ghost"
-        size="sm"
+        size={finished ? "icon-sm" : "sm"}
+        aria-label={actionLabel}
         disabled={busy || !job || finished || parsingPending}
-        title={job?.enabled ? job.detail : "使用当前 AI 连接翻译全文与公式"}
+        title={
+          finished
+            ? "翻译完成"
+            : job?.enabled
+              ? job.detail
+              : "使用当前 AI 连接翻译全文与公式"
+        }
         onClick={async () => {
           const operation = ++serial.current;
           setBusy(true);
@@ -106,15 +113,15 @@ export function AssistanceControls({
         {parsingPending ? (
           <FileSearch />
         ) : finished ? (
-          <Check />
+          <Check aria-hidden="true" />
         ) : action === "pause" ? (
           <Pause />
         ) : action === "resume" && job?.status === "failed" ? (
-          <RotateCcw />
+          <RotateCcw aria-hidden="true" />
         ) : (
           <Languages />
         )}
-        {actionLabel}
+        {!finished && actionLabel}
       </Button>
       {finished && (
         <AlertDialog open={confirming} onOpenChange={setConfirming}>
@@ -129,7 +136,7 @@ export function AssistanceControls({
               />
             }
           >
-            <RotateCcw />
+            <RotateCcw aria-hidden="true" />
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
