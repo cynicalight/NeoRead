@@ -2910,7 +2910,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Connect a built-in Pi provider with account authorization. The NDJSON stream emits auth_url, device_code, manual_code, complete or error. */
+        /** @description Connect a built-in Pi provider with browser authorization or a device code. The NDJSON stream emits auth_url, device_code, progress (authorizing or exchanging), complete or error. Browser callbacks are handled by the SDK; complete confirms credentials were saved and activated. */
         post: {
             parameters: {
                 query?: never;
@@ -2976,58 +2976,6 @@ export interface paths {
                 };
             };
         };
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/ai/auth/{provider}/input": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description Submit a manual authorization code to a pending Pi login. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    provider: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": {
-                        runId: string;
-                        value: string;
-                    };
-                };
-            };
-            responses: {
-                /** @description Code accepted by pending login */
-                204: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Invalid or expired login attempt */
-                default: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;

@@ -839,18 +839,13 @@ export const api = {
     request<void>(`/api/ai/auth/${encodeURIComponent(provider)}`, {
       method: "DELETE",
     }),
-  submitPiLoginInput: (provider: string, runId: string, value: string) =>
-    request<void>(`/api/ai/auth/${encodeURIComponent(provider)}/input`, {
-      method: "POST",
-      body: JSON.stringify({ runId, value }),
-    }),
   connectPiProvider: async (
     provider: string,
     signal: AbortSignal,
     onEvent: (
       event:
         | { type: "auth_url" | "device_code"; url: string; code?: string }
-        | { type: "manual_code"; runId: string },
+        | { type: "progress"; phase: "authorizing" | "exchanging" },
     ) => void,
   ) => {
     const response = await diagnosticFetch(
@@ -891,8 +886,8 @@ export const api = {
           )
             onEvent(event);
           else if (
-            event.type === "manual_code" &&
-            typeof event.runId === "string"
+            event.type === "progress" &&
+            (event.phase === "authorizing" || event.phase === "exchanging")
           )
             onEvent(event);
           else if (event.type === "complete") complete = true;

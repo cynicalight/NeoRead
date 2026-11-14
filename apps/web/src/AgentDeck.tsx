@@ -77,16 +77,16 @@ function CardFace({ item, detail }: { item: DeckItem; detail?: ReactNode }) {
   const settled = useSettled(!!item.passed);
   return (
     <div className="pointer-events-none relative flex h-full gap-4">
-      <div className="flex min-w-0 max-w-[45%] shrink-0 flex-col justify-center gap-2">
+      <div className="flex min-w-0 max-w-[55%] shrink-0 flex-col justify-center">
         <span className="flex min-w-0 items-center gap-3">
           {item.icon}
           <span className="truncate text-lg font-semibold">{item.title}</span>
+          {item.subtitle && (
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {item.subtitle}
+            </span>
+          )}
         </span>
-        {item.subtitle && (
-          <span className="truncate text-xs text-muted-foreground">
-            {item.subtitle}
-          </span>
-        )}
       </div>
       {item.sideStatus && (
         <span className="ml-auto flex items-center text-xs text-muted-foreground">
@@ -698,7 +698,7 @@ export function AgentDeck({
                       data-slot="agent-select"
                       role="radio"
                       aria-checked={!!item.selected}
-                      aria-disabled={item.status !== "ready"}
+                      aria-disabled={item.status === "pending"}
                       aria-label={`使用 ${item.title}`}
                       tabIndex={d === 0 ? 0 : -1}
                       className="absolute inset-0 h-auto rounded-2xl p-0 hover:bg-transparent dark:hover:bg-transparent"
