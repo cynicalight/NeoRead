@@ -117,6 +117,12 @@ func TestKeenableSearchSettingsAreKeylessWithFixedAddress(t *testing.T) {
 	if mergeWebSearchConfig(switched, old) != nil || switched.Key != "" {
 		t.Fatal("switching to Keenable kept the DeepSeek key")
 	}
+	keyed := &WebSearchConfig{Provider: "keenable", URL: keenableSearchURL, Key: "keenable-secret"}
+	removed := &WebSearchConfig{Provider: "keenable", URL: keenableSearchURL}
+	if mergeWebSearchConfig(removed, keyed) != nil || removed.Key != "" ||
+		!webSearchEnabled(AIConfig{WebSearch: removed}, "api") {
+		t.Fatal("removing the optional Keenable key disabled search")
+	}
 	if c.WebSearch.Provider = ""; webSearchEnabled(c, "api") {
 		t.Fatal("disabled search API still authorized Keenable")
 	}

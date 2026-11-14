@@ -214,12 +214,16 @@ export function WebSearchSettings({
               size="sm"
               disabled={disabled}
               onClick={() => {
+                // Keenable works without a key, so removing its optional key
+                // keeps search on through the keyless endpoints.
+                const next = provider === "keenable" ? "keenable" : "";
                 setKey("");
-                setProvider("");
+                setProvider(next);
                 providerPending.current++;
                 void persist((latest) => ({
                   ...latest,
-                  provider: "",
+                  provider: next,
+                  url: providerURL(next, latest.url),
                   key: undefined,
                   hasKey: false,
                 })).then(() => {
