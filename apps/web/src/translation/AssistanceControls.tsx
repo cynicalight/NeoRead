@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, FileSearch, Pause, RotateCcw, Languages } from "lucide-react";
-import type { Processing } from "@neoread/core";
+import type { Document, Processing } from "@neoread/core";
 import { api } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
 import {
@@ -14,6 +14,7 @@ import {
   AlertDialogCancel,
 } from "@neoread/ui/components/alert-dialog";
 import { toast } from "sonner";
+import { trackReparsePublication } from "../reparse-and-translate-document";
 
 type Action = "start" | "pause" | "resume";
 
@@ -22,12 +23,13 @@ type Action = "start" | "pause" | "resume";
  * BookChapterControls, bound to the current chapter.
  */
 export function AssistanceControls({
-  documentId,
+  document: doc,
   processing,
 }: {
-  documentId: string;
+  document: Document;
   processing?: Processing;
 }) {
+  const documentId = doc.id;
   const [saved, setSaved] = useState<Processing>();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -122,8 +124,8 @@ export function AssistanceControls({
                 variant="ghost"
                 size="icon-sm"
                 disabled={busy}
-                title="重新翻译"
-                aria-label="重新翻译"
+                title="重新解析并翻译"
+                aria-label="重新解析并翻译"
               />
             }
           >
@@ -131,10 +133,10 @@ export function AssistanceControls({
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>重新翻译全文？</AlertDialogTitle>
+              <AlertDialogTitle>重新解析并翻译全文？</AlertDialogTitle>
               <AlertDialogDescription>
-                将重新解析全文版面，并使用当前 Agent
-                翻译模型和已保存的翻译提示词重新翻译。解析成功前保留现有内容；仍能对应原文的旧译文会在新结果完成后逐段替换。
+                将在后台重新解析全文版面，再使用当前 Agent
+                翻译模型和已保存的翻译提示词翻译新版的所有段落，包括未变化的段落。解析成功前保留现有内容；仍能对应原文的旧译文会在新结果完成后逐段替换。
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -150,8 +152,10 @@ export function AssistanceControls({
                       "retranslate",
                     );
                     if (operation === serial.current) {
+                      trackReparsePublication(doc, next);
                       setConfirming(false);
                       setSaved(next);
+                      toast.success("已开始重新解析并翻译全文");
                     }
                   } catch (e) {
                     if (operation === serial.current)
@@ -161,7 +165,7 @@ export function AssistanceControls({
                   }
                 }}
               >
-                {busy ? "正在开始…" : "开始重新翻译"}
+                {busy ? "正在开始…" : "开始重新解析并翻译"}
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

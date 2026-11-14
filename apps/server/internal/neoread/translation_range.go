@@ -47,7 +47,19 @@ func (s *Server) queueTranslationInput(d Document, input translationInput) (tran
 	pending := false
 	for _, t := range items {
 		pending = pending || t.Status == "pending" || t.Status == "running"
-		if t.Status != "idle" && t.Status != "failed" {
+		if t.Status == "pending" {
+			inserted, err := s.Store.DB.Exec(`INSERT OR IGNORE INTO translations(document_id,block_id,source_hash,status,body) VALUES(?,?,?,?,?)`, d.ID, t.BlockID, t.SourceHash, t.Status, jsonText(t))
+			if err != nil {
+				return result, err
+			}
+			count, err := inserted.RowsAffected()
+			if err != nil {
+				return result, err
+			}
+			if count == 0 {
+				continue
+			}
+		} else if t.Status != "idle" && t.Status != "failed" {
 			continue
 		}
 		cost, ok := costs[t.BlockID]

@@ -53,6 +53,12 @@ func (s *Store) prepareManualEPUBProcessing() error {
 			if p.EPUBManual {
 				continue
 			}
+			if p.Retranslating {
+				if _, err = tx.Exec("UPDATE document_processing SET body=json_set(body,'$.epubManual',json('true')) WHERE document_id=?", id); err != nil {
+					return err
+				}
+				continue
+			}
 			p.EPUBManual = true
 			p.Enabled, p.Status, p.Detail = false, "paused", "旧任务已暂停，请按章节翻译"
 			p.Phase, p.Translating = "translating", &ProcessingStage{Status: "complete", Detail: "请按章节翻译"}

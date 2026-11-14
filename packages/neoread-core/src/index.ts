@@ -706,6 +706,7 @@ export interface ProcessingStage {
 }
 export interface Processing {
   retranslating?: boolean;
+  /** Changes when a reparse publishes new source; readers reload source and translations. */
   layoutRevision?: string;
   autoTranslateMaxPages?: number;
   manualTranslation?: boolean;

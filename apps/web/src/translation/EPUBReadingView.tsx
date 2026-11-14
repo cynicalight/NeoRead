@@ -88,10 +88,12 @@ export function EPUBReadingView({
   const [chapter, setChapter] = useState(
     doc.progress?.type === "epub" ? doc.progress.href.split("#")[0] : "",
   );
+  const layoutRevision = processing?.layoutRevision;
   const { translations, error: streamError } = useTranslations(
     doc.id,
     [...new Set(blocks.map((b) => b.location.href))],
     active,
+    layoutRevision,
   );
   const root = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLDivElement>(null);
@@ -113,6 +115,17 @@ export function EPUBReadingView({
   const position = useRef<EPUBLocation>(
     doc.progress?.type === "epub" ? doc.progress : { type: "epub", href: "" },
   );
+  const [source, setSource] = useState({ layoutRevision, document: doc });
+  if (source.document.id !== doc.id) setSource({ layoutRevision, document: doc });
+  else if (source.layoutRevision !== layoutRevision) {
+    setSource({
+      layoutRevision,
+      document: position.current.href
+        ? { ...doc, progress: position.current }
+        : doc,
+    });
+    setBlocks([]);
+  }
   const side = useRef<"source" | "translation">("source");
   // The paragraph whose chapter the toolbar describes. A click, selection,
   // jump or paragraph request pins it; afterwards scrolling moves it to the
@@ -686,8 +699,9 @@ export function EPUBReadingView({
   );
   const sourceView = (
     <ReaderView
+      key={source.layoutRevision}
       active={active}
-      document={doc}
+      document={source.document}
       theme={theme}
       annotations={annotations}
       onReady={(adapter, toc) => {

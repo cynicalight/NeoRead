@@ -81,9 +81,10 @@ func TestReparseEPUBRestoresOldCacheAnchorWithoutReplacingDocument(t *testing.T)
 		t.Fatal("old cache did not reproduce the missing anchor", err)
 	}
 	response = request(t, s, "POST", "/api/documents/"+d.ID+"/reparse", nil)
-	if response.Code != 200 {
+	if response.Code != 202 {
 		t.Fatalf("reparse: %d %s", response.Code, response.Body.String())
 	}
+	finishQueuedReparse(t, s, d.ID)
 	html, _, err = s.readerChapter(d.ID, "EPUB/chapter1.xhtml")
 	if err != nil || !strings.Contains(html, `id="toc-anchor"`) {
 		t.Fatal("reparse did not restore the TOC anchor", err)
@@ -115,8 +116,12 @@ func TestFailedReparsePreservesOldEPUBCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	response = request(t, s, "POST", "/api/documents/"+d.ID+"/reparse", nil)
-	if response.Code != 500 {
+	if response.Code != 202 {
 		t.Fatalf("expected failure: %d %s", response.Code, response.Body.String())
+	}
+	p, _ := s.Store.processing(d.ID)
+	if err := s.processTranslation(t.Context(), &p); err == nil || p.Status != "failed" {
+		t.Fatal("parse failure was not persisted", p, err)
 	}
 	after, err := os.ReadFile(manifest)
 	if err != nil || !bytes.Equal(before, after) {
@@ -136,9 +141,10 @@ func TestReparseRebuildsMissingEPUBCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	response = request(t, s, "POST", "/api/documents/"+d.ID+"/reparse", nil)
-	if response.Code != 200 {
+	if response.Code != 202 {
 		t.Fatalf("reparse: %d %s", response.Code, response.Body.String())
 	}
+	finishQueuedReparse(t, s, d.ID)
 	if _, err := s.readerManifest(d.ID); err != nil {
 		t.Fatal("cache was not rebuilt", err)
 	}
@@ -178,9 +184,10 @@ func TestReparsePDFPublishesNewLayoutAndKeepsTranslations(t *testing.T) {
 			fresh.Blocks[0].Text = "Newly parsed text."
 			calls := reparseFixture(t, fresh)
 			response := request(t, s, "POST", "/api/documents/doc/reparse", nil)
-			if response.Code != 200 {
+			if response.Code != 202 {
 				t.Fatalf("reparse: %d %s", response.Code, response.Body.String())
 			}
+			finishQueuedReparse(t, s, "doc")
 			parsed, err := s.readLayout("doc")
 			if err != nil || parsed.Blocks[0].Text != "Newly parsed text." {
 				t.Fatal("new layout not published", err)
@@ -189,7 +196,7 @@ func TestReparsePDFPublishesNewLayoutAndKeepsTranslations(t *testing.T) {
 				t.Fatal("expected one full parse", err, string(data))
 			}
 			var count int
-			if err = s.Store.DB.QueryRow("SELECT count(*) FROM translations WHERE document_id='doc'").Scan(&count); err != nil || count != 2 {
+			if err = s.Store.DB.QueryRow("SELECT count(*) FROM translations WHERE document_id='doc'").Scan(&count); err != nil || count != 3 {
 				t.Fatal("translations were deleted", count, err)
 			}
 			if library == "books" {
@@ -208,8 +215,12 @@ func TestFailedPDFReparseKeepsPublishedLayout(t *testing.T) {
 	reparseFixture(t, old)
 	t.Setenv("NEOREAD_REPARSE_TEST_CHILD", "fail")
 	response := request(t, s, "POST", "/api/documents/doc/reparse", nil)
-	if response.Code != 500 {
+	if response.Code != 202 {
 		t.Fatalf("expected parse failure: %d %s", response.Code, response.Body.String())
+	}
+	p, _ := s.Store.processing("doc")
+	if err := s.processTranslation(t.Context(), &p); err == nil || p.Status != "failed" {
+		t.Fatal("parse failure was not persisted", p, err)
 	}
 	parsed, err := s.readLayout("doc")
 	if err != nil || parsed.Blocks[0].Text != old.Blocks[0].Text {
@@ -286,13 +297,39 @@ func TestReparseEPUBRefreshesCoverFromChangedOriginal(t *testing.T) {
 				t.Fatal("fixture did not retain the old cover cache")
 			}
 			response = request(t, s, "POST", "/api/documents/"+d.ID+"/reparse", nil)
-			if response.Code != 200 {
+			if response.Code != 202 {
 				t.Fatal(response.Code, response.Body.String())
 			}
+			finishQueuedReparse(t, s, d.ID)
 			after := request(t, s, "GET", coverURL, nil)
 			if after.Code != 200 || !bytes.Equal(after.Body.Bytes(), pngData.Bytes()) {
 				t.Fatal("reparse did not serve the new cover", after.Code)
 			}
 		})
+	}
+}
+
+func finishQueuedReparse(t *testing.T, s *Server, documentID string) {
+	t.Helper()
+	p, err := s.Store.processing(documentID)
+	if err != nil || !p.Retranslating || p.Status != "queued" {
+		t.Fatal("reparse did not persist a restart", p, err)
+	}
+	if err = s.refreshRetranslationLayout(t.Context(), &p); err != nil {
+		t.Fatal(err)
+	}
+	input, err := s.readTranslationSource(documentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.translations(documentID, input)
+	if err != nil || len(items) == 0 {
+		t.Fatal("no persisted translation work", err)
+	}
+	for _, item := range items {
+		var status string
+		if err = s.Store.DB.QueryRow("SELECT status FROM translations WHERE document_id=? AND block_id=? AND source_hash=?", documentID, item.BlockID, item.SourceHash).Scan(&status); err != nil || status != "pending" {
+			t.Fatal("new unit not queued", item, status, err)
+		}
 	}
 }

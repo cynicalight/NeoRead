@@ -17,6 +17,7 @@ func mergeProcessing(current, update Processing) Processing {
 		current.TranslationsDone, current.TranslationsTotal = update.TranslationsDone, update.TranslationsTotal
 		if update.LayoutRevision != "" {
 			current.LayoutRevision = update.LayoutRevision
+			current.PagesDone, current.PagesTotal = update.PagesDone, update.PagesTotal
 		}
 		if update.Status == "complete" {
 			current.Retranslating = false
@@ -60,12 +61,6 @@ func aggregateProcessing(p *Processing) {
 // Translation starts after the PDF manifest is published, or directly for EPUB,
 // under one document lifetime.
 func (s *Server) processTranslation(ctx context.Context, p *Processing) error {
-	m, err := s.readTranslationSource(p.DocumentID)
-	if err != nil {
-		p.Translating = &ProcessingStage{Status: "failed", Detail: err.Error()}
-		aggregateProcessing(p)
-		return errors.Join(err, s.Store.saveProcessing(*p))
-	}
 	if stage := p.Translating; stage != nil && stage.Status != "queued" && stage.Status != "running" {
 		if stage.Status == "failed" {
 			return errors.New(stage.Detail)
@@ -75,14 +70,18 @@ func (s *Server) processTranslation(ctx context.Context, p *Processing) error {
 	work := *p
 	work.lane, work.Phase, work.Status = "translating", "translating", "running"
 	work.Warning = ""
+	var m translationInput
 	runErr := s.Store.saveProcessing(work)
 	if runErr == nil && work.Retranslating {
 		runErr = s.refreshRetranslationLayout(ctx, &work)
-		if runErr == nil {
-			m, runErr = s.readTranslationSource(work.DocumentID)
-		}
 	}
 	if runErr == nil {
+		m, runErr = s.readTranslationSource(work.DocumentID)
+	}
+	if runErr == nil {
+		if layout, ok := m.(layoutManifest); ok && work.Retranslating {
+			work.PagesDone, work.PagesTotal = layout.Pages, layout.Pages
+		}
 		runErr = s.translateContent(ctx, &work, m)
 	}
 	if ctx.Err() != nil {

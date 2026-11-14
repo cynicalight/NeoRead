@@ -466,8 +466,7 @@ func (s *Server) StartProcessing(parent context.Context) func() {
 				}
 				work, finish, startErr := s.beginDocumentTask(workContext, p.DocumentID)
 				if startErr != nil {
-					// An exclusive reparse may begin between selecting this job and
-					// registering its task. Leave it runnable for the next poll.
+					// Leave a task that could not register runnable for the next poll.
 					p.Status = "queued"
 					p.Detail = "等待继续处理"
 					_ = s.Store.saveProcessing(p)

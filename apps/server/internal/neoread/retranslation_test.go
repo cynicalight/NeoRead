@@ -74,7 +74,7 @@ func TestRetranslationPreservesTextFormulasAndSnapshotAcrossRestart(t *testing.T
 	}
 	assertVisibleOldTranslation(t, s)
 	items, _ := s.translations("doc", m)
-	if items[0].Status != "pending" || items[2].Status != "complete" || items[2].FormulaMarkdown != "$$x$$" {
+	if items[0].Status != "complete" || items[2].Status != "complete" || items[2].FormulaMarkdown != "$$x$$" {
 		t.Fatal(items)
 	}
 	if out := request(t, s, "POST", "/api/documents/doc/assistance", strings.NewReader(`{"action":"retranslate"}`)); out.Code != 409 {
@@ -112,7 +112,12 @@ func TestRetranslationWaitsForProviderCompletionAndRetainsFailedOutput(t *testin
 	for _, outcome := range []string{"success", "failure", "cancel"} {
 		t.Run(outcome, func(t *testing.T) {
 			s, _, m := completedTranslationFixture(t)
-			assistanceRequest(t, s, "retranslate")
+			prepareReparseDocument(t, s)
+			reparseFixture(t, m)
+			p := assistanceRequest(t, s, "retranslate")
+			if err := s.refreshRetranslationLayout(t.Context(), &p); err != nil {
+				t.Fatal(err)
+			}
 			doc, _ := s.Store.Document("doc")
 			items, _ := s.translations("doc", m)
 			batch := translationBatches(m, items, translationBatchCharacters)[0]

@@ -2930,7 +2930,7 @@
                                           "resume",
                                           "retranslate",
                                         ],
-                                      "description": "retranslate restarts completed paper text with saved current translation choices, retaining previous translations until replacement succeeds. Books keep chapter translation controls.",
+                                      "description": "retranslate queues the same background reparse and full retranslation as POST /api/documents/{id}/reparse, with saved current translation choices. Previous translations stay visible until replacement succeeds.",
                                     },
                                 },
                             },
@@ -2985,7 +2985,7 @@
         {
           "post":
             {
-              "description": "Rebuild the EPUB publication cache or PDF layout from the stored original while keeping document identity and user data.",
+              "description": "Queue a background reparse and full retranslation of the PDF paper, PDF book, or EPUB, keeping document identity and user data. The stored original is parsed again; the previous source stays readable until the new layout or publication cache validates and is published. Every translatable unit of the new source is then queued for translation, including unchanged text and whole books. The response is returned once the job is persisted; parsing and translation continue after the request disconnects or the app restarts, and `layoutRevision` changes when the new source is published.",
               "parameters":
                 [
                   {
@@ -2997,20 +2997,15 @@
                 ],
               "responses":
                 {
-                  "200":
+                  "202":
                     {
-                      "description": "Reparsed",
+                      "description": "Reparse and translation queued",
                       "content":
                         {
                           "application/json":
                             {
                               "schema":
-                                {
-                                  "type": "object",
-                                  "required": ["reparsed"],
-                                  "properties":
-                                    { "reparsed": { "type": "boolean" } },
-                                },
+                                { "$ref": "#/components/schemas/Processing" },
                             },
                         },
                     },
@@ -6946,7 +6941,12 @@
                   "enabled": { "type": "boolean" },
                   "manualTranslation": { "type": "boolean", "readOnly": true },
                   "retranslating": { "type": "boolean", "readOnly": true },
-                  "layoutRevision": { "type": "string", "readOnly": true },
+                  "layoutRevision":
+                    {
+                      "type": "string",
+                      "readOnly": true,
+                      "description": "Changes when a reparse publishes new source; readers reload source and translations.",
+                    },
                   "autoTranslateMaxPages":
                     {
                       "type": "integer",
@@ -7321,7 +7321,7 @@
                     {
                       "enum":
                         ["idle", "pending", "running", "complete", "failed"],
-                      "description": "idle: a book paragraph that has not been requested.",
+                      "description": "idle: a book paragraph that has not been requested. failed with error \"重新解析后匹配错误\": an earlier translation lost its correspondence to a replaced layout and no new translation is queued.",
                     },
                   "sentences":
                     {

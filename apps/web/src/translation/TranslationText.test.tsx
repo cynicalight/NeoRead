@@ -289,3 +289,45 @@ it("renders the image again after the reading theme changes", async () => {
   await act(async () => dark.dispatchEvent(new Event("load")));
   expect(renderImage).toHaveBeenCalledTimes(2);
 });
+
+const mismatch = "重新解析后匹配错误";
+it.each([
+  ["a PDF paragraph", { ...base, label: "text", image: undefined }],
+  ["an image formula", { ...base, label: "display_formula" }],
+  [
+    "an EPUB paragraph",
+    {
+      id: "e-0123",
+      label: "text",
+      text: "An EPUB paragraph.",
+      location: { type: "epub", href: "c1.xhtml" },
+    },
+  ],
+] as const)(
+  "shows the reparse mismatch error for %s instead of a running placeholder",
+  async (_, block) => {
+    const retry = vi.fn();
+    await act(async () =>
+      root.render(
+        <TranslationText
+          block={block}
+          translation={{
+            blockId: block.id,
+            sourceHash: "new",
+            status: "failed",
+            sentences: [],
+            error: mismatch,
+          }}
+          documentId="doc"
+          retry={retry}
+        />,
+      ),
+    );
+    expect(host.querySelector('[role="status"]')?.textContent).toContain(
+      mismatch,
+    );
+    expect(host.textContent).not.toMatch(/正在翻译中|公式转换中/);
+    await act(async () => host.querySelector("button")?.click());
+    expect(retry).toHaveBeenCalledOnce();
+  },
+);

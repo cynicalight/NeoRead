@@ -8,6 +8,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -117,11 +119,28 @@ ON previous.document_id=t.document_id AND previous.block_id=t.block_id AND previ
 	if err != nil {
 		return nil, err
 	}
+	mismatch, replaced := false, false
+	if visible || (len(scoped) > 0 && scoped[0]) {
+		var historical bool
+		if err = s.Store.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM translations WHERE document_id=?)", documentID).Scan(&historical); err != nil {
+			return nil, err
+		}
+		if d.Type == "epub" {
+			marker, _ := os.ReadFile(filepath.Join(s.Store.Root, "cache", documentID, "retranslation-run"))
+			replaced = len(marker) != 0
+		} else {
+			_, raw, readErr := readLayoutFile(filepath.Join(s.analysisDir(documentID), "manifest.json"))
+			replaced = readErr == nil && len(raw["retranslationRun"]) > 0
+		}
+		mismatch = historical && replaced
+	}
 	result := []TranslationBlock{}
 	for _, t := range m.translationItems() {
 		if value, ok := saved[t.BlockID+":"+t.SourceHash]; ok {
 			t = value
-		} else if d.Library == "books" || d.Type == "epub" {
+		} else if mismatch {
+			t.Status, t.Error = "failed", "重新解析后匹配错误"
+		} else if replaced || d.Library == "books" || d.Type == "epub" {
 			t.Status = "idle"
 		}
 		result = append(result, t)

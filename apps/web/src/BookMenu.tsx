@@ -17,7 +17,7 @@ import {
   DropdownMenuSeparator,
 } from "@neoread/ui/components/dropdown-menu";
 import { exportAnnotatedPDFWithToast } from "./annotated-pdf-export";
-import { reparseDocument } from "./reparse-document";
+import { reparseAndTranslateDocument } from "./reparse-and-translate-document";
 import { revealFile } from "./papers/actions";
 
 const kits = {
@@ -55,9 +55,9 @@ export function BookMenuItems({
           用量统计
         </K.Item>
       )}
-      <K.Item onClick={() => void reparseDocument(doc)}>
+      <K.Item onClick={() => void reparseAndTranslateDocument(doc)}>
         <RefreshCw />
-        重新解析
+        重新解析并翻译
       </K.Item>
       {window.neoreadDesktop?.showDocumentFile && (
         <K.Item onClick={() => revealFile(doc)}>

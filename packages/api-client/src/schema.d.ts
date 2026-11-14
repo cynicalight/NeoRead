@@ -2577,7 +2577,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /**
-                         * @description retranslate restarts completed paper text with saved current translation choices, retaining previous translations until replacement succeeds. Books keep chapter translation controls.
+                         * @description retranslate queues the same background reparse and full retranslation as POST /api/documents/{id}/reparse, with saved current translation choices. Previous translations stay visible until replacement succeeds.
                          * @enum {string}
                          */
                         action: "start" | "pause" | "resume" | "retranslate";
@@ -2666,7 +2666,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Rebuild the EPUB publication cache or PDF layout from the stored original while keeping document identity and user data. */
+        /** @description Queue a background reparse and full retranslation of the PDF paper, PDF book, or EPUB, keeping document identity and user data. The stored original is parsed again; the previous source stays readable until the new layout or publication cache validates and is published. Every translatable unit of the new source is then queued for translation, including unchanged text and whole books. The response is returned once the job is persisted; parsing and translation continue after the request disconnects or the app restarts, and `layoutRevision` changes when the new source is published. */
         post: {
             parameters: {
                 query?: never;
@@ -2678,15 +2678,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Reparsed */
-                200: {
+                /** @description Reparse and translation queued */
+                202: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": {
-                            reparsed: boolean;
-                        };
+                        "application/json": components["schemas"]["Processing"];
                     };
                 };
                 /** @description Error */
@@ -5545,6 +5543,7 @@ export interface components {
             enabled?: boolean;
             readonly manualTranslation?: boolean;
             readonly retranslating?: boolean;
+            /** @description Changes when a reparse publishes new source; readers reload source and translations. */
             readonly layoutRevision?: string;
             readonly autoTranslateMaxPages?: number;
             /** @description EPUB work uses explicit chapter requests; the legacy automatic queue has been migrated. */
@@ -5714,7 +5713,7 @@ export interface components {
             blockId: string;
             sourceHash: string;
             /**
-             * @description idle: a book paragraph that has not been requested.
+             * @description idle: a book paragraph that has not been requested. failed with error "重新解析后匹配错误": an earlier translation lost its correspondence to a replaced layout and no new translation is queued.
              * @enum {unknown}
              */
             status: "idle" | "pending" | "running" | "complete" | "failed";

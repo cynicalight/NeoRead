@@ -48,7 +48,7 @@ import {
 } from "./actions";
 import { paperLink } from "./format";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
-import { reparseDocument } from "../reparse-document";
+import { reparseAndTranslateDocument } from "../reparse-and-translate-document";
 import { CitationMenuItems } from "./CitationMenu";
 import {
   categoryTree,
@@ -250,9 +250,9 @@ export function PaperMenuItems({
       {one && (
         <>
           <K.Separator />
-          <K.Item onClick={() => void reparseDocument(one)}>
+          <K.Item onClick={() => void reparseAndTranslateDocument(one)}>
             <RefreshCw />
-            重新解析
+            重新解析并翻译
           </K.Item>
           {kind === "dropdown" && (
             <>

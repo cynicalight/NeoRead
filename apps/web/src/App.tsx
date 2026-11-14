@@ -68,6 +68,7 @@ import { Settings } from "./Settings";
 import { DocumentTabs, ReadingWorkspaces } from "./DocumentTabs";
 import { flushProgress } from "./progress";
 import { useProcessing } from "./ProcessingStatus";
+import { observeReparsedLayouts } from "./reparse-and-translate-document";
 import { useUpdateProgress } from "./update-progress";
 import { applyDocumentTheme, useResolvedTheme } from "./appearance";
 import { LibraryFilterBar, LibraryTagFilters } from "./DocumentManagement";
@@ -111,6 +112,7 @@ export function App() {
   );
   const resolvedTheme = useResolvedTheme(theme);
   const { jobs, error: processingError } = useProcessing();
+  useEffect(() => observeReparsedLayouts(jobs), [jobs]);
   useUpdateProgress();
   const jobsById = useMemo(
     () => new Map(jobs.map((job) => [job.documentId, job])),

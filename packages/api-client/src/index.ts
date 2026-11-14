@@ -538,13 +538,11 @@ export const api = {
     }),
   processing: (signal?: AbortSignal) =>
     request<Processing[]>("/api/processing", { signal }),
-  reparseDocument: (id: string) =>
-    request<{ reparsed: boolean }>(
-      `/api/documents/${encodeURIComponent(id)}/reparse`,
-      {
-        method: "POST",
-      },
-    ),
+  /** Accepts a background reparse whose new units are all retranslated. */
+  reparseAndTranslateDocument: (id: string) =>
+    request<Processing>(`/api/documents/${encodeURIComponent(id)}/reparse`, {
+      method: "POST",
+    }),
   process: (id: string) =>
     request<Processing>(`/api/documents/${id}/processing`, { method: "POST" }),
   blocks: (id: string, signal?: AbortSignal) =>
