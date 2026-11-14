@@ -221,6 +221,14 @@ func webHTTPWithRetry(ctx context.Context, service string, client *http.Client, 
 	return nil, generationError(ErrorNetwork, "网页工具暂未取得结果")
 }
 
+// webSearchService 返回固定的供应商名，写入终态日志，使连接失败或格式错误也能区分后端。
+func webSearchService(conn APIConnection) string {
+	if conn.Protocol == "keenable" {
+		return "Keenable"
+	}
+	return "DeepSeek"
+}
+
 func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name string, args json.RawMessage) (result json.RawMessage, err error) {
 	if !c.WebSearch || !isWebTool(name) || !validSearchConnection(conn) {
 		return nil, generationError(ErrorPermission, "本轮没有授权网页工具")
@@ -285,7 +293,7 @@ func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name st
 		}
 		switch errorKind(e) {
 		case ErrorUpstream, ErrorNetwork, ErrorBusy, ErrorProtocol, ErrorTimeout:
-			slog.Warn("web.tool.deferred", "tool", name, "errorCode", errorKind(e), "requestId", requestID(ctx))
+			slog.Warn("web.tool.deferred", "service", webSearchService(conn), "tool", name, "errorCode", errorKind(e), "requestId", requestID(ctx))
 			v.Status, v.Detail = "deferred", "暂未取得结果"
 			return json.RawMessage(jsonText(map[string]any{"status": "temporarily_unavailable", "reason": "service_unavailable", "message": webToolDeferredMessage})), nil
 		}

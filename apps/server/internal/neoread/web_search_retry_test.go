@@ -381,3 +381,51 @@ func TestWebRetryLogNamesService(t *testing.T) {
 		})
 	}
 }
+
+func TestWebDeferredLogNamesService(t *testing.T) {
+	for _, tc := range []struct {
+		service string
+		conn    APIConnection
+	}{
+		{"DeepSeek", APIConnection{URL: defaultSearchURL, Key: "deepseek-secret"}},
+		{"Keenable", APIConnection{Protocol: "keenable", URL: keenableSearchURL, Key: "keenable-secret"}},
+	} {
+		for _, mode := range []string{"transport", "invalid"} {
+			t.Run(tc.service+"/"+mode, func(t *testing.T) {
+				var logs bytes.Buffer
+				old := slog.Default()
+				slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+				t.Cleanup(func() { slog.SetDefault(old) })
+				chat := &chatInput{WebSearch: true, webTransport: webRoundTrip(func(*http.Request) (*http.Response, error) {
+					if mode == "transport" {
+						return nil, errors.New("PRIVATE transport")
+					}
+					return webJSON(200, `{"PRIVATE":true}`), nil
+				})}
+				if _, err := chat.callWebTool(t.Context(), tc.conn, "web_search", json.RawMessage(`{"query":"public information"}`)); err != nil || chat.Tools[0].Status != "deferred" {
+					t.Fatalf("err=%v tools=%+v", err, chat.Tools)
+				}
+				found := false
+				for _, line := range bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")) {
+					var event struct {
+						Msg       string `json:"msg"`
+						Service   string `json:"service"`
+						ErrorCode string `json:"errorCode"`
+					}
+					if json.Unmarshal(line, &event) == nil && event.Msg == "web.tool.deferred" {
+						found = true
+						if event.Service != tc.service || event.ErrorCode == "" {
+							t.Fatalf("deferred event %s", line)
+						}
+					}
+				}
+				if !found {
+					t.Fatalf("no web.tool.deferred event: %s", logs.String())
+				}
+				if strings.Contains(logs.String(), "secret") || strings.Contains(logs.String(), "PRIVATE") || strings.Contains(logs.String(), "public information") {
+					t.Fatalf("deferred log leaked request data: %s", logs.String())
+				}
+			})
+		}
+	}
+}
