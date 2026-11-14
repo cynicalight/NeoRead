@@ -120,8 +120,6 @@ func (s *Server) purgeDocument(ctx context.Context, id string) (int, string) {
 			return 408, "等待后台任务停止超时，请重试"
 		}
 	}
-	s.codexChat.deleteDocument(id)
-	s.documentCodex.deleteDocument(id)
 	attachments, err := s.Store.paperAttachments(id)
 	if err != nil {
 		return 500, "无法读取附件，文档已保留"

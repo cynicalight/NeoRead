@@ -2284,55 +2284,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/documents/{id}/codex-handoff": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description Fork the last committed Codex reading turn into an independent conversation with local document and chat snapshots. Does not generate a model answer or change the NeoRead conversation. Repeated requests for the same snapshot reuse the fork. */
-        post: {
-            parameters: {
-                query?: {
-                    sessionId?: string;
-                };
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Prepared independent Codex conversation */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CodexHandoff"];
-                    };
-                };
-                /** @description Document unavailable, no committed Codex conversation, active generation, or handoff failed */
-                default: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/documents/{id}/chat": {
         parameters: {
             query?: never;
@@ -2942,6 +2893,140 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/auth/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: "codex" | "claude" | "kimi";
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Connect a built-in Pi provider with account authorization. The NDJSON stream emits auth_url, device_code, manual_code, complete or error. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    provider: "codex" | "claude" | "kimi";
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            responses: {
+                /** @description Connection events */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/x-ndjson": string;
+                    };
+                };
+                /** @description Connection rejected */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        /** @description Remove the local credential for a built-in Pi provider. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    provider: "codex" | "claude" | "kimi";
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Disconnected */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Disconnection rejected */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/auth/{provider}/input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Submit a manual authorization code to a pending Pi login. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    provider: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        runId: string;
+                        value: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Code accepted by pending login */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid or expired login attempt */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -5089,14 +5174,6 @@ export interface components {
             kind: "file" | "link";
             size: number;
         };
-        CodexHandoff: {
-            /** Format: uuid */
-            threadId: string;
-            /** @description Local codex://threads/<threadId> link */
-            url: string;
-            /** @description Absolute path of the independent document snapshot */
-            directory: string;
-        };
         OverviewContent: {
             summary: string;
             findings: {
@@ -5385,7 +5462,10 @@ export interface components {
         Provider: {
             /** @enum {string} */
             id: "codex" | "claude" | "kimi" | "api";
+            /** @description Whether the connection is configured. */
             installed: boolean;
+            /** @enum {string} */
+            authMethod?: "oauth";
             authenticated: boolean;
             status: string;
         };
@@ -5569,8 +5649,6 @@ export interface components {
         /** @enum {string} */
         ReasoningEffort: "low" | "medium" | "high" | "max";
         WebSearchConfig: {
-            /** @description Allow supported CLI native web search. Currently Codex. */
-            cliEnabled: boolean;
             /**
              * @description Empty disables the search API.
              * @enum {string}

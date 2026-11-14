@@ -1,7 +1,6 @@
 package neoread
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,11 +39,3 @@ func TestChatRunKeepsLargeValidEventHistory(t *testing.T) {
 
 // 旧 fixture scanner 的容量仅用于测试进程，不参与实际供应商读取。
 const maxProviderFrame = 8 << 20
-
-func TestProviderLineReaderRetainsLargeJSONLine(t *testing.T) {
-	text := strings.Repeat("x", 9<<20)
-	r := &providerLineReader{reader: bufio.NewReader(strings.NewReader(text + "\r\n"))}
-	if !r.Scan() || string(r.Bytes()) != text || r.Scan() || r.Err() != nil {
-		t.Fatal("provider line was truncated")
-	}
-}

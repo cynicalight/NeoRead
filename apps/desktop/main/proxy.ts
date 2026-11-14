@@ -16,7 +16,7 @@ export function systemProxyEnvironment(
     throw new Error("系统代理返回了无效配置");
   const config = settings as Record<string, unknown>;
   if (config.ProxyAutoConfigEnable || config.ProxyAutoDiscoveryEnable)
-    throw new Error("暂不支持将 PAC 或自动发现代理传递给 Agent CLI");
+    throw new Error("暂不支持将 PAC 或自动发现代理传递给 Pi worker");
   const env = { ...inherited };
   for (const key of Object.keys(env))
     if (/^(http|https|all|no)_proxy$/i.test(key)) delete env[key];
@@ -25,7 +25,7 @@ export function systemProxyEnvironment(
   if (!config.HTTPEnable && !config.HTTPSEnable && !config.SOCKSEnable)
     return env;
   if (config.ExcludeSimpleHostnames)
-    throw new Error("暂不支持将简单主机名直连规则传递给 Agent CLI");
+    throw new Error("暂不支持将简单主机名直连规则传递给 Pi worker");
 
   for (const [kind, variable, scheme] of [
     ["HTTP", "HTTP_PROXY", "http"],

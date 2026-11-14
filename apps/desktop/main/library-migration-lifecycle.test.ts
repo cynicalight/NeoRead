@@ -33,7 +33,6 @@ let migrate: ReturnType<typeof vi.fn>;
 let stop: ReturnType<typeof vi.fn>;
 let serverSpawn: ReturnType<typeof vi.fn>;
 let libraryDirectory: ReturnType<typeof vi.fn>;
-let discoverPath: ReturnType<typeof vi.fn>;
 let openProxy: ReturnType<typeof vi.fn>;
 let detectMigration: ReturnType<typeof vi.fn>;
 let confirmMigration: ReturnType<typeof vi.fn>;
@@ -265,13 +264,11 @@ beforeEach(async ({ task }) => {
     ReaderMigrationError: class extends Error {},
     promptLegacyCleanup: async () => {},
   }));
-  discoverPath = vi.fn().mockResolvedValue("/bin");
   openProxy = vi.fn().mockResolvedValue({
     activeEnvironment: {},
     activeSettings: {},
     stop() {},
   });
-  vi.doMock("./agent-path", () => ({ agentPath: discoverPath }));
   vi.doMock("./proxy-settings", () => ({
     ProxySettingsService: {
       open: openProxy,
@@ -863,17 +860,10 @@ it("shows the themed window while proxy and PATH discovery are still pending", a
   serverSpawn.mockClear();
   loadURL.mockClear();
   let finishProxy!: (value: unknown) => void;
-  let finishPath!: (value: string) => void;
   openProxy.mockImplementationOnce(
     () =>
       new Promise((resolve) => {
         finishProxy = resolve;
-      }),
-  );
-  discoverPath.mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        finishPath = resolve;
       }),
   );
   const request = vi.mocked(fetch);
@@ -914,21 +904,7 @@ it("shows the themed window while proxy and PATH discovery are still pending", a
       ),
     ).toBe(true),
   );
-  expect(
-    request.mock.calls.some(([url]) =>
-      String(url).endsWith("/desktop-runtime/path"),
-    ),
-  ).toBe(false);
-  finishPath("/resolved/bin");
-  await vi.waitFor(() =>
-    expect(
-      request.mock.calls.some(
-        ([url, init]) =>
-          String(url).endsWith("/desktop-runtime/path") &&
-          init?.body === JSON.stringify({ PATH: "/resolved/bin" }),
-      ),
-    ).toBe(true),
-  );
+
 });
 it("does not show the main window until its theme request completes", async () => {
   vi.resetModules();

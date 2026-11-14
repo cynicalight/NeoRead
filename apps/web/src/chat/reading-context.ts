@@ -12,7 +12,6 @@ export const chatContextBytes = 256000;
 /** Capture only what the reader chose, plus a navigation snapshot. */
 export async function readingContext(
   adapter: Pick<ReaderAdapter, "getLocation" | "getContext"> | undefined,
-  provider: string,
   selected: ReaderSelection[],
   useSection: boolean,
   hasImages: boolean,
@@ -45,12 +44,9 @@ export async function readingContext(
     location,
     kind: "selection",
   }));
-  // Only an explicit page/chapter action needs renderer text for providers
-  // without document tools. Merely attaching an image never reads the page.
-  const documentAgent =
-    !hasImages &&
-    (provider === "codex" || provider === "claude" || provider === "api");
-  if (useSection && !documentAgent && adapter) {
+  // Pi can use the reading position to retrieve text for an explicit summary.
+  // Keep renderer text for explicit requests that also include images.
+  if (useSection && hasImages && adapter) {
     context = await adapter.getContext();
     references = readingLocation
       ? contextReferences(context, readingLocation)

@@ -1,5 +1,7 @@
 # Local PDF layout and Codex validation
 
+> This document records validation before the Pi migration. See the [current Pi runtime](agent-streaming-contract.md#内置-pi-与模型连接).
+
 The processor is now connected to the desktop two-stage import UI, with separate progress bars and detected-region hover. Full-document retrieval and image-click conversations remain separate work. The agreed workflow is in [reading-workflow.md](reading-workflow.md).
 
 ## Distribution decision

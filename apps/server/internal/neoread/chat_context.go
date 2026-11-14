@@ -36,7 +36,6 @@ type chatInput struct {
 	piRunID                string
 	piResume               *piCheckpoint
 	piCheckpoint           func(*piCheckpoint) error
-	nativeWebRefs          map[string]string
 	webCalls               int
 	webTransport           http.RoundTripper
 	WebSearch              bool

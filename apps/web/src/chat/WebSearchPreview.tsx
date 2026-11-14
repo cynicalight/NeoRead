@@ -9,7 +9,6 @@ export default function WebSearchPreview() {
   const [dark, setDark] = useState(false),
     [state, setState] = useState<ToolActivity["status"]>("running");
   const [searchConfig, setSearchConfig] = useState<WebSearchConfig>({
-    cliEnabled: false,
     provider: "",
     url: "https://api.deepseek.com",
     hasKey: false,

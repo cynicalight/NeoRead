@@ -124,8 +124,6 @@ contextBridge.exposeInMainWorld("neoreadDesktop", {
     proxyRequest("neoread:cite-plugin-uninstall", kind),
   openExternal: (url: string) =>
     ipcRenderer.invoke("neoread:open-external", url),
-  openCodexThread: (threadId: string) =>
-    ipcRenderer.invoke("neoread:open-codex-thread", threadId),
   onOpenLink: (callback: (target: unknown) => void) => {
     const listener = (_event: unknown, target: unknown) => callback(target);
     ipcRenderer.on("neoread:open-link", listener);

@@ -620,6 +620,7 @@ export function locationLabel(location?: DocumentLocation): string {
     : `章节进度 ${Math.round((location.progression ?? 0) * 100)}%`;
 }
 export interface Provider {
+  authMethod?: "oauth";
   id: "codex" | "claude" | "kimi" | "api";
   installed: boolean;
   authenticated: boolean;
@@ -791,7 +792,6 @@ export interface APIConnection {
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export interface WebSearchConfig {
-  cliEnabled: boolean;
   provider: "" | "deepseek";
   url: string;
   key?: string;

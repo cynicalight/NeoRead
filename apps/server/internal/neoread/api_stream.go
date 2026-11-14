@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -371,4 +372,8 @@ func consumeCompletionFrames(ctx context.Context, r io.Reader, dispatch func(str
 		return ctx.Err()
 	}
 	return generationError(ErrorProtocol, "API 流缺少完整成功终态")
+}
+
+func imageData(b []byte) string {
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(b)
 }

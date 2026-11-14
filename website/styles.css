@@ -1770,20 +1770,6 @@ h2 {
     transform: rotate(360deg);
   }
 }
-.term {
-  margin-top: 4px;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--muted);
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: var(--bone);
-}
-.term::before {
-  content: "$ ";
-  color: var(--accent);
-}
-
 /* Search */
 .search-viz {
   width: 100%;

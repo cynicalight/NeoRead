@@ -427,25 +427,6 @@ it.each(["text", "vision"] as const)(
   },
 );
 
-it("persists CLI web search directly from the toggle without a Save action", async () => {
-  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
-  const label = [...host.querySelectorAll("span")].find(
-    (node) => node.textContent === "允许 CLI 原生联网搜索",
-  )!;
-  const toggle =
-    label.parentElement!.querySelector<HTMLButtonElement>('[role="switch"]')!;
-  vi.mocked(api.saveAIConfig).mockClear();
-  await act(async () => label.click());
-  await act(async () => label.parentElement!.click());
-  expect(api.saveAIConfig).not.toHaveBeenCalled();
-  await act(async () => toggle.click());
-  expect(
-    vi.mocked(api.saveAIConfig).mock.lastCall?.[0].webSearch?.cliEnabled,
-  ).toBe(true);
-  expect(useReaderStore.getState().aiConfig?.webSearch?.cliEnabled).toBe(true);
-  expect(toggle.getAttribute("aria-checked")).toBe("true");
-});
-
 it("shows only library location in the books tab for the current library", async () => {
   const previous = useReaderStore.getState().libraryPreferences;
   libraryPanel.visible = true;
@@ -557,7 +538,7 @@ it("saves the last navigated ready agent when the previous save is still running
   await expand();
   // Focus centres the starting card; arrow navigation performs the selection.
   await act(async () =>
-    host.querySelector<HTMLElement>('[aria-label="使用 Codex"]')!.focus(),
+    host.querySelector<HTMLElement>('[aria-label="使用 ChatGPT"]')!.focus(),
   );
   const navigate = async (key: string) => {
     await act(async () => {

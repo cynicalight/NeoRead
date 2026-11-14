@@ -44,6 +44,8 @@ export function APIAgentForm({
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
   const id = useId();
+  const sameAddress =
+    url.trim().replace(/\/+$/, "") === connection.url.replace(/\/+$/, "");
   useEffect(() => setURL(connection.url || DEFAULT_API_URL), [connection.url]);
   const changed =
     url.trim() !== connection.url ||
@@ -61,7 +63,7 @@ export function APIAgentForm({
               protocol,
               model: "",
               key: key.trim() || undefined,
-              hasKey: key.trim() ? false : connection.hasKey,
+              hasKey: !key.trim() && sameAddress && connection.hasKey,
             }
           : { url: "", model: "", key: "", hasKey: false },
       );
@@ -122,7 +124,11 @@ export function APIAgentForm({
           aria-label="API Key"
           type="password"
           autoComplete="off"
-          placeholder={connection.hasKey ? "已保存，留空保持不变" : "API Key"}
+          placeholder={
+            sameAddress && connection.hasKey
+              ? "已保存，留空保持不变"
+              : "API Key"
+          }
           value={key}
           disabled={disabled || saving}
           onChange={(event) => setKey(event.target.value)}

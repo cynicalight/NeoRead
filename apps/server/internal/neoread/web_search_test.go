@@ -94,42 +94,6 @@ func TestWebConnectionAndRedirectBoundaries(t *testing.T) {
 		t.Fatal(got)
 	}
 }
-func TestNativeToolActivitiesAreScopedAndPersistent(t *testing.T) {
-	c := &chatInput{WebSearch: true}
-	start := json.RawMessage(`{"item":{"id":"search-1","type":"webSearch","query":"official docs","action":{"type":"search","queries":["official docs"]}}}`)
-	if err := c.codexToolEvent("item/started", start); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.codexToolEvent("item/completed", json.RawMessage(`{"item":{"id":"search-1","type":"webSearch","query":"official docs","results":[{"url":"https://example.com/docs","title":"Official"}]}}`)); err != nil {
-		t.Fatal(err)
-	}
-	if len(c.Tools) != 1 || c.Tools[0].Status != "completed" || len(c.WebSources) != 1 {
-		t.Fatal(c.Tools, c.WebSources)
-	}
-	c.recordTool(ToolActivity{ID: "mcp-1", Kind: "tool", Tool: "reader/read_passage", Title: "读取原文", Status: "running"})
-	c.codexToolEvent("item/mcpToolCall/progress", json.RawMessage(`{"itemId":"mcp-1","message":"Reading chapter 2"}`))
-	if c.Tools[1].Detail != "Reading chapter 2" {
-		t.Fatal(c.Tools)
-	}
-	c.settleTools("cancelled")
-	if c.Tools[1].Status != "cancelled" || c.Tools[0].Status != "completed" {
-		t.Fatal(c.Tools)
-	}
-	c.WebSearch = false
-	if err := c.codexToolEvent("item/started", start); errorKind(err) != ErrorPermission {
-		t.Fatal("unauthorized native search", err)
-	}
-	s, a := originalDocumentFixture(t)
-	a.chat = c
-	if err := s.saveDocumentAgentAnswer(t.Context(), a, "Answer without document claims", "codex"); err != nil {
-		t.Fatal(err)
-	}
-	history, err := s.Store.chatHistory("doc")
-	if err != nil || len(history) != 1 || len(history[0].Tools) != 2 || len(history[0].WebSources) != 1 {
-		t.Fatal(history, err)
-	}
-}
-
 func TestPiDeepSeekWebToolsBridge(t *testing.T) {
 	piTestRuntime(t)
 	s, a := originalDocumentFixture(t)
@@ -172,11 +136,10 @@ func TestPiDeepSeekWebToolsBridge(t *testing.T) {
 	}
 }
 
-func TestNativeWebCitationsKeepDocumentValidationAndStreaming(t *testing.T) {
+func TestUnresolvedWebCitationsKeepDocumentValidationAndStreaming(t *testing.T) {
 	c := &chatInput{WebSearch: true}
-	c.rememberNativeWebSource("turn0search0", "https://example.com/docs")
 	text := "Before citeturn0search0S2 after"
-	want := "Before [网页来源](https://example.com/docs)[S2] after"
+	want := "Before 〔网页引用未解析，见执行记录〕[S2] after"
 	stream := webCitationStream{normalize: c.normalizeWebCitations}
 	out := ""
 	for _, r := range text {
@@ -222,8 +185,8 @@ func TestToolCompletionRetainsActualTargetAndProgress(t *testing.T) {
 	step := c.Tools[0]
 	step.Target = "正在读取第 7 页"
 	c.recordTool(step)
-	c.codexToolEvent("item/mcpToolCall/progress", json.RawMessage(`{"itemId":"m","message":"已读取第 7 页"}`))
-	c.codexToolEvent("item/completed", json.RawMessage(`{"item":{"id":"m","type":"mcpToolCall","server":"reader","tool":"read_passage","status":"completed","arguments":{"blockId":"p7-b1"}}}`))
+	_ = c.recordTool(ToolActivity{ID: "m", Detail: "已读取第 7 页", Status: "running"})
+	_ = c.recordTool(ToolActivity{ID: "m", Kind: "tool", Tool: "read_passage", Status: "completed"})
 	if c.Tools[0].Target != "正在读取第 7 页" || c.Tools[0].Detail != "已读取第 7 页" || c.Tools[0].Status != "completed" {
 		t.Fatal(c.Tools)
 	}
@@ -256,10 +219,7 @@ func TestWebSourcesBeyondFormerLimitDoNotBlockNewRequests(t *testing.T) {
 	if err != nil || strings.Contains(string(raw), "budgetNotice") || count != 2 || c.Tools[1].Status != "completed" {
 		t.Fatal(string(raw), c.Tools, err, count)
 	}
-	err = c.codexToolEvent("item/completed", json.RawMessage(`{"item":{"id":"native","type":"webSearch","query":"other docs","results":[{"title":"New","url":"https://example.com/new"}]}}`))
-	if err != nil || len(c.WebSources) != 1008 || c.Tools[2].Status != "completed" || strings.Contains(c.Tools[2].Detail, "预算已满") {
-		t.Fatal(err, c.Tools)
-	}
+
 }
 
 func TestPiWebBudgetLetsModelFinish(t *testing.T) {

@@ -1,14 +1,9 @@
 package neoread
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func catalog(ids ...string) []AgentModel {
@@ -67,84 +62,6 @@ func TestTaskRecommendationsMarkCatalog(t *testing.T) {
 	}
 }
 
-func TestTranslationModelAndEffortAreIndependent(t *testing.T) {
-	s := testServer(t)
-	c := AIConfig{Primary: "claude", Models: map[string]string{"claude": "chat-model"}, Efforts: map[string]map[string]string{"claude": {"chat-model": "max"}},
-		TranslationModels: map[string]string{"claude": "fast-model"}, TranslationEfforts: map[string]map[string]string{"claude": {"fast-model": "low"}}}
-	if r := request(t, s, "PUT", "/api/ai/config", configJSON(c)); r.Code != 200 {
-		t.Fatal(r.Body)
-	}
-	// An older client that omits translation fields must not erase them.
-	c.TranslationModels, c.TranslationEfforts = nil, nil
-	if r := request(t, s, "PUT", "/api/ai/config", configJSON(c)); r.Code != 200 {
-		t.Fatal(r.Body)
-	}
-	saved := s.aiConfig()
-	if saved.TranslationModels["claude"] != "fast-model" || saved.TranslationEfforts["claude"]["fast-model"] != "low" || saved.Efforts["claude"]["chat-model"] != "max" {
-		t.Fatalf("%+v", saved)
-	}
-	c.TranslationEfforts = map[string]map[string]string{"claude": {"fast-model": "ultra"}}
-	if r := request(t, s, "PUT", "/api/ai/config", configJSON(c)); r.Code != 400 {
-		t.Fatal(r.Body)
-	}
-}
-
-func TestUnsetModelsResolvePerTask(t *testing.T) {
-	efforts := []string{"low", "medium", "high", "max"}
-	for _, tt := range []struct {
-		task       modelTask
-		model, eff string
-	}{
-		{taskChat, "claude-opus-5-5", "medium"},
-		{taskTranslation, "claude-sonnet-5-5", "medium"},
-	} {
-		t.Run(string(tt.task), func(t *testing.T) {
-			fakeAgent(t, "claude", "complete")
-			capture := filepath.Join(t.TempDir(), "request.json")
-			t.Setenv("NEOREAD_AGENT_CAPTURE", capture)
-			s, _ := imageFixture(t)
-			models := catalog("claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1")
-			for i := range models {
-				models[i].SupportedEfforts = efforts
-			}
-			s.modelCache = map[string]modelCatalogEntry{"claude": {models: models, expires: time.Now().Add(time.Minute)}}
-			c := AIConfig{Primary: "claude", Models: map[string]string{}, Capabilities: map[string]Capability{}}
-			c.Capabilities["claude"] = Capability{Text: true, Fingerprint: configPrint(c, "claude")}
-			if _, err := s.taskGenerationService(c, tt.task).Generate(t.Context(), AIInput{Prompt: "test"}, false, nil); err != nil {
-				t.Fatal(err)
-			}
-			b, err := os.ReadFile(capture)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(string(b), "--model "+tt.model) || !strings.Contains(string(b), "--effort "+tt.eff) {
-				t.Fatal(string(b))
-			}
-		})
-	}
-}
-
-func TestTranslationFailureKeepsChatCapability(t *testing.T) {
-	s := testServer(t)
-	c := AIConfig{Primary: "claude", Models: map[string]string{}, Capabilities: map[string]Capability{}}
-	c.Capabilities["claude"] = Capability{Text: true, CheckedAt: "t", Fingerprint: configPrint(c, "claude")}
-	if err := s.writeAIConfig(c); err != nil {
-		t.Fatal(err)
-	}
-	for _, task := range []modelTask{taskTranslation, taskChat} {
-		service := s.taskGenerationService(c, task)
-		connection := service.connections["claude"]
-		connection.Adapter = adapterFunc(func(context.Context, GenerateRequest, func(ProviderEvent) error) (GenerateResult, error) {
-			return GenerateResult{}, errors.New("unknown model")
-		})
-		service.connections["claude"] = connection
-		_, _ = service.Generate(t.Context(), AIInput{Prompt: "test"}, false, nil)
-		if !capable(s.aiConfig(), "claude", false) {
-			t.Fatalf("%s runtime failure disabled verified chat capability", task)
-		}
-	}
-}
-
 func TestModelVersion(t *testing.T) {
 	for id, want := range map[string]string{
 		"gpt-6.1-sol":                "[6 1]",
@@ -156,67 +73,5 @@ func TestModelVersion(t *testing.T) {
 		if got := fmt.Sprint(modelVersion(id)); got != want {
 			t.Fatalf("%s: got %s want %s", id, got, want)
 		}
-	}
-}
-
-func TestAutomaticModelFallsBackToCLIDefault(t *testing.T) {
-	models := catalog("claude-opus-5-5", "claude-sonnet-5-5")
-	for i := range models {
-		models[i].SupportedEfforts = []string{"low", "medium", "high"}
-	}
-	adapter := func(model string) configuredCLIAdapter {
-		return configuredCLIAdapter{cliAdapter{"", "claude", model}, "medium", taskTranslation,
-			func(context.Context, string) ([]AgentModel, error) { return models, nil }}
-	}
-	t.Run("occupied thread does not retry another model", func(t *testing.T) {
-		calls := 0
-		busy := generationError(ErrorBusy, "会话仍由 Codex App 占用")
-		_, err := adapter("").streamWith(t.Context(), GenerateRequest{}, nil, func(cliAdapter, GenerateRequest, func(ProviderEvent) error) (GenerateResult, error) {
-			calls++
-			return GenerateResult{}, busy
-		})
-		if calls != 1 || !errors.Is(err, busy) {
-			t.Fatal("occupied thread retried with another model", calls, err)
-		}
-	})
-	for _, tt := range []struct {
-		name       string
-		configured string
-		partial    bool
-		emitErr    error
-		want       []string
-		ok         bool
-	}{
-		{"automatic choice retries with the CLI default", "", false, nil, []string{"claude-sonnet-5-5", ""}, true},
-		{"user choice is never replaced", "claude-sonnet-5-5", false, nil, []string{"claude-sonnet-5-5"}, false},
-		{"visible text is never followed by a retry", "", true, nil, []string{"claude-sonnet-5-5"}, false},
-		{"consumer failure is not retried", "", false, errors.New("save"), []string{"claude-sonnet-5-5"}, false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			var calls, efforts []string
-			emit := func(ProviderEvent) error { return tt.emitErr }
-			_, err := adapter(tt.configured).streamWith(t.Context(), GenerateRequest{}, emit, func(cli cliAdapter, req GenerateRequest, emit func(ProviderEvent) error) (GenerateResult, error) {
-				calls = append(calls, cli.model)
-				efforts = append(efforts, req.Input.Effort)
-				if cli.model == "" {
-					return GenerateResult{Text: "ok", FinishReason: "stop"}, nil
-				}
-				if tt.partial {
-					_ = emit(ProviderEvent{Text: "部分"})
-				}
-				if tt.emitErr != nil {
-					return GenerateResult{}, emit(ProviderEvent{Metrics: []ModelTokens{{Model: "m"}}})
-				}
-				return GenerateResult{}, errors.New("model not available")
-			})
-			if fmt.Sprint(calls) != fmt.Sprint(tt.want) || (err == nil) != tt.ok {
-				t.Fatalf("calls %q err %v", calls, err)
-			}
-			for _, effort := range efforts {
-				if effort != "medium" {
-					t.Fatalf("effort %q", effort)
-				}
-			}
-		})
 	}
 }

@@ -511,8 +511,7 @@ func (s *Server) settleTranslations(ctx context.Context, p *Processing, m transl
 			workers.Add(1)
 			go func() {
 				defer workers.Done()
-				service, session := s.translationService(config)
-				defer session.close()
+				service := s.taskGenerationService(config, taskTranslation)
 				for batch := range jobs {
 					if work.Err() != nil {
 						return
