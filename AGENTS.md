@@ -1,6 +1,8 @@
 # NeoRead
 
-Local-first EPUB/PDF reader. Use Chinese for user-facing communication. Keep changes and limitations specific. User specifications take precedence over this file. If `AGENTS.local.md` exists, read it and follow it; it overrides this file.
+Local-first EPUB/PDF reader. Use Chinese for user-facing communication. Keep changes and limitations specific. User specifications take precedence over repository instructions.
+
+Before starting work, check for `AGENTS.local.md` at the checkout root. In a linked worktree, also check the main checkout if the file is absent. Read and follow the local file when present. Its rules take precedence over this file.
 
 ## Architecture
 - `apps/web`: React + Vite renderer. NeoRead engines behind `ReaderAdapter`.
