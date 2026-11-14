@@ -82,6 +82,55 @@ it("centres a focused guide target without selecting the provider", async () => 
   }
 });
 
+it("allows clicking a disconnected card to start login without selecting it", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  useReaderStore.getState().setTheme({ reducedMotion: true });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const pick = vi.fn(() => false);
+  const close = vi.fn();
+  try {
+    await act(async () =>
+      root.render(
+        <AgentDeck
+          items={[
+            {
+              id: "claude",
+              title: "Claude",
+              icon: null,
+              status: "missing",
+              tour: "agent-card",
+            },
+          ]}
+          front="claude"
+          open
+          onOpenChange={close}
+          onPick={pick}
+          onDetail={() => false}
+          onRefresh={() => {}}
+          refreshing={false}
+          loadCalls={async () => []}
+          onPanelClose={() => {}}
+          onFallback={() => {}}
+          usable={() => false}
+        />,
+      ),
+    );
+    const card = host.querySelector<HTMLButtonElement>(
+      '[data-slot="agent-select"]',
+    )!;
+    await act(async () => card.click());
+    expect(pick).toHaveBeenCalledWith("claude");
+    expect(close).not.toHaveBeenCalled();
+    expect(card.getAttribute("aria-checked")).toBe("false");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
 it.each([true, false])(
   "checks the centered card on close (usable: %s)",
   async (ready) => {
