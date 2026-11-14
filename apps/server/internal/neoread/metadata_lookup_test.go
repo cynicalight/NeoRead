@@ -57,7 +57,7 @@ func TestResolveImportsPaperWithMetadata(t *testing.T) {
 	}
 	var d Document
 	_ = json.Unmarshal(w.Body.Bytes(), &d)
-	if d.Library != "papers" || d.Title != "Attention Is All You Need" || d.Author != "Ashish Vaswani" || d.Metadata.ArXiv != "1706.03762" || d.Metadata.Lookup != "done" || d.Metadata.Sources["title"] != "lookup" {
+	if d.Library != "papers" || d.Title != "Attention Is All You Need" || d.Author != "Ashish Vaswani" || d.Metadata.ArXiv != "1706.03762" || d.Metadata.Lookup != "pending" || d.Metadata.Sources["title"] != "lookup" {
 		t.Fatalf("resolved: %+v", d)
 	}
 	// Resolving again returns the same document without duplicating it.

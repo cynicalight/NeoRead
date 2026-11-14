@@ -283,11 +283,15 @@ func (m *PaperMetadata) Merge(found PaperMetadata, source string) []string {
 		}
 		return changed
 	}
+	fillOnly := source == "lookup-extra"
+	if fillOnly {
+		source = "lookup"
+	}
 	for key := range metadataLabels {
 		if !found.has(key) || m.Sources[key] == "manual" {
 			continue
 		}
-		if m.has(key) && source != "lookup" {
+		if m.has(key) && (source != "lookup" || fillOnly) {
 			continue
 		}
 		var value any

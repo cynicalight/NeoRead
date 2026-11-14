@@ -16,6 +16,15 @@ import (
 func TestAutoPaperTitleFallback(t *testing.T) {
 	s := testServer(t)
 	scholarFixture(t, s)
+	titles := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("query") != "A Reliable Paper Title" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"title":"A Reliable Paper Title","venue":"Example Journal","authors":[{"name":"Alex Smith"}]}]}`))
+	}))
+	defer titles.Close()
+	s.scholar.SemanticScholar = titles.URL + "/"
 	upstream, calls := fakeAPI(t, func(_ int, _ apiCall) string { return `{"title":"A Reliable Paper Title"}` })
 	config := AIConfig{Primary: "api", API: APIConnection{URL: upstream.URL + "/v1", Key: "sk-test"}, TranslationModels: map[string]string{"api": "deepseek-flash"}}
 	passModels(&config, map[string]bool{"deepseek-flash": false})
@@ -36,9 +45,9 @@ func TestAutoPaperTitleFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	revision := s.connectorRevision.Load()
-	got, err := s.autoPaperLookup(context.Background(), d.ID)
-	if err != nil || got.Title != "random" || got.Metadata.SuggestedTitle != "A Reliable Paper Title" || got.Metadata.Lookup != "notFound" {
-		t.Fatalf("got title %q state %q err %v", got.Title, got.Metadata.Lookup, err)
+	got, err := s.lookupDocument(context.Background(), d.ID, false)
+	if err != nil || got.Title != "random" || got.Metadata.SuggestedTitle != "A Reliable Paper Title" || got.Metadata.Lookup != "done" || got.Metadata.Venue != "Example Journal" || got.Author != "Alex Smith" {
+		t.Fatalf("suggested-title lookup: %+v err=%v", got, err)
 	}
 	if s.connectorRevision.Load() <= revision {
 		t.Fatal("title update did not notify library")
@@ -47,7 +56,7 @@ func TestAutoPaperTitleFallback(t *testing.T) {
 		t.Fatalf("unexpected calls: %+v", calls())
 	}
 	request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"Manual title"}`))
-	got, err = s.autoPaperLookup(context.Background(), d.ID)
+	got, err = s.lookupDocument(context.Background(), d.ID, false)
 	if err != nil || got.Title != "Manual title" || got.Metadata.SuggestedTitle != "A Reliable Paper Title" {
 		t.Fatalf("manual title overwritten: %q %v", got.Title, err)
 	}
@@ -68,7 +77,7 @@ func TestAutoPaperTitleSkipsUnconfiguredAI(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.autoPaperLookup(context.Background(), d.ID)
+	got, err := s.lookupDocument(context.Background(), d.ID, false)
 	if err != errNoIdentifier || got.Title != "random" {
 		t.Fatalf("got %q, %v", got.Title, err)
 	}

@@ -31,18 +31,17 @@ func venueTestDocument(t *testing.T, s *Server, metadata PaperMetadata) Document
 func TestPaperVenueFinalFallbackWorkflow(t *testing.T) {
 	piTestRuntime(t)
 	for _, tc := range []struct {
-		name                                                                string
-		metadata                                                            PaperMetadata
-		reply                                                               string
-		auto, noSearch, manualRace, canceled, incomplete, resolve, apiVenue bool
-		wantVenue, wantShort                                                string
-		wantWeb                                                             int
+		name                                                          string
+		metadata                                                      PaperMetadata
+		reply                                                         string
+		noSearch, manualRace, canceled, incomplete, resolve, apiVenue bool
+		wantVenue, wantShort                                          string
+		wantWeb                                                       int
 	}{
-		{name: "arxiv successful without venue", auto: true, reply: `{"fullName":"Example Proceedings","shortName":"EP"}`, wantVenue: "Example Proceedings", wantShort: "EP", wantWeb: 2},
+		{name: "identifier lookup without venue", reply: `{"fullName":"Example Proceedings","shortName":"EP"}`, wantVenue: "Example Proceedings", wantShort: "EP", wantWeb: 2},
 		{name: "online arxiv import", resolve: true, reply: `{"fullName":"Example Proceedings","shortName":"EP"}`, wantVenue: "Example Proceedings", wantShort: "EP", wantWeb: 2},
 		{name: "API venue skips Agent", apiVenue: true, wantVenue: "Published Journal 12 (2024) 1-8"},
 		{name: "online API venue skips Agent", resolve: true, apiVenue: true, wantVenue: "Published Journal 12 (2024) 1-8"},
-		{name: "manual lookup", reply: `{"fullName":"Example Proceedings","shortName":"EP"}`, wantVenue: "Example Proceedings", wantShort: "EP", wantWeb: 2},
 		{name: "known existing venue", metadata: PaperMetadata{Venue: "NeurIPS"}, wantVenue: "NeurIPS"},
 		{name: "unknown existing venue", metadata: PaperMetadata{Venue: "Unlisted Conference"}, wantVenue: "Unlisted Conference"},
 		{name: "manual empty venue", metadata: PaperMetadata{Sources: map[string]string{"venue": "manual"}}},
@@ -142,8 +141,10 @@ func TestPaperVenueFinalFallbackWorkflow(t *testing.T) {
 					t.Fatal(w.Code, w.Body.String())
 				}
 				d = got
-			} else if tc.auto {
-				got, err = s.autoPaperLookup(ctx, d.ID)
+				if got.Metadata.Lookup != "pending" {
+					t.Fatalf("link import did not queue the shared lookup: %+v", got.Metadata)
+				}
+				got, err = s.lookupDocument(ctx, got.ID, false)
 			} else {
 				got, err = s.lookupDocument(ctx, d.ID, false)
 			}
@@ -167,8 +168,12 @@ func TestPaperVenueFinalFallbackWorkflow(t *testing.T) {
 				}
 				w = request(t, s, "POST", "/api/documents/resolve", strings.NewReader(`{"ref":"arXiv:1706.03762"}`))
 				var reimported Document
-				if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &reimported) != nil || reimported.Metadata.Venue != "User Journal" || reimported.Metadata.VenueShort != "" || webCalls != tc.wantWeb {
-					t.Fatal(w.Code, w.Body.String(), webCalls)
+				if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &reimported) != nil || reimported.Metadata.Lookup != "pending" {
+					t.Fatal(w.Code, w.Body.String())
+				}
+				reimported, err = s.lookupDocument(ctx, reimported.ID, false)
+				if err != nil || reimported.Metadata.Venue != "User Journal" || reimported.Metadata.VenueShort != "" || webCalls != tc.wantWeb {
+					t.Fatal(reimported.Metadata, err, webCalls)
 				}
 			}
 		})

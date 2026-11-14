@@ -82,12 +82,12 @@ func lookupPaperVenue(ctx context.Context, d Document, service *GenerationServic
 
 // finishPaperVenue runs only after metadata APIs have finished. Failure is
 // optional enrichment failure, never a reason to discard successful metadata.
-func (s *Server) finishPaperVenue(ctx context.Context, id string, previousErr error) (Document, error) {
+func (s *Server) finishPaperVenue(ctx context.Context, id string, previousErr error, titleHint string) (Document, error) {
 	d, err := s.Store.Document(id)
 	if err != nil {
 		return d, err
 	}
-	if ctx.Err() != nil || d.Library != "papers" || d.DeletedAt != "" || strings.TrimSpace(d.Metadata.Venue) != "" || d.Metadata.Sources["venue"] == "manual" || strings.TrimSpace(d.Title) == "" {
+	if ctx.Err() != nil || d.Library != "papers" || d.DeletedAt != "" || strings.TrimSpace(d.Metadata.Venue) != "" || d.Metadata.Sources["venue"] == "manual" || strings.TrimSpace(titleHint) == "" {
 		return d, previousErr
 	}
 	config := s.aiConfig()
@@ -95,7 +95,9 @@ func (s *Server) finishPaperVenue(ctx context.Context, id string, previousErr er
 		return d, previousErr
 	}
 	chat := &chatInput{server: s, WebSearch: true, WebAPI: searchAPIConnection(config)}
-	found, err := lookupPaperVenue(ctx, d, s.generationService(config), chat)
+	input := d
+	input.Title = titleHint
+	found, err := lookupPaperVenue(ctx, input, s.generationService(config), chat)
 	outcome := "notFound"
 	if err != nil {
 		outcome = "failed"

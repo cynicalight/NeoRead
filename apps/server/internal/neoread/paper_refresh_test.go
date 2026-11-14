@@ -118,6 +118,7 @@ func TestPaperRefreshManualTitleUsesItForLookup(t *testing.T) {
 
 func TestPaperRefreshUsesTitleSuggestion(t *testing.T) {
 	s := testServer(t)
+	scholarFixture(t, s)
 	upstream, calls := fakeAPI(t, func(_ int, _ apiCall) string { return `{"title":"A Reliable Paper Title"}` })
 	config := AIConfig{Primary: "api", API: APIConnection{URL: upstream.URL + "/v1", Key: "sk-test"}, TranslationModels: map[string]string{"api": "deepseek-flash"}}
 	passModels(&config, map[string]bool{"deepseek-flash": false})
