@@ -6951,6 +6951,13 @@
                   "enabled": { "type": "boolean" },
                   "manualTranslation": { "type": "boolean", "readOnly": true },
                   "retranslating": { "type": "boolean", "readOnly": true },
+                  "translationScopeKind":
+                    {
+                      "type": "string",
+                      "enum": ["paragraph", "chapter"],
+                      "readOnly": true,
+                      "description": "Kind of the persisted translationBlocks scope. Chapter requests cancel and join paragraph work before replacing its scope. Missing kind with nonempty IDs denotes a paragraph scope.",
+                    },
                   "translationBlocks":
                     {
                       "type": "array",

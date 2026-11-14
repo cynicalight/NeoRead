@@ -5549,6 +5549,11 @@ export interface components {
             enabled?: boolean;
             readonly manualTranslation?: boolean;
             readonly retranslating?: boolean;
+            /**
+             * @description Kind of the persisted translationBlocks scope. Chapter requests cancel and join paragraph work before replacing its scope. Missing kind with nonempty IDs denotes a paragraph scope.
+             * @enum {string}
+             */
+            readonly translationScopeKind?: "paragraph" | "chapter";
             /** @description Explicitly requested paragraph IDs processed by the existing translation lane without resuming unrelated paused work. */
             readonly translationBlocks?: string[];
             /** @description Changes when a reparse publishes new source; readers reload source and translations. */

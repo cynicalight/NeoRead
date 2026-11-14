@@ -304,6 +304,10 @@ func (s *Server) requestTranslation(w http.ResponseWriter, r *http.Request) {
 			fail(w, 409, "正文仍在解析中")
 			return
 		}
+		if p.TranslationScopeKind == "chapter" && len(p.TranslationBlocks) > 0 {
+			fail(w, 409, "请先暂停或完成当前章节翻译，再重新翻译单个段落")
+			return
+		}
 		items, readErr := s.translations(d.ID, selectTranslationBlocks(m, []string{req.BlockID}))
 		if readErr != nil {
 			fail(w, 500, "无法读取译文")

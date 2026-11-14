@@ -28,7 +28,8 @@ type Processing struct {
 	Retranslating         bool   `json:"retranslating,omitempty"`
 	LayoutRevision        string `json:"layoutRevision,omitempty"`
 	// TranslationBlocks isolates explicit units from inactive full-document work.
-	TranslationBlocks []string `json:"translationBlocks,omitempty"`
+	TranslationBlocks    []string `json:"translationBlocks,omitempty"`
+	TranslationScopeKind string   `json:"translationScopeKind,omitempty"`
 	// Chapter is a book chapter waiting for its pages to be parsed.
 	Chapter           *PageRange       `json:"chapter,omitempty"`
 	Translating       *ProcessingStage `json:"translating,omitempty"`

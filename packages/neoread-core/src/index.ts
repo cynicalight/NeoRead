@@ -711,6 +711,9 @@ export interface Processing {
   autoTranslateMaxPages?: number;
   manualTranslation?: boolean;
   enabled?: boolean;
+  /** Persisted execution scope. A chapter request supersedes paragraph work. */
+  translationBlocks?: string[];
+  translationScopeKind?: "paragraph" | "chapter";
   translating?: ProcessingStage;
   usageTracked?: boolean;
   startedAt?: string;

@@ -217,6 +217,7 @@ ON CONFLICT(document_id,block_id,source_hash) DO UPDATE SET body=excluded.body`,
 		return err
 	}
 	p.TranslationBlocks = nil
+	p.TranslationScopeKind = ""
 	p.Enabled, p.Retranslating = true, true
 	if !options.Automatic {
 		p.AutoTranslateMaxPages = nil

@@ -61,6 +61,7 @@ func (s *Store) prepareManualEPUBProcessing() error {
 			}
 			p.EPUBManual = true
 			p.Enabled, p.Status, p.Detail = false, "paused", "旧任务已暂停，请按章节翻译"
+			p.TranslationBlocks, p.TranslationScopeKind = nil, ""
 			p.Phase, p.Translating = "translating", &ProcessingStage{Status: "complete", Detail: "请按章节翻译"}
 			p.TranslationsTotal = p.TranslationsDone
 		} else if !errors.Is(err, sql.ErrNoRows) {
@@ -271,6 +272,10 @@ func (s *Server) requestEPUBTranslationChapter(w http.ResponseWriter, r *http.Re
 	from, to, _, err := s.epubTranslationChapter(d.ID, blocks, req.Location)
 	if err != nil {
 		fail(w, 400, err.Error())
+		return
+	}
+	if _, err = s.preemptParagraphTranslation(d.ID, blocks); err != nil {
+		fail(w, 500, "无法停止旧段落翻译")
 		return
 	}
 	result, err := s.queueTranslationInput(d, blocks[from:to])

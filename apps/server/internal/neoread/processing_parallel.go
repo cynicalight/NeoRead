@@ -30,9 +30,15 @@ func mergeProcessing(current, update Processing) Processing {
 			}
 			if len(current.TranslationBlocks) > 0 {
 				current.Translating = &ProcessingStage{Status: "queued", Detail: "等待翻译指定段落"}
+			} else {
+				current.TranslationScopeKind = ""
 			}
 		}
 	} else {
+		if update.queueTranslation {
+			current.TranslationBlocks = update.TranslationBlocks
+			current.TranslationScopeKind = update.TranslationScopeKind
+		}
 		if stage := current.Translating; stage != nil {
 			if (update.resetStages && (stage.Status == "failed" || stage.Status == "waiting")) || (update.wakeStages && stage.Status == "waiting") || (update.recoverStages && stage.Status == "running") {
 				stage.Status = "queued"

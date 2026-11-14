@@ -49,7 +49,11 @@ func (s *Server) queueTranslationInput(d Document, input translationInput) (tran
 		costs[paragraph.BlockID] = utf8.RuneCountInString(paragraph.Source)
 	}
 	pending := false
+	scope := []string{}
 	for _, t := range items {
+		if t.Status != "complete" {
+			scope = append(scope, t.BlockID)
+		}
 		pending = pending || t.Status == "pending" || t.Status == "running"
 		if t.Status == "pending" {
 			inserted, err := s.Store.DB.Exec(`INSERT OR IGNORE INTO translations(document_id,block_id,source_hash,status,body) VALUES(?,?,?,?,?)`, d.ID, t.BlockID, t.SourceHash, t.Status, jsonText(t))
@@ -85,6 +89,15 @@ func (s *Server) queueTranslationInput(d Document, input translationInput) (tran
 		if err != nil {
 			return result, err
 		}
+		if p.TranslationScopeKind != "chapter" {
+			p.TranslationBlocks = nil
+		}
+		for _, blockID := range scope {
+			if !slices.Contains(p.TranslationBlocks, blockID) {
+				p.TranslationBlocks = append(p.TranslationBlocks, blockID)
+			}
+		}
+		p.TranslationScopeKind = "chapter"
 		p.enable, p.queueTranslation = true, true
 		err = s.Store.saveProcessing(p)
 		return result, err
@@ -123,6 +136,7 @@ ON CONFLICT(document_id,block_id,source_hash) DO UPDATE SET status=excluded.stat
 	}
 	if (!p.Enabled || len(p.TranslationBlocks) > 0 || !active) && !slices.Contains(p.TranslationBlocks, item.BlockID) {
 		p.TranslationBlocks = append(p.TranslationBlocks, item.BlockID)
+		p.TranslationScopeKind = "paragraph"
 	}
 	if p.Translating == nil || p.Translating.Status != "running" {
 		p.Translating = &ProcessingStage{Status: "queued", Detail: "等待翻译指定段落"}
@@ -207,12 +221,18 @@ func (s *Server) requestTranslationRange(w http.ResponseWriter, r *http.Request)
 		respond(w, 202, translationRange{})
 		return
 	}
+	p, err = s.preemptParagraphTranslation(d.ID, m)
+	if err != nil {
+		fail(w, 500, "无法停止旧段落翻译")
+		return
+	}
 	if d.Library == "books" && len(unparsedPages(known, start, end)) > 0 {
 		if s.activeProcessing[d.ID] != nil {
 			fail(w, 409, "正在处理其他章节，请稍后再试")
 			return
 		}
 		p.Enabled, p.Chapter = true, &PageRange{req.FromPage, req.ToPage}
+		p.TranslationScopeKind = "chapter"
 		p.Phase, p.Status, p.Detail = "learning", "queued", "等待解析本章"
 		p.Translating, p.CompletedAt = nil, ""
 		if err = s.Store.saveProcessing(p); err != nil {
@@ -228,4 +248,59 @@ func (s *Server) requestTranslationRange(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	respond(w, 202, result)
+}
+
+// The canceled worker has joined. Revoke only its unfinished current records,
+// restoring a successful replacement snapshot when one exists.
+func (s *Server) retractParagraphTranslations(documentID string, input translationInput) error {
+	s.translationMu.Lock()
+	defer s.translationMu.Unlock()
+	tx, err := s.Store.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var restored []TranslationBlock
+	for _, item := range input.translationItems() {
+		var body string
+		err = tx.QueryRow("SELECT body FROM translations WHERE document_id=? AND block_id=? AND source_hash=?", documentID, item.BlockID, item.SourceHash).Scan(&body)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err = json.Unmarshal([]byte(body), &item); err != nil {
+			return err
+		}
+		if item.Status == "complete" {
+			continue
+		}
+		err = tx.QueryRow("SELECT body FROM translation_previous WHERE document_id=? AND block_id=? AND source_hash=?", documentID, item.BlockID, item.SourceHash).Scan(&body)
+		if err == nil {
+			item = TranslationBlock{}
+			if err = json.Unmarshal([]byte(body), &item); err != nil {
+				return err
+			}
+		} else if errors.Is(err, sql.ErrNoRows) {
+			item.Status, item.Error, item.FormulaMarkdown = "idle", "", ""
+			item.Sentences = []TranslationSentence{}
+		} else {
+			return err
+		}
+		if _, err = tx.Exec("UPDATE translations SET status=?,body=? WHERE document_id=? AND block_id=? AND source_hash=?", item.Status, jsonText(item), documentID, item.BlockID, item.SourceHash); err != nil {
+			return err
+		}
+		if _, err = tx.Exec("DELETE FROM translation_previous WHERE document_id=? AND block_id=? AND source_hash=?", documentID, item.BlockID, item.SourceHash); err != nil {
+			return err
+		}
+		restored = append(restored, item)
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	for _, item := range restored {
+		s.publishTranslation(documentID, item)
+	}
+	return nil
 }

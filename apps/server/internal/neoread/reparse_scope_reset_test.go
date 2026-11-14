@@ -28,6 +28,7 @@ func TestWholeReparseReplacesWaitingParagraphScope(t *testing.T) {
 			defer reparseTranslationProvider(t, s, &paragraphs)()
 			p.Enabled = false
 			p.TranslationBlocks = []string{m.Blocks[0].ID}
+			p.TranslationScopeKind = "paragraph"
 			p.Phase, p.Status = "translating", "waiting"
 			p.Translating = &ProcessingStage{Status: "waiting", Detail: "等待模型配置"}
 			if err := s.Store.saveProcessing(p); err != nil {
@@ -37,6 +38,9 @@ func TestWholeReparseReplacesWaitingParagraphScope(t *testing.T) {
 				p = queueReparseForTest(t, s, "doc")
 			} else {
 				p = assistanceRequest(t, s, "retranslate")
+			}
+			if len(p.TranslationBlocks) != 0 || p.TranslationScopeKind != "" {
+				t.Fatal("whole reparse retained paragraph execution scope", p)
 			}
 			if err := s.processTranslation(t.Context(), &p); err != nil {
 				t.Fatal(err)
