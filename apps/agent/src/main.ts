@@ -44,8 +44,14 @@ const checkpointAcks = new Map<
 let checkpointCounter = 0;
 let started = false,
   runId = "";
-const send = (event: Record<string, unknown>) =>
-  process.stdout.write(JSON.stringify({ version: 1, runId, ...event }) + "\n");
+const send = (
+  event: Record<string, unknown>,
+  flushed?: (error?: Error | null) => void,
+) =>
+  process.stdout.write(
+    JSON.stringify({ version: 1, runId, ...event }) + "\n",
+    flushed,
+  );
 const close = () => {
   controller.abort();
   for (const entry of pending.values()) entry.reject(new Error("运行已取消"));
@@ -96,16 +102,20 @@ lines.on("line", (line) => {
                 send(event);
               }),
             ).then(() => ({}));
-      void operation
-        .then((result) => send({ type: "complete", ...result }))
-        .catch(() => {
-          send({ type: "error", errorCode, upstreamStatus, phase });
-          process.exitCode = 1;
-        })
-        .finally(() => {
+      const finish = (event: Record<string, unknown>, exitCode: 0 | 1) => {
+        // SDK callbacks may retain browser preconnect sockets for a minute.
+        // This one-shot operation is settled; flush its terminal event before
+        // exiting so Go can check the exit status and activate the credential.
+        send(event, (error) => {
           lines.close();
           process.stdin.destroy();
+          process.exit(error ? 1 : exitCode);
         });
+      };
+      void operation.then(
+        (result) => finish({ type: "complete", ...result }, 0),
+        () => finish({ type: "error", errorCode, upstreamStatus, phase }, 1),
+      );
     } else if (message.type === "start" && !started) {
       started = true;
       const input = message.input as AgentRequest;
