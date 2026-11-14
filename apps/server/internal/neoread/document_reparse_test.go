@@ -326,9 +326,17 @@ func finishQueuedReparse(t *testing.T, s *Server, documentID string) {
 	if err != nil || len(items) == 0 {
 		t.Fatal("no persisted translation work", err)
 	}
+	d, err := s.Store.Document(documentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "pending"
+	if d.Type == "epub" || d.Library == "books" {
+		expected = "idle"
+	}
 	for _, item := range items {
 		var status string
-		if err = s.Store.DB.QueryRow("SELECT status FROM translations WHERE document_id=? AND block_id=? AND source_hash=?", documentID, item.BlockID, item.SourceHash).Scan(&status); err != nil || status != "pending" {
+		if err = s.Store.DB.QueryRow("SELECT status FROM translations WHERE document_id=? AND block_id=? AND source_hash=?", documentID, item.BlockID, item.SourceHash).Scan(&status); err != nil || status != expected {
 			t.Fatal("new unit not queued", item, status, err)
 		}
 	}

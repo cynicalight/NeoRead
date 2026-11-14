@@ -128,9 +128,9 @@ it("keeps completion visible and requires confirmation before retranslation", as
   const restart = () =>
     host.querySelector<HTMLButtonElement>('[aria-label="重新解析并翻译"]')!;
   await act(async () => restart().click());
-  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
-    "重新解析并翻译全文？",
-  );
+  const dialog = document.querySelector('[role="alertdialog"]')?.textContent;
+  expect(dialog).toContain("重新解析并翻译全文？");
+  expect(dialog).toContain("不受自动翻译页数上限限制");
   expect(api.setAssistance).not.toHaveBeenCalled();
   const dialogButton = (text: string) =>
     [

@@ -49,7 +49,7 @@ func waitForReparseTranslation(t *testing.T, s *Server, documentID string) Proce
 		if err != nil || p.Status == "failed" || p.Status == "waiting" {
 			t.Fatal("reparse translation did not finish", p, err)
 		}
-		if p.Status == "complete" && !p.Retranslating {
+		if (p.Status == "complete" || p.Status == "paused") && !p.Retranslating {
 			return p
 		}
 		select {
@@ -60,7 +60,7 @@ func waitForReparseTranslation(t *testing.T, s *Server, documentID string) Proce
 	}
 }
 
-func TestReparseWorkerTranslatesAllPDFUnitsWithoutReaderRequest(t *testing.T) {
+func TestReparseWorkerHonorsPDFTranslationScope(t *testing.T) {
 	for _, library := range []string{"papers", "books"} {
 		for _, missing := range []bool{false, true} {
 			t.Run(library+"/missing="+jsonText(missing), func(t *testing.T) {
@@ -89,21 +89,25 @@ func TestReparseWorkerTranslatesAllPDFUnitsWithoutReaderRequest(t *testing.T) {
 				var paragraphs atomic.Int32
 				defer reparseTranslationProvider(t, s, &paragraphs)()
 				queued := queueReparseForTest(t, s, "doc")
-				if queued.Chapter != nil || queued.ManualTranslation || queued.AutoTranslateMaxPages != nil || paragraphs.Load() != 0 {
+				if queued.Chapter != nil || queued.ManualTranslation || (library == "papers" && queued.AutoTranslateMaxPages == nil) || paragraphs.Load() != 0 {
 					t.Fatal("queue retained a chapter cap or called the provider synchronously", queued)
 				}
 				stop := s.StartProcessing(t.Context())
 				defer stop()
 				finished := waitForReparseTranslation(t, s, "doc")
-				if paragraphs.Load() != 2 || finished.TranslationsDone != 2 || finished.LayoutRevision == "" {
-					t.Fatal("worker failed to retranslate unchanged renumbered units", paragraphs.Load(), finished)
+				expected := int32(2)
+				if library == "books" {
+					expected = 0
+				}
+				if paragraphs.Load() != expected || finished.TranslationsDone != int(expected) || finished.LayoutRevision == "" {
+					t.Fatal("worker ignored automatic translation scope", paragraphs.Load(), finished)
 				}
 			})
 		}
 	}
 }
 
-func TestReparseWorkerTranslatesEPUBWithoutPriorTranslations(t *testing.T) {
+func TestReparseWorkerLeavesEPUBIdleWithoutPriorTranslations(t *testing.T) {
 	for _, missing := range []bool{false, true} {
 		t.Run("missing="+jsonText(missing), func(t *testing.T) {
 			s := testServer(t)
@@ -131,8 +135,17 @@ func TestReparseWorkerTranslatesEPUBWithoutPriorTranslations(t *testing.T) {
 			stop := s.StartProcessing(t.Context())
 			defer stop()
 			finished := waitForReparseTranslation(t, s, d.ID)
-			if int(paragraphs.Load()) != len(blocks.translationItems()) || finished.TranslationsDone != len(blocks.translationItems()) || finished.LayoutRevision == "" || !finished.EPUBManual {
-				t.Fatal("EPUB restart was paused, scoped, or never translated", paragraphs.Load(), finished)
+			if paragraphs.Load() != 0 || finished.TranslationsDone != 0 || finished.LayoutRevision == "" || !finished.EPUBManual || finished.Status != "paused" {
+				t.Fatal("EPUB reparse requested automatic translation", paragraphs.Load(), finished)
+			}
+			current, err := s.translations(d.ID, blocks)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range current {
+				if item.Status != "idle" {
+					t.Fatal("EPUB reparse left runnable units", item)
+				}
 			}
 		})
 	}
@@ -161,8 +174,7 @@ func TestReparseEPUBResumesPublishedCacheBeforeReadyCheckpoint(t *testing.T) {
 	if err := s.refreshRetranslationLayout(context.Background(), &p); err != nil {
 		t.Fatal("published EPUB was parsed a second time", err)
 	}
-	options, err := s.retranslationOptions(&p)
-	if err != nil || !options.LayoutReady || p.LayoutRevision != options.LayoutRun {
-		t.Fatal("published EPUB did not resume", options, p, err)
+	if p.Retranslating || p.LayoutRevision == "" || p.Enabled {
+		t.Fatal("published EPUB did not resume to chapter-only state", p)
 	}
 }

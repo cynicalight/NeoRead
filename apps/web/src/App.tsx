@@ -68,7 +68,7 @@ import { Settings } from "./Settings";
 import { DocumentTabs, ReadingWorkspaces } from "./DocumentTabs";
 import { flushProgress } from "./progress";
 import { useProcessing } from "./ProcessingStatus";
-import { observeReparsedLayouts } from "./reparse-and-translate-document";
+import { observeReparsedLayouts } from "./reparse-document";
 import { useUpdateProgress } from "./update-progress";
 import { applyDocumentTheme, useResolvedTheme } from "./appearance";
 import { LibraryFilterBar, LibraryTagFilters } from "./DocumentManagement";

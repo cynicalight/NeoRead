@@ -2577,7 +2577,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /**
-                         * @description retranslate queues the same background reparse and full retranslation as POST /api/documents/{id}/reparse, with saved current translation choices. Previous translations stay visible until replacement succeeds.
+                         * @description retranslate is an explicit manual request for a completed PDF paper: it queues a background reparse and then retranslates every unit of the new layout with saved current translation choices, even above the automatic translation page limit. Previous translations stay visible until replacement succeeds.
                          * @enum {string}
                          */
                         action: "start" | "pause" | "resume" | "retranslate";
@@ -2666,7 +2666,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Queue a background reparse and full retranslation of the PDF paper, PDF book, or EPUB, keeping document identity and user data. The stored original is parsed again; the previous source stays readable until the new layout or publication cache validates and is published. Every translatable unit of the new source is then queued for translation, including unchanged text and whole books. The response is returned once the job is persisted; parsing and translation continue after the request disconnects or the app restarts, and `layoutRevision` changes when the new source is published. */
+        /** @description Queue a background reparse of the PDF paper, PDF book, or EPUB, keeping document identity and user data. The stored original is parsed again; the previous source stays readable until the new layout or publication cache validates and is published, and `layoutRevision` then changes. Reparse does not grant translation permission. The current automatic translation settings are captured when the request is accepted: a PDF paper whose new layout has at most `autoTranslateMaxPages` pages is retranslated automatically; above the limit, with the limit 0, or with legacy `autoTranslatePDF=false`, it waits for manual translation (`manualTranslation=true`). PDF books and EPUB are never translated automatically after reparse; their new units stay idle until a chapter or paragraph is requested. The response is returned once the job is persisted; the job continues after the request disconnects or the app restarts. */
         post: {
             parameters: {
                 query?: never;
@@ -2678,7 +2678,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Reparse and translation queued */
+                /** @description Reparse queued */
                 202: {
                     headers: {
                         [name: string]: unknown;

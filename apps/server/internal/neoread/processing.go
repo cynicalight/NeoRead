@@ -149,7 +149,7 @@ func (s *Store) recoverPausedPaperParsing() error {
 	return err
 }
 
-// Only document creation reads this preference; updating settings never wakes a job.
+// Imports and explicit reparses capture this preference; settings never wake a job.
 // PDF books wait for an explicit chapter request before layout or translation.
 func importedProcessing(id, library, value string) Processing {
 	p := initialProcessing(id)

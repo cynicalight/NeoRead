@@ -1,6 +1,7 @@
 package neoread
 
 import (
+	"database/sql"
 	"encoding/json"
 	"maps"
 	"net/http"
@@ -12,6 +13,7 @@ type translationRunOptions struct {
 	// One full layout parse per explicit restart; retries resume the same run.
 	LayoutRun   string `json:"layoutRun,omitempty"`
 	LayoutReady bool   `json:"layoutReady,omitempty"`
+	Automatic   bool   `json:"automatic,omitempty"`
 	Provider    string `json:"provider"`
 	Model       string `json:"model"`
 	Effort      string `json:"effort"`
@@ -110,6 +112,10 @@ func (s *Server) requestReparseAndTranslation(w http.ResponseWriter, r *http.Req
 		fail(w, 400, "文档不支持重新解析并翻译")
 		return
 	}
+	if requireProvider && (d.Type != "pdf" || d.Library != "papers") {
+		fail(w, 400, "图书请按章节翻译")
+		return
+	}
 	if !requireProvider {
 		s.documentMu.Lock()
 		busy := s.documentClosed || s.deletingDocuments[d.ID] || len(s.documentTasks[d.ID]) > 0
@@ -118,6 +124,15 @@ func (s *Server) requestReparseAndTranslation(w http.ResponseWriter, r *http.Req
 			fail(w, 409, "文档正在处理，请稍后重试")
 			return
 		}
+	}
+	var policy Processing
+	if !requireProvider {
+		var settings string
+		if err = s.Store.DB.QueryRow("SELECT value FROM settings WHERE key='neoread'").Scan(&settings); err != nil && err != sql.ErrNoRows {
+			fail(w, 500, "无法读取翻译设置")
+			return
+		}
+		policy = initialDocumentProcessing(d, settings)
 	}
 	m, _ := s.readTranslationSource(d.ID)
 	s.processingMu.Lock()
@@ -148,6 +163,10 @@ func (s *Server) requestReparseAndTranslation(w http.ResponseWriter, r *http.Req
 		var options translationRunOptions
 		if providerReady {
 			options = snapshotTranslationOptions(config)
+		}
+		options.Automatic = !requireProvider
+		if options.Automatic {
+			p.AutoTranslateMaxPages = policy.AutoTranslateMaxPages
 		}
 		err = s.queueRetranslation(p, m, options)
 	}
@@ -198,7 +217,10 @@ ON CONFLICT(document_id,block_id,source_hash) DO UPDATE SET body=excluded.body`,
 		return err
 	}
 	p.Enabled, p.Retranslating = true, true
-	p.AutoTranslateMaxPages, p.ManualTranslation, p.Chapter = nil, false, nil
+	if !options.Automatic {
+		p.AutoTranslateMaxPages = nil
+	}
+	p.ManualTranslation, p.Chapter = false, nil
 	p.EPUBManual = true
 	p.Phase, p.Status, p.Detail = "translating", "queued", "等待重新解析版面"
 	p.CompletedAt, p.Warning = "", ""

@@ -75,6 +75,13 @@ func (s *Server) processTranslation(ctx context.Context, p *Processing) error {
 	if runErr == nil && work.Retranslating {
 		runErr = s.refreshRetranslationLayout(ctx, &work)
 	}
+	if runErr == nil && !work.Enabled {
+		latest, err := s.Store.processing(p.DocumentID)
+		if err == nil {
+			*p = latest
+		}
+		return err
+	}
 	if runErr == nil {
 		m, runErr = s.readTranslationSource(work.DocumentID)
 	}

@@ -14,7 +14,7 @@ import {
   AlertDialogCancel,
 } from "@neoread/ui/components/alert-dialog";
 import { toast } from "sonner";
-import { trackReparsePublication } from "../reparse-and-translate-document";
+import { trackReparsePublication } from "../reparse-document";
 
 type Action = "start" | "pause" | "resume";
 
@@ -136,7 +136,7 @@ export function AssistanceControls({
               <AlertDialogTitle>重新解析并翻译全文？</AlertDialogTitle>
               <AlertDialogDescription>
                 将在后台重新解析全文版面，再使用当前 Agent
-                翻译模型和已保存的翻译提示词翻译新版的所有段落，包括未变化的段落。解析成功前保留现有内容；仍能对应原文的旧译文会在新结果完成后逐段替换。
+                翻译模型和已保存的翻译提示词翻译新版的所有段落，包括未变化的段落。这是手动翻译请求，不受自动翻译页数上限限制。解析成功前保留现有内容；仍能对应原文的旧译文会在新结果完成后逐段替换。
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

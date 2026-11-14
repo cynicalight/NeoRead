@@ -141,10 +141,23 @@ func (s *Server) refreshRetranslationLayout(ctx context.Context, p *Processing) 
 	}
 	phase = "materializing"
 	items := source.translationItems()
-	// New block IDs may match historical rows. Explicit retranslation must queue
-	// every newly parsed unit, even if an older matching translation is complete.
+	chapterOnly := options.Automatic && (d.Type == "epub" || d.Library == "books")
+	manual := false
+	if layout, ok := source.(layoutManifest); ok {
+		p.PagesDone, p.PagesTotal = layout.Pages, layout.Pages
+		if limit := p.AutoTranslateMaxPages; options.Automatic && !chapterOnly && limit != nil {
+			manual = *limit == 0 || layout.Pages > *limit
+		}
+	}
+	if chapterOnly {
+		for i := range items {
+			items[i].Status = "idle"
+		}
+	}
 	s.translationMu.Lock()
 	defer s.translationMu.Unlock()
+	s.Store.processingWriteMu.Lock()
+	defer s.Store.processingWriteMu.Unlock()
 	tx, err := s.Store.DB.Begin()
 	if err != nil {
 		return err
@@ -188,6 +201,29 @@ ON CONFLICT(document_id,block_id,source_hash) DO UPDATE SET status=excluded.stat
 ON CONFLICT(document_id) DO UPDATE SET status='queued'`, p.DocumentID); err != nil {
 		return err
 	}
+	prepared := *p
+	prepared.LayoutRevision = options.LayoutRun
+	if chapterOnly || manual {
+		prepared.Retranslating = false
+		prepared.CompletedAt = ""
+		prepared.TranslationsDone, prepared.TranslationsTotal = translationCounts(items)
+		prepared.Phase, prepared.Status = "translating", "paused"
+		prepared.Enabled = false
+		prepared.ManualTranslation = manual
+		prepared.Detail = "解析完成，等待手动翻译"
+		if chapterOnly {
+			prepared.Detail = "解析完成，可按章节翻译"
+			prepared.AutoTranslateMaxPages = nil
+		}
+		prepared.Translating = &ProcessingStage{Status: "paused", Detail: prepared.Detail}
+		prepared.UpdatedAt = now()
+		if _, err = tx.Exec("DELETE FROM translation_restarts WHERE document_id=?", d.ID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec("UPDATE document_processing SET phase=?,status=?,body=? WHERE document_id=?", prepared.Phase, prepared.Status, jsonText(prepared), d.ID); err != nil {
+			return err
+		}
+	}
 	if err = tx.Commit(); err != nil {
 		return err
 	}
@@ -195,7 +231,7 @@ ON CONFLICT(document_id) DO UPDATE SET status='queued'`, p.DocumentID); err != n
 		_ = os.RemoveAll(filepath.Join(s.Store.Root, "cache", d.ID+"-previous-"+options.LayoutRun))
 	}
 	units = len(items)
-	p.LayoutRevision = options.LayoutRun
+	*p = prepared
 	s.connectorRevision.Add(1)
 	return nil
 }

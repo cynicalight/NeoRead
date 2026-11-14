@@ -538,8 +538,8 @@ export const api = {
     }),
   processing: (signal?: AbortSignal) =>
     request<Processing[]>("/api/processing", { signal }),
-  /** Accepts a background reparse whose new units are all retranslated. */
-  reparseAndTranslateDocument: (id: string) =>
+  /** Accepts a background reparse; the server decides any translation follow-up from current settings. */
+  reparseDocument: (id: string) =>
     request<Processing>(`/api/documents/${encodeURIComponent(id)}/reparse`, {
       method: "POST",
     }),

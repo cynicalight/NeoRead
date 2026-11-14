@@ -112,8 +112,15 @@ func (s *Server) setAssistance(w http.ResponseWriter, r *http.Request) {
 	p.Enabled = req.Action != "pause"
 	p.CompletedAt = ""
 	if p.Enabled {
-		p.AutoTranslateMaxPages = nil
-		p.ManualTranslation = false
+		options, err := s.retranslationOptions(&p)
+		if err != nil {
+			fail(w, 500, "无法读取翻译任务")
+			return
+		}
+		if options == nil || !options.Automatic {
+			p.AutoTranslateMaxPages = nil
+			p.ManualTranslation = false
+		}
 		p.Status, p.Detail = "queued", "等待继续处理"
 		// Prepare the complete manifest; cached completed results remain reusable.
 		// Completed translations and formula results are reused.

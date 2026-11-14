@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@neoread/api", () => ({
   api: {
-    reparseAndTranslateDocument: mocks.reparse,
+    reparseDocument: mocks.reparse,
     assistance: vi.fn(async () => undefined),
     setAssistance: (...args: unknown[]) => mocks.reparse(...args),
     saveCover: mocks.saveCover,
@@ -44,8 +44,8 @@ import { BookCoverImage } from "./book-cover";
 import { AssistanceControls } from "./translation/AssistanceControls";
 import {
   observeReparsedLayouts,
-  reparseAndTranslateDocument,
-} from "./reparse-and-translate-document";
+  reparseDocument,
+} from "./reparse-document";
 
 const acceptedAt = "2026-11-14T00:00:00Z";
 function job(documentId: string, patch: Partial<Processing> = {}): Processing {
@@ -110,7 +110,7 @@ afterEach(async () => {
 });
 const cover = () => host.querySelector("img")?.src;
 
-it("reports a started full-book job and keeps the cover until the new source is published", async () => {
+it("reports an accepted book reparse without promising translation and keeps the cover until publication", async () => {
   const doc = {
     id: "epub-started",
     type: "epub",
@@ -119,12 +119,12 @@ it("reports a started full-book job and keeps the cover until the new source is 
   } as Document;
   await act(async () => root.render(<BookCoverImage doc={doc} />));
   const old = cover();
-  await act(async () => reparseAndTranslateDocument(doc));
+  await act(async () => reparseDocument(doc));
   expect(mocks.success).toHaveBeenCalledWith(
-    expect.stringMatching(/^已开始重新解析并翻译全文《Book》.*整本书/),
+    "已开始重新解析《Book》，进度见处理状态。",
     expect.anything(),
   );
-  expect(mocks.success.mock.calls[0][0]).not.toContain("完成。");
+  expect(mocks.success.mock.calls[0][0]).not.toMatch(/翻译|整本书|完成/);
   observeReparsedLayouts([job(doc.id, { status: "running" })]);
   await settle();
   expect(cover()).toBe(old);
@@ -179,7 +179,7 @@ it("reloads a missing EPUB cover once the reparse publishes", async () => {
     host.querySelector("img")!.dispatchEvent(new Event("error")),
   );
   expect(cover()).toBeUndefined();
-  await act(async () => reparseAndTranslateDocument(doc));
+  await act(async () => reparseDocument(doc));
   observeReparsedLayouts([published(doc.id)]);
   await settle();
   expect(cover()).toBeDefined();
@@ -195,8 +195,8 @@ it("renders and saves a fresh PDF first page after publication", async () => {
   const { getPage, destroy } = renderablePDF();
   await act(async () => root.render(<BookCoverImage doc={doc} />));
   const old = cover();
-  await act(async () => reparseAndTranslateDocument(doc));
-  expect(mocks.success.mock.calls[0][0]).toContain("全文的所有段落");
+  await act(async () => reparseDocument(doc));
+  expect(mocks.success.mock.calls[0][0]).not.toMatch(/翻译|全文/);
   expect(getPage).not.toHaveBeenCalled();
   observeReparsedLayouts([published(doc.id)]);
   await settle();
@@ -212,7 +212,7 @@ it("renders and saves a fresh PDF first page after publication", async () => {
 it("ignores a poll issued before the job was accepted", async () => {
   const doc = { id: "pdf-stale-poll", type: "pdf", title: "PDF" } as Document;
   const { getPage } = renderablePDF();
-  await act(async () => reparseAndTranslateDocument(doc));
+  await act(async () => reparseDocument(doc));
   observeReparsedLayouts([
     { ...published(doc.id), updatedAt: "2026-11-13T00:00:00Z" },
   ]);
@@ -229,11 +229,11 @@ it("ignores a poll issued before the job was accepted", async () => {
 
 it("keeps the old cover when the request is rejected", async () => {
   const doc = { id: "rejected-epub", type: "epub", title: "Book" } as Document;
-  mocks.reparse.mockRejectedValueOnce(new Error("翻译模型未配置"));
+  mocks.reparse.mockRejectedValueOnce(new Error("文档正在处理"));
   await act(async () => root.render(<BookCoverImage doc={doc} />));
   const old = cover();
-  await act(async () => reparseAndTranslateDocument(doc));
-  expect(mocks.error).toHaveBeenCalledWith("翻译模型未配置", expect.anything());
+  await act(async () => reparseDocument(doc));
+  expect(mocks.error).toHaveBeenCalledWith("文档正在处理", expect.anything());
   expect(mocks.success).not.toHaveBeenCalled();
   observeReparsedLayouts([published(doc.id)]);
   await settle();
@@ -243,7 +243,7 @@ it("keeps the old cover when the request is rejected", async () => {
 it("reports a background parse failure and a configuration wait truthfully", async () => {
   const doc = { id: "failed-pdf", type: "pdf", title: "PDF" } as Document;
   const { getPage } = renderablePDF();
-  await act(async () => reparseAndTranslateDocument(doc));
+  await act(async () => reparseDocument(doc));
   const waiting = job(doc.id, {
     status: "waiting",
     detail: "请先配置翻译模型",
@@ -252,7 +252,7 @@ it("reports a background parse failure and a configuration wait truthfully", asy
   observeReparsedLayouts([waiting]);
   expect(mocks.warning).toHaveBeenCalledOnce();
   expect(mocks.warning).toHaveBeenCalledWith(
-    "《PDF》重新解析并翻译正在等待：请先配置翻译模型",
+    "《PDF》重新解析正在等待：请先配置翻译模型",
   );
   observeReparsedLayouts([
     job(doc.id, { status: "failed", detail: "版面解析失败" }),
@@ -276,7 +276,7 @@ it("reports a cover failure separately and preserves the previous PDF cover", as
   }));
   await act(async () => root.render(<BookCoverImage doc={doc} />));
   const old = cover();
-  await act(async () => reparseAndTranslateDocument(doc));
+  await act(async () => reparseDocument(doc));
   observeReparsedLayouts([published(doc.id)]);
   await settle();
   expect(cover()).toBe(old);
@@ -301,7 +301,7 @@ it("waits for an earlier PDF cover upload before publishing the refreshed cover"
     host.querySelector("img")!.dispatchEvent(new Event("error")),
   );
   expect(mocks.saveCover).toHaveBeenCalledTimes(1);
-  await act(async () => reparseAndTranslateDocument(doc));
+  await act(async () => reparseDocument(doc));
   observeReparsedLayouts([published(doc.id)]);
   await settle();
   expect(mocks.getDocument).toHaveBeenCalledTimes(1);

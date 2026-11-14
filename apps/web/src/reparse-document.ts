@@ -23,18 +23,16 @@ export function trackReparsePublication(doc: Document, job: Processing) {
     waiting: false,
   });
 }
-export async function reparseAndTranslateDocument(doc: Document) {
+export async function reparseDocument(doc: Document) {
   if (submitting.has(doc.id)) return;
   submitting.add(doc.id);
-  const message = toast.loading(`正在提交《${doc.title}》的重新解析并翻译…`);
+  const message = toast.loading(`正在提交《${doc.title}》的重新解析…`);
   try {
-    const job = await api.reparseAndTranslateDocument(doc.id);
+    const job = await api.reparseDocument(doc.id);
     trackReparsePublication(doc, job);
-    const scope = doc.library === "books" ? "整本书" : "全文";
-    toast.success(
-      `已开始重新解析并翻译全文《${doc.title}》。新版解析完成后会翻译${scope}的所有段落，进度见处理状态。`,
-      { id: message },
-    );
+    toast.success(`已开始重新解析《${doc.title}》，进度见处理状态。`, {
+      id: message,
+    });
   } catch (error) {
     toast.error((error as Error).message, { id: message });
   } finally {
@@ -55,9 +53,7 @@ export function observeReparsedLayouts(jobs: Processing[]) {
       toast.error(`《${entry.doc.title}》重新解析失败：${job.detail}`);
     } else if (job.status === "waiting" && !entry.waiting) {
       entry.waiting = true;
-      toast.warning(
-        `《${entry.doc.title}》重新解析并翻译正在等待：${job.detail}`,
-      );
+      toast.warning(`《${entry.doc.title}》重新解析正在等待：${job.detail}`);
     } else if (job.status !== "waiting") entry.waiting = false;
   }
 }
