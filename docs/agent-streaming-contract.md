@@ -8,6 +8,10 @@
 
 登录和模型目录查询是一次性 worker 操作：SDK 完成后写出终态，等待标准输出写入完成，再按成功/失败退出。Go 仍校验终态、退出码和凭据激活结果；浏览器预连接留下的空闲 socket 不应延迟本地连接完成。
 
+`GET /api/ai/quota?provider=codex|claude` 区分两种额度：Codex 指 NeoRead 当前 ChatGPT 应用授权（`client_id`）的应用额度，不是账号周额度；Claude 指当前 NeoRead Pi 连接账号的周额度。当前公开 SDK 与文档未提供应用剩余额度的读取接口，因此 Codex 明确返回不可用，不请求账户级 WHAM 接口、不切换登录通道、不编造百分比或重置时间；用户可在 [ChatGPT 用量设置](https://chatgpt.com/settings/usage) 查看和管理应用限额。应用与授权范围见 [OpenAI 官方说明](https://developers.openai.com/siwc/token-sharing-open-source)。Claude 使用 SDK 解析并按需刷新凭据，只读查询 `seven_day` 用量，不启动模型回合或读取外部 CLI 凭据；短时窗口不能替代周窗口。查询期间换号或断开时丢弃旧账号结果，前端在连接刷新后隐藏旧额度；同一账号临时查询失败可保留上次确认值并提示错误。
+
+API Key 模型的后台能力检测与当前 Agent 选择分离。仅当实时选中的 Agent 是 API Key 时，才弹出“全部模型均未通过图片理解检测”的全局警告；检测结束前切换到 Claude、Codex 等连接时保持静默。主动切换到 API Key 时也检查已缓存的检测结果，不能因后台检测已完成而漏掉提示。其他连接通过检测的状态不受 API Key 检测失败影响。
+
 以下早期版本记录描述了外部 CLI 和旧 API 的协议演进。当前运行时以本节为准。
 
 ## Claude Code 文档工具 · 2026-11-03

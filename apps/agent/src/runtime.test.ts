@@ -1868,3 +1868,104 @@ test.each([200, 400])(
     }
   },
 );
+
+test.each([
+  "success",
+  "unauthorized",
+  "redirect",
+  "invalid-json",
+  "cancel",
+] as const)(
+  "quota one-shot worker flushes a sanitized terminal for %s",
+  async (mode) => {
+    const directory = await mkdtemp(join(tmpdir(), "neoread-quota-worker-"));
+    const authPath = join(directory, "auth.json");
+    const preload = join(directory, "quota-fixture.mjs");
+    await writeFile(
+      authPath,
+      JSON.stringify({
+        anthropic: {
+          type: "oauth",
+          access: "fixture-secret",
+          refresh: "refresh-secret",
+          expires: Date.now() + 3600000,
+        },
+      }),
+    );
+    await writeFile(
+      preload,
+      `
+      globalThis.fetch = async (input, init) => {
+        if (String(input) !== "https://api.anthropic.com/api/oauth/usage" ||
+            init.method !== "GET" || init.redirect !== "error" ||
+            new Headers(init.headers).get("authorization") !== "Bearer fixture-secret")
+          throw new Error("Unexpected fixture request");
+        if (${JSON.stringify(mode)} === "cancel") {
+          const { promise, reject } = Promise.withResolvers();
+          init.signal.addEventListener("abort", () => reject(new Error("fixture-secret")), {once:true});
+          process.kill(process.pid, "SIGINT");
+          await promise;
+        }
+        if (${JSON.stringify(mode)} === "redirect") throw new Error("redirect fixture-secret");
+        if (${JSON.stringify(mode)} === "unauthorized") return new Response("upstream-secret", {status:401});
+        if (${JSON.stringify(mode)} === "invalid-json") return new Response("upstream-secret");
+        return Response.json({seven_day:{utilization:100,resets_at:"2026-11-20T00:00:00Z"},secret:"upstream-secret"});
+      };
+    `,
+    );
+    const child = spawn(
+      process.execPath,
+      ["--import", preload, "dist/main.mjs"],
+      { cwd: root },
+    );
+    const exited = once(child, "exit");
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    try {
+      child.stdin.write(
+        JSON.stringify({
+          type: "quota",
+          input: {
+            runId: "fixture-quota",
+            connection: { provider: "anthropic", authPath },
+          },
+        }) + "\n",
+      );
+      const [code] = await bounded(exited, 4000, "Quota worker did not exit");
+      const events = stdout
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(events).toHaveLength(1);
+      expect(code).toBe(mode === "success" ? 0 : 1);
+      expect(stdout + stderr).not.toMatch(
+        /fixture-secret|refresh-secret|upstream-secret/,
+      );
+      if (mode === "success")
+        expect(events[0]).toEqual({
+          version: 1,
+          runId: "fixture-quota",
+          type: "complete",
+          quota: {
+            remaining: 0,
+            resetsAt: "2026-11-20T00:00:00.000Z",
+          },
+        });
+      else {
+        expect(events[0].type).toBe("error");
+        expect(events[0].quota).toBeUndefined();
+        if (mode === "unauthorized")
+          expect(events[0]).toMatchObject({
+            errorCode: "authentication",
+            upstreamStatus: 401,
+          });
+        if (mode === "redirect") expect(events[0].errorCode).toBe("network");
+      }
+    } finally {
+      if (child.exitCode === null) child.kill("SIGKILL");
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);

@@ -5,6 +5,7 @@ import {
   type PiConnection,
 } from "./connections";
 import { loginInteraction } from "./login-interaction";
+import { connectionQuota } from "./quota";
 import { createInterface } from "node:readline";
 import {
   runAgent,
@@ -66,7 +67,12 @@ lines.on("close", close);
 lines.on("line", (line) => {
   try {
     const message = JSON.parse(line);
-    if ((message.type === "login" || message.type === "catalog") && !started) {
+    if (
+      (message.type === "login" ||
+        message.type === "catalog" ||
+        message.type === "quota") &&
+      !started
+    ) {
       started = true;
       const input = message.input as {
         runId: string;
@@ -80,7 +86,12 @@ lines.on("line", (line) => {
       let phase = "starting";
       globalThis.fetch = async (url, options) => {
         try {
-          const response = await fetch(url, options);
+          const response = await fetch(
+            url,
+            message.type === "quota"
+              ? { ...options, redirect: "error" }
+              : options,
+          );
           errorCode = upstreamError(response.status);
           upstreamStatus = response.status;
           return response;
@@ -90,18 +101,22 @@ lines.on("line", (line) => {
         }
       };
       const operation =
-        message.type === "catalog"
-          ? connectionModels(input.connection, controller.signal).then(
-              (models) => ({ models }),
+        message.type === "quota"
+          ? connectionQuota(input.connection, controller.signal).then(
+              (quota) => ({ quota }),
             )
-          : loginConnection(
-              input.connection,
-              input.deviceId,
-              loginInteraction(controller.signal, (event) => {
-                if (event.type === "progress") phase = event.phase;
-                send(event);
-              }),
-            ).then(() => ({}));
+          : message.type === "catalog"
+            ? connectionModels(input.connection, controller.signal).then(
+                (models) => ({ models }),
+              )
+            : loginConnection(
+                input.connection,
+                input.deviceId,
+                loginInteraction(controller.signal, (event) => {
+                  if (event.type === "progress") phase = event.phase;
+                  send(event);
+                }),
+              ).then(() => ({}));
       const finish = (event: Record<string, unknown>, exitCode: 0 | 1) => {
         // SDK callbacks may retain browser preconnect sockets for a minute.
         // This one-shot operation is settled; flush its terminal event before

@@ -3234,6 +3234,13 @@
                 },
             },
         },
+      "/api/ai/quota": {
+        "get": {
+          "summary": "Read Claude weekly quota or Codex app allowance availability",
+          "parameters": [{"in": "query", "name": "provider", "required": true, "schema": {"type": "string", "enum": ["codex", "claude"]}}],
+          "responses": {"200": {"description": "Quota or an explicit unavailable reason", "content": {"application/json": {"schema": {"type": "object", "properties": {"remaining": {"type": "number", "minimum": 0, "maximum": 100}, "resetsAt": {"type": "string", "format": "date-time"}, "error": {"type": "string"}}}}}}}
+        }
+      },
       "/api/ai/auth/{provider}":
         {
           "parameters":

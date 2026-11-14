@@ -8,6 +8,12 @@ Agent 未连接时，点击卡片直接在浏览器发起授权；应用自动�
 
 `ai.connection.phase` 记录 `authorizing` / `exchanging`，`ai.connection.finish` 记录最终阶段与 `upstreamStatus`（未收到有效 HTTP 状态时为 `0`）。可按 `runId` 区分“仍在等待浏览器”和“回调后换码被上游拒绝”；不记录授权码、state、令牌、URL 或上游响应正文。
 
+`GET /api/ai/quota?provider=codex|claude` 使用现有 loopback API 认证，仅读取 NeoRead 当前活跃的 Pi 连接，不读取 CLI 凭据、自定义 API 余额或任何 NeoRead 账户账务。Claude 显示 `seven_day` 周窗口的剩余百分比与重置时间；Codex 的 Sign in with ChatGPT 授权目前无公开的本应用 `client_id` 额度读取接口，明确显示不可用，不以账户周额度替代，也不切换登录通道。
+
+额度响应中的 `remaining` 为 0—100 的百分比，`0` 是有效额度；缺连接、查询期间换号或上游未提供有效窗口时返回 `error`，不伪造零额度。重置时间如有则为 RFC3339。请求最多等待 15 秒并随调用方取消；worker 终态及退出确认后再次核对活跃凭据路径，拒绝旧账号结果。
+
+`agent.quota.read` 记录 `requestId`、`provider`、`outcome`（`success` / `unavailable` / `failed` / `cancelled`）、`durationMs` 和安全 `errorCode`。仅实际失败时分类错误，成功及明确不可用的错误码为空；不保存凭据、请求头、账号 ID、额度响应原文或上游错误正文，界面错误也使用固定安全文案。
+
 ## 导出范围
 
 导出当前保留的全部 NeoRead 运行日志，包括正常、警告和错误事件、轮转文件以及之前的应用会话。不是仅提取错误或故障前后的时间窗口。功能上线前没有记录的历史和已经被保留策略删除的文件不能恢复。

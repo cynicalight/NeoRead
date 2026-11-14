@@ -549,6 +549,10 @@ export const api = {
     request<PDFBlock[]>(`/api/documents/${id}/blocks`, { signal }),
   aiConfig: (signal?: AbortSignal) =>
     request<AIConfig>("/api/ai/config", { signal }),
+  agentQuota: (provider: "codex" | "claude", signal?: AbortSignal) =>
+    request<
+      paths["/api/ai/quota"]["get"]["responses"][200]["content"]["application/json"]
+    >(`/api/ai/quota?provider=${provider}`, { signal }),
   agentModels: (
     provider: string,
     signal?: AbortSignal,

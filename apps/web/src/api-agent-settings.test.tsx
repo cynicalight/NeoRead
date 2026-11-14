@@ -32,6 +32,7 @@ vi.mock("@neoread/api", () => ({
       available: [],
     })),
     providers: vi.fn(),
+    agentQuota: vi.fn(async () => ({ error: "未读取" })),
     aiConfig: vi.fn(),
     saveAIConfig: vi.fn(),
     testAI: vi.fn(),
@@ -292,6 +293,33 @@ it("selects the API agent from its card once a model passes", async () => {
   );
   expect(host.querySelector(apiCard)?.hasAttribute("data-selected")).toBe(true);
 });
+it.each(["codex", "claude"] as const)(
+  "does not warn about API vision failures while using %s, but warns when API is selected",
+  async (primary) => {
+    config.primary = primary;
+    config.api = { url: "https://api.example.com", model: "", hasKey: true };
+    config.capabilities = {
+      [primary]: { text: true, vision: true, checkedAt: "saved" },
+    };
+    listed = { "text-only": false };
+    vi.mocked(api.providers).mockResolvedValue([
+      { id: primary, installed: true, authenticated: true, status: "已登录" },
+      { id: "api", installed: true, authenticated: true, status: "已配置" },
+    ]);
+    await act(async () =>
+      root.render(<Settings open onOpenChange={() => {}} />),
+    );
+    expect(
+      useReaderStore.getState().aiConfig?.capabilities["api:text-only"],
+    ).toMatchObject({ text: true, vision: false });
+    expect(toast.warning).not.toHaveBeenCalled();
+    await selectAPI();
+    expect(useReaderStore.getState().aiConfig?.primary).toBe("api");
+    expect(toast.warning).toHaveBeenCalledWith(
+      expect.stringContaining("图片理解"),
+    );
+  },
+);
 it("opens the API settings from an unconfigured card", async () => {
   config.primary = "";
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));

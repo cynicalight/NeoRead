@@ -42,6 +42,7 @@ type piCatalogModel struct {
 }
 
 type piEvent struct {
+	Quota          *agentQuota                                          `json:"quota,omitempty"`
 	Phase          string                                               `json:"phase"`
 	UpstreamStatus int                                                  `json:"upstreamStatus"`
 	ErrorCode      ErrorKind                                            `json:"errorCode"`
