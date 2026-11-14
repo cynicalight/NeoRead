@@ -247,7 +247,8 @@ func (s *Server) requestEPUBTranslationChapter(w http.ResponseWriter, r *http.Re
 		return
 	}
 	var req struct {
-		Location EPUBReadingLocation `json:"location"`
+		Location    EPUBReadingLocation `json:"location"`
+		Retranslate bool                `json:"retranslate"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -277,6 +278,12 @@ func (s *Server) requestEPUBTranslationChapter(w http.ResponseWriter, r *http.Re
 	if _, err = s.preemptParagraphTranslation(d.ID, blocks); err != nil {
 		fail(w, 500, "无法停止旧段落翻译")
 		return
+	}
+	if req.Retranslate {
+		if err = s.prepareChapterRetranslation(d.ID, blocks[from:to]); err != nil {
+			fail(w, 409, "无法开始本章重译，请等待当前翻译完成后重试")
+			return
+		}
 	}
 	result, err := s.queueTranslationInput(d, blocks[from:to])
 	if err != nil {

@@ -682,10 +682,10 @@ export function EPUBReadingView({
         processing={processing}
         status={chapterStatus}
         stale={chapterStale}
-        onRequest={async () => {
+        onRequest={async (retranslate = false) => {
           const location = anchor ?? position.current;
           if (!location.href) throw new Error("正文仍在加载，请稍后再试");
-          await api.translateEPUBChapter(doc.id, location);
+          await api.translateEPUBChapter(doc.id, location, retranslate);
         }}
         onChange={refreshChapter}
       />
