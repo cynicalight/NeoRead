@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 
 	"neoread.local/server/internal/scholar"
 	"strings"
@@ -119,19 +117,18 @@ func TestPaperRefreshManualTitleUsesItForLookup(t *testing.T) {
 func TestPaperRefreshUsesTitleSuggestion(t *testing.T) {
 	s := testServer(t)
 	scholarFixture(t, s)
+	titles := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"title":"A Reliable Paper Title","venue":"Example Journal"}]}`))
+	}))
+	defer titles.Close()
+	s.scholar.SemanticScholar = titles.URL + "/"
 	upstream, calls := fakeAPI(t, func(_ int, _ apiCall) string { return `{"title":"A Reliable Paper Title"}` })
 	config := AIConfig{Primary: "api", API: APIConnection{URL: upstream.URL + "/v1", Key: "sk-test"}, TranslationModels: map[string]string{"api": "deepseek-flash"}}
 	passModels(&config, map[string]bool{"deepseek-flash": false})
 	if err := s.writeAIConfig(config); err != nil {
 		t.Fatal(err)
 	}
-	temp := t.TempDir()
-	node := filepath.Join(temp, "node")
-	if err := os.WriteFile(node, []byte("#!/bin/sh\nprintf '%s' '{\"metadata\":{},\"pages\":[\"Paper title and text\"]}' > \"$5\"\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("NEOREAD_NODE", node)
-	t.Setenv("NEOREAD_PROCESSOR", filepath.Join(temp, "main.mjs"))
+	paperMetadataFixture(t, quickPaperMetadata{Pages: []string{"Paper title and text"}})
 	w := uploadTo(t, s, "papers", "random.pdf", testPDF(1))
 	var d Document
 	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
@@ -140,7 +137,7 @@ func TestPaperRefreshUsesTitleSuggestion(t *testing.T) {
 	request(t, s, "POST", "/api/diagnostics/paper-refresh", nil)
 	s.runPaperRefresh(context.Background())
 	got, err := s.Store.Document(d.ID)
-	if err != nil || got.Title != "random" || got.Metadata.SuggestedTitle != "A Reliable Paper Title" || len(calls()) != 1 {
+	if err != nil || got.Title != "random" || got.Metadata.SuggestedTitle != "A Reliable Paper Title" || got.Metadata.Venue != "Example Journal" || got.Metadata.Lookup != "done" || len(calls()) != 1 {
 		t.Fatalf("document %+v err %v calls %d", got, err, len(calls()))
 	}
 }

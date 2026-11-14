@@ -6,11 +6,27 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func paperMetadataFixture(t *testing.T, metadata quickPaperMetadata) {
+	t.Helper()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node.js is required to exercise the PDF metadata worker")
+	}
+	temp := t.TempDir()
+	script := `import {writeFileSync} from "node:fs"; writeFileSync(process.argv[process.argv.indexOf("--output")+1], ` + jsonText(jsonText(metadata)) + `);`
+	if err := os.WriteFile(filepath.Join(temp, "paper-metadata.mjs"), []byte(script), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NEOREAD_NODE", node)
+	t.Setenv("NEOREAD_PROCESSOR", filepath.Join(temp, "main.mjs"))
+}
 
 func TestPaperImportsCompleteMetadataWithoutFullParsing(t *testing.T) {
 	for _, link := range []bool{false, true} {
@@ -26,13 +42,7 @@ func TestPaperImportsCompleteMetadataWithoutFullParsing(t *testing.T) {
 			}))
 			defer api.Close()
 			s.scholar.ArXivAPI = api.URL
-			temp := t.TempDir()
-			node := filepath.Join(temp, "node")
-			if err := os.WriteFile(node, []byte("#!/bin/sh\nprintf '%s' '{\"metadata\":{},\"pages\":[\"arXiv:1706.03762\"]}' > \"$5\"\n"), 0700); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("NEOREAD_NODE", node)
-			t.Setenv("NEOREAD_PROCESSOR", filepath.Join(temp, "main.mjs"))
+			paperMetadataFixture(t, quickPaperMetadata{Pages: []string{"arXiv:1706.03762"}})
 			var w *httptest.ResponseRecorder
 			if link {
 				pdf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -31,14 +31,7 @@ func TestAutoPaperTitleFallback(t *testing.T) {
 	if err := s.writeAIConfig(config); err != nil {
 		t.Fatal(err)
 	}
-	temp := t.TempDir()
-	node := filepath.Join(temp, "node")
-	script := "#!/bin/sh\nprintf '%s' '{\"metadata\":{},\"pages\":[\"A Reliable Paper Title\\nAuthors and abstract\"]}' > \"$5\"\n"
-	if err := os.WriteFile(node, []byte(script), 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("NEOREAD_NODE", node)
-	t.Setenv("NEOREAD_PROCESSOR", filepath.Join(temp, "main.mjs"))
+	paperMetadataFixture(t, quickPaperMetadata{Pages: []string{"A Reliable Paper Title\nAuthors and abstract"}})
 	w := uploadTo(t, s, "papers", "random.pdf", testPDF(1))
 	var d Document
 	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
