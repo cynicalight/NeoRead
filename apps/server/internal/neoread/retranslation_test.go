@@ -234,12 +234,31 @@ func TestRetranslationFailureVisibleWithPreviousTranslationPreserved(t *testing.
 	assistanceRequest(t, s, "retranslate")
 	item := newTranslation(m.Blocks[0])
 	item.Status, item.Error = "failed", "原文句子未完整对应"
+	events := make(chan TranslationBlock, 1)
+	s.translationMu.Lock()
+	s.translationSubscribers = map[string]map[chan TranslationBlock]struct{}{"doc": {events: {}}}
+	s.translationMu.Unlock()
 	if err := s.saveTranslation("doc", item); err != nil {
 		t.Fatal(err)
 	}
 	visible, err := s.visibleTranslations("doc", m)
 	if err != nil || visible[0].Status != "failed" || visible[0].Error != item.Error {
 		t.Fatalf("failure hidden: %+v, %v", visible, err)
+	}
+	if len(visible[0].Sentences) != 1 || visible[0].Sentences[0].Target != "旧译文" {
+		t.Fatalf("failed replacement hid the previous text: %+v", visible[0])
+	}
+	select {
+	case event := <-events:
+		if jsonText(event) != jsonText(visible[0]) {
+			t.Fatalf("SSE differs from reloaded translation: %+v %+v", event, visible[0])
+		}
+	default:
+		t.Fatal("failure did not publish a translation")
+	}
+	current, err := s.translations("doc", m)
+	if err != nil || current[0].Status != "failed" {
+		t.Fatalf("failed replacement no longer retryable: %+v %v", current, err)
 	}
 	previous, err := s.translationPrevious("doc")
 	if err != nil || !previous[item.BlockID+":"+item.SourceHash] {

@@ -93,6 +93,20 @@ func TestChapterRetranslationKeepsOldTextAndLimitsScope(t *testing.T) {
 			if err != nil || visible[first].Sentences[0].Target != "新译文" || visible[first+1].Sentences[0].Target != "旧译文" {
 				t.Fatalf("replacement: %+v %v", visible, err)
 			}
+			failed := items[first+1]
+			failed.Status, failed.Error = "failed", "重译失败"
+			failed.Sentences = []TranslationSentence{}
+			if err = s.saveTranslation("doc", failed); err != nil {
+				t.Fatal(err)
+			}
+			visible, err = s.visibleTranslations("doc", input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			old := visible[first+1]
+			if old.Status != "failed" || old.Error != failed.Error || len(old.Sentences) != 1 || old.Sentences[0].Target != "旧译文" {
+				t.Fatalf("failed chapter replacement hid the old text or its error: %+v", old)
+			}
 		})
 	}
 }
