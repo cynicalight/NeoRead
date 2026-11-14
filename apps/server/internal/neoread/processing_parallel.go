@@ -130,12 +130,10 @@ func (s *Server) processTranslation(ctx context.Context, p *Processing) error {
 			runErr = err
 			work.Status, work.Detail = "failed", err.Error()
 		} else {
-			work.TranslationsDone, work.TranslationsTotal = 0, len(items)
+			work.TranslationsDone, work.TranslationsTotal = translationCounts(items)
 			stage := &ProcessingStage{Status: "complete", Detail: "已完成"}
 			for _, item := range items {
 				switch item.Status {
-				case "complete":
-					work.TranslationsDone++
 				case "failed":
 					stage.Status, stage.Detail = "failed", "部分段落翻译失败"
 				case "pending", "running":

@@ -170,6 +170,9 @@ func TestForcedTranslationRunsOnlyRequestedUnitAcrossRestart(t *testing.T) {
 			if calls.Load() != 1 || p.Enabled != enabled || p.AutoTranslateMaxPages == nil || *p.AutoTranslateMaxPages != 0 || p.ManualTranslation != (kind == "manual-paper") {
 				t.Fatal("single-unit request changed automatic/full-paper policy", calls.Load(), p)
 			}
+			if (kind == "pdf-book" || kind == "epub") && (p.TranslationsDone != 1 || p.TranslationsTotal != 1) {
+				t.Fatal("unrequested idle units inflated single-paragraph progress", p)
+			}
 		})
 	}
 }
