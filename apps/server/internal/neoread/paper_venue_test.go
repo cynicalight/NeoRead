@@ -245,6 +245,10 @@ func TestVenueShortManualValidationAndInvalidation(t *testing.T) {
 	if m.VenueShort != "NEW" {
 		t.Fatal("refreshing the same venue discarded its resolved abbreviation", m)
 	}
+	m.Merge(PaperMetadata{Venue: "automatic venue"}, "lookup")
+	if m.Venue != "automatic venue" || m.VenueShort != "NEW" {
+		t.Fatal("case-only lookup discarded the abbreviation or changed the returned spelling", m)
+	}
 	m.VenueShort = "OLD"
 	m.Merge(PaperMetadata{Venue: "Other Venue"}, "lookup")
 	if m.VenueShort != "" {
@@ -260,6 +264,9 @@ func TestVenuePatchKeepsAbbreviationUnlessChanged(t *testing.T) {
 			{"date only", `{"date":"2024"}`, "Old Venue", "OLD"},
 			{"same venue with date", `{"venue":"Old Venue","date":"2024"}`, "Old Venue", "OLD"},
 			{"normalized same venue", `{"venue":"  Old Venue  ","date":"2024"}`, "Old Venue", "OLD"},
+			{"case-only venue", `{"venue":"old venue","date":"2024"}`, "old venue", "OLD"},
+			{"case and outer whitespace", `{"venue":"  OLD VENUE  ","date":"2024"}`, "OLD VENUE", "OLD"},
+			{"case-only venue with explicit clear", `{"venue":"old venue","venueShort":"","date":"2024"}`, "old venue", ""},
 			{"clear abbreviation", `{"venue":"Old Venue","venueShort":"","date":"2024"}`, "Old Venue", ""},
 			{"edit abbreviation", `{"venueShort":"NEW","date":"2024"}`, "Old Venue", "NEW"},
 			{"change venue", `{"venue":"New Venue","date":"2024"}`, "New Venue", ""},

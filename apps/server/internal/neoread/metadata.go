@@ -251,7 +251,7 @@ func (m *PaperMetadata) ApplyManual(patch map[string]json.RawMessage) error {
 	if short, ok := values["venueShort"]; ok && short.(string) != "" && venue == "" {
 		return errors.New("出处简称须有对应出处")
 	}
-	if venue != m.Venue {
+	if !strings.EqualFold(venue, m.Venue) {
 		m.VenueShort = ""
 	}
 	for key, value := range values {
@@ -296,7 +296,7 @@ func (m *PaperMetadata) Merge(found PaperMetadata, source string) []string {
 			}
 			value = v
 		}
-		if key == "venue" && (value != m.Venue || found.VenueShort != "") {
+		if key == "venue" && (!strings.EqualFold(value.(string), m.Venue) || found.VenueShort != "") {
 			m.set("venueShort", found.VenueShort, source)
 		}
 		m.set(key, value, source)
