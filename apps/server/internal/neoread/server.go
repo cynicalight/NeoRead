@@ -60,7 +60,6 @@ type Server struct {
 	documentClosed         bool
 	documentTasks          map[string]map[*documentTask]struct{}
 	deletingDocuments      map[string]bool
-	reparsingDocuments     map[string]bool
 	importMu               sync.Mutex
 	configMu               sync.Mutex
 	piLogins               sync.Map

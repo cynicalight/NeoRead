@@ -86,7 +86,10 @@ func (s *Server) epubBlocks(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, blocks)
 }
 func (s *Server) readEPUBBlocks(id string) (epubTranslationDocument, error) {
-	root := filepath.Join(s.Store.Root, "cache", id)
+	return s.Store.readEPUBBlocksAt(filepath.Join(s.Store.Root, "cache", id))
+}
+
+func (s *Store) readEPUBBlocksAt(root string) (epubTranslationDocument, error) {
 	data, err := os.ReadFile(filepath.Join(root, "manifest.json"))
 	if err != nil {
 		return nil, err
@@ -109,7 +112,7 @@ func (s *Server) readEPUBBlocks(id string) (epubTranslationDocument, error) {
 		if e != nil {
 			return nil, e
 		}
-		blocks, e := s.Store.readEPUBChapterBlocks(id, link.Href, name)
+		blocks, e := s.readEPUBChapterBlocksFile(filepath.Join(root, filepath.FromSlash(name)), link.Href)
 		if e != nil {
 			return nil, e
 		}
@@ -127,7 +130,10 @@ type epubChapterBlocksCache struct {
 // Cache immutable chapter text, shared by reading and annotation merging. File
 // metadata invalidates entries after re-extraction; the entry limit bounds retention.
 func (s *Store) readEPUBChapterBlocks(id, href, name string) (epubTranslationDocument, error) {
-	filename := filepath.Join(s.Root, "cache", id, filepath.FromSlash(name))
+	return s.readEPUBChapterBlocksFile(filepath.Join(s.Root, "cache", id, filepath.FromSlash(name)), href)
+}
+
+func (s *Store) readEPUBChapterBlocksFile(filename, href string) (epubTranslationDocument, error) {
 	s.epubBlocksMu.Lock()
 	defer s.epubBlocksMu.Unlock()
 	info, err := os.Stat(filename)

@@ -450,10 +450,10 @@ export const api = {
     }
     return response.blob();
   },
-  translate: (id: string, blockId = "") =>
+  translate: (id: string, blockId = "", force = false) =>
     request<{ queued: boolean }>(`/api/documents/${id}/translations`, {
       method: "POST",
-      body: JSON.stringify({ blockId }),
+      body: JSON.stringify({ blockId, force }),
     }),
   /** Queues the entire page range through the shared translation workers. */
   translateRange: (id: string, fromPage: number, toPage: number) =>
@@ -538,13 +538,11 @@ export const api = {
     }),
   processing: (signal?: AbortSignal) =>
     request<Processing[]>("/api/processing", { signal }),
+  /** Accepts a background reparse; the server decides any translation follow-up from current settings. */
   reparseDocument: (id: string) =>
-    request<{ reparsed: boolean }>(
-      `/api/documents/${encodeURIComponent(id)}/reparse`,
-      {
-        method: "POST",
-      },
-    ),
+    request<Processing>(`/api/documents/${encodeURIComponent(id)}/reparse`, {
+      method: "POST",
+    }),
   process: (id: string) =>
     request<Processing>(`/api/documents/${id}/processing`, { method: "POST" }),
   blocks: (id: string, signal?: AbortSignal) =>

@@ -110,7 +110,8 @@ func (s *Server) bookLayoutWorker(ctx context.Context) {
 		// A requested chapter owns the layout lane until its pages are parsed.
 		err := s.Store.DB.QueryRowContext(ctx, `SELECT j.document_id FROM book_layout_jobs j
  JOIN documents d ON d.id=j.document_id LEFT JOIN document_processing p ON p.document_id=d.id
- WHERE j.status IN ('queued','running') AND d.type='pdf' AND d.library='books' AND d.deleted_at='' AND NOT
+ WHERE j.status IN ('queued','running') AND d.type='pdf' AND d.library='books' AND d.deleted_at=''
+ AND COALESCE(json_extract(p.body,'$.retranslating'),0)=0 AND NOT
  (COALESCE(p.phase,'')='learning' AND p.status IN ('queued','running'))
  ORDER BY j.priority DESC, j.rowid LIMIT 1`).Scan(&documentID)
 		if err != nil {
@@ -223,6 +224,9 @@ func (s *Server) parseBookBatch(ctx context.Context, documentID string, batch *b
 	}
 	starts := s.bookChapterStarts(ctx, d)
 	from, to, ok := nextBookBatch(known, total, starts, readingPage(d))
+	if p, err := s.Store.processing(documentID); err == nil && p.Retranslating {
+		ok = false
+	}
 	if ok {
 		*batch = bookLayoutBatch{From: from, To: to, Chapters: len(starts)}
 		for i, start := range starts {

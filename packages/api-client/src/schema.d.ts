@@ -2577,7 +2577,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /**
-                         * @description retranslate restarts completed paper text with saved current translation choices, retaining previous translations until replacement succeeds. Books keep chapter translation controls.
+                         * @description retranslate is an explicit manual request for a completed PDF paper: it queues a background reparse and then retranslates every unit of the new layout with saved current translation choices, even above the automatic translation page limit. Previous translations stay visible until replacement succeeds.
                          * @enum {string}
                          */
                         action: "start" | "pause" | "resume" | "retranslate";
@@ -2666,7 +2666,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Rebuild the EPUB publication cache or PDF layout from the stored original while keeping document identity and user data. */
+        /** @description Queue a background reparse of the PDF paper, PDF book, or EPUB, keeping document identity and user data. The stored original is parsed again; the previous source stays readable until the new layout or publication cache validates and is published, and `layoutRevision` then changes. Reparse does not grant translation permission. The current automatic translation settings are captured when the request is accepted: a PDF paper whose new layout has at most `autoTranslateMaxPages` pages is retranslated automatically; above the limit, with the limit 0, or with legacy `autoTranslatePDF=false`, it waits for manual translation (`manualTranslation=true`). PDF books and EPUB are never translated automatically after reparse; their new units stay idle until a chapter or paragraph is requested. The response is returned once the job is persisted; the job continues after the request disconnects or the app restarts. */
         post: {
             parameters: {
                 query?: never;
@@ -2678,15 +2678,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Reparsed */
-                200: {
+                /** @description Reparse queued */
+                202: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": {
-                            reparsed: boolean;
-                        };
+                        "application/json": components["schemas"]["Processing"];
                     };
                 };
                 /** @description Error */
@@ -3312,6 +3310,7 @@ export interface paths {
             };
         };
         put?: never;
+        /** @description Queue unfinished translation units. With force=true, blockId is required and only that unit is explicitly retranslated, including completed or paused units; unrelated units and automatic translation policy remain unchanged. */
         post: {
             parameters: {
                 query?: never;
@@ -3325,11 +3324,16 @@ export interface paths {
                 content: {
                     "application/json": {
                         blockId?: string;
+                        /**
+                         * @description Explicitly retranslate only blockId. Requires a nonempty blockId.
+                         * @default false
+                         */
+                        force?: boolean;
                     };
                 };
             };
             responses: {
-                /** @description Translation queued; completed blocks are retained */
+                /** @description Translation queued; completed blocks are retained unless their blockId is explicitly forced */
                 202: {
                     headers: {
                         [name: string]: unknown;
@@ -5493,6 +5497,14 @@ export interface components {
             enabled?: boolean;
             readonly manualTranslation?: boolean;
             readonly retranslating?: boolean;
+            /**
+             * @description Kind of the persisted translationBlocks scope. Chapter requests cancel and join paragraph work before replacing its scope. Missing kind with nonempty IDs denotes a paragraph scope.
+             * @enum {string}
+             */
+            readonly translationScopeKind?: "paragraph" | "chapter";
+            /** @description Explicitly requested paragraph IDs processed by the existing translation lane without resuming unrelated paused work. */
+            readonly translationBlocks?: string[];
+            /** @description Changes when a reparse publishes new source; readers reload source and translations. */
             readonly layoutRevision?: string;
             readonly autoTranslateMaxPages?: number;
             /** @description EPUB work uses explicit chapter requests; the legacy automatic queue has been migrated. */
@@ -5662,7 +5674,7 @@ export interface components {
             blockId: string;
             sourceHash: string;
             /**
-             * @description idle: a book paragraph that has not been requested.
+             * @description idle: a book paragraph that has not been requested. failed with error "重新解析后匹配错误": an earlier translation lost its correspondence to a replaced layout and no new translation is queued.
              * @enum {unknown}
              */
             status: "idle" | "pending" | "running" | "complete" | "failed";
