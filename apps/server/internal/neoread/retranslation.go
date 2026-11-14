@@ -216,6 +216,7 @@ ON CONFLICT(document_id,block_id,source_hash) DO UPDATE SET body=excluded.body`,
 	if _, err = tx.Exec("INSERT INTO translation_restarts(document_id,options) VALUES(?,?) ON CONFLICT(document_id) DO UPDATE SET options=excluded.options", p.DocumentID, jsonText(options)); err != nil {
 		return err
 	}
+	p.TranslationBlocks = nil
 	p.Enabled, p.Retranslating = true, true
 	if !options.Automatic {
 		p.AutoTranslateMaxPages = nil
