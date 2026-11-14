@@ -122,6 +122,7 @@ export interface PaperMetadata {
   /** YYYY, YYYY-MM or YYYY-MM-DD. */
   date?: string;
   venue?: string;
+  venueShort?: string;
   volume?: string;
   issue?: string;
   pages?: string;
@@ -144,7 +145,7 @@ export interface PaperMetadata {
 }
 export type PaperMetadataField = Exclude<
   keyof PaperMetadata,
-  "sources" | "lookup" | "lookedUpAt" | "suggestedTitle"
+  "sources" | "lookup" | "lookedUpAt" | "suggestedTitle" | "venueShort"
 >;
 export type ReadingStatus = "unread" | "reading" | "done";
 export type PaperSort =

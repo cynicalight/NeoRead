@@ -1789,6 +1789,7 @@ function PaperRow({
                     <JournalRankBadges
                       id={doc.id}
                       venue={doc.metadata.venue || ""}
+                      venueShort={doc.metadata.venueShort}
                       config={journalRankConfig}
                       refreshRevision={journalRankRefresh}
                     />
@@ -1881,6 +1882,7 @@ function PaperRow({
               <JournalRankBadges
                 id={doc.id}
                 venue={doc.metadata.venue || ""}
+                venueShort={doc.metadata.venueShort}
                 config={journalRankConfig}
                 refreshRevision={journalRankRefresh}
               />

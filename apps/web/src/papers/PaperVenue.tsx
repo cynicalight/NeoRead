@@ -11,7 +11,7 @@ import { authorsShort, paperYear, venueLabel } from "./format";
 export function PaperVenue({ metadata }: { metadata: PaperMetadata }) {
   const tooltipId = useId();
   const [open, setOpen] = useState(false);
-  const venue = conferenceVenue(metadata.venue || "");
+  const venue = conferenceVenue(metadata.venue || "", metadata.venueShort);
   if (!venue.fullName) return <>{venueLabel(metadata)}</>;
   return (
     <Tooltip onOpenChange={setOpen}>
@@ -43,7 +43,10 @@ export function PaperByline({
   doc: Pick<Document, "author" | "metadata">;
   showAuthors: boolean;
 }) {
-  const details = [showAuthors ? authorsShort(doc) : "", paperYear(doc.metadata)]
+  const details = [
+    showAuthors ? authorsShort(doc) : "",
+    paperYear(doc.metadata),
+  ]
     .filter(Boolean)
     .join(" · ");
   const venue = venueLabel(doc.metadata);

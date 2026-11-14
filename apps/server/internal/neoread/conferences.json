@@ -2,56 +2,1879 @@
   {
     "abbreviation": "NeurIPS",
     "fullName": "Conference on Neural Information Processing Systems",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(neurips|nips|(conference on )?neural information processing systems|advances in neural information processing systems( [0-9]+)?)( \\((neurips|nips)( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+    "aliases": [
+      "NIPS",
+      "Neural Information Processing Systems",
+      "Advances in Neural Information Processing Systems",
+      "Advances in Neural Information Processing Systems (NIPS)",
+      "Neural Information Processing Systems (NIPS)",
+      "Conference on Neural Information Processing Systems (NIPS)"
+    ]
   },
   {
     "abbreviation": "ICML",
     "fullName": "International Conference on Machine Learning",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(icml|international conference on machine learning)( \\(icml( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+    "aliases": [
+      "International Conference on Machine Learning"
+    ]
   },
   {
     "abbreviation": "IJCAI",
-    "fullName": "International Joint Conference on Artificial Intelligence",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(ijcai|international joint conference on artificial intelligence)( \\(ijcai( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+    "fullName": "International Joint Conference on Artificial Intelligence"
   },
   {
     "abbreviation": "ICLR",
-    "fullName": "International Conference on Learning Representations",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(iclr|international conference on learning representations)( \\(iclr( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+    "fullName": "International Conference on Learning Representations"
   },
   {
     "abbreviation": "AAAI",
-    "fullName": "AAAI Conference on Artificial Intelligence",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(aaai|aaai conference on artificial intelligence)( \\(aaai( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+    "fullName": "AAAI Conference on Artificial Intelligence"
   },
   {
     "abbreviation": "ACL",
     "fullName": "Annual Meeting of the Association for Computational Linguistics",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(acl|annual meeting of the association for computational linguistics)( \\(acl( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+    "aliases": [
+      "Meeting of the Association for Computational Linguistics"
+    ]
   },
   {
     "abbreviation": "EMNLP",
-    "fullName": "Conference on Empirical Methods in Natural Language Processing",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(emnlp|conference on empirical methods in natural language processing)( \\(emnlp( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+    "fullName": "Conference on Empirical Methods in Natural Language Processing"
   },
   {
     "abbreviation": "NAACL",
     "fullName": "Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(naacl(-hlt)?|(conference of the )?north american chapter of the association for computational linguistics(: human language technologies)?)( \\(naacl(-hlt)?( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?(, volume 1 \\(long and short papers\\))?$"
+    "aliases": [
+      "NAACL-HLT",
+      "North American Chapter of the Association for Computational Linguistics",
+      "North American Chapter of the Association for Computational Linguistics: Human Language Technologies",
+      "Conference of the North American Chapter of the Association for Computational Linguistics",
+      "Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers)",
+      "Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL-HLT)"
+    ]
   },
   {
     "abbreviation": "CVPR",
     "fullName": "IEEE/CVF Conference on Computer Vision and Pattern Recognition",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(cvpr|(ieee(/cvf)? )?conference on computer vision and pattern recognition)( \\(cvpr( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+    "aliases": [
+      "IEEE/CVF Computer Vision and Pattern Recognition Conference",
+      "Conference on Computer Vision and Pattern Recognition",
+      "Computer Vision and Pattern Recognition Conference"
+    ]
   },
   {
     "abbreviation": "ICCV",
     "fullName": "IEEE/CVF International Conference on Computer Vision",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(iccv|(ieee(/cvf)? )?international conference on computer vision)( \\(iccv( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+    "aliases": [
+      "International Conference on Computer Vision"
+    ]
   },
   {
     "abbreviation": "ECCV",
-    "fullName": "European Conference on Computer Vision",
-    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(eccv|european conference on computer vision)( \\(eccv( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+    "fullName": "European Conference on Computer Vision"
+  },
+  {
+    "abbreviation": "PPoPP",
+    "fullName": "ACM SIGPLAN Symposium on Principles & Practice of Parallel Programming"
+  },
+  {
+    "abbreviation": "FAST",
+    "fullName": "USENIX Conference on File and Storage Technologies"
+  },
+  {
+    "abbreviation": "DAC",
+    "fullName": "Design Automation Conference"
+  },
+  {
+    "abbreviation": "HPCA",
+    "fullName": "IEEE International Symposium on High Performance Computer Architecture"
+  },
+  {
+    "abbreviation": "MICRO",
+    "fullName": "IEEE/ACM International Symposium on Microarchitecture"
+  },
+  {
+    "abbreviation": "SC",
+    "fullName": "International Conference for High Performance Computing, Networking, Storage, and Analysis"
+  },
+  {
+    "abbreviation": "ASPLOS",
+    "fullName": "International Conference on Architectural Support for Programming Languages and Operating Systems"
+  },
+  {
+    "abbreviation": "ISCA",
+    "fullName": "International Symposium on Computer Architecture"
+  },
+  {
+    "abbreviation": "USENIX ATC",
+    "fullName": "USENIX Annual Technical Conference"
+  },
+  {
+    "abbreviation": "EuroSys",
+    "fullName": "European Conference on Computer Systems"
+  },
+  {
+    "abbreviation": "SoCC",
+    "fullName": "ACM Symposium on Cloud Computing",
+    "aliases": [
+      "SOCC"
+    ]
+  },
+  {
+    "abbreviation": "SPAA",
+    "fullName": "ACM Symposium on Parallelism in Algorithms and Architectures"
+  },
+  {
+    "abbreviation": "PODC",
+    "fullName": "ACM Symposium on Principles of Distributed Computing"
+  },
+  {
+    "abbreviation": "FPGA",
+    "fullName": "ACM/SIGDA International Symposium on Field-Programmable Gate Arrays"
+  },
+  {
+    "abbreviation": "CGO",
+    "fullName": "The International Symposium on Code Generation and Optimization"
+  },
+  {
+    "abbreviation": "DATE",
+    "fullName": "Design, Automation & Test in Europe"
+  },
+  {
+    "abbreviation": "HOT CHIPS",
+    "fullName": "Hot Chips: A Symposium on High Performance Chips"
+  },
+  {
+    "abbreviation": "CLUSTER",
+    "fullName": "IEEE International Conference on Cluster Computing"
+  },
+  {
+    "abbreviation": "ICCD",
+    "fullName": "International Conference on Computer Design"
+  },
+  {
+    "abbreviation": "ICCAD",
+    "fullName": "International Conference on Computer-Aided Design"
+  },
+  {
+    "abbreviation": "ICDCS",
+    "fullName": "IEEE International Conference on Distributed Computing Systems"
+  },
+  {
+    "abbreviation": "CODES+ISSS",
+    "fullName": "International Conference on Hardware/Software Co-design and System Synthesis"
+  },
+  {
+    "abbreviation": "HiPEAC",
+    "fullName": "International Conference on High Performance and Embedded Architectures and Compilers"
+  },
+  {
+    "abbreviation": "SIGMETRICS",
+    "fullName": "International Conference on Measurement and Modeling of Computer Systems"
+  },
+  {
+    "abbreviation": "PACT",
+    "fullName": "International Conference on Parallel Architectures and Compilation Techniques"
+  },
+  {
+    "abbreviation": "ICPP",
+    "fullName": "International Conference on Parallel Processing"
+  },
+  {
+    "abbreviation": "ICS",
+    "fullName": "International Conference on Supercomputing"
+  },
+  {
+    "abbreviation": "VEE",
+    "fullName": "International Conference on Virtual Execution Environments"
+  },
+  {
+    "abbreviation": "IPDPS",
+    "fullName": "IEEE International Parallel & Distributed Processing Symposium"
+  },
+  {
+    "abbreviation": "Performance",
+    "fullName": "International Symposium on Computer Performance, Modeling, Measurements and Evaluation"
+  },
+  {
+    "abbreviation": "HPDC",
+    "fullName": "The International ACM Symposium on High-Performance Parallel and Distributed Computing"
+  },
+  {
+    "abbreviation": "ITC",
+    "fullName": "International Test Conference"
+  },
+  {
+    "abbreviation": "LISA",
+    "fullName": "Large Installation system Administration Conference"
+  },
+  {
+    "abbreviation": "MSST",
+    "fullName": "Mass Storage Systems and Technologies"
+  },
+  {
+    "abbreviation": "RTAS",
+    "fullName": "IEEE Real-Time and Embedded Technology and Applications Symposium"
+  },
+  {
+    "abbreviation": "Euro-Par",
+    "fullName": "European Conference on Parallel and Distributed Computing"
+  },
+  {
+    "abbreviation": "CF",
+    "fullName": "ACM International Conference on Computing Frontiers"
+  },
+  {
+    "abbreviation": "SYSTOR",
+    "fullName": "ACM International Systems and Storage Conference"
+  },
+  {
+    "abbreviation": "NOCS",
+    "fullName": "ACM/IEEE International Symposium on Networks-on-Chip"
+  },
+  {
+    "abbreviation": "ASAP",
+    "fullName": "IEEE International Conference on Application-Specific Systems, Architectures, and Processors"
+  },
+  {
+    "abbreviation": "ASP-DAC",
+    "fullName": "Asia and South Pacific Design Automation Conference"
+  },
+  {
+    "abbreviation": "ETS",
+    "fullName": "IEEE European Test Symposium"
+  },
+  {
+    "abbreviation": "FPL",
+    "fullName": "International Conference on Field-Programmable Logic and Applications"
+  },
+  {
+    "abbreviation": "FCCM",
+    "fullName": "IEEE Symposium on Field-Programmable Custom Computing Machines"
+  },
+  {
+    "abbreviation": "GLSVLSI",
+    "fullName": "Great Lakes Symposium on VLSI"
+  },
+  {
+    "abbreviation": "ATS",
+    "fullName": "IEEE Asian Test Symposium"
+  },
+  {
+    "abbreviation": "HPCC",
+    "fullName": "IEEE International Conference on High Performance Computing and Communications"
+  },
+  {
+    "abbreviation": "HiPC",
+    "fullName": "IEEE International Conference on High Performance Computing, Data and Analytics"
+  },
+  {
+    "abbreviation": "MASCOTS",
+    "fullName": "International Symposium on Modeling, Analysis, and Simulation of Computer and Telecommunication Systems"
+  },
+  {
+    "abbreviation": "ISPA",
+    "fullName": "IEEE International Symposium on Parallel and Distributed Processing with Applications"
+  },
+  {
+    "abbreviation": "CCGRID",
+    "fullName": "IEEE/ACM International Symposium on Cluster, Cloud and Grid Computing"
+  },
+  {
+    "abbreviation": "NPC",
+    "fullName": "IFIP International Conference on Network and Parallel Computing"
+  },
+  {
+    "abbreviation": "ICA3PP",
+    "fullName": "International Conference on Algorithms and Architectures for Parallel Processing"
+  },
+  {
+    "abbreviation": "CASES",
+    "fullName": "International Conference on Compilers, Architectures, and Synthesis for Embedded Systems"
+  },
+  {
+    "abbreviation": "FPT",
+    "fullName": "International Conference on Field-Programmable Technology"
+  },
+  {
+    "abbreviation": "ICPADS",
+    "fullName": "International Conference on Parallel and Distributed Systems"
+  },
+  {
+    "abbreviation": "ISCAS",
+    "fullName": "IEEE International Symposium on Circuits and Systems"
+  },
+  {
+    "abbreviation": "ISLPED",
+    "fullName": "International Symposium on Low Power Electronics and Design"
+  },
+  {
+    "abbreviation": "ISPD",
+    "fullName": "International Symposium on Physical Design"
+  },
+  {
+    "abbreviation": "HOTI",
+    "fullName": "IEEE Symposium on High-Performance Interconnects"
+  },
+  {
+    "abbreviation": "VTS",
+    "fullName": "IEEE VLSI Test Symposium"
+  },
+  {
+    "abbreviation": "ITC-Asia",
+    "fullName": "International Test Conference in Asia"
+  },
+  {
+    "abbreviation": "SIGCOMM",
+    "fullName": "ACM International Conference on Applications, Technologies, Architectures, and Protocols for Computer Communication"
+  },
+  {
+    "abbreviation": "MobiCom",
+    "fullName": "ACM International Conference on Mobile Computing and Networking"
+  },
+  {
+    "abbreviation": "INFOCOM",
+    "fullName": "IEEE International Conference on Computer Communications"
+  },
+  {
+    "abbreviation": "NSDI",
+    "fullName": "USENIX Symposium on Networked Systems Design and Implementation"
+  },
+  {
+    "abbreviation": "SenSys",
+    "fullName": "ACM Conference on Embedded Networked Sensor Systems"
+  },
+  {
+    "abbreviation": "CoNEXT",
+    "fullName": "ACM International Conference on emerging Networking EXperiments and Technologies"
+  },
+  {
+    "abbreviation": "SECON",
+    "fullName": "IEEE International Conference on Sensing, Communication, and Networking"
+  },
+  {
+    "abbreviation": "IPSN",
+    "fullName": "International Conference on Information Processing in Sensor Networks"
+  },
+  {
+    "abbreviation": "MobiSys",
+    "fullName": "ACM International Conference on Mobile Systems, Applications, and Services"
+  },
+  {
+    "abbreviation": "ICNP",
+    "fullName": "IEEE International Conference on Network Protocols"
+  },
+  {
+    "abbreviation": "MobiHoc",
+    "fullName": "International Symposium on Theory, Algorithmic Foundations, and Protocol Design for Mobile Networks and Mobile Computing"
+  },
+  {
+    "abbreviation": "NOSSDAV",
+    "fullName": "International Workshop on Network and Operating System Support for Digital Audio and Video"
+  },
+  {
+    "abbreviation": "IWQoS",
+    "fullName": "IEEE/ACM International Workshop on Quality of Service"
+  },
+  {
+    "abbreviation": "IMC",
+    "fullName": "ACM Internet Measurement Conference"
+  },
+  {
+    "abbreviation": "ANCS",
+    "fullName": "ACM/IEEE Symposium on Architectures for Networking and Communication Systems"
+  },
+  {
+    "abbreviation": "APNOMS",
+    "fullName": "Asia-Pacific Network Operations and Management Symposium"
+  },
+  {
+    "abbreviation": "FORTE",
+    "fullName": "International Conference on Formal Techniques for Distributed Objects, Components, and Systems"
+  },
+  {
+    "abbreviation": "LCN",
+    "fullName": "IEEE Conference on Local Computer Networks"
+  },
+  {
+    "abbreviation": "GLOBECOM",
+    "fullName": "IEEE Global Communications Conference"
+  },
+  {
+    "abbreviation": "ICC",
+    "fullName": "IEEE International Conference on Communications"
+  },
+  {
+    "abbreviation": "ICCCN",
+    "fullName": "IEEE International Conference on Computer Communications and Networks"
+  },
+  {
+    "abbreviation": "MASS",
+    "fullName": "IEEE International Conference on Mobile Ad-hoc and Sensor Systems"
+  },
+  {
+    "abbreviation": "P2P",
+    "fullName": "IEEE International Conference on P2P Computing"
+  },
+  {
+    "abbreviation": "IPCCC",
+    "fullName": "IEEE International Performance Computing and Communications Conference"
+  },
+  {
+    "abbreviation": "WoWMoM",
+    "fullName": "IEEE International Symposium on a World of Wireless Mobile and Multimedia Networks"
+  },
+  {
+    "abbreviation": "ISCC",
+    "fullName": "IEEE Symposium on Computers and Communications"
+  },
+  {
+    "abbreviation": "WCNC",
+    "fullName": "IEEE Wireless Communications and Networking Conference"
+  },
+  {
+    "abbreviation": "Networking",
+    "fullName": "IFIP International Conferences on Networking"
+  },
+  {
+    "abbreviation": "IM",
+    "fullName": "IFIP/IEEE International Symposium on Integrated Network Management"
+  },
+  {
+    "abbreviation": "MSN",
+    "fullName": "International Conference on Mobility, Sensing and Networking"
+  },
+  {
+    "abbreviation": "MSWiM",
+    "fullName": "International Conference on Modeling, Analysis and Simulation of Wireless and Mobile Systems"
+  },
+  {
+    "abbreviation": "WASA",
+    "fullName": "The International Conference on Wireless Artificial Intelligent Computing Systems and Applications"
+  },
+  {
+    "abbreviation": "HotNets",
+    "fullName": "ACM Workshop on Hot Topics in Networks"
+  },
+  {
+    "abbreviation": "APNet",
+    "fullName": "Asia-Pacific Workshop on Networking"
+  },
+  {
+    "abbreviation": "CCS",
+    "fullName": "ACM Conference on Computer and Communications Security",
+    "aliases": [
+      "ACM SIGSAC Conference on Computer and Communications Security"
+    ]
+  },
+  {
+    "abbreviation": "EUROCRYPT",
+    "fullName": "International Conference on the Theory and Applications of Cryptographic Techniques"
+  },
+  {
+    "abbreviation": "S&P",
+    "fullName": "IEEE Symposium on Security and Privacy"
+  },
+  {
+    "abbreviation": "CRYPTO",
+    "fullName": "International Cryptology Conference"
+  },
+  {
+    "abbreviation": "USENIX Security",
+    "fullName": "USENIX Security Symposium"
+  },
+  {
+    "abbreviation": "NDSS",
+    "fullName": "Network and Distributed System Security Symposium"
+  },
+  {
+    "abbreviation": "ACSAC",
+    "fullName": "Annual Computer Security Applications Conference"
+  },
+  {
+    "abbreviation": "ASIACRYPT",
+    "fullName": "Annual International Conference on the Theory and Application of Cryptology and Information Security"
+  },
+  {
+    "abbreviation": "ESORICS",
+    "fullName": "European Symposium on Research in Computer Security"
+  },
+  {
+    "abbreviation": "FSE",
+    "fullName": "Fast Software Encryption"
+  },
+  {
+    "abbreviation": "CSF",
+    "fullName": "IEEE Computer Security Foundations Symposium",
+    "aliases": [
+      "CSFW",
+      "IEEE Computer Security Foundations Workshop"
+    ]
+  },
+  {
+    "abbreviation": "SRDS",
+    "fullName": "IEEE International Symposium on Reliable Distributed Systems"
+  },
+  {
+    "abbreviation": "CHES",
+    "fullName": "International Conference on Cryptographic Hardware and Embedded Systems"
+  },
+  {
+    "abbreviation": "DSN",
+    "fullName": "International Conference on Dependable Systems and Networks"
+  },
+  {
+    "abbreviation": "RAID",
+    "fullName": "International Symposium on Research in Attacks, Intrusions and Defenses",
+    "aliases": [
+      "International Symposium on Recent Advances in Intrusion Detection"
+    ]
+  },
+  {
+    "abbreviation": "PKC",
+    "fullName": "International Workshop on Practice and Theory in Public Key Cryptography"
+  },
+  {
+    "abbreviation": "TCC",
+    "fullName": "Theory of Cryptography Conference"
+  },
+  {
+    "abbreviation": "WiSec",
+    "fullName": "ACM Conference on Security and Privacy in Wireless and Mobile Networks"
+  },
+  {
+    "abbreviation": "SACMAT",
+    "fullName": "ACM Symposium on Access Control Models and Technologies"
+  },
+  {
+    "abbreviation": "DRM",
+    "fullName": "ACM Workshop on Digital Rights Management"
+  },
+  {
+    "abbreviation": "IH&MMSec",
+    "fullName": "ACM Workshop on Information Hiding and Multimedia Security"
+  },
+  {
+    "abbreviation": "ACNS",
+    "fullName": "International Conference on Applied Cryptography and Network Security"
+  },
+  {
+    "abbreviation": "AsiaCCS",
+    "fullName": "ACM Asia Conference on Computer and Communications Security"
+  },
+  {
+    "abbreviation": "ACISP",
+    "fullName": "Australasian Conference on Information Security and Privacy"
+  },
+  {
+    "abbreviation": "CT-RSA",
+    "fullName": "The Cryptographer's Track at RSA Conference"
+  },
+  {
+    "abbreviation": "DIMVA",
+    "fullName": "Conference on Detection of Intrusions and Malware & Vulnerability Assessment"
+  },
+  {
+    "abbreviation": "DFRWS",
+    "fullName": "Digital Forensic Research Workshop"
+  },
+  {
+    "abbreviation": "FC",
+    "fullName": "Financial Cryptography and Data Security"
+  },
+  {
+    "abbreviation": "TrustCom",
+    "fullName": "IEEE International Conference on Trust,Security and Privacy in Computing and Communications"
+  },
+  {
+    "abbreviation": "SEC",
+    "fullName": "IFIP International Information Security Conference"
+  },
+  {
+    "abbreviation": "IFIP WG 11.9",
+    "fullName": "IFIP Working Group 11.9 International Conference on Digital Forensics"
+  },
+  {
+    "abbreviation": "ISC",
+    "fullName": "Information Security Conference"
+  },
+  {
+    "abbreviation": "ICDF2C",
+    "fullName": "International Conference on Digital Forensics & Cyber Crime"
+  },
+  {
+    "abbreviation": "ICICS",
+    "fullName": "International Conference on Information and Communications Security"
+  },
+  {
+    "abbreviation": "SecureComm",
+    "fullName": "International Conference on Security and Privacy in Communication Networks"
+  },
+  {
+    "abbreviation": "NSPW",
+    "fullName": "New Security Paradigms Workshop"
+  },
+  {
+    "abbreviation": "PAM",
+    "fullName": "Passive and Active Measurement Conference"
+  },
+  {
+    "abbreviation": "PETS",
+    "fullName": "Privacy Enhancing Technologies Symposium"
+  },
+  {
+    "abbreviation": "SAC",
+    "fullName": "Selected Areas in Cryptography"
+  },
+  {
+    "abbreviation": "SOUPS",
+    "fullName": "Symposium On Usable Privacy and Security"
+  },
+  {
+    "abbreviation": "HotSec",
+    "fullName": "USENIX Workshop on Hot Topics in Security"
+  },
+  {
+    "abbreviation": "EuroS&P",
+    "fullName": "IEEE European Symposium on Security and Privacy"
+  },
+  {
+    "abbreviation": "Inscrypt",
+    "fullName": "International Conference on Information Security and Cryptology"
+  },
+  {
+    "abbreviation": "PLDI",
+    "fullName": "ACM SIGPLAN Conference on Programming Language Design and Implementation"
+  },
+  {
+    "abbreviation": "POPL",
+    "fullName": "ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages"
+  },
+  {
+    "abbreviation": "FSE",
+    "fullName": "ACM International Conference on the Foundations of Software Engineering"
+  },
+  {
+    "abbreviation": "SOSP",
+    "fullName": "ACM Symposium on Operating Systems Principles"
+  },
+  {
+    "abbreviation": "OOPSLA",
+    "fullName": "Conference on Object-Oriented Programming Systems, Languages, and Applications"
+  },
+  {
+    "abbreviation": "ASE",
+    "fullName": "International Conference on Automated Software Engineering"
+  },
+  {
+    "abbreviation": "ICSE",
+    "fullName": "International Conference on Software Engineering"
+  },
+  {
+    "abbreviation": "ISSTA",
+    "fullName": "International Symposium on Software Testing and Analysis"
+  },
+  {
+    "abbreviation": "OSDI",
+    "fullName": "USENIX Symposium on Operating Systems Design and Implementation"
+  },
+  {
+    "abbreviation": "FM",
+    "fullName": "International Symposium on Formal Methods"
+  },
+  {
+    "abbreviation": "ECOOP",
+    "fullName": "European Conference on Object-Oriented Programming"
+  },
+  {
+    "abbreviation": "ETAPS",
+    "fullName": "European Joint Conferences on Theory and Practice of Software"
+  },
+  {
+    "abbreviation": "ICPC",
+    "fullName": "IEEE/ACM International Conference on Program Comprehension"
+  },
+  {
+    "abbreviation": "RE",
+    "fullName": "IEEE International Requirements Engineering Conference"
+  },
+  {
+    "abbreviation": "CAiSE",
+    "fullName": "International Conference on Advanced Information Systems Engineering"
+  },
+  {
+    "abbreviation": "ICFP",
+    "fullName": "ACM SIGPLAN International Conference on Functional Programming"
+  },
+  {
+    "abbreviation": "LCTES",
+    "fullName": "ACM SIGPLAN/SIGBED International Conference on Languages, Compilers and Tools for Embedded Systems"
+  },
+  {
+    "abbreviation": "MoDELS",
+    "fullName": "ACM/IEEE International Conference on Model Driven Engineering Languages and Systems"
+  },
+  {
+    "abbreviation": "CP",
+    "fullName": "International Conference on Principles and Practice of Constraint Programming"
+  },
+  {
+    "abbreviation": "ICSOC",
+    "fullName": "International Conference on Service Oriented Computing"
+  },
+  {
+    "abbreviation": "SANER",
+    "fullName": "IEEE International Conference on Software Analysis, Evolution, and Reengineering"
+  },
+  {
+    "abbreviation": "ICSME",
+    "fullName": "International Conference on Software Maintenance and Evolution"
+  },
+  {
+    "abbreviation": "VMCAI",
+    "fullName": "International Conference on Verification, Model Checking, and Abstract Interpretation"
+  },
+  {
+    "abbreviation": "ICWS",
+    "fullName": "IEEE International Conference on Web Services"
+  },
+  {
+    "abbreviation": "Middleware",
+    "fullName": "International Middleware Conference"
+  },
+  {
+    "abbreviation": "SAS",
+    "fullName": "International Static Analysis Symposium"
+  },
+  {
+    "abbreviation": "ESEM",
+    "fullName": "International Symposium on Empirical Software Engineering and Measurement"
+  },
+  {
+    "abbreviation": "ISSRE",
+    "fullName": "IEEE International Symposium on Software Reliability Engineering"
+  },
+  {
+    "abbreviation": "HotOS",
+    "fullName": "USENIX Workshop on Hot Topics in Operating Systems"
+  },
+  {
+    "abbreviation": "PEPM",
+    "fullName": "ACM SIGPLAN Workshop on Partial Evaluation and Program Manipulation"
+  },
+  {
+    "abbreviation": "PASTE",
+    "fullName": "ACM SIGPLAN-SIGSOFT Workshop on Program Analysis for Software Tools and Engineering"
+  },
+  {
+    "abbreviation": "APLAS",
+    "fullName": "Asian Symposium on Programming Languages and Systems"
+  },
+  {
+    "abbreviation": "APSEC",
+    "fullName": "Asia-Pacific Software Engineering Conference"
+  },
+  {
+    "abbreviation": "EASE",
+    "fullName": "International Conference on Evaluation and Assessment in Software Engineering"
+  },
+  {
+    "abbreviation": "ICECCS",
+    "fullName": "International Conference on Engineering of Complex Computer Systems"
+  },
+  {
+    "abbreviation": "ICST",
+    "fullName": "IEEE International Conference on Software Testing, Verification and Validation"
+  },
+  {
+    "abbreviation": "ISPASS",
+    "fullName": "IEEE International Symposium on Performance Analysis of Systems and Software"
+  },
+  {
+    "abbreviation": "SCAM",
+    "fullName": "IEEE International Working Conference on Source Code Analysis and Manipulation"
+  },
+  {
+    "abbreviation": "COMPSAC",
+    "fullName": "International Computer Software and Applications Conference"
+  },
+  {
+    "abbreviation": "ICFEM",
+    "fullName": "International Conference on Formal Engineering Methods"
+  },
+  {
+    "abbreviation": "SSE",
+    "fullName": "IEEE International Conference on Software Services Engineering"
+  },
+  {
+    "abbreviation": "ICSSP",
+    "fullName": "International Conference on Software and System Process"
+  },
+  {
+    "abbreviation": "SEKE",
+    "fullName": "International Conference on Software Engineering and Knowledge Engineering"
+  },
+  {
+    "abbreviation": "QRS",
+    "fullName": "International Conference on Software Quality, Reliability and Security"
+  },
+  {
+    "abbreviation": "ICSR",
+    "fullName": "International Conference on Software Reuse"
+  },
+  {
+    "abbreviation": "ICWE",
+    "fullName": "International Conference on Web Engineering"
+  },
+  {
+    "abbreviation": "SPIN",
+    "fullName": "International Symposium on Model Checking of Software"
+  },
+  {
+    "abbreviation": "ATVA",
+    "fullName": "International Symposium on Automated Technology for Verification and Analysis"
+  },
+  {
+    "abbreviation": "LOPSTR",
+    "fullName": "International Symposium on Logic-based Program Synthesis and Transformation"
+  },
+  {
+    "abbreviation": "TASE",
+    "fullName": "Theoretical Aspects of Software Engineering Conference"
+  },
+  {
+    "abbreviation": "MSR",
+    "fullName": "Mining Software Repositories"
+  },
+  {
+    "abbreviation": "REFSQ",
+    "fullName": "Requirements Engineering: Foundation for Software Quality"
+  },
+  {
+    "abbreviation": "WICSA",
+    "fullName": "Working IEEE/IFIP Conference on Software Architecture"
+  },
+  {
+    "abbreviation": "Internetware",
+    "fullName": "Asia-Pacific Symposium on Internetware"
+  },
+  {
+    "abbreviation": "RV",
+    "fullName": "International Conference on Runtime Verification"
+  },
+  {
+    "abbreviation": "SIGMOD",
+    "fullName": "ACM SIGMOD International Conference on Management of Data",
+    "aliases": [
+      "ACM SIGMOD Conference"
+    ]
+  },
+  {
+    "abbreviation": "SIGKDD",
+    "fullName": "ACM SIGKDD Conference on Knowledge Discovery and Data Mining",
+    "aliases": [
+      "KDD"
+    ]
+  },
+  {
+    "abbreviation": "ICDE",
+    "fullName": "IEEE International Conference on Data Engineering"
+  },
+  {
+    "abbreviation": "SIGIR",
+    "fullName": "International ACM SIGIR Conference on Research and Development in Information Retrieval"
+  },
+  {
+    "abbreviation": "VLDB",
+    "fullName": "International Conference on Very Large Data Bases"
+  },
+  {
+    "abbreviation": "CIKM",
+    "fullName": "ACM International Conference on Information and Knowledge Management"
+  },
+  {
+    "abbreviation": "WSDM",
+    "fullName": "ACM International Conference on Web Search and Data Mining"
+  },
+  {
+    "abbreviation": "PODS",
+    "fullName": "ACM SIGMOD-SIGACT-SIGAI Symposium on Principles of Database Systems"
+  },
+  {
+    "abbreviation": "DASFAA",
+    "fullName": "International Conference on Database Systems for Advanced Applications"
+  },
+  {
+    "abbreviation": "ECML-PKDD",
+    "fullName": "European Conference on Machine Learning and Principles and Practice of Knowledge Discovery in Databases"
+  },
+  {
+    "abbreviation": "ISWC",
+    "fullName": "International Semantic Web Conference"
+  },
+  {
+    "abbreviation": "ICDM",
+    "fullName": "IEEE International Conference on Data Mining"
+  },
+  {
+    "abbreviation": "ICDT",
+    "fullName": "International Conference on Database Theory"
+  },
+  {
+    "abbreviation": "EDBT",
+    "fullName": "International Conference on Extending Database Technology"
+  },
+  {
+    "abbreviation": "CIDR",
+    "fullName": "Conference on Innovative Data Systems Research"
+  },
+  {
+    "abbreviation": "SDM",
+    "fullName": "SIAM International Conference on Data Mining"
+  },
+  {
+    "abbreviation": "RecSys",
+    "fullName": "ACM Conference on Recommender Systems"
+  },
+  {
+    "abbreviation": "APWeb",
+    "fullName": "Asia Pacific Web Conference"
+  },
+  {
+    "abbreviation": "DEXA",
+    "fullName": "International Conference on Database and Expert System Applications"
+  },
+  {
+    "abbreviation": "ECIR",
+    "fullName": "European Conference on Information Retrieval"
+  },
+  {
+    "abbreviation": "ESWC",
+    "fullName": "Extended Semantic Web Conference"
+  },
+  {
+    "abbreviation": "WebDB",
+    "fullName": "International Workshop on Web and Databases"
+  },
+  {
+    "abbreviation": "ER",
+    "fullName": "International Conference on Conceptual Modeling"
+  },
+  {
+    "abbreviation": "MDM",
+    "fullName": "International Conference on Mobile Data Management"
+  },
+  {
+    "abbreviation": "SSDBM",
+    "fullName": "International Conference on Scientific and Statistical Database Management"
+  },
+  {
+    "abbreviation": "WAIM",
+    "fullName": "International Conference on Web Age Information Management"
+  },
+  {
+    "abbreviation": "SSTD",
+    "fullName": "International Symposium on Spatial and Temporal Databases"
+  },
+  {
+    "abbreviation": "PAKDD",
+    "fullName": "Pacific-Asia Conference on Knowledge Discovery and Data Mining"
+  },
+  {
+    "abbreviation": "WISE",
+    "fullName": "Web Information Systems Engineering"
+  },
+  {
+    "abbreviation": "ADMA",
+    "fullName": "International Conference on Advanced Data Mining and Applications"
+  },
+  {
+    "abbreviation": "STOC",
+    "fullName": "ACM Symposium on Theory of Computing"
+  },
+  {
+    "abbreviation": "SODA",
+    "fullName": "ACM-SIAM Symposium on Discrete Algorithms"
+  },
+  {
+    "abbreviation": "CAV",
+    "fullName": "International Conference on Computer Aided Verification"
+  },
+  {
+    "abbreviation": "FOCS",
+    "fullName": "IEEE Annual Symposium on Foundations of Computer Science"
+  },
+  {
+    "abbreviation": "LICS",
+    "fullName": "ACM/IEEE Symposium on Logic in Computer Science"
+  },
+  {
+    "abbreviation": "SoCG",
+    "fullName": "International Symposium on Computational Geometry"
+  },
+  {
+    "abbreviation": "ESA",
+    "fullName": "European Symposium on Algorithms"
+  },
+  {
+    "abbreviation": "CCC",
+    "fullName": "Conference on Computational Complexity"
+  },
+  {
+    "abbreviation": "ICALP",
+    "fullName": "International Colloquium on Automata, Languages and Programming"
+  },
+  {
+    "abbreviation": "CADE",
+    "fullName": "Conference on Automated Deduction"
+  },
+  {
+    "abbreviation": "CONCUR",
+    "fullName": "International Conference on Concurrency Theory"
+  },
+  {
+    "abbreviation": "HSCC",
+    "fullName": "International Conference on Hybrid Systems: Computation and Control"
+  },
+  {
+    "abbreviation": "SAT",
+    "fullName": "International Conference on Theory and Applications of Satisfiability Testing"
+  },
+  {
+    "abbreviation": "COCOON",
+    "fullName": "International Computing and Combinatorics Conference"
+  },
+  {
+    "abbreviation": "CSL",
+    "fullName": "Computer Science Logic"
+  },
+  {
+    "abbreviation": "FMCAD",
+    "fullName": "Formal Methods in Computer-Aided Design"
+  },
+  {
+    "abbreviation": "FSTTCS",
+    "fullName": "Foundations of Software Technology and Theoretical Computer Science"
+  },
+  {
+    "abbreviation": "DSAA",
+    "fullName": "IEEE International Conference on Data Science and Advanced Analytics"
+  },
+  {
+    "abbreviation": "ICTAC",
+    "fullName": "International Colloquium on Theoretical Aspects of Computing"
+  },
+  {
+    "abbreviation": "IPCO",
+    "fullName": "International Conference on Integer Programming and Combinatorial Optimization"
+  },
+  {
+    "abbreviation": "FSCD",
+    "fullName": "International Conference on Formal Structures for Computation and Deduction"
+  },
+  {
+    "abbreviation": "ISAAC",
+    "fullName": "International Symposium on Algorithms and Computation"
+  },
+  {
+    "abbreviation": "MFCS",
+    "fullName": "International Conference on Mathematical Foundations of Computer Science"
+  },
+  {
+    "abbreviation": "STACS",
+    "fullName": "Symposium on Theoretical Aspects of Computer Science"
+  },
+  {
+    "abbreviation": "SETTA",
+    "fullName": "International Symposium on Software Engineering: Theories, Tools, and Applications",
+    "aliases": [
+      "International Symposium on Dependable Software Engineering: Theories, Tools, and Applications"
+    ]
+  },
+  {
+    "abbreviation": "ACM MM",
+    "fullName": "ACM International Conference on Multimedia"
+  },
+  {
+    "abbreviation": "SIGGRAPH",
+    "fullName": "Annual Conference on Computer Graphics and Interactive Techniques",
+    "aliases": [
+      "ACM SIGGRAPH Conference on Computer Graphics and Interactive Techniques"
+    ]
+  },
+  {
+    "abbreviation": "VR",
+    "fullName": "IEEE Conference on Virtual Reality and 3D User Interfaces",
+    "aliases": [
+      "IEEE Virtual Reality"
+    ]
+  },
+  {
+    "abbreviation": "IEEE VIS",
+    "fullName": "IEEE Visualization Conference",
+    "aliases": [
+      "VIS"
+    ]
+  },
+  {
+    "abbreviation": "ICMR",
+    "fullName": "ACM SIGMM International Conference on Multimedia Retrieval"
+  },
+  {
+    "abbreviation": "I3D",
+    "fullName": "ACM SIGGRAPH Symposium on Interactive 3D Graphics and Games"
+  },
+  {
+    "abbreviation": "SCA",
+    "fullName": "ACM SIGGRAPH/Eurographics Symposium on Computer Animation"
+  },
+  {
+    "abbreviation": "DCC",
+    "fullName": "Data Compression Conference"
+  },
+  {
+    "abbreviation": "Eurographics",
+    "fullName": "Annual Conference of the European Association for Computer Graphics"
+  },
+  {
+    "abbreviation": "EuroVis",
+    "fullName": "Eurographics Conference on Visualization"
+  },
+  {
+    "abbreviation": "SGP",
+    "fullName": "Eurographics Symposium on Geometry Processing"
+  },
+  {
+    "abbreviation": "EGSR",
+    "fullName": "Eurographics Symposium on Rendering"
+  },
+  {
+    "abbreviation": "ICASSP",
+    "fullName": "IEEE International Conference on Acoustics, Speech, and Signal Processing"
+  },
+  {
+    "abbreviation": "ICME",
+    "fullName": "IEEE International Conference on Multimedia and Expo"
+  },
+  {
+    "abbreviation": "ISMAR",
+    "fullName": "International Symposium on Mixed and Augmented Reality"
+  },
+  {
+    "abbreviation": "PG",
+    "fullName": "Pacific Conference on Computer Graphics and Applications"
+  },
+  {
+    "abbreviation": "SPM",
+    "fullName": "Symposium on Solid and Physical Modeling"
+  },
+  {
+    "abbreviation": "VRST",
+    "fullName": "ACM Symposium on Virtual Reality Software and Technology"
+  },
+  {
+    "abbreviation": "CASAXR",
+    "fullName": "International Conference on Computer Animation, Social Agents, and Extended Reality"
+  },
+  {
+    "abbreviation": "CGI",
+    "fullName": "Computer Graphics International"
+  },
+  {
+    "abbreviation": "INTERSPEECH",
+    "fullName": "Conference of the International Speech Communication Association"
+  },
+  {
+    "abbreviation": "GMP",
+    "fullName": "Geometric Modeling and Processing"
+  },
+  {
+    "abbreviation": "PacificVis",
+    "fullName": "IEEE Pacific Visualization Symposium"
+  },
+  {
+    "abbreviation": "3DV",
+    "fullName": "International Conference on 3D Vision"
+  },
+  {
+    "abbreviation": "CAD/Graphics",
+    "fullName": "International Conference on Computer-Aided Design and Computer Graphics Processing",
+    "aliases": [
+      "International Conference on Computer-Aided Design and Computer Graphics"
+    ]
+  },
+  {
+    "abbreviation": "ICIP",
+    "fullName": "IEEE International Conference on Image Processing"
+  },
+  {
+    "abbreviation": "MMM",
+    "fullName": "International Conference on Multimedia Modeling"
+  },
+  {
+    "abbreviation": "MMAsia",
+    "fullName": "ACM Multimedia Asia"
+  },
+  {
+    "abbreviation": "SMI",
+    "fullName": "Shape Modeling International"
+  },
+  {
+    "abbreviation": "CVM",
+    "fullName": "Computational Visual Media"
+  },
+  {
+    "abbreviation": "PRCV",
+    "fullName": "Chinese Conference on Pattern Recognition and Computer Vision"
+  },
+  {
+    "abbreviation": "COLT",
+    "fullName": "Annual Conference on Computational Learning Theory"
+  },
+  {
+    "abbreviation": "ECAI",
+    "fullName": "European Conference on Artificial Intelligence"
+  },
+  {
+    "abbreviation": "ICRA",
+    "fullName": "IEEE International Conference on Robotics and Automation",
+    "aliases": [
+      "International Conference on Robotics and Automation"
+    ]
+  },
+  {
+    "abbreviation": "ICAPS",
+    "fullName": "International Conference on Automated Planning and Scheduling",
+    "aliases": [
+      "International Conference on Automated Planning & Scheduling"
+    ]
+  },
+  {
+    "abbreviation": "ICCBR",
+    "fullName": "International Conference on Case-Based Reasoning"
+  },
+  {
+    "abbreviation": "COLING",
+    "fullName": "International Conference on Computational Linguistics"
+  },
+  {
+    "abbreviation": "KR",
+    "fullName": "International Conference on Principles of Knowledge Representation and Reasoning"
+  },
+  {
+    "abbreviation": "UAI",
+    "fullName": "Conference on Uncertainty in Artificial Intelligence"
+  },
+  {
+    "abbreviation": "AAMAS",
+    "fullName": "International Joint Conference on Autonomous Agents and Multi-agent Systems"
+  },
+  {
+    "abbreviation": "PPSN",
+    "fullName": "Parallel Problem Solving from Nature"
+  },
+  {
+    "abbreviation": "AISTATS",
+    "fullName": "International Conference on Artificial Intelligence and Statistics"
+  },
+  {
+    "abbreviation": "ACCV",
+    "fullName": "Asian Conference on Computer Vision"
+  },
+  {
+    "abbreviation": "ACML",
+    "fullName": "Asian Conference on Machine Learning"
+  },
+  {
+    "abbreviation": "BMVC",
+    "fullName": "British Machine Vision Conference"
+  },
+  {
+    "abbreviation": "NLPCC",
+    "fullName": "CCF International Conference on Natural Language Processing and Chinese Computing"
+  },
+  {
+    "abbreviation": "CoNLL",
+    "fullName": "Conference on Computational Natural Language Learning"
+  },
+  {
+    "abbreviation": "GECCO",
+    "fullName": "Genetic and Evolutionary Computation Conference"
+  },
+  {
+    "abbreviation": "ICTAI",
+    "fullName": "IEEE International Conference on Tools with Artificial Intelligence"
+  },
+  {
+    "abbreviation": "IROS",
+    "fullName": "IEEE/RSJ International Conference on Intelligent Robots and Systems",
+    "aliases": [
+      "International Conference on Intelligent Robots and Systems"
+    ]
+  },
+  {
+    "abbreviation": "ALT",
+    "fullName": "International Conference on Algorithmic Learning Theory"
+  },
+  {
+    "abbreviation": "ICANN",
+    "fullName": "International Conference on Artificial Neural Networks"
+  },
+  {
+    "abbreviation": "FG",
+    "fullName": "IEEE International Conference on Automatic Face and Gesture Recognition"
+  },
+  {
+    "abbreviation": "ICDAR",
+    "fullName": "International Conference on Document Analysis and Recognition"
+  },
+  {
+    "abbreviation": "ILP",
+    "fullName": "International Conference on Inductive Logic Programming"
+  },
+  {
+    "abbreviation": "KSEM",
+    "fullName": "International Conference on Knowledge Science, Engineering and Management"
+  },
+  {
+    "abbreviation": "ICONIP",
+    "fullName": "International Conference on Neural Information Processing"
+  },
+  {
+    "abbreviation": "ICPR",
+    "fullName": "International Conference on Pattern Recognition"
+  },
+  {
+    "abbreviation": "IJCB",
+    "fullName": "International Joint Conference on Biometrics"
+  },
+  {
+    "abbreviation": "IJCNN",
+    "fullName": "International Joint Conference on Neural Networks"
+  },
+  {
+    "abbreviation": "PRICAI",
+    "fullName": "Pacific Rim International Conference on Artificial Intelligence"
+  },
+  {
+    "abbreviation": "CSCW",
+    "fullName": "ACM Conference on Computer Supported Cooperative Work and Social Computing"
+  },
+  {
+    "abbreviation": "CHI",
+    "fullName": "ACM Conference on Human Factors in Computing Systems"
+  },
+  {
+    "abbreviation": "UbiComp",
+    "fullName": "ACM International Joint Conference on Pervasive and Ubiquitous Computing"
+  },
+  {
+    "abbreviation": "UIST",
+    "fullName": "ACM Symposium on User Interface Software and Technology"
+  },
+  {
+    "abbreviation": "GROUP",
+    "fullName": "ACM International Conference on Supporting Group Work"
+  },
+  {
+    "abbreviation": "IUI",
+    "fullName": "ACM International Conference on Intelligent User Interfaces"
+  },
+  {
+    "abbreviation": "ISS",
+    "fullName": "ACM International Conference on Interactive Surfaces and Spaces"
+  },
+  {
+    "abbreviation": "ECSCW",
+    "fullName": "European Conference on Computer Supported Cooperative Work"
+  },
+  {
+    "abbreviation": "PERCOM",
+    "fullName": "IEEE International Conference on Pervasive Computing and Communications"
+  },
+  {
+    "abbreviation": "MobileHCI",
+    "fullName": "ACM International Conference on Mobile Human-Computer Interaction"
+  },
+  {
+    "abbreviation": "ICWSM",
+    "fullName": "The International AAAI Conference on Web and Social Media"
+  },
+  {
+    "abbreviation": "DIS",
+    "fullName": "ACM SIGCHI Conference on Designing Interactive Systems"
+  },
+  {
+    "abbreviation": "ICMI",
+    "fullName": "ACM International Conference on Multimodal Interaction"
+  },
+  {
+    "abbreviation": "ASSETS",
+    "fullName": "International ACM SIGACCESS Conference on Computers and Accessibility"
+  },
+  {
+    "abbreviation": "GI",
+    "fullName": "Graphics Interface"
+  },
+  {
+    "abbreviation": "UIC",
+    "fullName": "IEEE International Conference on Ubiquitous Intelligence and Computing"
+  },
+  {
+    "abbreviation": "WHC",
+    "fullName": "IEEE World Haptics Conference",
+    "aliases": [
+      "World Haptics Conference"
+    ]
+  },
+  {
+    "abbreviation": "INTERACT",
+    "fullName": "IFIP Conference on Human-Computer Interaction"
+  },
+  {
+    "abbreviation": "IDC",
+    "fullName": "ACM Interaction Design and Children"
+  },
+  {
+    "abbreviation": "CollaborateCom",
+    "fullName": "International Conference on Collaborative Computing: Networking, Applications and Worksharing"
+  },
+  {
+    "abbreviation": "CSCWD",
+    "fullName": "International Conference on Computer Supported Cooperative Work in Design"
+  },
+  {
+    "abbreviation": "CoopIS",
+    "fullName": "International Conference on Cooperative Information Systems"
+  },
+  {
+    "abbreviation": "MobiQuitous",
+    "fullName": "International Conference on Mobile and Ubiquitous Systems: Computing, Networking and Services"
+  },
+  {
+    "abbreviation": "AVI",
+    "fullName": "International Working Conference on Advanced Visual Interfaces"
+  },
+  {
+    "abbreviation": "WWW",
+    "fullName": "The Web Conference",
+    "aliases": [
+      "International World Wide Web Conference"
+    ]
+  },
+  {
+    "abbreviation": "RTSS",
+    "fullName": "IEEE Real-Time Systems Symposium"
+  },
+  {
+    "abbreviation": "WINE",
+    "fullName": "Conference on Web and Internet Economics"
+  },
+  {
+    "abbreviation": "CogSci",
+    "fullName": "Annual Meeting of the Cognitive Science Society"
+  },
+  {
+    "abbreviation": "BIBM",
+    "fullName": "IEEE International Conference on Bioinformatics and Biomedicine"
+  },
+  {
+    "abbreviation": "EMSOFT",
+    "fullName": "International Conference on Embedded Software"
+  },
+  {
+    "abbreviation": "ISMB",
+    "fullName": "International conference on Intelligent Systems for Molecular Biology"
+  },
+  {
+    "abbreviation": "RECOMB",
+    "fullName": "Annual International Conference on Research in Computational Molecular Biology"
+  },
+  {
+    "abbreviation": "MICCAI",
+    "fullName": "International Conference on Medical Image Computing and Computer-Assisted Intervention"
+  },
+  {
+    "abbreviation": "AMIA",
+    "fullName": "American Medical Informatics Association Annual Symposium"
+  },
+  {
+    "abbreviation": "APBC",
+    "fullName": "Asia Pacific Bioinformatics Conference"
+  },
+  {
+    "abbreviation": "IEEE BigData",
+    "fullName": "IEEE International Conference on Big Data",
+    "aliases": [
+      "BigData"
+    ]
+  },
+  {
+    "abbreviation": "IEEE CLOUD",
+    "fullName": "IEEE International Conference on Cloud Computing",
+    "aliases": [
+      "CLOUD"
+    ]
+  },
+  {
+    "abbreviation": "SMC",
+    "fullName": "IEEE International Conference on Systems, Man, and Cybernetics"
+  },
+  {
+    "abbreviation": "COSIT",
+    "fullName": "International Conference on Spatial Information Theory"
+  },
+  {
+    "abbreviation": "ISBRA",
+    "fullName": "International Symposium on Bioinformatics Research and Applications"
+  },
+  {
+    "abbreviation": "SAGT",
+    "fullName": "International Symposium on Algorithmic Game Theory"
+  },
+  {
+    "abbreviation": "SIGSPATIAL",
+    "fullName": "ACM SIGSPATIAL International Conference on Advances in Geographic Information Systems"
+  },
+  {
+    "abbreviation": "ICIC",
+    "fullName": "International Conference on Intelligent Computing"
+  },
+  {
+    "abbreviation": "ACM SIGOPS ATC",
+    "fullName": "ACM SIGOPS Annual Technical Conference"
+  },
+  {
+    "abbreviation": "RTA",
+    "fullName": "International Conference on Rewriting Techniques and Applications"
+  },
+  {
+    "abbreviation": "CASA",
+    "fullName": "International Conference on Computer Animation and Social Agents"
+  },
+  {
+    "abbreviation": "IJCAR",
+    "fullName": "International Joint Conference on Automated Reasoning"
+  },
+  {
+    "abbreviation": "SEC",
+    "fullName": "ACM/IEEE Symposium on Edge Computing"
+  },
+  {
+    "abbreviation": "NAS",
+    "fullName": "International Conference on Networking, Architecture, and Storage"
+  },
+  {
+    "abbreviation": "HotStorage",
+    "fullName": "ACM Workshop on Hot Topics in Storage and File Systems"
+  },
+  {
+    "abbreviation": "APPT",
+    "fullName": "International Symposium on Advanced Parallel Processing Technology"
+  },
+  {
+    "abbreviation": "JCC",
+    "fullName": "International Conference on JointCloud Computing"
+  },
+  {
+    "abbreviation": "CODASPY",
+    "fullName": "Conference on Data and Application Security and Privacy"
+  },
+  {
+    "abbreviation": "BlockSys",
+    "fullName": "International Conference on Blockchain, Artificial Intelligence, and Trustworthy Systems"
+  },
+  {
+    "abbreviation": "CSCloud",
+    "fullName": "International Conference on Cyber Security and Cloud Computing"
+  },
+  {
+    "abbreviation": "CC",
+    "fullName": "International Conference on Compiler Construction"
+  },
+  {
+    "abbreviation": "MEMOCODE",
+    "fullName": "International Conference on Formal Methods and Models for Co-Design"
+  },
+  {
+    "abbreviation": "WISA",
+    "fullName": "Web Information Systems and Applications"
+  },
+  {
+    "abbreviation": "ICIG",
+    "fullName": "International Conference on Image and Graphics"
+  },
+  {
+    "abbreviation": "NCMMSC",
+    "fullName": "National Conference on Man-Machine Speech Communication"
+  },
+  {
+    "abbreviation": "ASRU",
+    "fullName": "IEEE Automatic Speech Recognition and Understanding Workshop"
+  },
+  {
+    "abbreviation": "SLT",
+    "fullName": "IEEE Spoken Language Technology Workshop"
+  },
+  {
+    "abbreviation": "IEEE CEC",
+    "fullName": "IEEE Congress on Evolutionary Computation",
+    "aliases": [
+      "CEC"
+    ]
+  },
+  {
+    "abbreviation": "DAI",
+    "fullName": "International Conference on Distributed Artificial Intelligence"
+  },
+  {
+    "abbreviation": "GPC",
+    "fullName": "International Conference on Green, Pervasive and Cloud Computing"
+  },
+  {
+    "abbreviation": "ICXR",
+    "fullName": "CCF International Conference on Extended Reality"
+  },
+  {
+    "abbreviation": "ICSS",
+    "fullName": "International Conference on Service Science"
+  },
+  {
+    "abbreviation": "AFT",
+    "fullName": "ACM Conference on Advances in Financial Technologies"
+  },
+  {
+    "abbreviation": "IJTCS-FAW",
+    "fullName": "International Joint Conference on Theoretical Computer Science-Frontier of Algorithmic Wisdom"
+  },
+  {
+    "abbreviation": "PIMRC",
+    "fullName": "IEEE International Symposium on Personal, Indoor and Mobile Radio Communications"
+  },
+  {
+    "abbreviation": "VTC",
+    "fullName": "IEEE Vehicular Technology Conference",
+    "aliases": [
+      "IEEE Vehicular Technology Conference Spring",
+      "IEEE Vehicular Technology Conference Fall",
+      "VTC-Spring",
+      "VTC-Fall"
+    ]
+  },
+  {
+    "abbreviation": "ISIT",
+    "fullName": "IEEE International Symposium on Information Theory"
+  },
+  {
+    "abbreviation": "MILCOM",
+    "fullName": "IEEE Military Communications Conference"
+  },
+  {
+    "abbreviation": "CCNC",
+    "fullName": "IEEE Consumer Communications & Networking Conference"
+  },
+  {
+    "abbreviation": "CTW",
+    "fullName": "IEEE Communication Theory Workshop"
+  },
+  {
+    "abbreviation": "DySPAN",
+    "fullName": "IEEE International Symposium on Dynamic Spectrum Access Networks"
+  },
+  {
+    "abbreviation": "ICMLCN",
+    "fullName": "IEEE International Conference on Machine Learning for Communication and Networking"
+  },
+  {
+    "abbreviation": "SmartGridComm",
+    "fullName": "IEEE International Conference on Communications, Control, and Computing Technologies for Smart Grids"
+  },
+  {
+    "abbreviation": "ISBI",
+    "fullName": "IEEE International Symposium on Biomedical Imaging"
+  },
+  {
+    "abbreviation": "CAMSAP",
+    "fullName": "IEEE International Workshop on Computational Advances in Multi-Sensor Adaptive Processing"
+  },
+  {
+    "abbreviation": "MLSP",
+    "fullName": "IEEE Workshop on Machine Learning for Signal Processing"
+  },
+  {
+    "abbreviation": "MMSP",
+    "fullName": "IEEE International Workshop on Multimedia Signal Processing"
+  },
+  {
+    "abbreviation": "SAM",
+    "fullName": "IEEE Sensor Array and Multichannel Signal Processing Workshop"
+  },
+  {
+    "abbreviation": "SPAWC",
+    "fullName": "IEEE Workshop on Signal Processing Advances in Wireless Communications"
+  },
+  {
+    "abbreviation": "SSP",
+    "fullName": "IEEE Workshop on Statistical Signal Processing"
+  },
+  {
+    "abbreviation": "WASPAA",
+    "fullName": "IEEE Workshop on Applications of Signal Processing to Audio and Acoustics"
+  },
+  {
+    "abbreviation": "SiPS",
+    "fullName": "IEEE Workshop on Signal Processing Systems"
+  },
+  {
+    "abbreviation": "IVMSP",
+    "fullName": "IEEE Workshop on Image, Video, and Multimedia Signal Processing"
+  },
+  {
+    "abbreviation": "CDC",
+    "fullName": "IEEE Conference on Decision and Control"
+  },
+  {
+    "abbreviation": "ACC",
+    "fullName": "American Control Conference"
+  },
+  {
+    "abbreviation": "CCTA",
+    "fullName": "IEEE Conference on Control Technology and Applications"
+  },
+  {
+    "abbreviation": "ECC",
+    "fullName": "European Control Conference"
+  },
+  {
+    "abbreviation": "IFAC World Congress",
+    "fullName": "IFAC World Congress"
+  },
+  {
+    "abbreviation": "CASE",
+    "fullName": "IEEE International Conference on Automation Science and Engineering"
+  },
+  {
+    "abbreviation": "ITSC",
+    "fullName": "IEEE International Conference on Intelligent Transportation Systems",
+    "aliases": [
+      "IEEE Intelligent Transportation Systems Conference"
+    ]
+  },
+  {
+    "abbreviation": "IV",
+    "fullName": "IEEE Intelligent Vehicles Symposium"
+  },
+  {
+    "abbreviation": "APEC",
+    "fullName": "IEEE Applied Power Electronics Conference and Exposition"
+  },
+  {
+    "abbreviation": "ECCE",
+    "fullName": "IEEE Energy Conversion Congress and Exposition"
+  },
+  {
+    "abbreviation": "PES GM",
+    "fullName": "IEEE PES General Meeting",
+    "aliases": [
+      "IEEE Power & Energy Society General Meeting",
+      "IEEE Power and Energy Society General Meeting",
+      "PES General Meeting"
+    ]
+  },
+  {
+    "abbreviation": "PES T&D",
+    "fullName": "IEEE PES Transmission & Distribution Conference & Exposition"
+  },
+  {
+    "abbreviation": "PEDES",
+    "fullName": "IEEE International Conference on Power Electronics, Drives and Energy Systems"
+  },
+  {
+    "abbreviation": "IEMDC",
+    "fullName": "IEEE International Electric Machines & Drives Conference"
+  },
+  {
+    "abbreviation": "ITEC",
+    "fullName": "IEEE Transportation Electrification Conference & Expo"
+  },
+  {
+    "abbreviation": "PEDG",
+    "fullName": "IEEE International Symposium on Power Electronics for Distributed Generation Systems"
+  },
+  {
+    "abbreviation": "COMPEL",
+    "fullName": "IEEE Workshop on Control and Modeling for Power Electronics"
+  },
+  {
+    "abbreviation": "ICDCM",
+    "fullName": "IEEE International Conference on DC Microgrids"
+  },
+  {
+    "abbreviation": "SPEC",
+    "fullName": "IEEE Southern Power Electronics Conference"
+  },
+  {
+    "abbreviation": "ISPSD",
+    "fullName": "IEEE International Symposium on Power Semiconductor Devices and ICs"
+  },
+  {
+    "abbreviation": "WPTCE",
+    "fullName": "IEEE Wireless Power Technology Conference and Expo"
+  },
+  {
+    "abbreviation": "INTELEC",
+    "fullName": "IEEE International Communications Energy Conference"
+  },
+  {
+    "abbreviation": "SDEMPED",
+    "fullName": "IEEE International Symposium on Diagnostics for Electrical Machines, Power Electronics and Drives"
+  },
+  {
+    "abbreviation": "PRECEDE",
+    "fullName": "IEEE International Conference on Predictive Control of Electrical Drives and Power Electronics"
+  },
+  {
+    "abbreviation": "ISSCC",
+    "fullName": "IEEE International Solid-State Circuits Conference"
+  },
+  {
+    "abbreviation": "IEDM",
+    "fullName": "IEEE International Electron Devices Meeting"
+  },
+  {
+    "abbreviation": "MWSCAS",
+    "fullName": "IEEE International Midwest Symposium on Circuits and Systems"
+  },
+  {
+    "abbreviation": "ICECS",
+    "fullName": "IEEE International Conference on Electronics, Circuits and Systems"
+  },
+  {
+    "abbreviation": "ISICAS",
+    "fullName": "IEEE International Symposium on Integrated Circuits and Systems"
+  },
+  {
+    "abbreviation": "LASCAS",
+    "fullName": "IEEE Latin American Symposium on Circuits and Systems"
+  },
+  {
+    "abbreviation": "IMS",
+    "fullName": "International Microwave Symposium"
+  },
+  {
+    "abbreviation": "RFIC",
+    "fullName": "Radio Frequency Integrated Circuits Symposium"
+  },
+  {
+    "abbreviation": "VLSI Symposium",
+    "fullName": "Symposium on VLSI Technology and Circuits"
+  },
+  {
+    "abbreviation": "ICVRV",
+    "fullName": "International Conference on Virtual Reality and Visualization"
+  },
+  {
+    "abbreviation": "ISWC",
+    "fullName": "ACM International Symposium on Wearable Computers"
   }
 ]

@@ -1750,6 +1750,7 @@ export interface paths {
                             affiliation?: string;
                             date?: string;
                             venue?: string;
+                            venueShort?: string;
                             volume?: string;
                             issue?: string;
                             pages?: string;
@@ -5797,6 +5798,7 @@ export interface components {
             affiliation?: string;
             date?: string;
             venue?: string;
+            venueShort?: string;
             volume?: string;
             issue?: string;
             pages?: string;

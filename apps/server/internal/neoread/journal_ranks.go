@@ -459,7 +459,7 @@ func (s *Server) documentJournalRank(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "论文不存在")
 		return
 	}
-	if doc.Metadata.ItemType != "" && doc.Metadata.ItemType != "journal" && doc.Metadata.ItemType != "conference" {
+	if doc.Metadata.ItemType != "" && doc.Metadata.ItemType != "journal" && doc.Metadata.ItemType != "conference" && !(doc.Metadata.ItemType == "preprint" && strings.TrimSpace(doc.Metadata.Venue) != "") {
 		queryStatus = "notApplicable"
 		respond(w, 200, journalRankResult{Status: "notApplicable", Badges: []journalRankBadge{}})
 		return
@@ -470,13 +470,32 @@ func (s *Server) documentJournalRank(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, journalRankResult{Status: "noVenue", Badges: []journalRankBadge{}})
 		return
 	}
+	queries := []string{publicationName}
 	name := journalName(publicationName)
+	strategy := ""
 	if conference, ok := matchConference(publicationName); ok {
 		knownConference = true
-		publicationName = conference.Abbreviation
-		// Keep all pre-normalization cache entries, including incomplete found
-		// results, outside the corrected conference lookup namespace.
-		name = "conference-v1:" + journalName(conference.Abbreviation)
+		queries = []string{conference.FullName}
+		// Some distinct conferences share an abbreviation (FSE, SEC, ISWC).
+		// Such a short name cannot identify either publication for ranking.
+		if unique, ok := matchConference(conference.Abbreviation); ok && unique.FullName == conference.FullName {
+			queries = []string{conference.Abbreviation, conference.FullName}
+		}
+		strategy = "conference-v2:"
+	} else if short := strings.Join(strings.Fields(doc.Metadata.VenueShort), " "); short != "" {
+		position, indexed := conferenceIndex[normalizeConferenceName(short)]
+		if !indexed || position >= 0 {
+			queries = []string{short, publicationName}
+			strategy = "venue-short-v1:"
+		}
+	}
+	if len(queries) == 2 && journalName(queries[0]) == journalName(queries[1]) {
+		queries = queries[:1]
+	}
+	if strategy != "" {
+		// Include both names: neither old negative nor partial caches from a
+		// different naming strategy can prevent the corrected bounded query.
+		name = strategy + jsonText(queries)
 	}
 	hash := journalKeyHash(key)
 	refresh := r.URL.Query().Get("refresh") == "1"
@@ -491,9 +510,16 @@ func (s *Server) documentJournalRank(w http.ResponseWriter, r *http.Request) {
 			cacheHit = true
 			return cached, nil
 		}
-		result, err := s.fetchJournalRank(context.Background(), publicationName, key, 20*time.Second)
-		if err != nil {
-			return result, err
+		var result journalRankResult
+		for _, query := range queries {
+			var err error
+			result, err = s.fetchJournalRank(context.Background(), query, key, 20*time.Second)
+			if err != nil {
+				return result, err
+			}
+			if result.Status != "notFound" {
+				break
+			}
 		}
 		body, _ := json.Marshal(result)
 		if _, err = s.Store.DB.Exec("INSERT INTO journal_rank_cache(name,key_hash,body,checked_at) VALUES(?,?,?,?) ON CONFLICT(name,key_hash) DO UPDATE SET body=excluded.body,checked_at=excluded.checked_at", name, hash, string(body), result.CheckedAt); err != nil {

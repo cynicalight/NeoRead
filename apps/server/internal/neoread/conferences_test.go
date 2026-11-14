@@ -79,9 +79,6 @@ func TestConferenceRankEndpointNormalizesAliasesAndBypassesLegacyCache(t *testin
 			t.Fatalf("upstream names: %q", queried)
 		}
 		mu.Unlock()
-		if cached, ok := s.cachedJournalRank("conference-v1:"+strings.ToLower(group.abbreviation), journalKeyHash("conference-private-key"), false); !ok || cached.Status != "found" {
-			t.Fatalf("canonical cache missing: %+v %v", cached, ok)
-		}
 	}
 	for i, venue := range []string{"Private Journal of Original Research", "ICLR 2022 Workshop", "Advances in Neural Information Processing Systems 36 Workshops"} {
 		id := fmt.Sprintf("unchanged-%d", i)
@@ -191,7 +188,7 @@ func TestConferenceRankEndpointSharesConcurrentAliases(t *testing.T) {
 	wg.Wait()
 	mu.Lock()
 	defer mu.Unlock()
-	if len(names) != 1 || names[0] != "NeurIPS" {
+	if len(names) != 2 || names[0] != "NeurIPS" || names[1] != "Conference on Neural Information Processing Systems" {
 		t.Fatalf("concurrent aliases queried separately: %q", names)
 	}
 }
@@ -249,5 +246,110 @@ func TestConferenceRankFailureDiagnosticsDoNotExposeVenue(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("missing query failure event")
+	}
+}
+
+// Conference-only identity manifests transcribed from the CCF seventh edition
+// (2026-03-31, corrected April 9). No recommendation levels are stored here.
+func TestConferenceCatalogCoversEveryCCFDomain(t *testing.T) {
+	domains := map[string]string{
+		"architecture":       "PPoPP|FAST|DAC|HPCA|MICRO|SC|ASPLOS|ISCA|ACM SIGOPS ATC|EuroSys|HPDC|SoCC|SPAA|PODC|FPGA|CGO|DATE|HOT CHIPS|CLUSTER|ICCD|ICCAD|ICDCS|CODES+ISSS|HiPEAC|SIGMETRICS|PACT|ICPP|ICS|VEE|IPDPS|Performance|ITC|LISA|MSST|RTAS|Euro-Par|ISCAS|CF|SYSTOR|NOCS|ASAP|ASP-DAC|ETS|FPL|FCCM|GLSVLSI|ATS|HPCC|HiPC|MASCOTS|ISPA|CCGRID|NPC|ICA3PP|CASES|FPT|ICPADS|ISLPED|ISPD|HOTI|VTS|ITC-Asia|SEC|NAS|HotStorage|APPT|JCC",
+		"networks":           "SIGCOMM|MobiCom|INFOCOM|NSDI|SenSys|CoNEXT|SECON|IPSN|MobiSys|ICNP|MobiHoc|NOSSDAV|IWQoS|IMC|ANCS|APNOMS|FORTE|LCN|GLOBECOM|ICC|ICCCN|MASS|P2P|IPCCC|WoWMoM|ISCC|WCNC|Networking|IM|MSN|MSWiM|WASA|HotNets|APNet",
+		"security":           "CCS|EUROCRYPT|S&P|CRYPTO|USENIX Security|NDSS|ACSAC|ASIACRYPT|ESORICS|FSE|CSFW|SRDS|CHES|DSN|RAID|PKC|TCC|WiSec|SACMAT|DRM|IH&MMSec|ACNS|AsiaCCS|ACISP|CT-RSA|DIMVA|DFRWS|FC|TrustCom|SEC|IFIP WG 11.9|ISC|ICDF2C|ICICS|SecureComm|NSPW|PAM|PETS|SAC|SOUPS|HotSec|EuroS&P|Inscrypt|CODASPY|BlockSys|CSCloud",
+		"software":           "PLDI|POPL|FSE|SOSP|OOPSLA|ASE|ICSE|ISSTA|OSDI|FM|ECOOP|ETAPS|ICPC|RE|CAiSE|ICFP|LCTES|MoDELS|CP|ICSOC|SANER|ICSME|VMCAI|ICWS|Middleware|SAS|ESEM|ISSRE|HotOS|CC|PEPM|PASTE|APLAS|APSEC|EASE|ICECCS|ICST|ISPASS|SCAM|COMPSAC|ICFEM|SSE|ICSSP|SEKE|QRS|ICSR|ICWE|SPIN|ATVA|LOPSTR|TASE|MSR|REFSQ|WICSA|Internetware|RV|MEMOCODE",
+		"databases":          "SIGMOD|SIGKDD|ICDE|SIGIR|VLDB|CIKM|WSDM|PODS|DASFAA|ECML-PKDD|ISWC|ICDM|ICDT|EDBT|CIDR|SDM|RecSys|WISE|APWeb|DEXA|ECIR|ESWC|WebDB|ER|MDM|SSDBM|WAIM|SSTD|PAKDD|ADMA|WISA",
+		"theory":             "STOC|SODA|CAV|FOCS|LICS|SoCG|ESA|CCC|ICALP|CADE|CONCUR|HSCC|SAT|COCOON|FMCAD|CSL|FSTTCS|DSAA|ICTAC|IPCO|FSCD|ISAAC|MFCS|STACS|SETTA",
+		"graphics":           "ACM MM|SIGGRAPH|VR|IEEE VIS|ICMR|I3D|SCA|DCC|Eurographics|EuroVis|SGP|EGSR|ICASSP|ICME|ISMAR|PG|SPM|INTERSPEECH|VRST|CASAXR|CGI|GMP|PacificVis|3DV|CAD/Graphics|ICIP|MMM|MMAsia|SMI|CVM|PRCV|ICIG|NCMMSC|ASRU|SLT",
+		"ai":                 "AAAI|NeurIPS|ACL|CVPR|ICCV|ICML|ICLR|COLT|EMNLP|ECAI|ECCV|ICRA|ICAPS|ICCBR|COLING|KR|UAI|AAMAS|PPSN|NAACL|IJCAI|AISTATS|ACCV|ACML|BMVC|NLPCC|CoNLL|GECCO|ICTAI|IROS|ALT|ICANN|FG|ICDAR|ILP|KSEM|ICONIP|ICPR|IJCB|IJCNN|PRICAI|IEEE CEC|DAI",
+		"hci":                "CSCW|CHI|UbiComp|UIST|GROUP|IUI|ISS|ECSCW|PERCOM|MobileHCI|ICWSM|DIS|ICMI|ASSETS|GI|UIC|IEEE World Haptics Conference|INTERACT|IDC|CollaborateCom|CSCWD|CoopIS|MobiQuitous|AVI|GPC|ICXR",
+		"cross-disciplinary": "WWW|RTSS|CogSci|BIBM|EMSOFT|ISMB|RECOMB|MICCAI|WINE|AMIA|APBC|IEEE BigData|IEEE CLOUD|SMC|COSIT|ISBRA|SAGT|SIGSPATIAL|ICIC|ICSS|AFT|IJTCS-FAW",
+	}
+	identities := make(map[string]int)
+	for _, entry := range conferenceCatalog {
+		identities[entry.Abbreviation]++
+		identities[entry.FullName]++
+		for _, alias := range entry.Aliases {
+			identities[alias]++
+		}
+	}
+	for domain, names := range domains {
+		for _, name := range strings.Split(names, "|") {
+			if identities[name] == 0 {
+				t.Errorf("%s is missing CCF conference %q", domain, name)
+			}
+		}
+	}
+}
+
+func TestConferenceCatalogCanonicalNamesRoundTrip(t *testing.T) {
+	for _, entry := range conferenceCatalog {
+		t.Run(entry.FullName, func(t *testing.T) {
+			actual, ok := matchConference(entry.FullName)
+			if !ok || actual.FullName != entry.FullName || actual.Abbreviation != entry.Abbreviation {
+				t.Errorf("canonical name did not round-trip: %+v %v", actual, ok)
+			}
+		})
+	}
+}
+
+func TestConferenceWrappersDomainsAndEngineering(t *testing.T) {
+	cases := []struct{ venue, abbreviation string }{
+		{"Proceedings of the 2026 ACM SIGSAC Conference on Computer and Communications Security", "CCS"},
+		{"USENIX Annual Technical Conference", "USENIX ATC"},
+		{"Proceedings of the 20th USENIX Symposium on Operating Systems Design and Implementation", "OSDI"},
+		{"Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers)", "NAACL"},
+		{"Advances in Neural Information Processing Systems 36 (NeurIPS 2023)", "NeurIPS"},
+		{"Advances in Neural Information Processing Systems 30 (NIPS 2017)", "NeurIPS"},
+		{"2024 IEEE International Conference on Communications (ICC)", "ICC"},
+		{"2025 IEEE/ACM International Conference on Software Engineering (ICSE)", "ICSE"},
+		{"Proceedings of the 2024 ACM SIGMOD International Conference on Management of Data", "SIGMOD"},
+		{"ACM Symposium on Theory of Computing", "STOC"},
+		{"ACM International Conference on Multimedia", "ACM MM"},
+		{"ACM Conference on Human Factors in Computing Systems", "CHI"},
+		{"The Web Conference 2026", "WWW"},
+		{"IEEE International Conference on Acoustics, Speech, and Signal Processing", "ICASSP"},
+		{"IEEE International Conference on Image Processing", "ICIP"},
+		{"IEEE Global Communications Conference", "GLOBECOM"},
+		{"IEEE Conference on Decision and Control", "CDC"},
+		{"American Control Conference", "ACC"},
+		{"IEEE International Conference on Robotics and Automation", "ICRA"},
+		{"IEEE/RSJ International Conference on Intelligent Robots and Systems", "IROS"},
+		{"International Conference on Automated Planning and Scheduling", "ICAPS"},
+		{"International Conference on Computer-Aided Design", "ICCAD"},
+		{"Design, Automation & Test in Europe", "DATE"},
+		{"Design Automation Conference", "DAC"},
+		{"IEEE International Solid-State Circuits Conference", "ISSCC"},
+		{"IEEE International Electron Devices Meeting", "IEDM"},
+		{"IEEE Applied Power Electronics Conference and Exposition", "APEC"},
+		{"IEEE Energy Conversion Congress and Exposition", "ECCE"},
+		{"IEEE Power & Energy Society General Meeting", "PES GM"},
+		{"IEEE International Conference on Intelligent Transportation Systems", "ITSC"},
+		{" IEEE\u00a0 International   Conference on Communications ", "ICC"},
+		{"USENIX Workshop on Hot Topics in Operating Systems", "HotOS"},
+		{"ACM Workshop on Hot Topics in Networks", "HotNets"},
+		{"Fast Software Encryption", "FSE"},
+		{"ACM International Conference on the Foundations of Software Engineering", "FSE"},
+		{"IFIP International Information Security Conference", "SEC"},
+		{"ACM/IEEE Symposium on Edge Computing", "SEC"},
+	}
+	for _, tc := range cases {
+		if entry, ok := matchConference(tc.venue); !ok || entry.Abbreviation != tc.abbreviation {
+			t.Errorf("%q: got %+v %v, want %s", tc.venue, entry, ok, tc.abbreviation)
+		}
+	}
+	for _, venue := range []string{
+		"FSE", "SEC", "ISWC", "FSE 2026",
+		"Findings of the Association for Computational Linguistics: ACL 2024",
+		"Proceedings of the ACM SIGSAC Conference on Computer and Communications Security Workshops",
+		"Proceedings of the ACL: System Demonstrations",
+		"ICML Demo", "ICC Workshops", "ICASSP Workshops",
+		"Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops",
+		"International Conference on Machine Learning Applications",
+		"International Conference on Communications and Computing",
+		"Pattern Recognition", "IEEE Transactions on Computers",
+	} {
+		if entry, ok := matchConference(venue); ok {
+			t.Errorf("ambiguous or non-main venue %q matched %+v", venue, entry)
+		}
 	}
 }

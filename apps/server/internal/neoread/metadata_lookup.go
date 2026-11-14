@@ -111,11 +111,18 @@ func fromScholar(m scholar.Metadata) PaperMetadata {
 
 // applyFound merges found metadata into a document unless the user edited the
 // same fields. The write is conditional so a concurrent manual edit wins.
-func (s *Server) applyFound(id string, found PaperMetadata, title, source, lookup string) (Document, error) {
+func (s *Server) applyFound(id string, found PaperMetadata, title, source, lookup string, contexts ...context.Context) (Document, error) {
+	ctx := context.Background()
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
 	for range 3 {
 		d, err := s.Store.Document(id)
 		if err != nil {
 			return d, err
+		}
+		if source == "venue-agent" && (d.DeletedAt != "" || d.Library != "papers" || ctx.Err() != nil) {
+			return d, ctx.Err()
 		}
 		before, _ := json.Marshal(d.Metadata)
 		m := d.Metadata
@@ -150,7 +157,7 @@ func (s *Server) applyFound(id string, found PaperMetadata, title, source, looku
 			m.Lookup, m.LookedUpAt = lookup, now()
 		}
 		after, _ := json.Marshal(m)
-		result, err := s.Store.DB.Exec("UPDATE documents SET title=?,author=?,metadata=? WHERE id=? AND metadata=?", nextTitle, author, string(after), id, string(before))
+		result, err := s.Store.DB.ExecContext(ctx, "UPDATE documents SET title=?,author=?,metadata=? WHERE id=? AND metadata=?", nextTitle, author, string(after), id, string(before))
 		if err != nil {
 			return d, err
 		}
@@ -202,6 +209,11 @@ var errNoIdentifier = errors.New("没有找到 DOI 或 arXiv 编号，可以在�
 // lookupDocument finds metadata from the paper's identifiers, its first pages
 // or (when asked by the user) a close title match.
 func (s *Server) lookupDocument(ctx context.Context, id string, byTitle bool, forceTitle ...bool) (Document, error) {
+	_, err := s.lookupDocumentAPI(ctx, id, byTitle, forceTitle...)
+	return s.finishPaperVenue(ctx, id, err)
+}
+
+func (s *Server) lookupDocumentAPI(ctx context.Context, id string, byTitle bool, forceTitle ...bool) (Document, error) {
 	d, err := s.Store.Document(id)
 	if err != nil {
 		return d, err
@@ -327,6 +339,11 @@ func (s *Server) resolveDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	if d.Library == "papers" {
 		if updated, e := s.applyFound(d.ID, fromScholar(result.Metadata), result.Metadata.Title, "lookup", "done"); e == nil {
+			d = updated
+		}
+	}
+	if d.Library == "papers" && s.autoLookupEnabled() {
+		if updated, e := s.finishPaperVenue(ctx, d.ID, nil); e == nil {
 			d = updated
 		}
 	}

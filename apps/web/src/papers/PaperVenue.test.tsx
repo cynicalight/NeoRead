@@ -26,7 +26,9 @@ it.each([
   "Advances in Neural Information Processing Systems 36",
 ])("shows the canonical name on keyboard focus for %s", async (venue) => {
   await act(async () => root.render(<PaperVenue metadata={{ venue }} />));
-  const trigger = host.querySelector<HTMLElement>("[data-slot=tooltip-trigger]")!;
+  const trigger = host.querySelector<HTMLElement>(
+    "[data-slot=tooltip-trigger]",
+  )!;
   expect(trigger.textContent).toBe("NeurIPS");
   expect(trigger.hasAttribute("title")).toBe(false);
   await act(async () => {
@@ -70,3 +72,84 @@ it.each(["Unknown Venue", "NeurIPS Workshop on Machine Learning"])(
     expect(host.querySelector("[data-slot=tooltip-trigger]")).toBeNull();
   },
 );
+
+it.each([
+  {
+    venue: "International Conference on Long-Tail Engineering",
+    venueShort: "ICLTE",
+    label: "ICLTE",
+    fullName: "International Conference on Long-Tail Engineering",
+  },
+  {
+    venue: "Neural Information Processing Systems",
+    venueShort: "Agent abbreviation",
+    label: "NeurIPS",
+    fullName: conferenceVenue("NeurIPS").fullName!,
+  },
+])(
+  "shows $label with its full name when an Agent abbreviation is present",
+  async ({ venue, venueShort, label, fullName }) => {
+    await act(async () =>
+      root.render(<PaperVenue metadata={{ venue, venueShort }} />),
+    );
+    const trigger = host.querySelector<HTMLElement>(
+      "[data-slot=tooltip-trigger]",
+    )!;
+    expect(trigger.textContent).toBe(label);
+    expect(trigger.hasAttribute("title")).toBe(false);
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", bubbles: true }),
+      );
+      trigger.focus();
+    });
+    const tooltip = document.querySelector<HTMLElement>("[role=tooltip]")!;
+    expect(tooltip.textContent).toContain(fullName);
+    expect(trigger.getAttribute("aria-describedby")).toBe(tooltip.id);
+    expect(document.activeElement).toBe(trigger);
+    await act(async () => {
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(trigger.getAttribute("aria-describedby")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  },
+);
+
+it("keeps the original venue metadata and row click behavior", async () => {
+  const metadata = {
+    venue: "International Conference on Long-Tail Engineering",
+    venueShort: "ICLTE",
+  };
+  const onClick = vi.fn();
+  await act(async () =>
+    root.render(
+      <div onClick={onClick}>
+        <PaperByline doc={paper({ metadata })} showAuthors={false} />
+      </div>,
+    ),
+  );
+  const trigger = host.querySelector<HTMLElement>(
+    "[data-slot=tooltip-trigger]",
+  )!;
+  expect(trigger.textContent).toBe("ICLTE");
+  await act(async () => trigger.click());
+  expect(onClick).toHaveBeenCalledOnce();
+  expect(metadata.venue).toBe(
+    "International Conference on Long-Tail Engineering",
+  );
+});
+
+it("does not add a byline for an abbreviation without a venue", async () => {
+  await act(async () =>
+    root.render(
+      <PaperByline
+        doc={paper({ metadata: { venueShort: "ICLTE" } })}
+        showAuthors={false}
+      />,
+    ),
+  );
+  expect(host.textContent).toBe("");
+  expect(host.querySelector("[data-slot=tooltip-trigger]")).toBeNull();
+});
