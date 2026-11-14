@@ -46,6 +46,10 @@ func TestConferenceRankEndpointNormalizesAliasesAndBypassesLegacyCache(t *testin
 		t.Fatal(w.Body.String())
 	}
 	for groupIndex, group := range groups {
+		conference, ok := matchConference(group.abbreviation)
+		if !ok {
+			t.Fatalf("conference not recognized: %s", group.abbreviation)
+		}
 		// Both stale negatives and successful-but-incomplete EI entries existed
 		// under raw aliases and the old unversioned abbreviation key.
 		legacyNames := append([]string{group.abbreviation}, group.aliases...)
@@ -75,7 +79,7 @@ func TestConferenceRankEndpointNormalizesAliasesAndBypassesLegacyCache(t *testin
 			}
 		}
 		mu.Lock()
-		if len(queried) != groupIndex+1 || queried[groupIndex] != group.abbreviation {
+		if len(queried) != groupIndex+1 || queried[groupIndex] != conference.FullName {
 			t.Fatalf("upstream names: %q", queried)
 		}
 		mu.Unlock()
@@ -188,7 +192,7 @@ func TestConferenceRankEndpointSharesConcurrentAliases(t *testing.T) {
 	wg.Wait()
 	mu.Lock()
 	defer mu.Unlock()
-	if len(names) != 2 || names[0] != "NeurIPS" || names[1] != "Conference on Neural Information Processing Systems" {
+	if len(names) != 2 || names[0] != "Conference on Neural Information Processing Systems" || names[1] != "NeurIPS" {
 		t.Fatalf("concurrent aliases queried separately: %q", names)
 	}
 }

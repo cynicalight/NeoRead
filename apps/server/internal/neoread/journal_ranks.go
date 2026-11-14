@@ -479,13 +479,13 @@ func (s *Server) documentJournalRank(w http.ResponseWriter, r *http.Request) {
 		// Some distinct conferences share an abbreviation (FSE, SEC, ISWC).
 		// Such a short name cannot identify either publication for ranking.
 		if unique, ok := matchConference(conference.Abbreviation); ok && unique.FullName == conference.FullName {
-			queries = []string{conference.Abbreviation, conference.FullName}
+			queries = []string{conference.FullName, conference.Abbreviation}
 		}
 		strategy = "conference-v2:"
 	} else if short := strings.Join(strings.Fields(doc.Metadata.VenueShort), " "); short != "" {
 		position, indexed := conferenceIndex[normalizeConferenceName(short)]
 		if !indexed || position >= 0 {
-			queries = []string{short, publicationName}
+			queries = []string{publicationName, short}
 			strategy = "venue-short-v1:"
 		}
 	}

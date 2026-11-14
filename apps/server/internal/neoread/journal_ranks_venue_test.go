@@ -19,13 +19,13 @@ func TestJournalRankVenueNamesAreBoundedAndOrdered(t *testing.T) {
 		firstMiss, fail bool
 		want            []string
 	}{
-		{name: "known abbreviation hits", metadata: PaperMetadata{Venue: conference.FullName, VenueShort: "wrong"}, want: []string{conference.Abbreviation}},
-		{name: "known full name fallback", metadata: PaperMetadata{Venue: conference.FullName}, firstMiss: true, want: []string{conference.Abbreviation, conference.FullName}},
-		{name: "Agent abbreviation hits for preprint", metadata: PaperMetadata{ItemType: "preprint", Venue: "Unlisted Conference", VenueShort: "UC"}, want: []string{"UC"}},
-		{name: "Agent full name fallback", metadata: PaperMetadata{Venue: "Unlisted Conference", VenueShort: "UC"}, firstMiss: true, want: []string{"UC", "Unlisted Conference"}},
+		{name: "known full name hits", metadata: PaperMetadata{Venue: conference.FullName, VenueShort: "wrong"}, want: []string{conference.FullName}},
+		{name: "known abbreviation fallback", metadata: PaperMetadata{Venue: conference.FullName}, firstMiss: true, want: []string{conference.FullName, conference.Abbreviation}},
+		{name: "Agent full name hits for preprint", metadata: PaperMetadata{ItemType: "preprint", Venue: "Unlisted Conference", VenueShort: "UC"}, want: []string{"Unlisted Conference"}},
+		{name: "Agent abbreviation fallback", metadata: PaperMetadata{Venue: "Unlisted Conference", VenueShort: "UC"}, firstMiss: true, want: []string{"Unlisted Conference", "UC"}},
 		{name: "journal unchanged", metadata: PaperMetadata{ItemType: "journal", Venue: "Example Journal"}, want: []string{"Example Journal"}},
-		{name: "identical names deduplicated", metadata: PaperMetadata{Venue: "UC", VenueShort: "uc"}, firstMiss: true, want: []string{"uc"}},
-		{name: "failure not an alias retry", metadata: PaperMetadata{Venue: conference.FullName}, fail: true, want: []string{conference.Abbreviation}},
+		{name: "identical names deduplicated", metadata: PaperMetadata{Venue: "UC", VenueShort: "uc"}, firstMiss: true, want: []string{"UC"}},
+		{name: "failure not an alias retry", metadata: PaperMetadata{Venue: conference.FullName}, fail: true, want: []string{conference.FullName}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := testServer(t)
@@ -104,6 +104,14 @@ func TestJournalRankShortChangesDoNotReuseOldResult(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Query().Get("publicationName")
 		queries = append(queries, name)
+		current, err := s.Store.Document(d.ID)
+		if err != nil {
+			t.Error(err)
+		}
+		if name == "Unlisted Conference" && current.Metadata.VenueShort != "" {
+			_, _ = w.Write([]byte(`{"code":200,"data":{"officialRank":{"all":{}}}}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"code":200,"data":{"officialRank":{"all":{"ccf":` + jsonText(ratings[name]) + `}}}}`))
 	}))
 	defer upstream.Close()
@@ -127,7 +135,7 @@ func TestJournalRankShortChangesDoNotReuseOldResult(t *testing.T) {
 			t.Fatal(w.Code, w.Body.String(), queries)
 		}
 	}
-	if jsonText(queries) != `["OLD","NEW","Unlisted Conference"]` {
+	if jsonText(queries) != `["Unlisted Conference","OLD","Unlisted Conference","NEW","Unlisted Conference"]` {
 		t.Fatal(queries)
 	}
 }
