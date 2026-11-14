@@ -173,20 +173,6 @@ ON CONFLICT(document_id,block_id,source_hash) DO UPDATE SET status=excluded.stat
 			return err
 		}
 	}
-	if blocks, ok := source.(epubTranslationDocument); ok {
-		if _, err = tx.Exec("DELETE FROM search_index WHERE document_id=?", d.ID); err != nil {
-			return err
-		}
-		texts := map[string][]string{}
-		for _, block := range blocks {
-			texts[block.Location.Href] = append(texts[block.Location.Href], block.Text)
-		}
-		for href, text := range texts {
-			if _, err = tx.Exec("INSERT INTO search_index(document_id,href,content) VALUES(?,?,?)", d.ID, href, strings.Join(text, "\n")); err != nil {
-				return err
-			}
-		}
-	}
 	if d.Type == "pdf" && d.Library == "books" {
 		m := source.(layoutManifest)
 		if _, err = tx.Exec(`INSERT INTO book_layout_jobs(document_id,status,pages_done,pages_total) VALUES(?,'complete',?,?) ON CONFLICT(document_id) DO UPDATE SET status='complete',pages_done=excluded.pages_done,pages_total=excluded.pages_total`, d.ID, m.Pages, m.Pages); err != nil {
