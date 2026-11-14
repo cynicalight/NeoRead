@@ -278,7 +278,9 @@ func (m *PaperMetadata) Merge(found PaperMetadata, source string) []string {
 	if source == "venue-agent" {
 		if m.Venue == "" && m.Sources["venue"] != "manual" && found.Venue != "" {
 			m.set("venue", found.Venue, "lookup")
-			m.VenueShort = found.VenueShort
+			if m.Sources["venueShort"] != "manual" {
+				m.VenueShort = found.VenueShort
+			}
 			return []string{"venue"}
 		}
 		return changed
@@ -305,7 +307,7 @@ func (m *PaperMetadata) Merge(found PaperMetadata, source string) []string {
 			}
 			value = v
 		}
-		if key == "venue" && (value != m.Venue || found.VenueShort != "") {
+		if key == "venue" && m.Sources["venueShort"] != "manual" && (value != m.Venue || found.VenueShort != "") {
 			m.VenueShort = found.VenueShort
 		}
 		m.set(key, value, source)

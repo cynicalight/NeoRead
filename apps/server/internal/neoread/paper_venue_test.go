@@ -209,6 +209,31 @@ func TestVenueShortManualValidationAndInvalidation(t *testing.T) {
 	}
 }
 
+func TestVenueShortManualValuesSurviveLookup(t *testing.T) {
+	for _, tc := range []struct {
+		name, venue, manual, source string
+		found                       PaperMetadata
+	}{
+		{"same venue with automatic abbreviation", "Original Venue", "USER", "lookup", PaperMetadata{Venue: "Original Venue", VenueShort: "AUTO"}},
+		{"changed venue without abbreviation", "Original Venue", "USER", "lookup", PaperMetadata{Venue: "Published Venue"}},
+		{"changed venue with abbreviation", "Original Venue", "USER", "lookup", PaperMetadata{Venue: "Published Venue", VenueShort: "AUTO"}},
+		{"manually cleared abbreviation", "Original Venue", "", "lookup", PaperMetadata{Venue: "Original Venue", VenueShort: "AUTO"}},
+		{"Agent respects manually cleared abbreviation", "", "", "venue-agent", PaperMetadata{Venue: "Published Venue", VenueShort: "AUTO"}},
+		{"supplement respects manually cleared abbreviation", "", "", "lookup-extra", PaperMetadata{Venue: "Published Venue", VenueShort: "AUTO"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := PaperMetadata{Venue: tc.venue}
+			if err := m.ApplyManual(map[string]json.RawMessage{"venueShort": json.RawMessage(jsonText(tc.manual))}); err != nil {
+				t.Fatal(err)
+			}
+			m.Merge(tc.found, tc.source)
+			if m.Venue != tc.found.Venue || m.VenueShort != tc.manual || m.Sources["venueShort"] != "manual" {
+				t.Fatalf("manual abbreviation lost during lookup: %+v", m)
+			}
+		})
+	}
+}
+
 func TestVenueAgentCanceledSaveAndManualClearing(t *testing.T) {
 	s := testServer(t)
 	d := venueTestDocument(t, s, PaperMetadata{})
