@@ -118,6 +118,57 @@ func TestLookupDetectsIdentifierOnFirstPage(t *testing.T) {
 		t.Fatalf("detected lookup: %+v %v", got, err)
 	}
 }
+
+func TestLookupTimeoutAndCancellationState(t *testing.T) {
+	for _, tc := range []struct {
+		name, state string
+		cause       error
+	}{
+		{"timeout fails", "failed", context.DeadlineExceeded},
+		{"shutdown cancellation stays pending", "pending", context.Canceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := testServer(t)
+			metadata := PaperMetadata{
+				Lookup: "pending", LookedUpAt: "2024-01-01T00:00:00Z",
+				Venue: "Existing Venue", VenueShort: "EV", Date: "2024",
+				Remark:  "Keep my note",
+				Sources: map[string]string{"venue": "manual", "venueShort": "lookup"},
+			}
+			d := venueTestDocument(t, s, metadata)
+			var ctx context.Context
+			var cancel context.CancelFunc
+			if tc.cause == context.DeadlineExceeded {
+				ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			} else {
+				ctx, cancel = context.WithCancel(context.Background())
+				cancel()
+			}
+			defer cancel()
+			got, err := s.lookupDocument(ctx, d.ID, false)
+			if !errors.Is(err, tc.cause) {
+				t.Fatalf("expected %v, got %v", tc.cause, err)
+			}
+			saved, err := s.Store.Document(d.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, result := range []Document{got, saved} {
+				want := metadata
+				want.Lookup = tc.state
+				if tc.state == "failed" {
+					if result.Metadata.LookedUpAt == "" || result.Metadata.LookedUpAt == metadata.LookedUpAt {
+						t.Fatal("timed-out lookup did not record its completion time")
+					}
+					want.LookedUpAt = result.Metadata.LookedUpAt
+				}
+				if result.Title != d.Title || jsonText(result.Metadata) != jsonText(want) {
+					t.Fatalf("lookup terminal state changed existing metadata: %+v", result)
+				}
+			}
+		})
+	}
+}
 func TestFileTitleOnlyFillsAPlainTitle(t *testing.T) {
 	for title, want := range map[string]string{
 		"Microsoft Word - paper.docx": "",

@@ -221,7 +221,15 @@ func (s *Server) lookupDocument(ctx context.Context, id string, useCurrentTitle 
 	s.diagnosticEvent(slog.LevelInfo, "paper.metadata.pipeline.start", "documentId", id)
 	defer func() {
 		state, outcome, level := "done", "success", slog.LevelInfo
+		saveCtx := ctx
 		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			resultErr = ctx.Err()
+			state, outcome, level = "failed", "timeout", slog.LevelError
+			// Persist only the terminal state after the lookup deadline expires.
+			var cancel context.CancelFunc
+			saveCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
 		case ctx.Err() != nil:
 			resultErr = ctx.Err()
 			outcome = "cancelled"
@@ -230,8 +238,8 @@ func (s *Server) lookupDocument(ctx context.Context, id string, useCurrentTitle 
 		case resultErr != nil:
 			state, outcome, level = "failed", "failed", slog.LevelError
 		}
-		if ctx.Err() == nil {
-			if saved, saveErr := s.applyFound(id, PaperMetadata{}, "", "lookup", state, ctx); saveErr == nil {
+		if saveCtx.Err() == nil {
+			if saved, saveErr := s.applyFound(id, PaperMetadata{}, "", "lookup", state, saveCtx); saveErr == nil {
 				result = saved
 			} else {
 				resultErr, outcome, level = saveErr, "failed", slog.LevelError
