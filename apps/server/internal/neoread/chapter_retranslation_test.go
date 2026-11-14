@@ -35,6 +35,18 @@ func TestChapterRetranslationKeepsOldTextAndLimitsScope(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			p, err := s.Store.processing("doc")
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.Phase, p.Status = "translating", "complete"
+			p.Translating = &ProcessingStage{Status: "complete"}
+			if err = s.Store.saveProcessing(p); err != nil {
+				t.Fatal(err)
+			}
+			// A queued replacement outside this chapter must be retracted before
+			// chapter work takes over the shared worker's execution scope.
+			forceTranslationBlock(t, s, items[len(items)-1].BlockID)
 			path := "/api/documents/doc/translations/" + route
 			out := request(t, s, "POST", path, strings.NewReader(body))
 			if out.Code != 202 {

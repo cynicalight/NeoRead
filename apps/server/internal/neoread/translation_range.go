@@ -229,6 +229,10 @@ func (s *Server) requestTranslationRange(w http.ResponseWriter, r *http.Request)
 				chapter.Blocks = append(chapter.Blocks, b)
 			}
 		}
+		if _, err = s.preemptParagraphTranslation(d.ID, m); err != nil {
+			fail(w, 500, "无法停止旧段落翻译")
+			return
+		}
 		if err = s.prepareChapterRetranslation(d.ID, chapter); err != nil {
 			fail(w, 409, "无法开始本章重译，请等待当前翻译完成后重试")
 			return
