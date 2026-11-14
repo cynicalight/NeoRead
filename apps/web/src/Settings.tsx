@@ -266,11 +266,14 @@ export function Settings({
     );
   };
   const warnWithoutVision = (models: AgentModel[]) => {
-    const capabilities = useReaderStore.getState().aiConfig?.capabilities;
+    // Checks may finish after the user switches providers. Read the live choice.
+    const current = useReaderStore.getState().aiConfig;
+    if (current?.primary !== "api") return;
+    const capabilities = current.capabilities;
     const results = models.map(({ id }) => capabilities?.[`api:${id}`]);
     if (
       results.length &&
-      results.every(Boolean) &&
+      results.every((result) => result && !result.pendingVision) &&
       !results.some((r) => r?.vision)
     )
       toast.warning(
@@ -576,6 +579,8 @@ export function Settings({
               ? latest
               : await api.saveAIConfig({ ...latest, primary: next }),
           );
+          if (next === "api" && !pendingAgent.current)
+            warnWithoutVision(apiModels);
           rememberCard(next);
           setModelRefresh((n) => n + 1);
         } catch (e) {
