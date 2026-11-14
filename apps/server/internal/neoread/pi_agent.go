@@ -271,6 +271,9 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 	}
 	request, _, window := newPiRequest(c, req)
 	request.Prompt, request.System = in.Prompt, chatInstructions
+	if in.Chat.Agent == nil && in.SystemPrompt != "" {
+		request.System = in.SystemPrompt
+	}
 	if in.Chat.piRunID != "" {
 		request.RunID = in.Chat.piRunID
 	}

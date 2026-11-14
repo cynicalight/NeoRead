@@ -107,15 +107,14 @@ import {
 } from "./actions";
 import {
   authorsShort,
-  paperByline,
   paperYear,
   publicationDate,
   paperProgress,
   fileSize,
   relativeTime,
-  venueLabel,
   wasOpened,
 } from "./format";
+import { PaperByline, PaperVenue } from "./PaperVenue";
 import {
   categoryTree,
   columnLabels,
@@ -1540,7 +1539,6 @@ function PaperRow({
       <ChevronRight className={expanded ? "rotate-90" : undefined} />
     </Button>
   );
-  const byline = paperByline(doc, showAuthors);
   const authors = showAuthors ? authorsShort(doc) : "";
   const authorLine = authors && (
     <p className="paper-row-byline" title={authors}>
@@ -1687,7 +1685,7 @@ function PaperRow({
           "—"
         );
       case "venue":
-        return venueLabel(doc.metadata);
+        return <PaperVenue metadata={doc.metadata} />;
       case "added":
         return new Date(doc.createdAt).toLocaleDateString("zh-CN");
       case "opened":
@@ -1746,7 +1744,11 @@ function PaperRow({
           if (!picking) onOpen();
         }}
         onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
+          if (
+            e.target !== e.currentTarget &&
+            !(e.target as Element).closest("[data-paper-venue]")
+          )
+            return;
           if (
             !picking &&
             !card &&
@@ -1787,6 +1789,7 @@ function PaperRow({
                     <JournalRankBadges
                       id={doc.id}
                       venue={doc.metadata.venue || ""}
+                      venueShort={doc.metadata.venueShort}
                       config={journalRankConfig}
                       refreshRevision={journalRankRefresh}
                     />
@@ -1875,14 +1878,11 @@ function PaperRow({
             {check}
             <div className="paper-row-main">
               {title}
-              {byline && (
-                <p className="paper-row-byline" title={byline}>
-                  {byline}
-                </p>
-              )}
+              <PaperByline doc={doc} showAuthors={showAuthors} />
               <JournalRankBadges
                 id={doc.id}
                 venue={doc.metadata.venue || ""}
+                venueShort={doc.metadata.venueShort}
                 config={journalRankConfig}
                 refreshRevision={journalRankRefresh}
               />

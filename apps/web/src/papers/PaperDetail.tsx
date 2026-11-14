@@ -82,6 +82,7 @@ import { PaperAttachments } from "./PaperAttachments";
 const fieldLabels: Partial<Record<PaperMetadataField, string>> = {
   date: "日期",
   venue: "出处",
+  venueShort: "出处简称",
   volume: "卷",
   issue: "期",
   pages: "页码",
@@ -95,7 +96,6 @@ const fieldLabels: Partial<Record<PaperMetadataField, string>> = {
   abstract: "摘要",
 };
 const optionalFields: PaperMetadataField[] = [
-  "venue",
   "volume",
   "issue",
   "pages",
@@ -250,7 +250,7 @@ export function PaperDetail({
                   const saved = await patchPapers([
                     [doc, { title, metadata: { suggestedTitle: "" } }],
                   ]);
-                  if (saved) await lookupPaper(doc, true);
+                  if (saved) await lookupPaper(doc);
                 })().finally(() => setLookingUp(false));
               }}
             >
@@ -400,6 +400,8 @@ export function PaperDetail({
             <AuthorChips doc={doc} />
           </dd>
           <FieldRow doc={doc} name="date" />
+          <FieldRow doc={doc} name="venue" />
+          <FieldRow doc={doc} name="venueShort" />
           <FieldRow doc={doc} name="doi" />
           <FieldRow doc={doc} name="arxiv" />
           <dt>链接</dt>

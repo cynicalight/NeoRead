@@ -1824,6 +1824,7 @@
                                               "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$",
                                             },
                                           "venue": { "type": "string" },
+                                          "venueShort": { "type": "string", "maxLength": 500 },
                                           "volume": { "type": "string" },
                                           "issue": { "type": "string" },
                                           "pages": { "type": "string" },
@@ -5025,7 +5026,7 @@
         {
           "post":
             {
-              "summary": "Look up metadata by DOI, arXiv ID (also detected on the first pages) or a close title match; manual fields are kept",
+              "summary": "Look up metadata using the current paper title; returned fields replace existing values and missing fields are preserved",
               "parameters":
                 [
                   {
@@ -5033,13 +5034,6 @@
                     "name": "id",
                     "required": true,
                     "schema": { "type": "string" },
-                  },
-                  {
-                    "in": "query",
-                    "name": "by",
-                    "required": false,
-                    "schema": { "type": "string", "enum": ["title"] },
-                    "description": "Search by the current title even if identifiers are present",
                   },
                 ],
               "responses":
@@ -7535,6 +7529,7 @@
                       "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$",
                     },
                   "venue": { "type": "string" },
+                  "venueShort": { "type": "string", "maxLength": 500 },
                   "volume": { "type": "string" },
                   "issue": { "type": "string" },
                   "pages": { "type": "string" },
@@ -7560,7 +7555,7 @@
                   "sources":
                     {
                       "type": "object",
-                      "description": "Origin per field; lookups never replace manual values",
+                      "description": "Origin per field; successful lookups can replace existing values",
                       "additionalProperties":
                         { "enum": ["file", "lookup", "manual"] },
                     },
