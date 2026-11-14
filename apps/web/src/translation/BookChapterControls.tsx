@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Languages, Pause } from "lucide-react";
+import { Check, Languages, Pause, RotateCcw } from "lucide-react";
 import type { Processing } from "@neoread/core";
 import { api, type ChapterTranslationStatus } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
@@ -9,10 +9,17 @@ import {
   TooltipTrigger,
 } from "@neoread/ui/components/tooltip";
 import { toast } from "sonner";
-import { chapterPhase, type ChapterPhase } from "./chapterTranslation";
-
-/** How long "翻译完成" stays labelled before collapsing to its check. */
-export const completionLabelMs = 3000;
+import { chapterPhase } from "./chapterTranslation";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from "@neoread/ui/components/alert-dialog";
 
 /**
  * Book translation controls bound to the reader's current chapter: translate,
@@ -35,17 +42,19 @@ export function BookChapterControls({
   stale?: boolean;
   /** Chapter name for the completion tooltip, overriding the server title. */
   title?: string;
-  /** Queues the current chapter's unfinished paragraphs. */
-  onRequest: () => Promise<void>;
+  /** Queues unfinished paragraphs, or explicitly retranslates the chapter. */
+  onRequest: (retranslate?: boolean) => Promise<void>;
   /** Called after an action so the chapter counts are refetched. */
   onChange: () => void;
 }) {
   const [saved, setSaved] = useState<Processing>();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const serial = useRef(0);
   useEffect(() => {
     setSaved(undefined);
     setBusy(false);
+    setConfirming(false);
     return () => {
       serial.current++;
     };
@@ -59,30 +68,7 @@ export function BookChapterControls({
   const phase = status
     ? chapterPhase(status, job?.enabled === true)
     : undefined;
-  // Name completion only when it happens in view; an already finished
-  // chapter shows the check alone.
-  const [announce, setAnnounce] = useState(false);
-  const seen = useRef<{ key: string; phase?: ChapterPhase }>({ key: "" });
-  useEffect(() => {
-    const previous = seen.current;
-    const key = status?.key ?? "";
-    seen.current = { key, phase };
-    if (
-      phase !== "complete" ||
-      previous.key !== key ||
-      !previous.phase ||
-      previous.phase === "complete"
-    ) {
-      if (phase !== "complete" || previous.key !== key) setAnnounce(false);
-      return;
-    }
-    setAnnounce(true);
-  }, [status?.key, phase]);
-  useEffect(() => {
-    if (!announce) return;
-    const timer = setTimeout(() => setAnnounce(false), completionLabelMs);
-    return () => clearTimeout(timer);
-  }, [announce]);
+  useEffect(() => setConfirming(false), [status?.key]);
   const act = async (run: () => Promise<unknown>) => {
     const operation = ++serial.current;
     setBusy(true);
@@ -107,18 +93,54 @@ export function BookChapterControls({
             render={
               <Button
                 variant="ghost"
-                size={announce ? "sm" : "icon-sm"}
+                size="icon-sm"
                 aria-label={label}
                 aria-disabled
                 className="cursor-default"
               />
             }
           >
-            <Check />
-            {announce && "翻译完成"}
+            <Check aria-hidden="true" />
           </TooltipTrigger>
           <TooltipContent>{label}</TooltipContent>
         </Tooltip>
+        <AlertDialog open={confirming} onOpenChange={setConfirming}>
+          <AlertDialogTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={busy || stale}
+                title="重新翻译本章"
+                aria-label="重新翻译本章"
+              />
+            }
+          >
+            <RotateCcw aria-hidden="true" />
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>重新翻译本章？</AlertDialogTitle>
+              <AlertDialogDescription>
+                将使用当前翻译模型和已保存的翻译提示词重新翻译本章。旧译文会在新结果完成后逐段替换。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>取消</AlertDialogCancel>
+              <Button
+                disabled={busy || stale}
+                onClick={() =>
+                  void act(async () => {
+                    await onRequest(true);
+                    setConfirming(false);
+                  })
+                }
+              >
+                {busy ? "正在开始…" : "开始重新翻译"}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   }

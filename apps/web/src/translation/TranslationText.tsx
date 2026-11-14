@@ -258,23 +258,41 @@ function TranslationContent({
     />
   ) : null;
   const formulaFallback = image || <MessageMarkdown content={block.text} />;
+  const preservedFailure =
+    translation?.status === "failed" &&
+    (translation.sentences.length > 0 || translation.formulaMarkdown) ? (
+      <div className="translation-pending" role="status">
+        <span>
+          {translation.error || (formula ? "公式转换失败" : "此段翻译失败")}
+        </span>
+        {formula && (
+          <Button variant="ghost" size="sm" onClick={retry}>
+            重试公式
+          </Button>
+        )}
+      </div>
+    ) : null;
   if (
     formula &&
-    translation?.status === "complete" &&
+    translation &&
+    (translation.status === "complete" || preservedFailure) &&
     translation.formulaMarkdown
   ) {
     return (
-      <Suspense
-        fallback={
-          <FormulaRow number={formulaNumber}>{formulaFallback}</FormulaRow>
-        }
-      >
-        <FormulaFragment
-          content={translation.formulaMarkdown}
-          fallback={formulaFallback}
-          number={formulaNumber}
-        />
-      </Suspense>
+      <>
+        <Suspense
+          fallback={
+            <FormulaRow number={formulaNumber}>{formulaFallback}</FormulaRow>
+          }
+        >
+          <FormulaFragment
+            content={translation.formulaMarkdown}
+            fallback={formulaFallback}
+            number={formulaNumber}
+          />
+        </Suspense>
+        {preservedFailure}
+      </>
     );
   }
   if (formula)
@@ -318,7 +336,8 @@ function TranslationContent({
             onCitation={onCitation}
           />
         )
-      ) : translation?.status === "complete" ? (
+      ) : translation &&
+        (translation.status === "complete" || preservedFailure) ? (
         <div className="translation-complete">
           <div
             className="translation-sentences"
@@ -339,6 +358,7 @@ function TranslationContent({
               </div>
             ))}
           </div>
+          {preservedFailure}
           <Button
             variant="ghost"
             size="icon-xs"

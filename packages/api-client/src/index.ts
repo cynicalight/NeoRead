@@ -456,7 +456,12 @@ export const api = {
       body: JSON.stringify({ blockId, force }),
     }),
   /** Queues the entire page range through the shared translation workers. */
-  translateRange: (id: string, fromPage: number, toPage: number) =>
+  translateRange: (
+    id: string,
+    fromPage: number,
+    toPage: number,
+    retranslate = false,
+  ) =>
     request<{
       queued: number;
       characters: number;
@@ -465,17 +470,19 @@ export const api = {
       parsing: boolean;
     }>(`/api/documents/${id}/translations/range`, {
       method: "POST",
-      body: JSON.stringify({ fromPage, toPage }),
+      body: JSON.stringify({ fromPage, toPage, retranslate }),
     }),
   translateEPUBChapter: (
     id: string,
     location: import("@neoread/core").EPUBLocation,
+    retranslate = false,
   ) =>
     request<{ queued: number; characters: number; hasMore: boolean }>(
       `/api/documents/${id}/translations/chapter`,
       {
         method: "POST",
         body: JSON.stringify({
+          retranslate,
           location: {
             type: "epub",
             href: location.href,
