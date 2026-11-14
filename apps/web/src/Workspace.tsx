@@ -128,6 +128,7 @@ import { PaperNote } from "./PaperNote";
 import { ExportDocumentDialog } from "./ExportDocumentDialog";
 import { EPUBReadingView } from "./translation/EPUBReadingView";
 import { PDFReadingView } from "./translation/PDFReadingView";
+import type { ReadingMode } from "./translation/reading-mode";
 import { useReaderStore } from "./store";
 import { scheduleProgress, flushProgress } from "./progress";
 import { pdfModeLocation, savePDFProgress } from "./pdf-progress";
@@ -182,10 +183,16 @@ export function Workspace({
   onSettings: () => void;
 }) {
   const { aiConfig, setAIConfig, aiModelSaving } = useReaderStore();
-  const { theme, setTheme, onZoom } = useDocumentTheme(
-    sharedTheme,
-    doc,
-    active,
+  const [readingMode, setReadingMode] = useState<ReadingMode>("source");
+  const {
+    theme: documentTheme,
+    setTheme,
+    onZoom,
+  } = useDocumentTheme(sharedTheme, doc, active);
+  const reflow = readingMode === "reflow";
+  const theme = useMemo(
+    () => ({ ...documentTheme, textReflow: reflow }),
+    [documentTheme, reflow],
   );
   const assistantSize = theme.assistantFontScale ?? 1;
   const assistantFamily = theme.assistantFontFamily ?? "sans-serif";
@@ -1423,6 +1430,8 @@ export function Workspace({
               return (
                 <ReadingView
                   active={active}
+                  readingMode={readingMode}
+                  onReadingModeChange={setReadingMode}
                   sidebarsOpen={{ left, right }}
                   document={doc}
                   theme={theme}

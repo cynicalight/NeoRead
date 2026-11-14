@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, useEffect } from "react";
+import { act, useEffect, useMemo, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -113,6 +113,7 @@ vi.mock("../ReaderView", () => ({
 }));
 import { useReaderStore } from "../store";
 import { EPUBReadingView } from "./EPUBReadingView";
+import type { ReadingMode } from "./reading-mode";
 const blocks: import("@neoread/core").EPUBReadingBlock[] = [
   "a.xhtml",
   "b.xhtml",
@@ -162,20 +163,28 @@ beforeEach(async () => {
   vi.clearAllMocks();
   await renderView();
 });
-async function renderView(theme: ReaderTheme = defaultTheme) {
-  await act(async () =>
-    root.render(
-      <EPUBReadingView
-        document={{ id: "doc", type: "epub" } as Document}
-        theme={theme}
-        annotations={[]}
-        events={events}
-        onReady={(a) => {
-          fixture.ready = a;
-        }}
-      />,
-    ),
+function ControlledView({ theme }: { theme: ReaderTheme }) {
+  const [readingMode, setReadingMode] = useState<ReadingMode>("source");
+  const effectiveTheme = useMemo(
+    () => ({ ...theme, textReflow: readingMode === "reflow" }),
+    [theme, readingMode],
   );
+  return (
+    <EPUBReadingView
+      document={{ id: "doc", type: "epub" } as Document}
+      theme={effectiveTheme}
+      readingMode={readingMode}
+      onReadingModeChange={setReadingMode}
+      annotations={[]}
+      events={events}
+      onReady={(a) => {
+        fixture.ready = a;
+      }}
+    />
+  );
+}
+async function renderView(theme: ReaderTheme = defaultTheme) {
+  await act(async () => root.render(<ControlledView theme={theme} />));
 }
 
 afterEach(async () => {
@@ -197,8 +206,7 @@ async function click(label: string) {
 }
 
 it("keeps full mixed selection text for chat and independent annotation parts", async () => {
-  await renderView({ ...defaultTheme, textReflow: true });
-  await click("原文译文");
+  await click("重排");
   const source = host.querySelector('[data-epub-run="p1-b1"]')!;
   const target = host.querySelector(
     '[data-translation-block="p1-b1"] [data-sentence="0"]',
@@ -230,7 +238,7 @@ it("keeps full mixed selection text for chat and independent annotation parts", 
 });
 
 it("supports all modes and chapter navigation without PDF page locations", async () => {
-  await click("仅译文");
+  await click("译文");
   expect(host.querySelector('[data-mode="translation"]')).toBeTruthy();
   vi.mocked(adapter.goTo).mockClear();
   await act(async () => fixture.ready!.next());
@@ -241,14 +249,14 @@ it("supports all modes and chapter navigation without PDF page locations", async
   expect(adapter.goTo).toHaveBeenCalledWith({ type: "epub", href: "b.xhtml" });
   expect(await fixture.ready!.getContext()).toBe(blocks[1].text);
   expect(adapter.getContext).not.toHaveBeenCalled();
-  await click("原文译文");
+  await click("对照");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   expect(adapter.goTo).toHaveBeenLastCalledWith(
     expect.objectContaining({ type: "epub", href: "b.xhtml" }),
   );
 });
 it("keeps translated selection while source navigation emits selection resets", async () => {
-  await click("原文译文");
+  await click("对照");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   const sentence = host.querySelector('[data-sentence="1"]')!;
   const range = document.createRange();
@@ -270,8 +278,8 @@ it("keeps translated selection while source navigation emits selection resets", 
   expect(events.selection).toHaveBeenLastCalledWith(null);
 });
 it("restores an original interaction after following the translated pane", async () => {
-  await click("仅译文");
-  await click("原文译文");
+  await click("译文");
+  await click("对照");
   await act(async () => fixture.events!.epubInteraction?.());
   await act(async () =>
     fixture.events!.selection({
@@ -292,15 +300,15 @@ it("restores an original interaction after following the translated pane", async
   ).toBe(false);
 });
 it("keeps the translation subscription alive across modes and aborts on close", async () => {
-  await click("原文译文");
-  await click("仅译文");
+  await click("对照");
+  await click("译文");
   expect(fixture.signal?.aborted).toBe(false);
   await act(async () => root.unmount());
   expect(fixture.signal?.aborted).toBe(true);
 });
 
 it("renders successive chapters together without chapter-turn buttons", async () => {
-  await click("仅译文");
+  await click("译文");
   expect(
     Array.from(host.querySelectorAll("[data-chapter]")).map((n) =>
       n.getAttribute("data-chapter"),
@@ -320,7 +328,7 @@ it("retains both original chapter locations when selecting across a chapter boun
       ],
     }),
   );
-  await click("仅译文");
+  await click("译文");
   const start = host.querySelector(
     '[data-chapter="a.xhtml"] [data-sentence="1"]',
   )!;
@@ -354,7 +362,7 @@ it("follows the latest translated position after an earlier chapter navigation f
       ],
     }),
   );
-  await click("原文译文");
+  await click("对照");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   vi.mocked(adapter.goTo).mockClear();
   let release!: () => void;
@@ -405,7 +413,7 @@ it("uses independent translation typography even when old preferences request pa
   expect(host.querySelector(".pdf-page-navigation")).toBeNull();
 });
 it("keeps selection navigation without highlighting the source counterpart", async () => {
-  await click("原文译文");
+  await click("对照");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   const sentence = host.querySelector('[data-sentence="1"]')!;
   const range = document.createRange();
@@ -431,7 +439,7 @@ it("keeps selection navigation without highlighting the source counterpart", asy
 });
 it("follows source block anchors and scrolls the source to the translated block in both directions", async () => {
   useReaderStore.getState().setTheme({ reducedMotion: true });
-  await click("原文译文");
+  await click("对照");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
   Object.defineProperty(pane, "clientHeight", { value: 400 });
@@ -457,7 +465,7 @@ it("follows source block anchors and scrolls the source to the translated block 
 });
 
 it("links block hover and focuses a clicked block in both panes", async () => {
-  await click("原文译文");
+  await click("对照");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
   Object.defineProperty(pane, "clientHeight", { value: 400 });
@@ -496,7 +504,7 @@ it("links block hover and focuses a clicked block in both panes", async () => {
 });
 
 it("prioritizes double-click selection over translation block focus", async () => {
-  await click("原文译文");
+  await click("对照");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   const section = host.querySelector<HTMLElement>(
     '[data-translation-block="e-b"]',
@@ -546,7 +554,7 @@ it("uses only the reader's loaded blocks and subscribes only to their chapters",
 it.each(["source", "translation"] as const)(
   "keeps centered EPUB blocks stable after %s focus and resumes from the viewport midpoint",
   async (origin) => {
-    await click("原文译文");
+    await click("对照");
     await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
     useReaderStore.getState().setTheme({ reducedMotion: true });
     const pane = host.querySelector<HTMLElement>(".translation-document")!;
@@ -591,7 +599,7 @@ it.each(["source", "translation"] as const)(
 );
 
 it("smoothly retargets the translated midpoint and cancels following on user input", async () => {
-  await click("原文译文");
+  await click("对照");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
   Object.defineProperty(pane, "clientHeight", { value: 400 });

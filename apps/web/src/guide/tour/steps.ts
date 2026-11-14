@@ -405,14 +405,14 @@ export const tourSteps: TourStep[] = [
     view: (s) =>
       s.pdfReading
         ? {
-            title: "切换到原文译文",
-            body: "点击「原文译文」，并排查看论文原文和中文翻译。",
+            title: "切换到对照",
+            body: "点击「对照」，并排查看论文原文和中文翻译。",
             click: [readingModes],
             pointer: { gesture: "click", target: tour("parallel-mode") },
           }
         : {
             title: "切换阅读模式",
-            body: "在「仅原文」「原文译文」「仅译文」之间切换。对照模式下悬停句子，两侧对应高亮。",
+            body: "在「原文」「对照」「重排」「译文」之间切换。重排模式按段落交替显示原文和译文。",
             click: [readingModes],
             pointer: { gesture: "hover", target: readingModes },
             advanceOn: readingModes,

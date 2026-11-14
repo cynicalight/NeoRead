@@ -72,7 +72,7 @@ import { chapterRange, chapterTitle, headingPages } from "./chapters";
 import { useChapterTranslation } from "./chapterTranslation";
 import { searchPDFBlocks } from "./pdf-search";
 
-type Mode = "source" | "parallel" | "translation";
+import type { ReadingMode } from "./reading-mode";
 /** Scroll settling after a pinned jump or click does not move the chapter. */
 const pinHold = 800;
 const noTranslations: TranslationBlock[] = [];
@@ -80,6 +80,8 @@ export function PDFReadingView({
   document: doc,
   active = true,
   theme,
+  readingMode,
+  onReadingModeChange,
   annotations,
   blocks,
   processing,
@@ -94,6 +96,8 @@ export function PDFReadingView({
   document: ReaderDocument;
   active?: boolean;
   theme: ReaderTheme;
+  readingMode: ReadingMode;
+  onReadingModeChange: (mode: ReadingMode) => void;
   annotations: Annotation[];
   blocks: PDFBlock[];
   processing?: Processing;
@@ -107,16 +111,15 @@ export function PDFReadingView({
   events: ReaderEvents;
 }) {
   const { swapped, sourceWidth } = readerLayout(theme.readerLayout);
-  // Reflowed text renders extracted paragraphs in one column for every mode;
-  // the PDF engine stays mounted, hidden, for outline, search and navigation.
+  // The PDF engine stays mounted, hidden, for outline, search and navigation.
   const reflow = theme.textReflow === true;
   const blockSelector = reflow
     ? "[data-reflow-block]"
     : "[data-translation-block]";
   const nodeBlockId = (node: HTMLElement) =>
     reflow ? node.dataset.reflowBlock : node.dataset.translationBlock;
-  const [mode, setMode] = useState<Mode>("source"),
-    [syncEnabled, setSyncEnabled] = useState(true);
+  const mode = readingMode === "reflow" ? "parallel" : readingMode;
+  const [syncEnabled, setSyncEnabled] = useState(true);
   const layoutRevision = processing?.layoutRevision;
   const { translations: streamed, error } = useTranslations(
     doc.id,
@@ -153,7 +156,7 @@ export function PDFReadingView({
         : null,
     );
   };
-  const previousMode = useRef<Mode>("source");
+  const previousMode = useRef<ReadingMode>(readingMode);
   const syncEnabledRef = useRef(syncEnabled);
   syncEnabledRef.current = syncEnabled;
   const explicitFocus = useRef({
@@ -726,13 +729,30 @@ export function PDFReadingView({
     });
     onReady(facade.current, toc);
   };
+  useLayoutEffect(() => {
+    input(
+      readingMode === "translation" || readingMode === "reflow"
+        ? "translation"
+        : "source",
+    );
+    cancelAnimationFrame(scrollFrame.current);
+    engine?.cancelBlockFocus?.();
+    setPopup(undefined);
+    return () => {
+      cancelAnimationFrame(scrollFrame.current);
+      cancelTranslationMotion();
+      deferredFocus.cancel();
+      explicitFocus.current.operation++;
+      engine?.cancelBlockFocus?.();
+    };
+  }, [readingMode, active]);
   useEffect(() => {
     if (!engine || !active) return;
     hoverOwner.current = undefined;
     setHoveredBlock(undefined);
     engine.hoverBlock?.(null);
     const previous = previousMode.current;
-    previousMode.current = mode;
+    previousMode.current = readingMode;
     let cancelled = false;
     selection.current = null;
     events.selection(null);
@@ -746,16 +766,22 @@ export function PDFReadingView({
       if (reflow) {
         return;
       }
-      if (previous !== mode) {
+      if (previous !== readingMode) {
         // Use the same preference path as the 适宽 button, including clearing
         // temporary passage zoom and saving this document's zoom preference.
         events.zoom?.("width");
         await engine.setTheme({ ...state.current.theme, zoom: "width" });
-        if (cancelled) return;
+        if (cancelled || operation !== explicitFocus.current.operation) return;
         if (mode !== "translation" && anchor && syncEnabledRef.current)
           await engine.followBlock?.(anchor);
       }
-      if (!cancelled && mode !== "source" && anchor) followTranslation(anchor);
+      if (
+        !cancelled &&
+        operation === explicitFocus.current.operation &&
+        mode !== "source" &&
+        anchor
+      )
+        followTranslation(anchor);
     };
     const apply = () =>
       void restore().catch((e) => {
@@ -763,7 +789,7 @@ export function PDFReadingView({
       });
     // Both PDF fit-width and translation positioning need the expanded panes.
     let frame = 0;
-    if (previous !== mode) {
+    if (previous !== readingMode) {
       frame = requestAnimationFrame(() => {
         frame = requestAnimationFrame(() => {
           if (!cancelled && operation === explicitFocus.current.operation)
@@ -776,14 +802,21 @@ export function PDFReadingView({
       cancelAnimationFrame(frame);
       engine.hoverBlock?.(null);
     };
-  }, [mode, engine, active, reflow]);
+  }, [readingMode, engine, active, reflow]);
   // Wait for the saved paragraph before restoring reflow progress.
   const reflowRestored = useRef(false);
   useLayoutEffect(() => {
+    if (reflow && !reflowReading.current)
+      reflowReading.current = originalReading.current;
     reflowRestored.current = false;
   }, [doc.id, reflow]);
   const restoreReflow = () => {
-    if (!state.current.reflow || reflowRestored.current || !pane.current)
+    if (
+      !active ||
+      !state.current.reflow ||
+      reflowRestored.current ||
+      !pane.current
+    )
       return;
     reading.current = reflowReading.current;
     const anchor = reflowReading.current;
@@ -801,7 +834,7 @@ export function PDFReadingView({
       pane.current.scrollTop = 0;
     }
   };
-  useLayoutEffect(restoreReflow, [blocks, doc.id, reflow]);
+  useLayoutEffect(restoreReflow, [blocks, doc.id, reflow, active]);
   useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
   useEffect(() => {
     const release = () => {
@@ -932,10 +965,14 @@ export function PDFReadingView({
       }
     });
   };
-  const changeMode = (value: Mode) => {
-    input(value === "translation" || reflow ? "translation" : "source");
+  const changeMode = (value: ReadingMode) => {
+    input(
+      value === "translation" || value === "reflow" ? "translation" : "source",
+    );
+    cancelAnimationFrame(scrollFrame.current);
+    engine?.cancelBlockFocus?.();
     setPopup(undefined);
-    setMode(value);
+    onReadingModeChange(value);
   };
   const activePopup = popup && byId.get(popup.block.id);
   const toggleSync = () => {
@@ -1031,13 +1068,17 @@ export function PDFReadingView({
       ) : (
         <AssistanceControls document={doc} processing={processing} />
       )}
-      <Tabs value={mode} onValueChange={(v) => changeMode(v as Mode)}>
+      <Tabs
+        value={readingMode}
+        onValueChange={(v) => changeMode(v as ReadingMode)}
+      >
         <TabsList>
-          <TabsTrigger value="source">仅原文</TabsTrigger>
+          <TabsTrigger value="source">原文</TabsTrigger>
           <TabsTrigger value="parallel" data-tour="parallel-mode">
-            原文译文
+            对照
           </TabsTrigger>
-          <TabsTrigger value="translation">仅译文</TabsTrigger>
+          <TabsTrigger value="reflow">重排</TabsTrigger>
+          <TabsTrigger value="translation">译文</TabsTrigger>
         </TabsList>
       </Tabs>
     </div>
@@ -1316,15 +1357,13 @@ export function PDFReadingView({
                         <TranslationText
                           {...text.props}
                           source={
-                            mode !== "translation" && (
-                              <ReflowSource
-                                block={block}
-                                translation={translated}
-                                onCitation={text.props.onCitation}
-                              />
-                            )
+                            <ReflowSource
+                              block={block}
+                              translation={translated}
+                              onCitation={text.props.onCitation}
+                            />
                           }
-                          showTranslation={mode !== "source"}
+                          showTranslation
                           markTranslation
                         />
                       )}

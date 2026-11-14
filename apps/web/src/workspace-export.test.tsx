@@ -9,10 +9,13 @@ import { Workspace } from "./Workspace";
 import { paper } from "./papers/fixtures";
 import { useReaderStore } from "./store";
 import type { ResizablePanelGroup } from "@neoread/ui/components/resizable";
+import type { PDFReadingView } from "./translation/PDFReadingView";
+import { scheduleProgress } from "./progress";
 type GroupProps = ComponentProps<typeof ResizablePanelGroup>;
 
 const panels = vi.hoisted(() => ({
   props: undefined as GroupProps | undefined,
+  reader: undefined as ComponentProps<typeof PDFReadingView> | undefined,
 }));
 
 vi.mock("@neoread/api", () => ({
@@ -45,7 +48,12 @@ vi.mock("./progress", () => ({
   scheduleProgress: vi.fn(),
   flushProgress: vi.fn(async () => {}),
 }));
-vi.mock("./translation/PDFReadingView", () => ({ PDFReadingView: () => null }));
+vi.mock("./translation/PDFReadingView", () => ({
+  PDFReadingView: (props: ComponentProps<typeof PDFReadingView>) => {
+    panels.reader = props;
+    return null;
+  },
+}));
 vi.mock("./translation/EPUBReadingView", () => ({
   EPUBReadingView: () => null,
 }));
@@ -95,12 +103,12 @@ const processing: Processing = {
   updatedAt: "",
 };
 let root: Root, host: HTMLDivElement;
-const render = (tick: number) =>
+const render = (tick: number, theme = defaultTheme) =>
   root.render(
     <TooltipProvider>
       <Workspace
         document={doc}
-        theme={defaultTheme}
+        theme={theme}
         processing={{ ...processing, updatedAt: String(tick) }}
         onBack={() => {}}
         onSettings={() => {}}
@@ -120,6 +128,39 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+});
+
+it("keeps native and reflow progress separate despite an old global reflow preference", async () => {
+  await act(async () => render(0, { ...defaultTheme, textReflow: true }));
+  const original = { type: "pdf" as const, page: 4, x: 0.2, y: 0.6 };
+  await act(async () => panels.reader!.events.location(original, 0.4));
+  await act(async () => panels.reader!.onReadingModeChange("reflow"));
+  await act(async () =>
+    panels.reader!.events.location(
+      { type: "pdf", page: 9, reflowBlockId: "p9-b4" },
+      0.9,
+    ),
+  );
+  const progress = {
+    ...original,
+    reflowPosition: { page: 9, blockId: "p9-b4" },
+  };
+  expect(scheduleProgress).toHaveBeenLastCalledWith(
+    doc.id,
+    { progress, percentage: 0.9 },
+    expect.any(Function),
+  );
+  await act(async () => panels.reader!.onReadingModeChange("parallel"));
+  const next = { type: "pdf" as const, page: 6, x: 0.1, y: 0.4 };
+  await act(async () => panels.reader!.events.location(next, 0.6));
+  expect(scheduleProgress).toHaveBeenLastCalledWith(
+    doc.id,
+    {
+      progress: { ...next, reflowPosition: progress.reflowPosition },
+      percentage: 0.6,
+    },
+    expect.any(Function),
+  );
 });
 
 it("restores user sidebar sizes and collapsed state without replacing expanded sizes with zero", async () => {

@@ -1100,25 +1100,6 @@ export function Settings({
                 />
               </label>
               <label className="flex items-center justify-between gap-4 text-sm">
-                <span>
-                  文字重排
-                  <span className="block text-xs text-muted-foreground">
-                    按段落重排正文，译文显示在对应原文下方。
-                    <span className="font-semibold text-foreground">
-                      建议配置 Agent 后再开启，部分原文的 LaTeX 公式需要依靠 AI
-                      识别
-                    </span>
-                  </span>
-                </span>
-                <Switch
-                  aria-label="文字重排"
-                  checked={theme.textReflow === true}
-                  onCheckedChange={(checked) =>
-                    setTheme({ textReflow: !!checked })
-                  }
-                />
-              </label>
-              <label className="flex items-center justify-between gap-4 text-sm">
                 <span>点击段落聚焦</span>
                 <Switch
                   aria-label="点击段落聚焦"

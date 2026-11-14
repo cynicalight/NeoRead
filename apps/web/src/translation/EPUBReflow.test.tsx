@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, useEffect } from "react";
+import { act, useEffect, useMemo, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -42,8 +42,9 @@ vi.mock("@neoread/api", () => ({
 vi.mock("../chat/MessageMarkdown", () => ({
   MessageMarkdown: ({ content }: { content: string }) => <p>{content}</p>,
 }));
+const open = vi.fn(async () => {});
 const adapter = {
-  open: vi.fn(async () => {}),
+  open,
   getTOC: vi.fn(async () => []),
   getLocation: () => ({ type: "epub", href: "a.xhtml" }),
   goTo: vi.fn(async () => {}),
@@ -97,7 +98,11 @@ vi.mock("../ReaderView", () => ({
     fixture.events = events;
     useEffect(() => {
       events.epubBlocksChanged?.(blocks);
+      void open();
       onReady(adapter, []);
+      return () => {
+        void adapter.destroy();
+      };
     }, []);
     return (
       <div className="neoread-engine epub-web-reader">
@@ -112,6 +117,7 @@ vi.mock("../ReaderView", () => ({
   },
 }));
 import { EPUBReadingView } from "./EPUBReadingView";
+import type { ReadingMode } from "./reading-mode";
 let root: Root, host: HTMLDivElement;
 const events = { location: vi.fn(), selection: vi.fn() };
 const reflowed: ReaderTheme = { ...defaultTheme, textReflow: true };
@@ -151,18 +157,26 @@ afterEach(async () => {
   window.getSelection()?.removeAllRanges();
   vi.unstubAllGlobals();
 });
-async function renderView(theme: ReaderTheme = reflowed) {
-  await act(async () =>
-    root.render(
-      <EPUBReadingView
-        document={{ id: "doc", type: "epub" } as Document}
-        theme={theme}
-        annotations={[]}
-        events={events}
-        onReady={() => {}}
-      />,
-    ),
+function ControlledView({ theme }: { theme: ReaderTheme }) {
+  const [readingMode, setReadingMode] = useState<ReadingMode>("reflow");
+  const effectiveTheme = useMemo(
+    () => ({ ...theme, textReflow: readingMode === "reflow" }),
+    [theme, readingMode],
   );
+  return (
+    <EPUBReadingView
+      document={{ id: "doc", type: "epub" } as Document}
+      theme={effectiveTheme}
+      readingMode={readingMode}
+      onReadingModeChange={setReadingMode}
+      annotations={[]}
+      events={events}
+      onReady={() => {}}
+    />
+  );
+}
+async function renderView(theme: ReaderTheme = reflowed) {
+  await act(async () => root.render(<ControlledView theme={theme} />));
 }
 async function click(label: string) {
   const button = Array.from(host.querySelectorAll("button")).find(
@@ -175,36 +189,39 @@ const companion = () =>
     'p[data-epub-block="p1"] > [data-reflow-block="p1"]',
   );
 
-it("puts each translation under its source paragraph in one column", async () => {
+it("uses one full-width source column only for bilingual reflow", async () => {
   await renderView();
-  expect(host.querySelector(".translation-panes")).toBeNull();
-  expect(companion()).toBeNull();
-  await click("原文译文");
-  expect(companion()?.dataset.translationBlock).toBe("p1");
-  expect(companion()?.textContent).toBe("第一句。第二句。");
-  // Images carry no translation; their source stays visible.
-  expect(host.querySelector('[data-reflow-block="img"]')).toBeNull();
-  await click("仅译文");
+  expect(
+    host.querySelector(".translation-panes")?.getAttribute("data-mode"),
+  ).toBe("source");
   expect(
     host.querySelector(".epub-reflow")?.getAttribute("data-reflow-mode"),
-  ).toBe("translation");
+  ).toBe("parallel");
+  expect(companion()?.dataset.translationBlock).toBe("p1");
   expect(companion()?.textContent).toBe("第一句。第二句。");
-  await click("仅原文");
-  expect(companion()).toBeNull();
-  // Turning reflow off restores the side-by-side panes.
-  await renderView(defaultTheme);
-  expect(host.querySelector(".translation-panes")).toBeTruthy();
+  expect(host.querySelector('[data-reflow-block="img"]')).toBeNull();
+  for (const [label, mode] of [
+    ["原文", "source"],
+    ["对照", "parallel"],
+    ["译文", "translation"],
+  ]) {
+    await click(label);
+    expect(companion()).toBeNull();
+    expect(host.querySelector(".epub-reflow")).toBeNull();
+    expect(
+      host.querySelector(".translation-panes")?.getAttribute("data-mode"),
+    ).toBe(mode);
+  }
 });
-it("keeps reading progress from the reflowed column in every mode", async () => {
+it("keeps reading progress from the reflowed column", async () => {
   await renderView();
-  await click("仅译文");
   const location = { type: "epub" as const, href: "a.xhtml", progression: 0.5 };
   await act(async () => fixture.events!.location(location, 0.5));
   expect(events.location).toHaveBeenLastCalledWith(location, 0.5);
 });
 it("captures translated selections inside a source paragraph", async () => {
   await renderView();
-  await click("原文译文");
+  await click("重排");
   const sentence = companion()!.querySelector('[data-sentence="1"]')!;
   const range = document.createRange();
   range.selectNodeContents(sentence);
@@ -237,6 +254,9 @@ it("focuses a clicked paragraph unless the setting is off", async () => {
 });
 it("centres the current paragraph after switching modes", async () => {
   await renderView();
+  const flush = queuedFrames();
+  await click("原文");
+  await flush();
   await act(async () =>
     fixture.events!.location(
       { type: "epub", href: "a.xhtml", blockId: "p1", start: 5, end: 5 },
@@ -244,11 +264,8 @@ it("centres the current paragraph after switching modes", async () => {
     ),
   );
   vi.mocked(adapter.followBlock!).mockClear();
-  await click("仅译文");
-  await act(async () => {
-    await new Promise(requestAnimationFrame);
-    await new Promise(requestAnimationFrame);
-  });
+  await click("重排");
+  await flush();
   expect(adapter.followBlock).toHaveBeenCalledWith({
     blockId: "p1",
     fraction: 0.5,
@@ -259,7 +276,7 @@ it.each([false, true])(
   "splits mixed reflow ranges into source and translation marks (reverse=%s)",
   async (reverse) => {
     await renderView();
-    await click("原文译文");
+    await click("重排");
     const second: EPUBReadingBlock = {
       id: "p2",
       label: "text",
@@ -305,9 +322,9 @@ it.each([false, true])(
   },
 );
 
-it("keeps a translation-starting mixed range and excludes hidden source in translation-only mode", async () => {
+it("keeps a translation-starting mixed range", async () => {
   await renderView();
-  await click("原文译文");
+  await click("重排");
   const second: EPUBReadingBlock = {
     id: "p2",
     label: "text",
@@ -337,7 +354,7 @@ it("keeps a translation-starting mixed range and excludes hidden source in trans
   await act(async () =>
     paragraph.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
   );
-  let value = events.selection.mock.calls.at(-1)![0];
+  const value = events.selection.mock.calls.at(-1)![0];
   expect(value.parts.map((p: { text: string }) => p.text)).toEqual([
     "Another",
     "句。第二句。",
@@ -347,13 +364,120 @@ it("keeps a translation-starting mixed range and excludes hidden source in trans
     start: 0,
     end: 7,
   });
-  await click("仅译文");
-  window.getSelection()!.removeAllRanges();
-  window.getSelection()!.addRange(range);
-  await act(async () =>
-    paragraph.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
-  );
-  value = events.selection.mock.calls.at(-1)![0];
-  expect(value.parts).toBeUndefined();
-  expect(value.text).toBe("句。第二句。");
+});
+
+function queuedFrames() {
+  let next = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++next, callback);
+    return next;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+  return async () => {
+    for (let i = 0; i < 3; i++) {
+      const current = [...frames.values()];
+      frames.clear();
+      await act(async () =>
+        current.forEach((callback) => callback(performance.now())),
+      );
+    }
+  };
+}
+
+const modeLabels = ["原文", "对照", "重排", "译文"];
+it.each(
+  modeLabels.flatMap((from) =>
+    modeLabels.filter((to) => to !== from).map((to) => [from, to]),
+  ),
+)("preserves the EPUB engine and paragraph from %s to %s", async (from, to) => {
+  await renderView();
+  const flush = queuedFrames();
+  const reader = host.querySelector(".epub-web-reader");
+  const chapter = host.querySelector(".epub-web-chapter");
+  expect(
+    [...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent),
+  ).toEqual(modeLabels);
+  await click(from);
+  await flush();
+  const location = {
+    type: "epub" as const,
+    href: "a.xhtml",
+    blockId: "p1",
+    start: 12,
+    end: 12,
+  };
+  if (from === "译文") {
+    // A source interaction hands location ownership back from the hidden pane.
+    await act(async () => fixture.events!.epubInteraction?.());
+  }
+  await act(async () => fixture.events!.location(location, 0.5));
+  vi.mocked(adapter.goTo).mockClear();
+  vi.mocked(adapter.followBlock!).mockClear();
+  await click(to);
+  await flush();
+  expect(host.querySelector(".epub-web-reader")).toBe(reader);
+  expect(host.querySelector(".epub-web-chapter")).toBe(chapter);
+  expect(adapter.open).toHaveBeenCalledTimes(1);
+  expect(adapter.destroy).not.toHaveBeenCalled();
+  expect(
+    host.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
+  ).toBe(to);
+  if (to === "重排") {
+    expect(adapter.followBlock).toHaveBeenCalledWith({
+      blockId: "p1",
+      fraction: 0.5,
+    });
+    expect(adapter.goTo).not.toHaveBeenCalled();
+  } else {
+    expect(adapter.goTo).toHaveBeenCalledExactlyOnceWith(location);
+  }
+});
+
+it("cancels obsolete mode frames during rapid switching", async () => {
+  await renderView();
+  const flush = queuedFrames();
+  const location = {
+    type: "epub" as const,
+    href: "a.xhtml",
+    blockId: "p1",
+    start: 9,
+    end: 9,
+  };
+  await act(async () => fixture.events!.location(location, 0.5));
+  await click("对照");
+  await click("重排");
+  await click("译文");
+  await click("原文");
+  await flush();
+  expect(adapter.goTo).toHaveBeenCalledExactlyOnceWith(location);
+  expect(adapter.followBlock).not.toHaveBeenCalled();
+  expect(adapter.open).toHaveBeenCalledTimes(1);
+});
+
+it("restores a pending reflow paragraph when blocks arrive without reopening its chapter", async () => {
+  await renderView();
+  const flush = queuedFrames();
+  await click("原文");
+  await flush();
+  await act(async () => {
+    fixture.events!.location(
+      { type: "epub", href: "a.xhtml", blockId: "p1", start: 7 },
+      0.5,
+    );
+    fixture.events!.epubBlocksChanged?.([]);
+  });
+  vi.mocked(adapter.goTo).mockClear();
+  await click("重排");
+  await flush();
+  expect(adapter.followBlock).not.toHaveBeenCalled();
+  await act(async () => fixture.events!.epubBlocksChanged?.(blocks));
+  await flush();
+  expect(companion()?.textContent).toBe("第一句。第二句。");
+  expect(adapter.followBlock).toHaveBeenCalledExactlyOnceWith({
+    blockId: "p1",
+    fraction: 0.5,
+  });
+  expect(adapter.goTo).not.toHaveBeenCalled();
+  expect(adapter.open).toHaveBeenCalledTimes(1);
 });
