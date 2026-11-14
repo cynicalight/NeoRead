@@ -277,17 +277,19 @@ const login = scene({
       { x: 176, y: 110, w: 288, h: 150 },
       { fill: c.popover, radius: 12, shadow: 14 },
     );
-    p.text("ChatGPT", 202, 147, { size: 15, weight: 600 });
-    button(
-      f,
-      loginAction,
-      f.after("connected")
-        ? "已连接"
-        : f.after("authorize")
-          ? "正在授权"
-          : "使用 ChatGPT 账号登录",
-      "primary",
-    );
+    p.text("Agent", 202, 147, { size: 15, weight: 600 });
+    if (!f.after("authorize")) {
+      button(f, loginAction, "ChatGPT · 未连接", "outline");
+    } else {
+      p.text(
+        f.after("connected") ? "ChatGPT 已连接" : "请在浏览器中完成授权",
+        202,
+        183,
+        { size: 12, color: c.mutedForeground },
+      );
+      if (!f.after("connected"))
+        button(f, { ...loginAction, y: 207 }, "取消", "outline");
+    }
   },
 });
 

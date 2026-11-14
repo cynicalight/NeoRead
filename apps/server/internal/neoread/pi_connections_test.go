@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"neoread.local/server/internal/diagnostics"
 )
 
 func fakePiConnection(t *testing.T, s *Server, provider, mode string) {
@@ -33,6 +35,13 @@ lines.once("line", (line) => {
         anthropic: "https://claude.ai/oauth/authorize?state=fixture",
         "kimi-coding": "https://auth.kimi.com/device"
       })[input.connection.provider]});
+    send({type: "progress", phase: "exchanging"});
+    if (process.env.NEOREAD_PI_FIXTURE === "login-failure") {
+      send({type: "error", errorCode: "upstream", upstreamStatus: 400, message: "fixture-private-code-and-token"});
+      lines.close();
+      process.stdin.destroy();
+      return;
+    }
     writeFileSync(input.connection.authPath, JSON.stringify({type: "oauth"}), {mode: 0o600});
     send({type: "complete"});
   } else if (type === "catalog") {
@@ -127,24 +136,46 @@ func TestRetiredKimiCodeKeyIsNotOffered(t *testing.T) {
 	}
 }
 
-func TestPiManualLoginInputBelongsToOneAttempt(t *testing.T) {
+func TestPiBrowserExchangeFailureKeepsExistingConnectionAndSafeDiagnostics(t *testing.T) {
 	s := testServer(t)
-	pending := &piLoginSession{runID: id(), input: make(chan string, 1)}
-	pending.acceptInput.Store(true)
-	s.piLogins.Store("claude", pending)
-	send := func(provider, runID string) int {
-		t.Helper()
-		return request(t, s, "POST", "/api/ai/auth/"+provider+"/input",
-			strings.NewReader(jsonText(map[string]string{"runId": runID, "value": "fixture-code"}))).Code
+	fakePiConnection(t, s, "claude", "")
+	old, _ := s.piAPIConnection("claude")
+	logs, err := diagnostics.New(filepath.Join(s.Store.Root, "logs"), "login-test")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if send("kimi", pending.runID) != http.StatusConflict || send("claude", id()) != http.StatusConflict {
-		t.Fatal("manual input crossed the provider or attempt boundary")
+	s.SetDiagnostics(logs)
+	t.Setenv("NEOREAD_PI_FIXTURE", "login-failure")
+	response := request(t, s, "POST", "/api/ai/auth/claude", strings.NewReader("{}"))
+	if !strings.Contains(response.Body.String(), `"phase":"exchanging"`) || !strings.Contains(response.Body.String(), `"type":"error"`) || strings.Contains(response.Body.String(), `"type":"complete"`) {
+		t.Fatal("failed exchange was not reported as a failure", response.Body.String())
 	}
-	if send("claude", pending.runID) != http.StatusNoContent || <-pending.input != "fixture-code" {
-		t.Fatal("manual input did not reach the pending attempt")
+	current, ok := s.piAPIConnection("claude")
+	if !ok || current.pi.AuthPath != old.pi.AuthPath {
+		t.Fatal("failed login replaced the previously working connection")
 	}
-	if send("claude", pending.runID) != http.StatusConflict {
-		t.Fatal("accepted a duplicate manual response")
+	files, err := os.ReadDir(logs.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, file := range files {
+		data, err := os.ReadFile(filepath.Join(logs.Dir, file.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "fixture-private-code-and-token") || strings.Contains(string(data), "state=fixture") {
+			t.Fatal("authorization details leaked into diagnostics")
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			var event map[string]any
+			if json.Unmarshal([]byte(line), &event) == nil && event["event"] == "ai.connection.finish" {
+				found = event["phase"] == "exchanging" && event["upstreamStatus"] == float64(400) && event["status"] == "failed"
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing exchange failure phase and upstream HTTP status")
 	}
 }
 

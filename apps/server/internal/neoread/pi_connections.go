@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -98,10 +97,7 @@ func (s *Server) migrateRetiredAPI(c *AIConfig) {
 }
 
 type piLoginSession struct {
-	runID       string
-	acceptInput atomic.Bool
-	input       chan string
-	cancel      context.CancelFunc
+	cancel context.CancelFunc
 }
 
 func piAuthorizationURL(provider, raw string) bool {
@@ -121,29 +117,6 @@ func piAuthorizationURL(provider, raw string) bool {
 		}
 	}
 	return false
-}
-
-func (s *Server) submitPiLoginInput(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		RunID string `json:"runId"`
-		Value string `json:"value"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	value := strings.TrimSpace(body.Value)
-	if value == "" || len(value) > 8192 {
-		fail(w, 400, "授权码无效")
-		return
-	}
-	pending, _ := s.piLogins.Load(r.PathValue("provider"))
-	session, ok := pending.(*piLoginSession)
-	if !ok || session.runID != body.RunID || !session.acceptInput.CompareAndSwap(true, false) {
-		fail(w, 409, "当前登录没有等待授权码")
-		return
-	}
-	session.input <- value
-	w.WriteHeader(204)
 }
 
 func (s *Server) piAuthDir(provider string) string {
@@ -206,7 +179,7 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
-	session := &piLoginSession{runID: id(), input: make(chan string, 1), cancel: cancel}
+	session := &piLoginSession{cancel: cancel}
 	if _, running := s.piLogins.LoadOrStore(provider, session); running {
 		fail(w, 409, "该模型服务正在连接")
 		return
@@ -214,7 +187,7 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 	defer s.piLogins.Delete(provider)
 
 	started := time.Now()
-	runID := session.runID
+	runID := id()
 	s.diagnosticEvent(slog.LevelInfo, "ai.connection.start", "requestId", requestID(ctx), "provider", provider, "runId", runID)
 	dir := s.piAuthDir(provider)
 	newDir := filepath.Join(dir, runID)
@@ -242,13 +215,23 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 		return http.NewResponseController(w).Flush()
 	}
 	connection := piConnection{spec.provider, filepath.Join(newDir, "auth.json")}
+	phase := "starting"
+	upstreamStatus := 0
 	_, err = runPiOperation(ctx, s.Store.Root, "login", runID, map[string]any{
 		"runId": runID, "connection": connection, "deviceId": deviceID,
 	}, false, func(e piEvent) error {
 		switch e.Type {
-		case "manual_code":
-			session.acceptInput.Store(true)
-			return send(map[string]string{"type": e.Type, "runId": runID})
+		case "progress":
+			if e.Phase != "authorizing" && e.Phase != "exchanging" {
+				return generationError(ErrorProtocol, "授权阶段无效")
+			}
+			phase = e.Phase
+			s.diagnosticEvent(slog.LevelInfo, "ai.connection.phase", "requestId", requestID(ctx), "provider", provider, "runId", runID, "phase", phase)
+			return send(map[string]string{"type": "progress", "phase": phase})
+		case "error":
+			if e.UpstreamStatus >= 100 && e.UpstreamStatus <= 599 {
+				upstreamStatus = e.UpstreamStatus
+			}
 		case "auth_url", "device_code":
 			if !piAuthorizationURL(provider, e.URL) || (e.Type == "device_code" && (e.Code == "" || len(e.Code) > 32)) {
 				return generationError(ErrorProtocol, "授权地址或验证码无效")
@@ -256,7 +239,7 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 			return send(map[string]string{"type": e.Type, "url": e.URL, "code": e.Code})
 		}
 		return nil
-	}, nil, session.input)
+	}, nil)
 	if err == nil {
 		if _, statErr := os.Stat(connection.AuthPath); statErr != nil {
 			err = generationError(ErrorSave, "无法保存本地授权凭据")
@@ -303,7 +286,7 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 			_ = send(map[string]string{"type": "error", "error": message})
 		}
 	}
-	s.diagnosticEvent(level, "ai.connection.finish", "requestId", requestID(ctx), "provider", provider, "runId", runID, "status", status, "errorCode", kind, "durationMs", time.Since(started).Milliseconds())
+	s.diagnosticEvent(level, "ai.connection.finish", "requestId", requestID(ctx), "provider", provider, "runId", runID, "status", status, "errorCode", kind, "phase", phase, "upstreamStatus", upstreamStatus, "durationMs", time.Since(started).Milliseconds())
 }
 
 func (s *Server) logoutPiProvider(w http.ResponseWriter, r *http.Request) {
@@ -335,7 +318,7 @@ func (s *Server) piModelCatalog(ctx context.Context, c APIConnection, provider s
 		runID := id()
 		result, err := runPiOperation(ctx, s.Store.Root, "catalog", runID, map[string]any{
 			"runId": runID, "connection": c.pi,
-		}, false, nil, nil, nil)
+		}, false, nil, nil)
 		if err != nil {
 			return nil, err
 		}

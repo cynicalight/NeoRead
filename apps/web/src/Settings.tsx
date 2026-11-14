@@ -1174,6 +1174,9 @@ export function Settings({
                         key={piDetails}
                         provider={piDetails}
                         connected={installed(piDetails)}
+                        autoConnect={
+                          probed && !loading && !installed(piDetails)
+                        }
                         onBack={() => setPiDetails(null)}
                         onChange={() => {
                           checked.current.clear();

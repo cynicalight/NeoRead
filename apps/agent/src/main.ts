@@ -4,6 +4,7 @@ import {
   loginConnection,
   type PiConnection,
 } from "./connections";
+import { loginInteraction } from "./login-interaction";
 import { createInterface } from "node:readline";
 import {
   runAgent,
@@ -41,7 +42,6 @@ const checkpointAcks = new Map<
   { resolve: () => void; reject: (error: Error) => void }
 >();
 let checkpointCounter = 0;
-let loginInput: ((value: string) => void) | undefined;
 let started = false,
   runId = "";
 const send = (event: Record<string, unknown>) =>
@@ -70,10 +70,13 @@ lines.on("line", (line) => {
       runId = input.runId;
       const fetch = globalThis.fetch;
       let errorCode = "";
+      let upstreamStatus = 0;
+      let phase = "starting";
       globalThis.fetch = async (url, options) => {
         try {
           const response = await fetch(url, options);
           errorCode = upstreamError(response.status);
+          upstreamStatus = response.status;
           return response;
         } catch (error) {
           errorCode = "network";
@@ -85,44 +88,18 @@ lines.on("line", (line) => {
           ? connectionModels(input.connection, controller.signal).then(
               (models) => ({ models }),
             )
-          : loginConnection(input.connection, input.deviceId, {
-              signal: controller.signal,
-              notify: (event) => {
-                if (event.type === "auth_url")
-                  send({ type: "auth_url", url: event.url });
-                if (event.type === "device_code")
-                  send({
-                    type: "device_code",
-                    url: event.verificationUri,
-                    code: event.userCode,
-                  });
-              },
-              prompt: (prompt) => {
-                if (prompt.type === "select" && prompt.options[0])
-                  return Promise.resolve(prompt.options[0].id);
-                if (prompt.type !== "manual_code")
-                  return Promise.reject(new Error("不支持的授权提示"));
-                const signal = prompt.signal ?? controller.signal;
-                return new Promise<string>((resolve, reject) => {
-                  if (signal.aborted) return reject(signal.reason);
-                  const cancel = () => {
-                    loginInput = undefined;
-                    reject(signal.reason);
-                  };
-                  loginInput = (value) => {
-                    signal.removeEventListener("abort", cancel);
-                    loginInput = undefined;
-                    resolve(value);
-                  };
-                  signal.addEventListener("abort", cancel, { once: true });
-                  send({ type: "manual_code" });
-                });
-              },
-            }).then(() => ({}));
+          : loginConnection(
+              input.connection,
+              input.deviceId,
+              loginInteraction(controller.signal, (event) => {
+                if (event.type === "progress") phase = event.phase;
+                send(event);
+              }),
+            ).then(() => ({}));
       void operation
         .then((result) => send({ type: "complete", ...result }))
         .catch(() => {
-          send({ type: "error", errorCode });
+          send({ type: "error", errorCode, upstreamStatus, phase });
           process.exitCode = 1;
         })
         .finally(() => {
@@ -287,12 +264,6 @@ lines.on("line", (line) => {
           lines.close();
           process.stdin.destroy();
         });
-    } else if (
-      message.type === "authInput" &&
-      message.runId === runId &&
-      typeof message.value === "string"
-    ) {
-      loginInput?.(message.value);
     } else if (message.type === "checkpointAck" && message.runId === runId) {
       const ack = checkpointAcks.get(message.id);
       if (!ack) throw new Error("进度确认编号不匹配");

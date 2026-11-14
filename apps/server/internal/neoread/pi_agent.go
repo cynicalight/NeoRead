@@ -42,24 +42,26 @@ type piCatalogModel struct {
 }
 
 type piEvent struct {
-	ErrorCode   ErrorKind                                            `json:"errorCode"`
-	Code        string                                               `json:"code"`
-	URL         string                                               `json:"url"`
-	Models      []piCatalogModel                                     `json:"models"`
-	CanContinue bool                                                 `json:"canContinue"`
-	Version     int                                                  `json:"version"`
-	RunID       string                                               `json:"runId"`
-	Status      string                                               `json:"status"`
-	Type        string                                               `json:"type"`
-	Text        string                                               `json:"text"`
-	Reset       bool                                                 `json:"reset"`
-	Message     string                                               `json:"message"`
-	ID          string                                               `json:"id"`
-	Name        string                                               `json:"name"`
-	Args        json.RawMessage                                      `json:"args"`
-	Entries     json.RawMessage                                      `json:"entries"`
-	Model       string                                               `json:"model"`
-	Usage       struct{ Input, Output, CacheRead, CacheWrite int64 } `json:"usage"`
+	Phase          string                                               `json:"phase"`
+	UpstreamStatus int                                                  `json:"upstreamStatus"`
+	ErrorCode      ErrorKind                                            `json:"errorCode"`
+	Code           string                                               `json:"code"`
+	URL            string                                               `json:"url"`
+	Models         []piCatalogModel                                     `json:"models"`
+	CanContinue    bool                                                 `json:"canContinue"`
+	Version        int                                                  `json:"version"`
+	RunID          string                                               `json:"runId"`
+	Status         string                                               `json:"status"`
+	Type           string                                               `json:"type"`
+	Text           string                                               `json:"text"`
+	Reset          bool                                                 `json:"reset"`
+	Message        string                                               `json:"message"`
+	ID             string                                               `json:"id"`
+	Name           string                                               `json:"name"`
+	Args           json.RawMessage                                      `json:"args"`
+	Entries        json.RawMessage                                      `json:"entries"`
+	Model          string                                               `json:"model"`
+	Usage          struct{ Input, Output, CacheRead, CacheWrite int64 } `json:"usage"`
 }
 
 func piImage(data []byte) map[string]string {
@@ -67,14 +69,14 @@ func piImage(data []byte) map[string]string {
 }
 
 func runPiWorker(ctx context.Context, root string, request piRequest, event func(piEvent) error, tool func(string, json.RawMessage) ([]any, error)) (piEvent, error) {
-	return runPiOperation(ctx, root, "start", request.RunID, request, request.DurableCheckpoints, event, tool, nil)
+	return runPiOperation(ctx, root, "start", request.RunID, request, request.DurableCheckpoints, event, tool)
 }
 
 var piRuntimePaths = func() (node, worker string, err error) {
 	return os.Getenv("NEOREAD_NODE"), os.Getenv("NEOREAD_AGENT"), nil
 }
 
-func runPiOperation(ctx context.Context, root, operation, runID string, request any, durable bool, event func(piEvent) error, tool func(string, json.RawMessage) ([]any, error), loginInput <-chan string) (piEvent, error) {
+func runPiOperation(ctx context.Context, root, operation, runID string, request any, durable bool, event func(piEvent) error, tool func(string, json.RawMessage) ([]any, error)) (piEvent, error) {
 	node, worker, err := piRuntimePaths()
 	if err != nil {
 		return piEvent{}, err
@@ -128,19 +130,6 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 	encoder := json.NewEncoder(input)
 	if err = encoder.Encode(map[string]any{"type": operation, "input": request}); err != nil {
 		return piEvent{}, err
-	}
-	if loginInput != nil {
-		// Login has no tool/checkpoint writes. Read stdout while the callback and
-		// optional manual input race; waiting inline would block a browser callback.
-		go func() {
-			select {
-			case value := <-loginInput:
-				if encoder.Encode(map[string]string{"type": "authInput", "runId": runID, "value": value}) != nil {
-					cancel()
-				}
-			case <-child.Done():
-			}
-		}()
 	}
 	reader := bufio.NewReader(output)
 	var complete piEvent
@@ -221,7 +210,7 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			default:
 				return piEvent{}, generationError(ErrorProtocol, "pi 模型调用失败或未正常结束，请检查模型配置后重试")
 			}
-		case "auth_url", "device_code", "manual_code":
+		case "auth_url", "device_code", "progress":
 			if operation != "login" || event == nil {
 				return piEvent{}, generationError(ErrorProtocol, "pi 返回了无效授权事件")
 			}

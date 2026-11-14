@@ -233,7 +233,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/providers", s.providers)
 	mux.HandleFunc("POST /api/ai/auth/{provider}", s.loginPiProvider)
 	mux.HandleFunc("DELETE /api/ai/auth/{provider}", s.logoutPiProvider)
-	mux.HandleFunc("POST /api/ai/auth/{provider}/input", s.submitPiLoginInput)
 	mux.HandleFunc("GET /api/documents/{id}/processing-usage", s.processingUsage)
 	mux.HandleFunc("GET /api/documents/{id}/chat-usage", s.chatUsage)
 	mux.HandleFunc("GET /api/ai/config", s.getAIConfig)

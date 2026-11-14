@@ -3252,7 +3252,7 @@
             ],
           "post":
             {
-              "description": "Connect a built-in Pi provider with account authorization. The NDJSON stream emits auth_url, device_code, manual_code, complete or error.",
+              "description": "Connect a built-in Pi provider with browser authorization or a device code. The NDJSON stream emits auth_url, device_code, progress (authorizing or exchanging), complete or error. Browser callbacks are handled by the SDK; complete confirms credentials were saved and activated.",
               "requestBody":
                 {
                   "required": true,
@@ -3302,58 +3302,6 @@
                   "default":
                     {
                       "description": "Disconnection rejected",
-                      "content":
-                        {
-                          "application/json":
-                            {
-                              "schema":
-                                { "$ref": "#/components/schemas/Error" },
-                            },
-                        },
-                    },
-                },
-            },
-        },
-      "/api/ai/auth/{provider}/input":
-        {
-          "post":
-            {
-              "description": "Submit a manual authorization code to a pending Pi login.",
-              "parameters":
-                [
-                  {
-                    "in": "path",
-                    "name": "provider",
-                    "required": true,
-                    "schema": { "type": "string" },
-                  },
-                ],
-              "requestBody":
-                {
-                  "required": true,
-                  "content":
-                    {
-                      "application/json":
-                        {
-                          "schema":
-                            {
-                              "type": "object",
-                              "required": ["runId", "value"],
-                              "properties":
-                                {
-                                  "runId": { "type": "string" },
-                                  "value": { "type": "string" },
-                                },
-                            },
-                        },
-                    },
-                },
-              "responses":
-                {
-                  "204": { "description": "Code accepted by pending login" },
-                  "default":
-                    {
-                      "description": "Invalid or expired login attempt",
                       "content":
                         {
                           "application/json":
