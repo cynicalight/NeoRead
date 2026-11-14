@@ -78,6 +78,7 @@ import { PaperMenuItems, type PaperMenuActions } from "./PaperMenu";
 import { CitationMenuItems } from "./CitationMenu";
 import { RelatedPapers } from "./RelatedPapers";
 import { PaperAttachments } from "./PaperAttachments";
+import { conferenceVenue } from "./conferences";
 
 const fieldLabels: Partial<Record<PaperMetadataField, string>> = {
   date: "日期",
@@ -130,13 +131,19 @@ export function Field({
   label?: string;
   placeholder?: string;
 }) {
-  const value = String(doc.metadata[name] ?? "");
+  const storedValue = String(doc.metadata[name] ?? "");
+  const venue = name === "venueShort" ? conferenceVenue(doc.metadata) : null;
+  const value = venue
+    ? venue.fullName
+      ? venue.label
+      : ""
+    : storedValue;
   const commit = (next: string) => {
     if (next.trim() !== value) void saveField(doc, name, next.trim());
   };
   const props = {
-    // Remount when the saved value changes so the field shows it.
-    key: `${doc.id}:${value}`,
+    // Restore rejected edits even when the inferred display value stays unchanged.
+    key: `${doc.id}:${storedValue}:${value}`,
     defaultValue: value,
     "aria-label": label,
     placeholder: placeholder || "—",

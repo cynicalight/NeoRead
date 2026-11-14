@@ -294,6 +294,9 @@ func TestVenuePatchKeepsAbbreviationUnlessChanged(t *testing.T) {
 					if tc.short == "OLD" && got.Metadata.Sources["venueShort"] != source {
 						t.Fatalf("unchanged abbreviation lost its source: %+v", got.Metadata)
 					}
+					if tc.name == "change venue" && got.Metadata.Sources["venueShort"] != "" {
+						t.Fatalf("changed venue retained an unrelated abbreviation origin: %+v", got.Metadata)
+					}
 				}
 			})
 		}

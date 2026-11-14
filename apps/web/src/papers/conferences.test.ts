@@ -16,7 +16,7 @@ it.each([
   "abbreviates the recognized venue %s without changing metadata",
   (venue, label) => {
     const doc = paper({ author: "Ada", metadata: { venue, date: "2023" } });
-    expect(conferenceVenue(venue).label).toBe(label);
+    expect(conferenceVenue({ venue: venue }).label).toBe(label);
     expect(venueLabel(doc.metadata)).toBe(venue);
     expect(paperByline(doc)).toBe(`Ada · 2023 · ${venue}`);
     expect(doc.metadata.venue).toBe(venue);
@@ -29,7 +29,7 @@ it.each([
   "International Conference on Machine Learning Workshops",
   "Proceedings of the ACL: System Demonstrations",
 ])("preserves unknown and non-main-conference venues: %s", (venue) => {
-  expect(conferenceVenue(venue)).toEqual({ label: venue });
+  expect(conferenceVenue({ venue: venue })).toEqual({ label: venue });
   expect(venueLabel({ venue })).toBe(venue);
 });
 
@@ -102,7 +102,7 @@ it.each([
 ])(
   "recognizes complete cross-domain and engineering venue %s",
   (venue, label) => {
-    const display = conferenceVenue(venue);
+    const display = conferenceVenue({ venue: venue });
     expect(display.label).toBe(label);
     expect(display.fullName).toBeTruthy();
   },
@@ -126,12 +126,12 @@ it.each([
   "Pattern Recognition",
   "IEEE Transactions on Computers",
 ])("does not guess ambiguous, neighboring, or companion venue %s", (venue) => {
-  expect(conferenceVenue(venue)).toEqual({ label: venue });
+  expect(conferenceVenue({ venue: venue })).toEqual({ label: venue });
 });
 
 it("round-trips every canonical catalog name to its abbreviation and full tooltip", () => {
   for (const conference of conferences) {
-    expect(conferenceVenue(conference.fullName)).toMatchObject({
+    expect(conferenceVenue({ venue: conference.fullName })).toMatchObject({
       label: conference.abbreviation,
       fullName: conference.fullName,
     });
@@ -139,28 +139,53 @@ it("round-trips every canonical catalog name to its abbreviation and full toolti
 });
 
 it("keeps colliding abbreviations distinct when full names are available", () => {
-  const software = conferenceVenue(
-    "ACM International Conference on the Foundations of Software Engineering",
-  );
-  const crypto = conferenceVenue("Fast Software Encryption");
+  const software = conferenceVenue({
+    venue:
+      "ACM International Conference on the Foundations of Software Engineering",
+  });
+  const crypto = conferenceVenue({ venue: "Fast Software Encryption" });
   expect(software.label).toBe("FSE");
   expect(crypto.label).toBe("FSE");
   expect(software.fullName).not.toBe(crypto.fullName);
 });
 
 it("prefers catalog spelling over an externally supplied abbreviation", () => {
-  expect(conferenceVenue("NIPS", "Wrong")).toMatchObject({
-    label: "NeurIPS",
-    fullName: "Conference on Neural Information Processing Systems",
-  });
+  expect(conferenceVenue({ venue: "NIPS", venueShort: "Wrong" })).toMatchObject(
+    {
+      label: "NeurIPS",
+      fullName: "Conference on Neural Information Processing Systems",
+    },
+  );
 });
 
 it("uses an unknown venue's supplied short name only for display", () => {
   const venue = "International Conference on A Previously Unknown Discipline";
-  expect(conferenceVenue(venue, "  ICAPUD ")).toEqual({
+  expect(conferenceVenue({ venue: venue, venueShort: "  ICAPUD " })).toEqual({
     label: "ICAPUD",
     fullName: venue,
   });
-  expect(conferenceVenue(venue, " ")).toEqual({ label: venue });
-  expect(conferenceVenue(venue)).toEqual({ label: venue });
+  expect(conferenceVenue({ venue: venue, venueShort: " " })).toEqual({
+    label: venue,
+  });
+  expect(conferenceVenue({ venue: venue })).toEqual({ label: venue });
+});
+
+it("shares explicit abbreviation edits and clearing across displays", () => {
+  const metadata = {
+    venue: "Neural Information Processing Systems",
+    venueShort: "NIPS 2017",
+    sources: { venueShort: "manual" as const },
+  };
+  expect(conferenceVenue(metadata)).toMatchObject({
+    label: "NIPS 2017",
+    fullName: "Conference on Neural Information Processing Systems",
+  });
+  expect(conferenceVenue({ ...metadata, venueShort: "" })).toEqual({
+    label: metadata.venue,
+  });
+  expect(
+    conferenceVenue({ ...metadata, sources: { venueShort: "lookup" } }),
+  ).toMatchObject({
+    label: "NeurIPS",
+  });
 });

@@ -11,7 +11,7 @@ import { authorsShort, paperYear, venueLabel } from "./format";
 export function PaperVenue({ metadata }: { metadata: PaperMetadata }) {
   const tooltipId = useId();
   const [open, setOpen] = useState(false);
-  const venue = conferenceVenue(metadata.venue || "", metadata.venueShort);
+  const venue = conferenceVenue(metadata);
   if (!venue.fullName) return <>{venueLabel(metadata)}</>;
   return (
     <Tooltip onOpenChange={setOpen}>

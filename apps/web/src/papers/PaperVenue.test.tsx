@@ -39,7 +39,9 @@ it.each([
   });
   const tooltip = document.querySelector<HTMLElement>("[role=tooltip]")!;
   expect(tooltip).not.toBeNull();
-  expect(tooltip.textContent).toContain(conferenceVenue(venue).fullName);
+  expect(tooltip.textContent).toContain(
+    conferenceVenue({ venue: venue }).fullName,
+  );
   if (venue.endsWith("36")) expect(tooltip.textContent).toContain(venue);
   if (venue === "NeurIPS") expect(tooltip.textContent).not.toMatch(/NeurIPS/);
   expect(document.activeElement).toBe(trigger);
@@ -84,7 +86,7 @@ it.each([
     venue: "Neural Information Processing Systems",
     venueShort: "Agent abbreviation",
     label: "NeurIPS",
-    fullName: conferenceVenue("NeurIPS").fullName!,
+    fullName: conferenceVenue({ venue: "NeurIPS" }).fullName!,
   },
 ])(
   "shows $label with its full name when an Agent abbreviation is present",

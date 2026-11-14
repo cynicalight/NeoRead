@@ -1,3 +1,4 @@
+import type { PaperMetadata } from "@neoread/core";
 import conferences from "../../../server/internal/neoread/conferences.json";
 
 // Names only: CCF seventh edition and official conference sites, not ratings.
@@ -55,12 +56,17 @@ for (const conference of conferences) {
 }
 
 /** Display only: never replace the stored venue or use this for search/sort. */
-export function conferenceVenue(venue: string, shortName?: string) {
+export function conferenceVenue({
+  venue = "",
+  venueShort,
+  sources,
+}: Pick<PaperMetadata, "venue" | "venueShort" | "sources">) {
   const normalized = normalize(venue);
   const conference = directory.get(normalized);
-  if (!conference) {
-    return shortName?.trim()
-      ? { label: shortName.trim(), fullName: venue }
+  // An explicit display edit (including clearing) is not a lookup lock.
+  if (!conference || sources?.venueShort === "manual") {
+    return venue && venueShort?.trim()
+      ? { label: venueShort.trim(), fullName: conference?.fullName ?? venue }
       : { label: venue };
   }
   return {

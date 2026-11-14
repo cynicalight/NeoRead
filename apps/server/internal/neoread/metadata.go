@@ -253,6 +253,7 @@ func (m *PaperMetadata) ApplyManual(patch map[string]json.RawMessage) error {
 	}
 	if !strings.EqualFold(venue, m.Venue) {
 		m.VenueShort = ""
+		delete(m.Sources, "venueShort")
 	}
 	for key, value := range values {
 		if key == "suggestedTitle" {

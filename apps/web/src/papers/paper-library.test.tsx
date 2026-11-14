@@ -243,6 +243,103 @@ it("hides empty publication fields while keeping filled fields visible", async (
   expect(host.textContent).not.toContain("展开空字段");
 });
 
+it.each([
+  ["Neural Information Processing Systems", "NeurIPS"],
+  ["International Conference on Machine Learning", "ICML"],
+  ["International Conference on Learning Representations", "ICLR"],
+])(
+  "shares the inferred abbreviation for %s between table and details",
+  async (venue, short) => {
+    await act(async () =>
+      useReaderStore.setState({
+        documents: [{ ...docs[0], metadata: { venue } }],
+        libraryPreferences: {
+          mode: "papers",
+          papers: { layout: "table", columns: ["venue"] },
+        },
+      }),
+    );
+    expect(
+      row(docs[0].title).querySelector('[data-column="venue"]')?.textContent,
+    ).toBe(short);
+    await act(async () => row(docs[0].title).click());
+    const input = host.querySelector<HTMLInputElement>(
+      '[aria-label="出处简称"]',
+    )!;
+    expect(input.value).toBe(short);
+    await act(async () => {
+      input.focus();
+      input.blur();
+    });
+    expect(api.update).not.toHaveBeenCalled();
+    expect(
+      useReaderStore.getState().documents[0].metadata.venueShort,
+    ).toBeUndefined();
+    expect(
+      host.querySelector<HTMLInputElement>('[aria-label="出处"]')?.value,
+    ).toBe(venue);
+  },
+);
+
+it("shares manual edits, clearing and new-venue inference between table and details", async () => {
+  const venue = "Neural Information Processing Systems";
+  await act(async () =>
+    useReaderStore.setState({
+      documents: [{ ...docs[0], metadata: { venue } }],
+      libraryPreferences: {
+        mode: "papers",
+        papers: { layout: "table", columns: ["venue"] },
+      },
+    }),
+  );
+  await act(async () => row(docs[0].title).click());
+  const cell = () => row(docs[0].title).querySelector('[data-column="venue"]')!;
+  const edit = async (name: string, value: string, saved: Document) => {
+    vi.mocked(api.documents).mockResolvedValueOnce([saved]);
+    const input = host.querySelector<HTMLInputElement>(
+      `[aria-label="${name}"]`,
+    )!;
+    input.value = value;
+    await act(async () => {
+      input.focus();
+      input.blur();
+    });
+  };
+  const edited = {
+    ...docs[0],
+    metadata: {
+      venue,
+      venueShort: "NIPS 2017",
+      sources: { venueShort: "manual" as const },
+    },
+  };
+  await edit("出处简称", "NIPS 2017", edited);
+  expect(cell().textContent).toBe("NIPS 2017");
+  expect(
+    host.querySelector<HTMLInputElement>('[aria-label="出处简称"]')?.value,
+  ).toBe("NIPS 2017");
+  await edit("出处简称", "", {
+    ...edited,
+    metadata: { ...edited.metadata, venueShort: "" },
+  });
+  expect(cell().textContent).toBe(venue);
+  expect(
+    host.querySelector<HTMLInputElement>('[aria-label="出处简称"]')?.value,
+  ).toBe("");
+  const changed = {
+    ...docs[0],
+    metadata: { venue: "International Conference on Machine Learning" },
+  };
+  await edit("出处", changed.metadata.venue, changed);
+  expect(cell().textContent).toBe("ICML");
+  expect(
+    host.querySelector<HTMLInputElement>('[aria-label="出处简称"]')?.value,
+  ).toBe("ICML");
+  expect(
+    useReaderStore.getState().documents[0].metadata.venueShort,
+  ).toBeUndefined();
+});
+
 it("shows, edits and clears an unknown venue abbreviation without changing the venue", async () => {
   const venue = "International Conference on Uncatalogued Research";
   await act(async () =>
