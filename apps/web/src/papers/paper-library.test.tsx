@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
+import { toast } from "sonner";
 import type { Document, Processing } from "@neoread/core";
 import { useReaderStore } from "../store";
 import { PaperLibrary } from "./PaperLibrary";
@@ -240,6 +241,84 @@ it("hides empty publication fields while keeping filled fields visible", async (
   expect(detail.querySelector('[aria-label="卷"]')).toBeNull();
   expect(detail.querySelector('[aria-label="短标题"]')).toBeNull();
   expect(host.textContent).not.toContain("展开空字段");
+});
+
+it("shows, edits and clears an unknown venue abbreviation without changing the venue", async () => {
+  const venue = "International Conference on Uncatalogued Research";
+  await act(async () =>
+    useReaderStore.setState({
+      documents: [
+        {
+          ...docs[0],
+          metadata: { venue, venueShort: "ICUR" },
+        },
+        docs[1],
+      ],
+    }),
+  );
+  await act(async () => row("Attention Is All You Need").click());
+  const detail = host.querySelector(".paper-detail")!;
+  const abbreviation = () =>
+    detail.querySelector<HTMLInputElement>('[aria-label="出处简称"]');
+  const edit = async (value: string) => {
+    const input = abbreviation()!;
+    input.value = value;
+    await act(async () => {
+      input.focus();
+      input.blur();
+    });
+  };
+  expect(abbreviation()?.value).toBe("ICUR");
+  await edit("ICUR 2026");
+  expect(api.update).toHaveBeenLastCalledWith("a", {
+    metadata: { venueShort: "ICUR 2026" },
+  });
+  expect(abbreviation()?.value).toBe("ICUR 2026");
+  expect(useReaderStore.getState().documents[0].metadata.venue).toBe(venue);
+  expect(
+    detail.querySelector<HTMLInputElement>('[aria-label="出处"]')?.value,
+  ).toBe(venue);
+
+  await edit("");
+  expect(api.update).toHaveBeenLastCalledWith("a", {
+    metadata: { venueShort: "" },
+  });
+  expect(useReaderStore.getState().documents[0].metadata.venueShort).toBe("");
+  expect(abbreviation()?.value).toBe("");
+  await edit("ICUR");
+  expect(api.update).toHaveBeenLastCalledWith("a", {
+    metadata: { venueShort: "ICUR" },
+  });
+  expect(abbreviation()?.value).toBe("ICUR");
+  expect(useReaderStore.getState().documents[0].metadata.venue).toBe(venue);
+});
+
+it("reports a rejected short-only edit through normal save feedback", async () => {
+  await act(async () => row("Graph Attention Networks").click());
+  const detail = host.querySelector(".paper-detail")!;
+  expect(
+    detail.querySelector<HTMLInputElement>('[aria-label="出处"]')?.value,
+  ).toBe("");
+  const input = detail.querySelector<HTMLInputElement>(
+    '[aria-label="出处简称"]',
+  )!;
+  vi.mocked(api.update).mockRejectedValueOnce(new Error("请先填写出处"));
+  vi.mocked(api.documents).mockResolvedValueOnce(docs);
+  input.value = "ICUR";
+  await act(async () => {
+    input.focus();
+    input.blur();
+  });
+  expect(api.update).toHaveBeenLastCalledWith("b", {
+    metadata: { venueShort: "ICUR" },
+  });
+  expect(toast.error).toHaveBeenCalledWith("1 篇未能保存：请先填写出处");
+  expect(
+    useReaderStore.getState().documents[1].metadata.venueShort,
+  ).toBeUndefined();
+  expect(
+    detail.querySelector<HTMLInputElement>('[aria-label="出处简称"]')?.value,
+  ).toBe("");
 });
 
 it("selects all visible papers and changes their status together", async () => {
