@@ -40,6 +40,7 @@ export function useTabReorder(
       gap = 0;
     const place = () => {
       const r = rects[from];
+      const travel = pointerX - startX + container.scrollLeft - startScroll;
       const dx = Math.max(
         rects[0].left - r.left,
         Math.min(
@@ -47,19 +48,20 @@ export function useTabReorder(
             rects[rects.length - 1].width -
             r.left -
             r.width,
-          pointerX - startX + container.scrollLeft - startScroll,
+          travel,
         ),
       );
-      const center = r.left + r.width / 2 + dx;
+      // Clamp the drawing to the strip, but keep the end slots reachable.
+      const center = r.left + r.width / 2 + travel;
       to = from;
       offsets = rects.map((rect, i) => {
         if (i === from) return dx;
         const middle = rect.left + rect.width / 2;
-        if (i < from && center < middle) {
+        if (i < from && center <= middle) {
           to--;
           return r.width + gap;
         }
-        if (i > from && center > middle) {
+        if (i > from && center >= middle) {
           to++;
           return -(r.width + gap);
         }

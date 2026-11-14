@@ -3026,6 +3026,21 @@ kbd {
 .paper-nav-node {
   position: relative;
 }
+.paper-nav-node[data-placement="inside"] > .paper-nav-item {
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+.paper-nav-node:is([data-placement="before"], [data-placement="after"])::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  inset-inline: calc(6px + var(--depth, 0) * 14px) 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--primary);
+}
+.paper-nav-node[data-placement="before"]::after { top: 0; }
+.paper-nav-node[data-placement="after"]::after { bottom: 0; }
 .paper-nav-node > .nav-item.paper-nav-item {
   width: 100%;
   padding-left: calc(12px + var(--depth, 0) * 14px + var(--gutter, 0px));

@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
 import type { Document, Processing } from "@neoread/core";
-import { useReaderStore } from "../store";
+import { updateLibraryPreferences, useReaderStore } from "../store";
 import { PaperLibrary } from "./PaperLibrary";
 import { doubleClickWindow } from "../DetailSheet";
 import { PaperSidebar } from "./PaperSidebar";
@@ -36,6 +36,7 @@ vi.mock("@neoread/api", () => ({
     trash: vi.fn(async () => []),
     trashDocument: vi.fn(),
     restoreDocument: vi.fn(),
+    libraryPreferences: vi.fn(async () => ({})),
     saveLibraryPreferences: vi.fn(async (value) => value),
     changeLibraryTag: vi.fn(async () => ({ changed: 1 })),
     changeLibraryFolder: vi.fn(async () => ({ changed: 1 })),
@@ -451,6 +452,7 @@ it("toggles a colored category with its number key", async () => {
   );
   expect(api.update).toHaveBeenCalledExactlyOnceWith("b", {
     folders: ["Todo"],
+    expectedFolders: [],
   });
 });
 
@@ -2681,4 +2683,94 @@ it("opens the shared export dialog for the context-clicked paper", async () => {
     docs[1].id,
     expect.any(AbortSignal),
   );
+});
+
+it("uses row edges to reorder categories and the middle to reparent a whole subtree", async () => {
+  await act(async () =>
+    useReaderStore.getState().setLibraryPreferences({
+      papers: {
+        categories: ["ML", "ML/Vision", "AI"],
+        collapsed: ["AI"],
+        pinned: ["folder:ML/Vision"],
+      },
+    }),
+  );
+  async function drag(source: string, target: string, y: number) {
+    const row = (name: string) =>
+      [...host.querySelectorAll<HTMLElement>(".paper-nav-node")].find(
+        (node) =>
+          node.querySelector(".paper-nav-item")?.getAttribute("title") === name,
+      )!;
+    const a = row(source),
+      b = row(target);
+    expect(a.draggable).toBe(true);
+    vi.spyOn(b, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      height: 40,
+    } as DOMRect);
+    const data = new Map<string, string>();
+    const transfer = {
+      get types() {
+        return [...data.keys()];
+      },
+      setData: (k: string, v: string) => data.set(k, v),
+      getData: (k: string) => data.get(k) || "",
+    };
+    const fire = (el: HTMLElement, type: string) =>
+      el.dispatchEvent(
+        Object.assign(
+          new MouseEvent(type, { clientY: y, bubbles: true, cancelable: true }),
+          { dataTransfer: transfer },
+        ),
+      );
+    await act(async () => {
+      fire(a, "dragstart");
+      fire(b, "dragover");
+      fire(b, "drop");
+      fire(a, "dragend");
+    });
+  }
+  await drag("AI", "ML", 2);
+  expect(
+    useReaderStore.getState().libraryPreferences.papers?.categories,
+  ).toEqual(["AI", "ML", "ML/Vision"]);
+  expect(api.changeLibraryFolder).not.toHaveBeenCalled();
+  await drag("ML", "AI", 20);
+  expect(api.changeLibraryFolder).toHaveBeenCalledExactlyOnceWith(
+    "papers",
+    "ML",
+    "AI/ML",
+    expect.objectContaining({
+      categories: ["AI", "AI/ML", "AI/ML/Vision"],
+      collapsed: [],
+      pinned: ["folder:AI/ML/Vision"],
+    }),
+  );
+});
+
+it("does not persist a later preference snapshot containing a rejected folder move", async () => {
+  const before = useReaderStore.getState().libraryPreferences;
+  vi.mocked(api.changeLibraryFolder).mockRejectedValueOnce(
+    new Error("collision"),
+  );
+  vi.mocked(api.libraryPreferences).mockResolvedValueOnce(before);
+  await act(async () => {
+    const moving = updateLibraryPreferences(
+      { papers: { categories: ["AI/ML"] } },
+      { from: "ML", to: "AI/ML" },
+    );
+    const later = updateLibraryPreferences({
+      papers: {
+        ...useReaderStore.getState().libraryPreferences.papers,
+        layout: "table",
+      },
+    });
+    expect(
+      (await Promise.allSettled([moving, later])).map(
+        (result) => result.status,
+      ),
+    ).toEqual(["rejected", "rejected"]);
+  });
+  expect(api.saveLibraryPreferences).not.toHaveBeenCalled();
+  expect(useReaderStore.getState().libraryPreferences).toEqual(before);
 });

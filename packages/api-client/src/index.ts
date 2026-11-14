@@ -671,6 +671,7 @@ export const api = {
       category?: Document["category"];
       tags?: string[];
       folders?: string[];
+      expectedFolders?: string[];
       favorite?: boolean;
       progress?: DocumentLocation;
       percentage?: number;
@@ -902,10 +903,15 @@ export const api = {
     }
   },
   /** Rename a category across a library, or remove it when `to` is omitted. */
-  changeLibraryFolder: (library: LibraryMode, from: string, to?: string) =>
+  changeLibraryFolder: (
+    library: LibraryMode,
+    from: string,
+    to?: string,
+    paperPreferences?: LibraryPreferences["papers"],
+  ) =>
     request<{ changed: number }>(`/api/libraries/${library}/folders`, {
       method: "POST",
-      body: JSON.stringify(to === undefined ? { from } : { from, to }),
+      body: JSON.stringify({ from, to, paperPreferences }),
     }),
   changeLibraryTag: (library: LibraryMode, from: string, to?: string) =>
     request<{ changed: number }>(`/api/libraries/${library}/tags`, {

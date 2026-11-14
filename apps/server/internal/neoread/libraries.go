@@ -218,6 +218,9 @@ func validFontPreferences(v map[string]any) string {
 // errInvalidTag is a rename that would produce an invalid tag on some document.
 type errInvalidTag struct{ error }
 
+var errFolderCollision = errors.New("目标位置已有同名分类")
+var errFolderPreferencesTooLarge = errors.New("偏好内容过大")
+
 // tagSuffix reports whether tag is name or nested under it, and the remainder.
 func tagSuffix(tag, name string) (string, bool) {
 	if strings.EqualFold(tag, name) {
@@ -229,7 +232,7 @@ func tagSuffix(tag, name string) (string, bool) {
 	return "", false
 }
 
-func (s *Store) changeLabels(library, column, from, to string) (int, error) {
+func (s *Store) changeLabels(library, column, from, to string, paperPreferences json.RawMessage) (int, error) {
 	nested := column == "folders"
 	tx, err := s.DB.Begin()
 	if err != nil {
@@ -251,6 +254,12 @@ func (s *Store) changeLabels(library, column, from, to string) (int, error) {
 		}
 		next, hit := []string{}, false
 		for _, tag := range tags {
+			if paperPreferences != nil {
+				if _, occupied := tagSuffix(tag, to); occupied {
+					rows.Close()
+					return 0, errFolderCollision
+				}
+			}
 			if rest, ok := tagSuffix(tag, from); ok && (nested || rest == "") {
 				hit = true
 				if to == "" {
@@ -278,6 +287,20 @@ func (s *Store) changeLabels(library, column, from, to string) (int, error) {
 			return 0, err
 		}
 	}
+	if paperPreferences != nil {
+		// Store the moved tree (including empty folders) together with paper memberships.
+		var value string
+		err = tx.QueryRow(`SELECT json_set(COALESCE((SELECT value FROM settings WHERE key='preferences:library'),'{}'),'$.papers',json(?))`, string(paperPreferences)).Scan(&value)
+		if err != nil {
+			return 0, err
+		}
+		if len(value) > 64<<10 {
+			return 0, errFolderPreferencesTooLarge
+		}
+		if _, err = tx.Exec("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", "preferences:library", value); err != nil {
+			return 0, err
+		}
+	}
 	return len(changes), tx.Commit()
 }
 
@@ -293,8 +316,9 @@ func (s *Server) changeLibraryLabel(w http.ResponseWriter, r *http.Request, colu
 		return
 	}
 	var v struct {
-		From string  `json:"from"`
-		To   *string `json:"to"`
+		From             string          `json:"from"`
+		To               *string         `json:"to"`
+		PaperPreferences json.RawMessage `json:"paperPreferences"`
 	}
 	if !decode(w, r, &v) {
 		return
@@ -314,7 +338,20 @@ func (s *Server) changeLibraryLabel(w http.ResponseWriter, r *http.Request, colu
 		fail(w, 400, "请指定名称")
 		return
 	}
-	count, err := s.Store.changeLabels(library, column, from, to)
+	_, recursive := tagSuffix(to, from)
+	if v.PaperPreferences != nil && (recursive || !validImportFolder(from) || library != "papers" || column != "folders" || !validImportFolder(to) || v.PaperPreferences[0] != '{') {
+		fail(w, 400, "无效的论文分类移动")
+		return
+	}
+	count, err := s.Store.changeLabels(library, column, from, to, v.PaperPreferences)
+	if errors.Is(err, errFolderCollision) {
+		fail(w, 409, err.Error())
+		return
+	}
+	if errors.Is(err, errFolderPreferencesTooLarge) {
+		fail(w, 400, err.Error())
+		return
+	}
 	var invalid errInvalidTag
 	if errors.As(err, &invalid) {
 		fail(w, 400, "改名后的名称须为 1–40 个字符（分类含上级分类）")

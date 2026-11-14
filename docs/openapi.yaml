@@ -1754,6 +1754,7 @@
                                           "maxLength": 40,
                                         },
                                     },
+                                  "expectedFolders": { "type": "array", "items": { "type": "string" }, "description": "When replacing folders, reject a stale membership snapshot with HTTP 409." },
                                   "folders":
                                     {
                                       "type": "array",
@@ -4813,6 +4814,7 @@
                               "type": "object",
                               "properties":
                                 {
+                                  "paperPreferences": { "type": "object", "additionalProperties": true, "description": "When moving a paper folder, persist updated paper library preferences in the same transaction." },
                                   "from": { "type": "string", "minLength": 1 },
                                   "to":
                                     {

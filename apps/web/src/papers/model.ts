@@ -575,6 +575,42 @@ export function removeCategoryPreferences(
   };
 }
 
+export type CategoryPlacement = "before" | "inside" | "after";
+
+/** Move a whole subtree using the visible row as the drop anchor. */
+export function categoryDrop(
+  categories: string[],
+  from: string,
+  target: string,
+  placement: CategoryPlacement,
+) {
+  if (!categories.includes(from) || !categories.includes(target))
+    throw new Error("分类已变更，请重新拖动");
+  if (withinCategory(target, from))
+    throw new Error("不能将分类移到自身或其子分类中");
+  const parent = placement === "inside" ? target : categoryParent(target);
+  const path = sameName(parent, categoryParent(from))
+    ? from
+    : [parent, categoryLeaf(from)].filter(Boolean).join("/");
+  const ordered = flattenCategories(categoryTree(categories)).map(
+    (node) => node.name,
+  );
+  const remaining = ordered.filter((name) => !withinCategory(name, from));
+  if (remaining.some((name) => name.toLowerCase() === path.toLowerCase()))
+    throw new Error("目标位置已有同名分类");
+  const moved = ordered
+    .filter((name) => withinCategory(name, from))
+    .map((name) => (path === from ? name : path + name.slice(from.length)));
+  if (!moved.every(validCategory))
+    throw new Error("移动后的分类路径超过 40 字符或名称无效");
+  let at = remaining.indexOf(target);
+  if (placement !== "before") {
+    while (at < remaining.length && withinCategory(remaining[at], target)) at++;
+  }
+  remaining.splice(at, 0, ...moved);
+  return { path, categories: remaining };
+}
+
 /** Swap a category, with its subcategories, and its previous or next sibling. */
 export function moveCategory(categories: string[], name: string, by: -1 | 1) {
   const reorder = (nodes: CategoryNode[]): CategoryNode[] => {

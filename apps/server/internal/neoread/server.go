@@ -635,17 +635,18 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var v struct {
-		Title      json.RawMessage            `json:"title"`
-		Author     json.RawMessage            `json:"author"`
-		Category   json.RawMessage            `json:"category"`
-		Tags       json.RawMessage            `json:"tags"`
-		Folders    json.RawMessage            `json:"folders"`
-		Favorite   *bool                      `json:"favorite"`
-		Progress   json.RawMessage            `json:"progress"`
-		Percentage *float64                   `json:"percentage"`
-		Library    *string                    `json:"library"`
-		Metadata   map[string]json.RawMessage `json:"metadata"`
-		Status     *string                    `json:"readingStatus"`
+		Title           json.RawMessage            `json:"title"`
+		Author          json.RawMessage            `json:"author"`
+		Category        json.RawMessage            `json:"category"`
+		Tags            json.RawMessage            `json:"tags"`
+		Folders         json.RawMessage            `json:"folders"`
+		ExpectedFolders []string                   `json:"expectedFolders"`
+		Favorite        *bool                      `json:"favorite"`
+		Progress        json.RawMessage            `json:"progress"`
+		Percentage      *float64                   `json:"percentage"`
+		Library         *string                    `json:"library"`
+		Metadata        map[string]json.RawMessage `json:"metadata"`
+		Status          *string                    `json:"readingStatus"`
 	}
 	if !decode(w, r, &v) {
 		return
@@ -771,10 +772,34 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 	if v.Progress != nil {
 		progress = string(v.Progress)
 	}
-	_, err = s.Store.DB.Exec("UPDATE documents SET title=COALESCE(?,title),author=COALESCE(?,author),favorite=COALESCE(?,favorite),progress=COALESCE(?,progress),percentage=COALESCE(?,percentage),last_opened_at=COALESCE(?,last_opened_at),category=COALESCE(?,category),tags=COALESCE(?,tags),folders=COALESCE(?,folders),library=COALESCE(?,library),metadata=COALESCE(?,metadata),reading_status=COALESCE(?,reading_status),category_source=CASE WHEN ? IS NOT NULL THEN 'manual' ELSE category_source END,classification_status=CASE WHEN ? IS NOT NULL THEN 'done' ELSE classification_status END,classification_error=CASE WHEN ? IS NOT NULL THEN '' ELSE classification_error END WHERE id=?", title, author, v.Favorite, progress, v.Percentage, openedAt, category, tags, folders, library, metadata, status, category, category, category, d.ID)
+	query := "UPDATE documents SET title=COALESCE(?,title),author=COALESCE(?,author),favorite=COALESCE(?,favorite),progress=COALESCE(?,progress),percentage=COALESCE(?,percentage),last_opened_at=COALESCE(?,last_opened_at),category=COALESCE(?,category),tags=COALESCE(?,tags),folders=COALESCE(?,folders),library=COALESCE(?,library),metadata=COALESCE(?,metadata),reading_status=COALESCE(?,reading_status),category_source=CASE WHEN ? IS NOT NULL THEN 'manual' ELSE category_source END,classification_status=CASE WHEN ? IS NOT NULL THEN 'done' ELSE classification_status END,classification_error=CASE WHEN ? IS NOT NULL THEN '' ELSE classification_error END WHERE id=?"
+	args := []any{title, author, v.Favorite, progress, v.Percentage, openedAt, category, tags, folders, library, metadata, status, category, category, category, d.ID}
+	if v.ExpectedFolders != nil {
+		if v.Folders == nil {
+			fail(w, 400, "须同时指定分类")
+			return
+		}
+		// Compare the membership snapshot in the write itself: a folder migration
+		// may commit between loading the document and updating it.
+		expected, _ := json.Marshal(v.ExpectedFolders)
+		query += " AND (SELECT json_group_array(value) FROM json_each(folders)) = (SELECT json_group_array(value) FROM json_each(?))"
+		args = append(args, string(expected))
+	}
+	result, err := s.Store.DB.Exec(query, args...)
 	if err != nil {
 		fail(w, 500, "保存失败")
 		return
+	}
+	if v.ExpectedFolders != nil {
+		changed, err := result.RowsAffected()
+		if err != nil {
+			fail(w, 500, "无法确认分类更新")
+			return
+		}
+		if changed == 0 {
+			fail(w, 409, "论文归属已变更，请按最新分类重试")
+			return
+		}
 	}
 	d, err = s.Store.Document(d.ID)
 	if err != nil {
