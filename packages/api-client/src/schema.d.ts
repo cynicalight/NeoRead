@@ -4502,7 +4502,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Look up metadata by DOI, arXiv ID (also detected on the first pages) or a close title match; manual fields are kept */
+        /** Look up metadata by DOI, arXiv ID (also detected on the first pages) or a close title match; returned fields replace existing values */
         post: {
             parameters: {
                 query?: {
@@ -5813,7 +5813,7 @@ export interface components {
             remark?: string;
             /** @description The reader's own star rating; absent when unrated */
             rating?: number;
-            /** @description Origin per field; lookups never replace manual values */
+            /** @description Origin per field; successful lookups can replace existing values */
             sources?: {
                 [key: string]: "file" | "lookup" | "manual";
             };

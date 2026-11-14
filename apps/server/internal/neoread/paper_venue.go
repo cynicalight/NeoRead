@@ -87,7 +87,7 @@ func (s *Server) finishPaperVenue(ctx context.Context, id string, previousErr er
 	if err != nil {
 		return d, err
 	}
-	if ctx.Err() != nil || d.Library != "papers" || d.DeletedAt != "" || strings.TrimSpace(d.Metadata.Venue) != "" || d.Metadata.Sources["venue"] == "manual" || strings.TrimSpace(titleHint) == "" {
+	if ctx.Err() != nil || d.Library != "papers" || d.DeletedAt != "" || strings.TrimSpace(d.Metadata.Venue) != "" || strings.TrimSpace(titleHint) == "" {
 		return d, previousErr
 	}
 	config := s.aiConfig()

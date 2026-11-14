@@ -109,8 +109,8 @@ func fromScholar(m scholar.Metadata) PaperMetadata {
 	return out
 }
 
-// applyFound merges found metadata into a document unless the user edited the
-// same fields. The write is conditional so a concurrent manual edit wins.
+// applyFound saves validated lookup values. Conditional writes preserve unrelated
+// concurrent edits while returned fields use the latest completed lookup.
 func (s *Server) applyFound(id string, found PaperMetadata, title, source, lookup string, contexts ...context.Context) (Document, error) {
 	ctx := context.Background()
 	if len(contexts) > 0 {
@@ -139,7 +139,7 @@ func (s *Server) applyFound(id string, found PaperMetadata, title, source, looku
 					m.SuggestedTitle = t
 				}
 			}
-		} else if title != "" && m.Sources["title"] != "manual" && (source == "lookup" || m.Sources["title"] == "") {
+		} else if title != "" && (source == "lookup" || m.Sources["title"] == "") {
 			if t, e := cleanText(title, 300, false); e == nil && t != "" {
 				nextTitle, m.Sources["title"] = t, source
 			}
@@ -280,7 +280,7 @@ func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool)
 		if pdfTitle != "" {
 			add(scholar.Identifiers{Title: pdfTitle})
 		}
-		if d.Metadata.Sources["title"] == "manual" || usablePaperTitle(d.Title) != "" {
+		if usablePaperTitle(d.Title) != "" {
 			add(scholar.Identifiers{Title: d.Title})
 		}
 	}
@@ -316,11 +316,7 @@ func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool)
 		outcome := "notFound"
 		if extraErr == nil {
 			if !foundPrimary || sameScholarPaper(primary, extra) {
-				source := "lookup"
-				if foundPrimary {
-					source = "lookup-extra"
-				}
-				if _, err = s.applyFound(id, fromScholar(extra), "", source, "", ctx); err != nil {
+				if _, err = s.applyFound(id, fromScholar(extra), extra.Title, "lookup", "", ctx); err != nil {
 					return d, err
 				}
 				titleHint, lookupErr, outcome = extra.Title, nil, "found"

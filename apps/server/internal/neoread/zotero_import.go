@@ -264,8 +264,8 @@ func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, librar
 	}
 	metadata, warnings := zoteroMetadata(e)
 	result.Warnings = append(result.Warnings, warnings...)
-	// Imported bibliographic values are curated by the user in Zotero. Protect
-	// them from automatic lookup just like manually entered NeoRead metadata.
+	// Imported bibliographic values are curated by the user in Zotero.
+	// Record that origin; a later metadata lookup may refresh these values.
 	d.Metadata.Merge(metadata, "manual")
 	d.Metadata.Lookup = "done"
 	if fresh || d.Author == "" {

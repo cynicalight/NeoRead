@@ -5073,7 +5073,7 @@
         {
           "post":
             {
-              "summary": "Look up metadata by DOI, arXiv ID (also detected on the first pages) or a close title match; manual fields are kept",
+              "summary": "Look up metadata by DOI, arXiv ID (also detected on the first pages) or a close title match; returned fields replace existing values",
               "parameters":
                 [
                   {
@@ -7590,7 +7590,7 @@
                   "sources":
                     {
                       "type": "object",
-                      "description": "Origin per field; lookups never replace manual values",
+                      "description": "Origin per field; successful lookups can replace existing values",
                       "additionalProperties":
                         { "enum": ["file", "lookup", "manual"] },
                     },

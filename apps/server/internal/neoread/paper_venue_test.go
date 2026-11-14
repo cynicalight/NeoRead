@@ -44,7 +44,7 @@ func TestPaperVenueFinalFallbackWorkflow(t *testing.T) {
 		{name: "online API venue skips Agent", resolve: true, apiVenue: true, wantVenue: "Published Journal 12 (2024) 1-8"},
 		{name: "known existing venue", metadata: PaperMetadata{Venue: "NeurIPS"}, wantVenue: "NeurIPS"},
 		{name: "unknown existing venue", metadata: PaperMetadata{Venue: "Unlisted Conference"}, wantVenue: "Unlisted Conference"},
-		{name: "manual empty venue", metadata: PaperMetadata{Sources: map[string]string{"venue": "manual"}}},
+		{name: "previously cleared venue", metadata: PaperMetadata{Sources: map[string]string{"venue": "manual"}}, reply: `{"fullName":"Example Proceedings","shortName":"EP"}`, wantVenue: "Example Proceedings", wantShort: "EP", wantWeb: 2},
 		{name: "no configured search", noSearch: true},
 		{name: "full name without known abbreviation", reply: `{"fullName":"Example Journal","shortName":""}`, wantVenue: "Example Journal", wantWeb: 2},
 		{name: "empty unknown", reply: `{"fullName":"","shortName":""}`, wantWeb: 2},
@@ -53,7 +53,7 @@ func TestPaperVenueFinalFallbackWorkflow(t *testing.T) {
 		{name: "null rejected", reply: `{"fullName":"Example","shortName":null}`, wantWeb: 2},
 		{name: "bad JSON", reply: "not JSON", wantWeb: 2},
 		{name: "incomplete completion", reply: `{"fullName":"Example","shortName":"E"}`, incomplete: true, wantWeb: 2},
-		{name: "manual edit wins", reply: `{"fullName":"Example","shortName":"E"}`, manualRace: true, wantVenue: "User Journal", wantWeb: 2},
+		{name: "lookup completes after editing", reply: `{"fullName":"Example","shortName":"E"}`, manualRace: true, wantVenue: "Example", wantShort: "E", wantWeb: 2},
 		{name: "canceled", canceled: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,7 +172,11 @@ func TestPaperVenueFinalFallbackWorkflow(t *testing.T) {
 					t.Fatal(w.Code, w.Body.String())
 				}
 				reimported, err = s.lookupDocument(ctx, reimported.ID, false)
-				if err != nil || reimported.Metadata.Venue != "User Journal" || reimported.Metadata.VenueShort != "" || webCalls != tc.wantWeb {
+				wantVenue := "User Journal"
+				if tc.apiVenue {
+					wantVenue = tc.wantVenue
+				}
+				if err != nil || reimported.Metadata.Venue != wantVenue || reimported.Metadata.VenueShort != "" || webCalls != tc.wantWeb {
 					t.Fatal(reimported.Metadata, err, webCalls)
 				}
 			}
@@ -209,7 +213,7 @@ func TestVenueShortManualValidationAndInvalidation(t *testing.T) {
 	}
 }
 
-func TestVenueShortManualValuesSurviveLookup(t *testing.T) {
+func TestVenueLookupReplacesManualValues(t *testing.T) {
 	for _, tc := range []struct {
 		name, venue, manual, source string
 		found                       PaperMetadata
@@ -218,23 +222,22 @@ func TestVenueShortManualValuesSurviveLookup(t *testing.T) {
 		{"changed venue without abbreviation", "Original Venue", "USER", "lookup", PaperMetadata{Venue: "Published Venue"}},
 		{"changed venue with abbreviation", "Original Venue", "USER", "lookup", PaperMetadata{Venue: "Published Venue", VenueShort: "AUTO"}},
 		{"manually cleared abbreviation", "Original Venue", "", "lookup", PaperMetadata{Venue: "Original Venue", VenueShort: "AUTO"}},
-		{"Agent respects manually cleared abbreviation", "", "", "venue-agent", PaperMetadata{Venue: "Published Venue", VenueShort: "AUTO"}},
-		{"supplement respects manually cleared abbreviation", "", "", "lookup-extra", PaperMetadata{Venue: "Published Venue", VenueShort: "AUTO"}},
+		{"Agent fills cleared venue and abbreviation", "", "", "venue-agent", PaperMetadata{Venue: "Published Venue", VenueShort: "AUTO"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := PaperMetadata{Venue: tc.venue}
-			if err := m.ApplyManual(map[string]json.RawMessage{"venueShort": json.RawMessage(jsonText(tc.manual))}); err != nil {
+			if err := m.ApplyManual(map[string]json.RawMessage{"venue": json.RawMessage(jsonText(tc.venue)), "venueShort": json.RawMessage(jsonText(tc.manual))}); err != nil {
 				t.Fatal(err)
 			}
 			m.Merge(tc.found, tc.source)
-			if m.Venue != tc.found.Venue || m.VenueShort != tc.manual || m.Sources["venueShort"] != "manual" {
-				t.Fatalf("manual abbreviation lost during lookup: %+v", m)
+			if m.Venue != tc.found.Venue || m.VenueShort != tc.found.VenueShort || m.Sources["venueShort"] != "lookup" || m.Sources["venue"] != "lookup" {
+				t.Fatalf("lookup did not replace previous edits: %+v", m)
 			}
 		})
 	}
 }
 
-func TestVenueAgentCanceledSaveAndManualClearing(t *testing.T) {
+func TestVenueAgentCanceledSaveAndLookupAfterClearing(t *testing.T) {
 	s := testServer(t)
 	d := venueTestDocument(t, s, PaperMetadata{})
 	ctx, cancel := context.WithCancel(t.Context())
@@ -247,8 +250,8 @@ func TestVenueAgentCanceledSaveAndManualClearing(t *testing.T) {
 	if w := request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"metadata":{"venue":""}}`)); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
-	got, err = s.applyFound(d.ID, PaperMetadata{Venue: "Wrong", VenueShort: "W"}, "", "venue-agent", "")
-	if err != nil || got.Metadata.Venue != "" || got.Metadata.VenueShort != "" {
+	got, err = s.applyFound(d.ID, PaperMetadata{Venue: "Published Venue", VenueShort: "PV"}, "", "venue-agent", "")
+	if err != nil || got.Metadata.Venue != "Published Venue" || got.Metadata.VenueShort != "PV" {
 		t.Fatal(got, err)
 	}
 }

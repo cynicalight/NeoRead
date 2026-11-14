@@ -68,21 +68,26 @@ func TestResolveImportsPaperWithMetadata(t *testing.T) {
 		t.Fatalf("bad reference: %d %s", w.Code, w.Body.String())
 	}
 }
-func TestLookupKeepsManualEdits(t *testing.T) {
+func TestLookupReplacesExistingValuesAndKeepsMissingFields(t *testing.T) {
 	s := testServer(t)
 	scholarFixture(t, s)
+	published := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Replace(lookupAtom, "</entry>", `<journal_ref xmlns="http://arxiv.org/schemas/atom">Published Venue</journal_ref></entry>`, 1)))
+	}))
+	defer published.Close()
+	s.scholar.ArXivAPI = published.URL
 	w := uploadTo(t, s, "papers", "paper.pdf", testPDF(2))
 	var d Document
 	_ = json.Unmarshal(w.Body.Bytes(), &d)
 	if d.Metadata.Lookup != "pending" {
 		t.Fatalf("file import not queued for lookup: %+v", d.Metadata)
 	}
-	request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"My title","metadata":{"arxiv":"1706.03762","date":"2016"}}`))
+	request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"My title","metadata":{"arxiv":"1706.03762","date":"2016","venue":"Previous Venue","venueShort":"OLD","publisher":"My publisher","remark":"My note","creators":[{"name":"My Author"}]}}`))
 	if w = request(t, s, "POST", "/api/documents/"+d.ID+"/metadata/lookup", nil); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
 	got, _ := s.Store.Document(d.ID)
-	if got.Title != "My title" || got.Metadata.Date != "2016" || got.Metadata.Abstract != "Abstract text." || got.Author != "Ashish Vaswani" || got.Metadata.Lookup != "done" {
+	if got.Title != "Attention Is All You Need" || got.Metadata.Date != "2017-06-12" || got.Metadata.Venue != "Published Venue" || got.Metadata.VenueShort != "" || got.Metadata.Publisher != "My publisher" || got.Metadata.Remark != "My note" || got.Metadata.Abstract != "Abstract text." || got.Author != "Ashish Vaswani" || got.Metadata.Lookup != "done" {
 		t.Fatalf("lookup: %+v", got)
 	}
 }

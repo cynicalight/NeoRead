@@ -19,7 +19,7 @@ func TestPaperRefreshEligibility(t *testing.T) {
 		want bool
 	}{
 		{"eligible", base, true},
-		{"venue present", Document{Library: "papers", Type: "pdf", Metadata: PaperMetadata{Venue: "Journal"}}, false},
+		{"venue present", Document{Library: "papers", Type: "pdf", Metadata: PaperMetadata{Venue: "Journal"}}, true},
 		{"manual title", Document{Library: "papers", Type: "pdf", Metadata: PaperMetadata{Sources: map[string]string{"title": "manual"}}}, true},
 		{"trashed", Document{Library: "papers", Type: "pdf", DeletedAt: "now"}, false},
 		{"book", Document{Library: "books", Type: "pdf"}, false},
@@ -52,7 +52,7 @@ func TestPaperRefreshRechecksAndStopsDuplicates(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatalf("duplicate status %d", w.Code)
 	}
-	w = request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"metadata":{"venue":"Journal"}}`))
+	w = request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"library":"books"}`))
 	if w.Code != http.StatusOK {
 		t.Fatal(w.Body.String())
 	}
@@ -62,7 +62,7 @@ func TestPaperRefreshRechecksAndStopsDuplicates(t *testing.T) {
 		t.Fatalf("progress %+v err %v", p, err)
 	}
 	got, err := s.Store.Document(d.ID)
-	if err != nil || got.Metadata.Venue != "Journal" {
+	if err != nil || got.Library != "books" {
 		t.Fatalf("document %+v err %v", got, err)
 	}
 }
@@ -99,7 +99,7 @@ func TestPaperRefreshManualTitleUsesItForLookup(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
-	w = request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"A Manual Paper Title"}`))
+	w = request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"A Manual Paper Title","metadata":{"venue":"Old edited journal","venueShort":"OLD"}}`))
 	if w.Code != http.StatusOK {
 		t.Fatal(w.Body.String())
 	}
@@ -109,7 +109,7 @@ func TestPaperRefreshManualTitleUsesItForLookup(t *testing.T) {
 	}
 	s.runPaperRefresh(context.Background())
 	got, err := s.Store.Document(d.ID)
-	if err != nil || got.Title != "A Manual Paper Title" || got.Metadata.Venue != "Example Journal" || got.Metadata.Sources["title"] != "manual" {
+	if err != nil || got.Title != "A Manual Paper Title" || got.Metadata.Venue != "Example Journal" || got.Metadata.VenueShort != "" || got.Metadata.Sources["title"] != "lookup" {
 		t.Fatalf("document %+v err %v", got, err)
 	}
 }
@@ -137,7 +137,7 @@ func TestPaperRefreshUsesTitleSuggestion(t *testing.T) {
 	request(t, s, "POST", "/api/diagnostics/paper-refresh", nil)
 	s.runPaperRefresh(context.Background())
 	got, err := s.Store.Document(d.ID)
-	if err != nil || got.Title != "random" || got.Metadata.SuggestedTitle != "A Reliable Paper Title" || got.Metadata.Venue != "Example Journal" || got.Metadata.Lookup != "done" || len(calls()) != 1 {
+	if err != nil || got.Title != "A Reliable Paper Title" || got.Metadata.SuggestedTitle != "" || got.Metadata.Venue != "Example Journal" || got.Metadata.Lookup != "done" || len(calls()) != 1 {
 		t.Fatalf("document %+v err %v calls %d", got, err, len(calls()))
 	}
 }

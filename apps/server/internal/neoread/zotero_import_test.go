@@ -446,13 +446,17 @@ func TestZoteroImportStripsTitleBraces(t *testing.T) {
 			}
 			var want Document
 			json.Unmarshal(response.Body.Bytes(), &want)
+			wantShort := want.Metadata.ShortTitle
+			if wantShort == "" {
+				wantShort = "PolyFuzz"
+			}
 			result, err := s.importZoteroEntry(context.Background(), entry)
 			if err != nil || result.Status != "merged" {
 				t.Fatal(result, err)
 			}
 			doc, err = s.Store.Document(doc.ID)
-			if err != nil || doc.Title != "NeoRead 标题" || doc.Metadata.ShortTitle != want.Metadata.ShortTitle {
-				t.Fatalf("manual values overwritten: %q %q %v", doc.Title, doc.Metadata.ShortTitle, err)
+			if err != nil || doc.Title != "NeoRead 标题" || doc.Metadata.ShortTitle != wantShort {
+				t.Fatalf("existing metadata was not filled correctly: %q %q %v", doc.Title, doc.Metadata.ShortTitle, err)
 			}
 		})
 	}

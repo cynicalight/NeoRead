@@ -39,7 +39,7 @@ func TestAutoPaperTitleFallback(t *testing.T) {
 	}
 	revision := s.connectorRevision.Load()
 	got, err := s.lookupDocument(context.Background(), d.ID, false)
-	if err != nil || got.Title != "random" || got.Metadata.SuggestedTitle != "A Reliable Paper Title" || got.Metadata.Lookup != "done" || got.Metadata.Venue != "Example Journal" || got.Author != "Alex Smith" {
+	if err != nil || got.Title != "A Reliable Paper Title" || got.Metadata.SuggestedTitle != "" || got.Metadata.Lookup != "done" || got.Metadata.Venue != "Example Journal" || got.Author != "Alex Smith" {
 		t.Fatalf("suggested-title lookup: %+v err=%v", got, err)
 	}
 	if s.connectorRevision.Load() <= revision {
@@ -50,8 +50,8 @@ func TestAutoPaperTitleFallback(t *testing.T) {
 	}
 	request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"Manual title"}`))
 	got, err = s.lookupDocument(context.Background(), d.ID, false)
-	if err != nil || got.Title != "Manual title" || got.Metadata.SuggestedTitle != "A Reliable Paper Title" {
-		t.Fatalf("manual title overwritten: %q %v", got.Title, err)
+	if err != nil || got.Title != "A Reliable Paper Title" || got.Metadata.SuggestedTitle != "" {
+		t.Fatalf("lookup did not replace edited title: %q %v", got.Title, err)
 	}
 }
 

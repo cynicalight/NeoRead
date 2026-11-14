@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 )
@@ -24,7 +23,7 @@ type paperRefreshState struct {
 }
 
 func paperRefreshEligible(d Document) bool {
-	return d.Library == "papers" && d.Type == "pdf" && d.DeletedAt == "" && strings.TrimSpace(d.Metadata.Venue) == ""
+	return d.Library == "papers" && d.Type == "pdf" && d.DeletedAt == ""
 }
 
 func (s *Server) paperRefreshStatus(w http.ResponseWriter, r *http.Request) {

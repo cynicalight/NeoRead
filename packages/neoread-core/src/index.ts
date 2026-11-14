@@ -137,7 +137,7 @@ export interface PaperMetadata {
   remark?: string;
   /** The reader's own 1–5 star rating; absent or 0 when unrated. */
   rating?: number;
-  /** Where each field came from; lookups never replace manual values. */
+  /** Where each field came from; successful lookups can replace existing values. */
   sources?: Partial<Record<string, MetadataSource>>;
   /** Automatic lookup state for papers imported from files. */
   lookup?: "pending" | "done" | "notFound" | "failed";

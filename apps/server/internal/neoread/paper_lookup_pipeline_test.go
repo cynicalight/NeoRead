@@ -76,7 +76,7 @@ func TestPaperImportsCompleteMetadataWithoutFullParsing(t *testing.T) {
 	}
 }
 
-func TestExistingSuggestedTitleSupplementsOnlyTheSamePaper(t *testing.T) {
+func TestExistingSuggestedTitleUpdatesOnlyTheSamePaper(t *testing.T) {
 	for _, mismatch := range []bool{false, true} {
 		name := "same paper fills missing venue"
 		if mismatch {
@@ -104,11 +104,11 @@ func TestExistingSuggestedTitleSupplementsOnlyTheSamePaper(t *testing.T) {
 				t.Fatal(w.Body.String())
 			}
 			got, err := s.Store.Document(d.ID)
-			wantVenue := "Conference on Neural Information Processing Systems"
+			wantVenue, wantAuthor, wantDate := "Conference on Neural Information Processing Systems", "Alternate Author", "2020"
 			if mismatch {
-				wantVenue = ""
+				wantVenue, wantAuthor, wantDate = "", "Ashish Vaswani", "2017-06-12"
 			}
-			if err != nil || got.Title != d.Title || got.Metadata.SuggestedTitle != "Attention Is All You Need" || got.Metadata.Venue != wantVenue || got.Author != "Ashish Vaswani" || got.Metadata.Date != "2017-06-12" {
+			if err != nil || got.Title != "Attention Is All You Need" || got.Metadata.SuggestedTitle != "" || got.Metadata.Venue != wantVenue || got.Author != wantAuthor || got.Metadata.Date != wantDate {
 				t.Fatalf("unsafe supplemental lookup: %+v err=%v", got, err)
 			}
 		})

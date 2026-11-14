@@ -19,7 +19,7 @@ type Creator struct {
 }
 
 // PaperMetadata is bibliographic data. Sources records where each field came
-// from ("file", "lookup" or "manual"); lookups never replace manual values.
+// from ("file", "lookup" or "manual"); sources do not lock fields against lookup.
 type PaperMetadata struct {
 	ItemType        string    `json:"itemType,omitempty"`
 	SuggestedTitle  string    `json:"suggestedTitle,omitempty"`
@@ -271,29 +271,18 @@ func (m PaperMetadata) has(key string) bool {
 	return *m.textField(key) != ""
 }
 
-// Merge fills fields from found unless the user set them. Values read from the
-// file only fill empty fields; an online lookup refreshes any automatic value.
+// Merge validates nonempty candidates. File/import metadata fills gaps;
+// a lookup refreshes returned fields regardless of their previous source.
 func (m *PaperMetadata) Merge(found PaperMetadata, source string) []string {
 	changed := []string{}
 	if source == "venue-agent" {
-		if m.Venue == "" && m.Sources["venue"] != "manual" && found.Venue != "" {
-			m.set("venue", found.Venue, "lookup")
-			if m.Sources["venueShort"] != "manual" {
-				m.VenueShort = found.VenueShort
-			}
-			return []string{"venue"}
-		}
-		return changed
-	}
-	fillOnly := source == "lookup-extra"
-	if fillOnly {
 		source = "lookup"
 	}
 	for key := range metadataLabels {
-		if !found.has(key) || m.Sources[key] == "manual" {
+		if !found.has(key) {
 			continue
 		}
-		if m.has(key) && (source != "lookup" || fillOnly) {
+		if m.has(key) && source != "lookup" {
 			continue
 		}
 		var value any
@@ -307,8 +296,8 @@ func (m *PaperMetadata) Merge(found PaperMetadata, source string) []string {
 			}
 			value = v
 		}
-		if key == "venue" && m.Sources["venueShort"] != "manual" && (value != m.Venue || found.VenueShort != "") {
-			m.VenueShort = found.VenueShort
+		if key == "venue" && (value != m.Venue || found.VenueShort != "") {
+			m.set("venueShort", found.VenueShort, source)
 		}
 		m.set(key, value, source)
 		changed = append(changed, key)
