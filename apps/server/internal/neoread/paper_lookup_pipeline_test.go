@@ -99,9 +99,8 @@ func TestExistingSuggestedTitleUpdatesOnlyTheSamePaper(t *testing.T) {
 			defer titles.Close()
 			s.scholar.SemanticScholar = titles.URL + "/"
 			d := venueTestDocument(t, s, PaperMetadata{ArXiv: "1706.03762", SuggestedTitle: "Attention Is All You Need", Sources: map[string]string{"title": "manual"}})
-			w := request(t, s, "POST", "/api/documents/"+d.ID+"/metadata/lookup", nil)
-			if w.Code != 200 {
-				t.Fatal(w.Body.String())
+			if _, err := s.lookupDocument(context.Background(), d.ID, false); err != nil {
+				t.Fatal(err)
 			}
 			got, err := s.Store.Document(d.ID)
 			wantVenue, wantAuthor, wantDate := "Conference on Neural Information Processing Systems", "Alternate Author", "2020"

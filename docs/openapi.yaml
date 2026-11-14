@@ -5073,7 +5073,7 @@
         {
           "post":
             {
-              "summary": "Look up metadata by DOI, arXiv ID (also detected on the first pages) or a close title match; returned fields replace existing values",
+              "summary": "Look up metadata using the current paper title; returned fields replace existing values and missing fields are preserved",
               "parameters":
                 [
                   {
@@ -5081,13 +5081,6 @@
                     "name": "id",
                     "required": true,
                     "schema": { "type": "string" },
-                  },
-                  {
-                    "in": "query",
-                    "name": "by",
-                    "required": false,
-                    "schema": { "type": "string", "enum": ["title"] },
-                    "description": "Search by the current title even if identifiers are present",
                   },
                 ],
               "responses":

@@ -304,7 +304,7 @@ export async function importReference(ref: string, target = "") {
 }
 
 // 查找结果直接体现在论文信息里；查找经常因来源缺少记录而失败，不弹提示。
-export async function lookupPaper(doc: Document, byTitle = false) {
-  await api.lookupMetadata(doc.id, byTitle).catch(() => {});
+export async function lookupPaper(doc: Document) {
+  await api.lookupMetadata(doc.id).catch(() => {});
   await refreshLibrary().catch(() => {});
 }

@@ -208,11 +208,11 @@ func usablePaperTitle(title string) string {
 	return title
 }
 
-var errNoIdentifier = errors.New("没有找到 DOI 或 arXiv 编号，可以在详情中填写后重试")
+var errNoIdentifier = errors.New("没有可用的论文标题、DOI 或 arXiv 编号")
 
-// lookupDocument is the shared pipeline for manual lookup, imported files and
-// resolved links. forceTitle is reserved for explicitly accepting a title.
-func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool) (result Document, resultErr error) {
+// lookupDocument shares the metadata pipeline across imports and user actions.
+// User actions search the current title; automatic work first establishes a title.
+func (s *Server) lookupDocument(ctx context.Context, id string, useCurrentTitle bool) (result Document, resultErr error) {
 	d, err := s.Store.Document(id)
 	if err != nil {
 		return d, err
@@ -242,23 +242,31 @@ func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool)
 	if ctx.Err() != nil {
 		return d, ctx.Err()
 	}
-	text, layout := s.firstPagesText(id)
-	quick := quickPaperMetadata{Metadata: layout.Metadata}
-	if text != "" {
-		quick.Pages = []string{text}
-	} else if d.Type == "pdf" {
-		extracted, extractErr := s.quickPaperMetadata(ctx, d)
-		if extractErr == nil {
-			quick = extracted
-			s.diagnosticEvent(slog.LevelInfo, "paper.metadata.extract", "documentId", id, "outcome", "success", "pages", len(quick.Pages))
-		} else if ctx.Err() == nil {
-			s.diagnosticEvent(slog.LevelWarn, "paper.metadata.extract", "documentId", id, "outcome", "failed", "reason", "extract_failed")
+	var quick quickPaperMetadata
+	pdfTitle := ""
+	ids := scholar.Identifiers{DOI: d.Metadata.DOI, ArXiv: d.Metadata.ArXiv}
+	if !useCurrentTitle {
+		text, layout := s.firstPagesText(id)
+		quick.Metadata = layout.Metadata
+		if text != "" {
+			quick.Pages = []string{text}
+		} else if d.Type == "pdf" {
+			extracted, extractErr := s.quickPaperMetadata(ctx, d)
+			if extractErr == nil {
+				quick = extracted
+				s.diagnosticEvent(slog.LevelInfo, "paper.metadata.extract", "documentId", id, "outcome", "success", "pages", len(quick.Pages))
+			} else if ctx.Err() == nil {
+				s.diagnosticEvent(slog.LevelWarn, "paper.metadata.extract", "documentId", id, "outcome", "failed", "reason", "extract_failed")
+			}
+		}
+		pdfTitle = fileTitle(layoutManifest{Metadata: quick.Metadata})
+		if ids.DOI == "" && ids.ArXiv == "" {
+			ids = scholar.Detect(strings.Join(quick.Pages, "\n"))
 		}
 	}
-	pdfTitle := fileTitle(layoutManifest{Metadata: quick.Metadata})
-	ids := scholar.Identifiers{DOI: d.Metadata.DOI, ArXiv: d.Metadata.ArXiv}
-	if ids.DOI == "" && ids.ArXiv == "" {
-		ids = scholar.Detect(strings.Join(quick.Pages, "\n"))
+	titleHint := ""
+	if useCurrentTitle || d.Metadata.Sources["title"] != "" {
+		titleHint = strings.TrimSpace(d.Title)
 	}
 	var candidates []scholar.Identifiers
 	seen := map[scholar.Identifiers]bool{}
@@ -268,7 +276,7 @@ func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool)
 			candidates = append(candidates, candidate)
 		}
 	}
-	if forceTitle {
+	if useCurrentTitle {
 		add(scholar.Identifiers{Title: d.Title})
 	} else {
 		if ids.ArXiv != "" {
@@ -280,8 +288,8 @@ func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool)
 		if pdfTitle != "" {
 			add(scholar.Identifiers{Title: pdfTitle})
 		}
-		if usablePaperTitle(d.Title) != "" {
-			add(scholar.Identifiers{Title: d.Title})
+		if titleHint != "" {
+			add(scholar.Identifiers{Title: titleHint})
 		}
 	}
 	var primary scholar.Metadata
@@ -290,7 +298,7 @@ func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool)
 		primary, lookupErr = s.lookupScholarCandidates(ctx, id, candidates, true)
 	}
 	foundPrimary := lookupErr == nil
-	titleHint := d.Title
+	foundVenue := foundPrimary && strings.TrimSpace(primary.Venue) != ""
 	if foundPrimary {
 		if _, err = s.applyFound(id, fromScholar(primary), primary.Title, "lookup", "", ctx); err != nil {
 			return d, err
@@ -302,8 +310,11 @@ func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool)
 		}
 		titleHint = pdfTitle
 	}
-	suggestion := strings.Join(strings.Fields(d.Metadata.SuggestedTitle), " ")
-	if !forceTitle && !foundPrimary && pdfTitle == "" && suggestion == "" && ctx.Err() == nil {
+	suggestion := ""
+	if !useCurrentTitle {
+		suggestion = strings.Join(strings.Fields(d.Metadata.SuggestedTitle), " ")
+	}
+	if !useCurrentTitle && !foundPrimary && pdfTitle == "" && suggestion == "" && ctx.Err() == nil {
 		suggestion = s.suggestPaperTitle(ctx, id, quick)
 		if suggestion != "" {
 			if _, err = s.applyFound(id, PaperMetadata{}, suggestion, "ai", "", ctx); err != nil {
@@ -311,7 +322,7 @@ func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool)
 			}
 		}
 	}
-	if suggestion != "" && !strings.EqualFold(suggestion, strings.Join(strings.Fields(d.Title), " ")) && ctx.Err() == nil {
+	if suggestion != "" && (!strings.EqualFold(suggestion, strings.Join(strings.Fields(d.Title), " ")) || titleHint == "") && ctx.Err() == nil {
 		extra, extraErr := s.lookupScholar(ctx, id, scholar.Identifiers{Title: suggestion})
 		outcome := "notFound"
 		if extraErr == nil {
@@ -320,6 +331,7 @@ func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool)
 					return d, err
 				}
 				titleHint, lookupErr, outcome = extra.Title, nil, "found"
+				foundVenue = foundVenue || strings.TrimSpace(extra.Venue) != ""
 			} else {
 				outcome = "mismatch"
 			}
@@ -331,7 +343,7 @@ func (s *Server) lookupDocument(ctx context.Context, id string, forceTitle bool)
 		}
 		s.diagnosticEvent(slog.LevelInfo, "paper.title.lookup", "documentId", id, "outcome", outcome)
 	}
-	return s.finishPaperVenue(ctx, id, lookupErr, titleHint)
+	return s.finishPaperVenue(ctx, id, lookupErr, titleHint, useCurrentTitle && !foundVenue)
 }
 
 // Do not combine a suggested-title match with a different identified paper.
@@ -371,7 +383,7 @@ func (s *Server) lookupMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
-	d, err = s.lookupDocument(ctx, d.ID, r.URL.Query().Get("by") == "title")
+	d, err = s.lookupDocument(ctx, d.ID, true)
 	if err != nil {
 		status := 502
 		if errors.Is(err, errNoIdentifier) || errors.Is(err, scholar.ErrNotFound) {
@@ -446,7 +458,11 @@ func (s *Server) resolveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d.Library == "papers" {
-		if updated, e := s.applyFound(d.ID, fromScholar(result.Metadata), result.Metadata.Title, "lookup", "pending"); e == nil {
+		state := "done"
+		if s.autoLookupEnabled() {
+			state = "pending"
+		}
+		if updated, e := s.applyFound(d.ID, fromScholar(result.Metadata), result.Metadata.Title, "lookup", state); e == nil {
 			d = updated
 		}
 	}

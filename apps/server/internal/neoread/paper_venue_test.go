@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"neoread.local/server/internal/scholar"
 )
 
 func venueTestDocument(t *testing.T, s *Server, metadata PaperMetadata) Document {
@@ -35,6 +37,7 @@ func TestPaperVenueFinalFallbackWorkflow(t *testing.T) {
 		metadata                                                      PaperMetadata
 		reply                                                         string
 		noSearch, manualRace, canceled, incomplete, resolve, apiVenue bool
+		noTitle, currentTitle, lookupMiss                             bool
 		wantVenue, wantShort                                          string
 		wantWeb                                                       int
 	}{
@@ -55,10 +58,30 @@ func TestPaperVenueFinalFallbackWorkflow(t *testing.T) {
 		{name: "incomplete completion", reply: `{"fullName":"Example","shortName":"E"}`, incomplete: true, wantWeb: 2},
 		{name: "lookup completes after editing", reply: `{"fullName":"Example","shortName":"E"}`, manualRace: true, wantVenue: "Example", wantShort: "E", wantWeb: 2},
 		{name: "canceled", canceled: true},
+		{name: "default filename never queries venue", noTitle: true},
+		{name: "AI title enables venue lookup", noTitle: true, metadata: PaperMetadata{SuggestedTitle: "A Reliable Paper Title"}, reply: `{"fullName":"Example Proceedings","shortName":"EP"}`, wantVenue: "Example Proceedings", wantShort: "EP", wantWeb: 2},
+		{name: "current title refreshes existing venue", currentTitle: true, metadata: PaperMetadata{Venue: "Old Venue", VenueShort: "OLD", SuggestedTitle: "A Different Suggested Paper"}, reply: `{"fullName":"Example Proceedings","shortName":"EP"}`, wantVenue: "Example Proceedings", wantShort: "EP", wantWeb: 2},
+		{name: "edited title refreshes existing venue", currentTitle: true, metadata: PaperMetadata{Venue: "Old Venue", VenueShort: "OLD", Sources: map[string]string{"title": "manual", "venue": "manual", "venueShort": "manual"}}, reply: `{"fullName":"Example Proceedings","shortName":"EP"}`, wantVenue: "Example Proceedings", wantShort: "EP", wantWeb: 2},
+		{name: "missing venue result retains previous venue", currentTitle: true, metadata: PaperMetadata{Venue: "Old Venue", VenueShort: "OLD"}, reply: `{"fullName":"","shortName":""}`, wantVenue: "Old Venue", wantShort: "OLD", wantWeb: 2},
+		{name: "failed title lookup retains previous venue", currentTitle: true, lookupMiss: true, metadata: PaperMetadata{Venue: "Old Venue", VenueShort: "OLD"}, reply: `{"fullName":"","shortName":""}`, wantVenue: "Old Venue", wantShort: "OLD", wantWeb: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := testServer(t)
 			scholarFixture(t, s)
+			if tc.currentTitle {
+				titles := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Query().Get("query") != "A Reliable Paper Title" {
+						t.Errorf("expected the current title, got %s", r.URL.RawQuery)
+					}
+					if tc.lookupMiss {
+						http.NotFound(w, r)
+						return
+					}
+					_, _ = w.Write([]byte(`{"data":[{"title":"A Reliable Paper Title"}]}`))
+				}))
+				t.Cleanup(titles.Close)
+				s.scholar.SemanticScholar = titles.URL + "/"
+			}
 			if tc.apiVenue {
 				api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					_, _ = w.Write([]byte(strings.Replace(lookupAtom, "</entry>", `<journal_ref xmlns="http://arxiv.org/schemas/atom">Published Journal 12 (2024) 1-8</journal_ref></entry>`, 1)))
@@ -82,10 +105,18 @@ func TestPaperVenueFinalFallbackWorkflow(t *testing.T) {
 				t.Fatal(err)
 			}
 			metadata := tc.metadata
-			metadata.ArXiv = "1706.03762"
+			if !tc.noTitle {
+				metadata.ArXiv = "1706.03762"
+			}
 			metadata.Abstract = "PRIVATE-ABSTRACT"
 			metadata.Remark = "PRIVATE-NOTE"
 			d := venueTestDocument(t, s, metadata)
+			if tc.noTitle {
+				paperMetadataFixture(t, quickPaperMetadata{})
+				if _, err := s.Store.DB.Exec("UPDATE documents SET title='paper' WHERE id=?", d.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
 			reply := tc.reply
 			if reply == "" {
 				reply = `{"fullName":"Wrong","shortName":"W"}`
@@ -146,9 +177,17 @@ func TestPaperVenueFinalFallbackWorkflow(t *testing.T) {
 				}
 				got, err = s.lookupDocument(ctx, got.ID, false)
 			} else {
-				got, err = s.lookupDocument(ctx, d.ID, false)
+				got, err = s.lookupDocument(ctx, d.ID, tc.currentTitle)
 			}
-			if !tc.canceled && err != nil {
+			if tc.noTitle && tc.metadata.SuggestedTitle == "" {
+				if !errors.Is(err, errNoIdentifier) || got.Metadata.Lookup != "notFound" {
+					t.Fatalf("default filename should remain unidentified: %+v err=%v", got.Metadata, err)
+				}
+			} else if tc.lookupMiss {
+				if !errors.Is(err, scholar.ErrNotFound) {
+					t.Fatalf("expected title lookup miss, got %v", err)
+				}
+			} else if !tc.canceled && err != nil {
 				t.Fatal(err)
 			}
 			if tc.canceled && err != nil && !errors.Is(err, context.Canceled) {

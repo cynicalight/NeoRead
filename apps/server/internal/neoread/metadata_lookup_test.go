@@ -72,17 +72,22 @@ func TestLookupReplacesExistingValuesAndKeepsMissingFields(t *testing.T) {
 	s := testServer(t)
 	scholarFixture(t, s)
 	published := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("query") != "" {
+			_, _ = w.Write([]byte(`{"data":[{"title":"Attention Is All You Need","venue":"Published Venue","publicationDate":"2017-06-12","abstract":"Abstract text.","authors":[{"name":"Ashish Vaswani"}]}]}`))
+			return
+		}
 		_, _ = w.Write([]byte(strings.Replace(lookupAtom, "</entry>", `<journal_ref xmlns="http://arxiv.org/schemas/atom">Published Venue</journal_ref></entry>`, 1)))
 	}))
 	defer published.Close()
 	s.scholar.ArXivAPI = published.URL
+	s.scholar.SemanticScholar = published.URL + "/titles/"
 	w := uploadTo(t, s, "papers", "paper.pdf", testPDF(2))
 	var d Document
 	_ = json.Unmarshal(w.Body.Bytes(), &d)
 	if d.Metadata.Lookup != "pending" {
 		t.Fatalf("file import not queued for lookup: %+v", d.Metadata)
 	}
-	request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"My title","metadata":{"arxiv":"1706.03762","date":"2016","venue":"Previous Venue","venueShort":"OLD","publisher":"My publisher","remark":"My note","creators":[{"name":"My Author"}]}}`))
+	request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"attention is all you need","metadata":{"arxiv":"1706.03762","date":"2016","venue":"Previous Venue","venueShort":"OLD","publisher":"My publisher","remark":"My note","creators":[{"name":"My Author"}]}}`))
 	if w = request(t, s, "POST", "/api/documents/"+d.ID+"/metadata/lookup", nil); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
@@ -127,12 +132,21 @@ func TestFileTitleOnlyFillsAPlainTitle(t *testing.T) {
 }
 func TestAutoLookupPreference(t *testing.T) {
 	s := testServer(t)
+	scholarFixture(t, s)
 	if !s.autoLookupEnabled() {
 		t.Fatal("automatic lookup should default on")
 	}
 	request(t, s, "PUT", "/api/preferences/library", strings.NewReader(`{"papers":{"autoLookup":false}}`))
 	if s.autoLookupEnabled() {
 		t.Fatal("preference ignored")
+	}
+	w := request(t, s, "POST", "/api/documents/resolve", strings.NewReader(`{"ref":"arXiv:1706.03762"}`))
+	var d Document
+	if w.Code != http.StatusCreated || json.Unmarshal(w.Body.Bytes(), &d) != nil {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if d.Metadata.Lookup != "done" || d.Title != "Attention Is All You Need" || d.Metadata.ArXiv != "1706.03762" {
+		t.Fatalf("disabled automatic lookup left completed import pending: %+v", d)
 	}
 }
 
@@ -221,7 +235,7 @@ func TestRetryPaperLookup(t *testing.T) {
 	})
 }
 
-func TestLookupByTitleOverridesIdentifiers(t *testing.T) {
+func TestManualLookupUsesCurrentTitle(t *testing.T) {
 	s := testServer(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("query") != "A Reliable Paper Title" {
@@ -243,7 +257,7 @@ func TestLookupByTitleOverridesIdentifiers(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
-	w = request(t, s, "POST", "/api/documents/"+d.ID+"/metadata/lookup?by=title", nil)
+	w = request(t, s, "POST", "/api/documents/"+d.ID+"/metadata/lookup", nil)
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}

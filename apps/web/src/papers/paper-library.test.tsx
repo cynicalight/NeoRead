@@ -2653,7 +2653,7 @@ it("applies or dismisses a suggested AI title", async () => {
     title: "Suggested paper title",
     metadata: { suggestedTitle: "" },
   });
-  expect(api.lookupMetadata).toHaveBeenCalledWith("a", true);
+  expect(api.lookupMetadata).toHaveBeenCalledWith("a");
   await act(async () => {
     useReaderStore.setState({
       documents: [

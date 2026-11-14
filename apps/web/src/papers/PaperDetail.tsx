@@ -250,7 +250,7 @@ export function PaperDetail({
                   const saved = await patchPapers([
                     [doc, { title, metadata: { suggestedTitle: "" } }],
                   ]);
-                  if (saved) await lookupPaper(doc, true);
+                  if (saved) await lookupPaper(doc);
                 })().finally(() => setLookingUp(false));
               }}
             >

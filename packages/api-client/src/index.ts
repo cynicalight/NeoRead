@@ -621,9 +621,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ref, ...options }),
     }),
-  lookupMetadata: (id: string, byTitle = false) =>
+  lookupMetadata: (id: string) =>
     request<Document>(
-      `/api/documents/${encodeURIComponent(id)}/metadata/lookup${byTitle ? "?by=title" : ""}`,
+      `/api/documents/${encodeURIComponent(id)}/metadata/lookup`,
       { method: "POST" },
     ),
   removeDocument: (id: string) =>
