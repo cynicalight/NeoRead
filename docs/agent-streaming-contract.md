@@ -1,5 +1,19 @@
 # Agent 流式输出：前后端对接约定
 
+## 内置 Pi 与模型连接
+
+当前模型生成由内置 Pi worker 执行。设置中的 ChatGPT、Claude 和 Kimi Code 账号使用 Pi SDK 授权。OpenAI、Anthropic、Kimi 开放平台及兼容服务通过同一个 API 入口填写地址、协议和 Key。Go 服务在私有临时目录运行 worker，通过版本化 JSONL 交换请求、模型事件、工具调用与会话进度。模型侧读取工具仍由 Go 校验文档、会话、权限及预算。前端继续订阅同一 SSE 事件，保存以模型完成和本地事务提交为准。
+
+`POST /api/ai/auth/{provider}` 通过 NDJSON 返回浏览器授权链接、设备验证码、`progress` 阶段（`authorizing` / `exchanging`）或终态。点击未连接卡片即发起登录，SDK 自动接收浏览器回调，不再暴露手动授权输入接口；浏览器成功页不代表本地连接已完成，只有换码、凭据保存和激活全部成功后才发送 `complete`。凭据以 NeoRead 连接为单位保存在本机。账号授权与 API Key 连接可并存，更换或断开连接会使旧能力结果失效，重新登录失败不替换旧连接。旧会话从已保存的消息和引用接续。
+
+登录和模型目录查询是一次性 worker 操作：SDK 完成后写出终态，等待标准输出写入完成，再按成功/失败退出。Go 仍校验终态、退出码和凭据激活结果；浏览器预连接留下的空闲 socket 不应延迟本地连接完成。
+
+`GET /api/ai/quota?provider=codex|claude` 区分两种额度：Codex 指 NeoRead 当前 ChatGPT 应用授权（`client_id`）的应用额度，不是账号周额度；Claude 指当前 NeoRead Pi 连接账号的周额度。当前公开 SDK 与文档未提供应用剩余额度的读取接口，因此 Codex 明确返回不可用，不请求账户级 WHAM 接口、不切换登录通道、不编造百分比或重置时间；用户可在 [ChatGPT 用量设置](https://chatgpt.com/settings/usage) 查看和管理应用限额。应用与授权范围见 [OpenAI 官方说明](https://developers.openai.com/siwc/token-sharing-open-source)。Claude 使用 SDK 解析并按需刷新凭据，只读查询 `seven_day` 用量，不启动模型回合或读取外部 CLI 凭据；短时窗口不能替代周窗口。查询期间换号或断开时丢弃旧账号结果，前端在连接刷新后隐藏旧额度；同一账号临时查询失败可保留上次确认值并提示错误。
+
+API Key 模型的后台能力检测与当前 Agent 选择分离。仅当实时选中的 Agent 是 API Key 时，才弹出“全部模型均未通过图片理解检测”的全局警告；检测结束前切换到 Claude、Codex 等连接时保持静默。主动切换到 API Key 时也检查已缓存的检测结果，不能因后台检测已完成而漏掉提示。其他连接通过检测的状态不受 API Key 检测失败影响。
+
+以下早期版本记录描述了外部 CLI 和旧 API 的协议演进。当前运行时以本节为准。
+
 ## Claude Code 文档工具 · 2026-11-03
 
 全文索引就绪且不含图片时，Claude Code 文档问答与 Codex 共用本地文档 MCP（`get_outline`、`search_document`、`read_passage`、`read_pdf_pages`）、阅读预算和保存时的来源解析，回答中已读取的 `[S1]` 保存为可跳转的来源，未读取的编号按上文规则只保留文字。图片提问或索引未就绪时仍走原无工具路径。

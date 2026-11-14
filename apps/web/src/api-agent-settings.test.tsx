@@ -32,6 +32,7 @@ vi.mock("@neoread/api", () => ({
       available: [],
     })),
     providers: vi.fn(),
+    agentQuota: vi.fn(async () => ({ error: "未读取" })),
     aiConfig: vi.fn(),
     saveAIConfig: vi.fn(),
     testAI: vi.fn(),
@@ -292,6 +293,33 @@ it("selects the API agent from its card once a model passes", async () => {
   );
   expect(host.querySelector(apiCard)?.hasAttribute("data-selected")).toBe(true);
 });
+it.each(["codex", "claude"] as const)(
+  "does not warn about API vision failures while using %s, but warns when API is selected",
+  async (primary) => {
+    config.primary = primary;
+    config.api = { url: "https://api.example.com", model: "", hasKey: true };
+    config.capabilities = {
+      [primary]: { text: true, vision: true, checkedAt: "saved" },
+    };
+    listed = { "text-only": false };
+    vi.mocked(api.providers).mockResolvedValue([
+      { id: primary, installed: true, authenticated: true, status: "已登录" },
+      { id: "api", installed: true, authenticated: true, status: "已配置" },
+    ]);
+    await act(async () =>
+      root.render(<Settings open onOpenChange={() => {}} />),
+    );
+    expect(
+      useReaderStore.getState().aiConfig?.capabilities["api:text-only"],
+    ).toMatchObject({ text: true, vision: false });
+    expect(toast.warning).not.toHaveBeenCalled();
+    await selectAPI();
+    expect(useReaderStore.getState().aiConfig?.primary).toBe("api");
+    expect(toast.warning).toHaveBeenCalledWith(
+      expect.stringContaining("图片理解"),
+    );
+  },
+);
 it("opens the API settings from an unconfigured card", async () => {
   config.primary = "";
   await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
@@ -427,25 +455,6 @@ it.each(["text", "vision"] as const)(
   },
 );
 
-it("persists CLI web search directly from the toggle without a Save action", async () => {
-  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
-  const label = [...host.querySelectorAll("span")].find(
-    (node) => node.textContent === "允许 CLI 原生联网搜索",
-  )!;
-  const toggle =
-    label.parentElement!.querySelector<HTMLButtonElement>('[role="switch"]')!;
-  vi.mocked(api.saveAIConfig).mockClear();
-  await act(async () => label.click());
-  await act(async () => label.parentElement!.click());
-  expect(api.saveAIConfig).not.toHaveBeenCalled();
-  await act(async () => toggle.click());
-  expect(
-    vi.mocked(api.saveAIConfig).mock.lastCall?.[0].webSearch?.cliEnabled,
-  ).toBe(true);
-  expect(useReaderStore.getState().aiConfig?.webSearch?.cliEnabled).toBe(true);
-  expect(toggle.getAttribute("aria-checked")).toBe("true");
-});
-
 it("shows only library location in the books tab for the current library", async () => {
   const previous = useReaderStore.getState().libraryPreferences;
   libraryPanel.visible = true;
@@ -557,7 +566,7 @@ it("saves the last navigated ready agent when the previous save is still running
   await expand();
   // Focus centres the starting card; arrow navigation performs the selection.
   await act(async () =>
-    host.querySelector<HTMLElement>('[aria-label="使用 Codex"]')!.focus(),
+    host.querySelector<HTMLElement>('[aria-label="使用 ChatGPT"]')!.focus(),
   );
   const navigate = async (key: string) => {
     await act(async () => {

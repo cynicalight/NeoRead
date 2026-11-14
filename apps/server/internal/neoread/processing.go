@@ -27,6 +27,9 @@ type Processing struct {
 	EPUBManual            bool   `json:"epubManual,omitempty"`
 	Retranslating         bool   `json:"retranslating,omitempty"`
 	LayoutRevision        string `json:"layoutRevision,omitempty"`
+	// TranslationBlocks isolates explicit units from inactive full-document work.
+	TranslationBlocks    []string `json:"translationBlocks,omitempty"`
+	TranslationScopeKind string   `json:"translationScopeKind,omitempty"`
 	// Chapter is a book chapter waiting for its pages to be parsed.
 	Chapter           *PageRange       `json:"chapter,omitempty"`
 	Translating       *ProcessingStage `json:"translating,omitempty"`
@@ -149,7 +152,7 @@ func (s *Store) recoverPausedPaperParsing() error {
 	return err
 }
 
-// Only document creation reads this preference; updating settings never wakes a job.
+// Imports and explicit reparses capture this preference; settings never wake a job.
 // PDF books wait for an explicit chapter request before layout or translation.
 func importedProcessing(id, library, value string) Processing {
 	p := initialProcessing(id)
@@ -411,7 +414,7 @@ func (s *Server) StartProcessing(parent context.Context) func() {
 		}
 		rows.Close()
 		for _, p := range pending {
-			if !p.Enabled {
+			if !p.Enabled && len(p.TranslationBlocks) == 0 {
 				continue
 			}
 			p.Status = "queued"
@@ -435,7 +438,7 @@ func (s *Server) StartProcessing(parent context.Context) func() {
 				s.processingMu.Lock()
 				var body string
 				// Documents in the trash keep their queue position until restored.
-				e := s.Store.DB.QueryRow("SELECT p.body FROM document_processing p JOIN documents d ON d.id=p.document_id WHERE p.phase=? AND p.status='queued' AND json_extract(p.body,'$.enabled')=1 AND d.deleted_at='' ORDER BY p.rowid LIMIT 1", phase).Scan(&body)
+				e := s.Store.DB.QueryRow("SELECT p.body FROM document_processing p JOIN documents d ON d.id=p.document_id WHERE p.phase=? AND p.status='queued' AND (json_extract(p.body,'$.enabled')=1 OR json_array_length(json_extract(p.body,'$.translationBlocks'))>0) AND d.deleted_at='' ORDER BY p.rowid LIMIT 1", phase).Scan(&body)
 				var p Processing
 				if e == nil {
 					e = json.Unmarshal([]byte(body), &p)
@@ -466,8 +469,7 @@ func (s *Server) StartProcessing(parent context.Context) func() {
 				}
 				work, finish, startErr := s.beginDocumentTask(workContext, p.DocumentID)
 				if startErr != nil {
-					// An exclusive reparse may begin between selecting this job and
-					// registering its task. Leave it runnable for the next poll.
+					// Leave a task that could not register runnable for the next poll.
 					p.Status = "queued"
 					p.Detail = "等待继续处理"
 					_ = s.Store.saveProcessing(p)
@@ -547,7 +549,7 @@ func (s *Server) wakeProcessing() {
 	}
 	rows.Close()
 	for _, p := range pending {
-		if !p.Enabled {
+		if !p.Enabled && len(p.TranslationBlocks) == 0 {
 			continue
 		}
 		p.Status = "queued"

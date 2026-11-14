@@ -75,6 +75,7 @@ import { searchPDFBlocks } from "./pdf-search";
 type Mode = "source" | "parallel" | "translation";
 /** Scroll settling after a pinned jump or click does not move the chapter. */
 const pinHold = 800;
+const noTranslations: TranslationBlock[] = [];
 export function PDFReadingView({
   document: doc,
   active = true,
@@ -116,7 +117,17 @@ export function PDFReadingView({
     reflow ? node.dataset.reflowBlock : node.dataset.translationBlock;
   const [mode, setMode] = useState<Mode>("source"),
     [syncEnabled, setSyncEnabled] = useState(true);
-  const { translations, error } = useTranslations(doc.id, undefined, active);
+  const layoutRevision = processing?.layoutRevision;
+  const { translations: streamed, error } = useTranslations(
+    doc.id,
+    undefined,
+    active,
+    layoutRevision,
+  );
+  const [blockLayout, setBlockLayout] = useState({ blocks, layoutRevision });
+  if (blockLayout.blocks !== blocks) setBlockLayout({ blocks, layoutRevision });
+  const translations =
+    blockLayout.layoutRevision === layoutRevision ? streamed : noTranslations;
   const [popup, setPopup] = useState<{ block: PDFBlock; rect: DOMRect }>();
   const [engine, setEngine] = useState<ReaderAdapter>();
   const [hoveredBlock, setHoveredBlock] = useState<string>();
@@ -306,9 +317,9 @@ export function PDFReadingView({
   useEffect(() => {
     if (pane.current) return installTranslationSelectionHighlight(pane.current);
   }, [mode, doc.id]);
-  const translate = async (blockId = "") => {
+  const translate = async (blockId: string) => {
     try {
-      await api.translate(doc.id, blockId);
+      await api.translate(doc.id, blockId, true);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -1018,7 +1029,7 @@ export function PDFReadingView({
           onChange={refreshChapter}
         />
       ) : (
-        <AssistanceControls documentId={doc.id} processing={processing} />
+        <AssistanceControls document={doc} processing={processing} />
       )}
       <Tabs value={mode} onValueChange={(v) => changeMode(v as Mode)}>
         <TabsList>
@@ -1272,7 +1283,10 @@ export function PDFReadingView({
                     renderImage={blockImages?.url}
                     imageTheme={imageKey}
                     retry={() => void translate(block.id)}
-                    paused={processing?.enabled === false}
+                    paused={
+                      processing?.enabled === false ||
+                      processing?.status === "paused"
+                    }
                   />
                 );
                 const indicator = noteIndexes.length > 0 && (
@@ -1411,7 +1425,10 @@ export function PDFReadingView({
                 renderImage={blockImages?.url}
                 imageTheme={imageKey}
                 retry={() => void translate(popup.block.id)}
-                paused={processing?.enabled === false}
+                paused={
+                  processing?.enabled === false ||
+                  processing?.status === "paused"
+                }
               />
               <Button
                 variant="ghost"

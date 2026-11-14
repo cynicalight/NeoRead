@@ -49,8 +49,6 @@ type Server struct {
 	annotationRevisions    map[string]string
 	annotationSubscribers  map[string]map[chan struct{}]struct{}
 	annotationHistory      []annotationChange
-	codexChat              codexChatCache
-	documentCodex          documentCodexCache
 	corpusMu               sync.Mutex
 	overviewMu             sync.Mutex
 	overviewActive         map[string]context.CancelFunc
@@ -62,9 +60,9 @@ type Server struct {
 	documentClosed         bool
 	documentTasks          map[string]map[*documentTask]struct{}
 	deletingDocuments      map[string]bool
-	reparsingDocuments     map[string]bool
 	importMu               sync.Mutex
 	configMu               sync.Mutex
+	piLogins               sync.Map
 	translationMu          sync.Mutex
 	translationSubscribers map[string]map[chan TranslationBlock]struct{}
 	processingMu           sync.Mutex
@@ -231,12 +229,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/documents/{id}/chat-sessions/{session}/runs/{run}/events", s.sessionRunEvents)
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/runs/{run}/cancel", s.cancelSessionRun)
 	mux.HandleFunc("POST /api/documents/{id}/chat-sessions/{session}/runs/{run}/continue", s.continueSessionRun)
-	mux.HandleFunc("POST /api/documents/{id}/codex-handoff", s.handoffCodex)
 	mux.HandleFunc("GET /api/providers", s.providers)
+	mux.HandleFunc("POST /api/ai/auth/{provider}", s.loginPiProvider)
+	mux.HandleFunc("DELETE /api/ai/auth/{provider}", s.logoutPiProvider)
 	mux.HandleFunc("GET /api/documents/{id}/processing-usage", s.processingUsage)
 	mux.HandleFunc("GET /api/documents/{id}/chat-usage", s.chatUsage)
 	mux.HandleFunc("GET /api/ai/config", s.getAIConfig)
 	mux.HandleFunc("GET /api/ai/models", s.agentModels)
+	mux.HandleFunc("GET /api/ai/quota", s.agentQuota)
 	mux.HandleFunc("PUT /api/ai/config", s.putAIConfig)
 	mux.HandleFunc("POST /api/ai/test/{provider}", s.testConnection)
 	mux.HandleFunc("POST /api/libraries/{library}/tags", s.changeLibraryLabels("tags"))
@@ -1013,4 +1013,26 @@ func (s *Store) saveMessage(m Message) error {
 	}
 	_, err = s.DB.Exec("INSERT INTO messages VALUES(?,?,?,?)", m.ID, m.DocumentID, string(b), m.CreatedAt)
 	return err
+}
+
+func (s *Server) Close() {
+	s.piLogins.Range(func(_, value any) bool {
+		if login, ok := value.(*piLoginSession); ok && login.cancel != nil {
+			login.cancel()
+		}
+		return true
+	})
+	s.documentMu.Lock()
+	s.documentClosed = true
+	var tasks []*documentTask
+	for _, group := range s.documentTasks {
+		for task := range group {
+			task.cancel()
+			tasks = append(tasks, task)
+		}
+	}
+	s.documentMu.Unlock()
+	for _, task := range tasks {
+		<-task.done
+	}
 }

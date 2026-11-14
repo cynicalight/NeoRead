@@ -39,20 +39,20 @@ export const guideTopics: GuideTopic[] = [
     steps: [
       {
         id: "detect",
-        title: "自动检测本机 Agent",
-        body: "打开「设置 → Agent」，NeoRead 会自动检测已安装的 Codex、Claude Code 和 Kimi CLI，并测试文本推理与图片理解。检测通过后，在「Agent SDK」中选择要使用的一个。",
+        title: "检测模型连接",
+        body: "打开「设置 → Agent」连接模型服务。NeoRead 会检测文本推理和图片理解，检测通过后即可选用该连接。",
         scene: "detect",
       },
       {
         id: "login",
-        title: "在终端登录 CLI",
-        body: "NeoRead 直接调用 CLI，使用它当前的登录账户与计费方式，不读取账号凭据。检测未通过时，先在终端完成登录：Codex 运行 codex login，Claude Code 运行 claude auth login，Kimi 启动后按提示登录。登录后回到设置点击重新检测。",
+        title: "登录厂商账号",
+        body: "选择 ChatGPT、Claude 或 Kimi Code，在浏览器完成授权，再回到 NeoRead 查看模型检测结果。",
         scene: "login",
       },
       {
         id: "api",
         title: "或者填入 API Key",
-        body: "没有安装 CLI 时，点击 API 卡片，填写 OpenAI 兼容接口的地址和 Key 并保存。NeoRead 会拉取模型列表并逐个检测，Key 只保存在本机。",
+        body: "点击 API 卡片，填写 OpenAI 兼容接口的地址和 Key 并保存。NeoRead 会拉取模型列表并逐个检测，Key 只保存在本机。",
         scene: "api",
       },
       {
@@ -154,7 +154,7 @@ export const guideTopics: GuideTopic[] = [
       {
         id: "research",
         title: "AI 自主检索原文",
-        body: "使用 Codex 或支持工具调用的 API 模型时，AI 会根据问题自己查看目录、检索原文并补读相关章节，侧栏会显示它正在检索的关键词和阅读位置。点击回答下方的「引用原文」，可以跳回原文并高亮对应段落。",
+        body: "使用支持工具调用的模型时，AI 会根据问题自己查看目录、检索原文并补读相关章节，侧栏会显示它正在检索的关键词和阅读位置。点击回答下方的「引用原文」，可以跳回原文并高亮对应段落。",
         scene: "research",
       },
       {

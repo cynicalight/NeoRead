@@ -127,7 +127,7 @@ func (s *Server) saveDocumentCover(w http.ResponseWriter, r *http.Request) {
 }
 
 // epubBookMetadata reads publication details from a parsed Readium manifest.
-// The values are candidates; Merge validates them and keeps manual edits.
+// The values are candidates; Merge validates them and only fills empty fields.
 func epubBookMetadata(manifest map[string]any) PaperMetadata {
 	meta, _ := manifest["metadata"].(map[string]any)
 	if meta == nil {
@@ -267,7 +267,7 @@ func plainDescription(value any) string {
 const epubMetadataMigration = "migration:epub-book-metadata"
 
 // fillEPUBBookMetadata reads publication details for EPUBs imported before
-// they were recorded. Values only fill empty, non-manual fields.
+// they were recorded. Values only fill empty fields.
 func (s *Server) fillEPUBBookMetadata() error {
 	return s.fillEPUBBookMetadataContext(context.Background())
 }

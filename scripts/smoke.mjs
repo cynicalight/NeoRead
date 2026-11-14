@@ -44,34 +44,16 @@ try {
   if (docs.length !== 2) throw new Error("library mismatch");
   const providers = await (await api("/api/providers")).json();
   console.log(
-    "CLI status:",
+    "Model connections:",
     providers.map(({ id, installed, authenticated }) => ({
       id,
-      installed,
+      configured: installed,
       authenticated,
     })),
   );
   const root = await fetch(url);
   if (!root.ok || !(await root.text()).includes("root"))
     throw new Error("web entrypoint unavailable");
-  if (process.argv.includes("--ai")) {
-    if (!providers.find((p) => p.id === "codex")?.authenticated)
-      throw new Error("Codex not authenticated");
-    const res = await api(`/api/documents/${docs[0].id}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        provider: "codex",
-        prompt: "Reply with exactly NEOREAD_OK. This is a connection test.",
-        context: "An original NeoRead sample document.",
-      }),
-      signal: AbortSignal.timeout(180000),
-    });
-    const stream = await res.text();
-    if (!stream.includes("event: done") || !stream.includes("NEOREAD_OK"))
-      throw new Error("Real CLI response did not complete: " + stream);
-    console.log("Real Codex CLI: NEOREAD_OK; SSE completed.");
-  }
   console.log("HTTP smoke passed.");
 } finally {
   const exited = once(child, "exit");

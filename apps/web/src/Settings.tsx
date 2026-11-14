@@ -1,4 +1,6 @@
+import { PiConnectionPanel } from "./PiConnectionPanel";
 import { loadModelCatalog } from "./model-catalog";
+import { useLocalQuota, type LocalQuota } from "./useLocalQuota";
 import { Switch } from "@neoread/ui/components/switch";
 import { PaperServiceSettings } from "./papers/PaperServiceSettings";
 import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
@@ -79,22 +81,43 @@ import { AppearancePicker } from "./AppearancePicker";
 import { AgentDeck, type DeckItem } from "./AgentDeck";
 import { recentAgentCalls } from "./agentUsage";
 // Checks run automatically for this many API models; the rest on demand.
+const agentConnections = ["codex", "claude", "kimi", "api"];
 const autoAPIChecks = 12;
-// Terminal commands that sign each CLI agent in.
-const cliLogin: Record<string, string> = {
-  codex: "codex login",
-  claude: "claude auth login",
-  kimi: "kimi",
+const quotaDateTime = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+// Codex uses this app's authorization allowance; Claude uses its weekly window.
+const providerQuota = (
+  provider: "codex" | "claude",
+  quota?: LocalQuota,
+): DeckItem["quota"] => {
+  const remaining =
+    quota?.remaining === undefined ? undefined : Math.round(quota.remaining);
+  return {
+    label: provider === "codex" ? "本应用额度" : "周额度剩余",
+    value: !quota ? "…" : remaining === undefined ? "—" : `${remaining}%`,
+    percent: remaining,
+    hint:
+      quota &&
+      (quota.error ??
+        (remaining === undefined
+          ? "未返回额度"
+          : quota.resetsAt
+            ? `下次重置 ${quotaDateTime.format(new Date(quota.resetsAt))}`
+            : "下次重置时间未知")),
+  };
 };
-
 export function Settings({
   open,
   onOpenChange,
-  onOpenGuide,
 }: {
   open: boolean;
   onOpenChange: (value: boolean) => void;
-  onOpenGuide?: () => void;
 }) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [testing, setTesting] = useState<Map<string, "text" | "vision">>(
@@ -103,6 +126,7 @@ export function Settings({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const checked = useRef(new Set<string>());
   const refreshing = useRef(false);
+  const refreshQueued = useRef(false);
   const [saving, setSaving] = useState(false);
   const pendingAgent = useRef<string | null>(null);
   const agentSaveRunning = useRef(false);
@@ -111,9 +135,7 @@ export function Settings({
   const [deckFront, setDeckFront] = useState(() => {
     try {
       const saved = localStorage.getItem("neoread.agent-deck-front");
-      return saved && ["codex", "claude", "kimi", "api"].includes(saved)
-        ? saved
-        : "codex";
+      return saved && agentConnections.includes(saved) ? saved : "codex";
     } catch {
       return "codex";
     }
@@ -126,6 +148,8 @@ export function Settings({
       /* Storage may be unavailable. */
     }
   };
+  const [quotaNonce, setQuotaNonce] = useState(0);
+  const localQuota = useLocalQuota(open, quotaNonce);
   const [searchSaving, setSearchSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   // Whether a detection has finished since the dialog opened.
@@ -134,6 +158,7 @@ export function Settings({
   const [apiModels, setAPIModels] = useState<AgentModel[]>([]);
   const [apiModelsError, setAPIModelsError] = useState("");
   const [apiDetails, setAPIDetails] = useState(false);
+  const [piDetails, setPiDetails] = useState<string | null>(null);
   const [probeWait, setProbeWait] = useState("");
   const probeSeconds = Number(probeWait);
   const validProbeWait =
@@ -273,26 +298,34 @@ export function Settings({
     );
   };
   const warnWithoutVision = (models: AgentModel[]) => {
-    const capabilities = useReaderStore.getState().aiConfig?.capabilities;
+    // Checks may finish after the user switches providers. Read the live choice.
+    const current = useReaderStore.getState().aiConfig;
+    if (current?.primary !== "api") return;
+    const capabilities = current.capabilities;
     const results = models.map(({ id }) => capabilities?.[`api:${id}`]);
     if (
       results.length &&
-      results.every(Boolean) &&
+      results.every((result) => result && !result.pendingVision) &&
       !results.some((r) => r?.vision)
     )
       toast.warning(
         "此 API Key 不符合图片理解要求：拉取到的模型都没有通过图片理解检测。",
       );
   };
-  const refresh = async (force = false) => {
-    if (refreshing.current) return;
+  const refresh = async (force = false, fromQueue = false) => {
+    // A connection refresh hides old-account quotas even while checks queue.
+    if (force && !fromQueue) setQuotaNonce((n) => n + 1);
+    if (refreshing.current) {
+      if (force) refreshQueued.current = true;
+      return;
+    }
     refreshing.current = true;
     // Reopening refreshes metadata silently; preserve the last confirmed UI.
     if (force) setLoading(true);
     try {
       const before = useReaderStore.getState().aiConfig;
       const [providers, loadedConfig] = await Promise.all([
-        api.providers(false),
+        api.providers(),
         api.aiConfig(),
       ]);
       setProviders(providers);
@@ -301,7 +334,7 @@ export function Settings({
       const config =
         latest === before ? loadedConfig : (latest ?? loadedConfig);
       if (latest === before) setAIConfig(config);
-      // CLI agents are checked as a whole, the API agent one model at a time.
+      // Built-in connections check their selected model; custom API checks each model.
       const pending = providers
         .filter((provider) => {
           if (provider.id === "api" || !provider.installed) return false;
@@ -361,10 +394,15 @@ export function Settings({
       setLoading(false);
       setProbed(true);
       setModelRefresh((n) => n + 1);
+      if (refreshQueued.current) {
+        refreshQueued.current = false;
+        void refresh(true, true);
+      }
     }
   };
   useEffect(() => {
     if (open) void refresh();
+    else setPiDetails(null);
   }, [open]);
   const checkModel = async (model: AgentModel) => {
     const snapshot = useReaderStore.getState().aiConfig;
@@ -511,7 +549,7 @@ export function Settings({
     });
   const apiPending = () =>
     loading || [...testing.keys()].some((id) => id.startsWith("api:"));
-  const cliReady = (name: string, kind: "text" | "vision") =>
+  const providerReady = (name: string, kind: "text" | "vision") =>
     !errors[`${name}:text`] &&
     !errors[`${name}:${kind}`] &&
     !!config?.capabilities[name]?.[kind];
@@ -520,18 +558,16 @@ export function Settings({
     const installed = providers.find((p) => p.id === name)?.installed;
     if (name === "api") {
       if (!installed) return "需要先配置 API Key";
-      if (apiReady("text") && apiReady("vision")) return "";
+      if (apiReady("text")) return "";
       if (apiPending()) return "正在检测，请稍候";
       if (apiModelsError) return "无法获取模型列表，请检查 API 配置";
-      return apiReady("text")
-        ? "没有图片理解能力"
-        : "没有通过文本推理检测的模型";
+      return "没有通过文本推理检测的模型";
     }
     if (loading || (testing.has(name) && !config?.capabilities[name]))
       return "正在检测，请稍候";
-    if (!installed) return "未安装 CLI";
-    if (!cliReady(name, "text")) return "文本推理未通过检测";
-    return cliReady(name, "vision") ? "" : "没有图片理解能力";
+    if (!installed) return "请先连接";
+    if (!providerReady(name, "text")) return "文本推理未通过检测";
+    return "";
   };
   // Read by the first-run tour to point at an agent that works.
   const agentStatus = (name: string) => {
@@ -548,7 +584,7 @@ export function Settings({
       return "pending";
     if (!probed && !providers.length)
       return config?.capabilities[name]
-        ? cliReady(name, "text") && cliReady(name, "vision")
+        ? providerReady(name, "text")
           ? "ready"
           : "failed"
         : "pending";
@@ -577,6 +613,8 @@ export function Settings({
               ? latest
               : await api.saveAIConfig({ ...latest, primary: next }),
           );
+          if (next === "api" && !pendingAgent.current)
+            warnWithoutVision(apiModels);
           rememberCard(next);
           setModelRefresh((n) => n + 1);
         } catch (e) {
@@ -620,18 +658,10 @@ export function Settings({
   );
   const installed = (name: string) =>
     !!providers.find((p) => p.id === name)?.installed;
-  // Explains why a CLI agent cannot be used and points at the guide.
-  const cliHint = (name: string) => {
-    const label = providerLabel(name);
-    toast.warning(
-      installed(name) ? `${label} 还不能使用` : `未安装 ${label} CLI`,
-      {
-        description: installed(name)
-          ? `请在终端运行 ${cliLogin[name]} 完成登录，然后重新检测。`
-          : `请先安装 ${label} CLI，在终端运行 ${cliLogin[name]} 登录，然后重新检测。`,
-        action: onOpenGuide && { label: "查看指南", onClick: onOpenGuide },
-      },
-    );
+  const openPiConfig = (name: string) => {
+    setDeckOpen(true);
+    setAPIDetails(false);
+    setPiDetails(name);
   };
   const openAPIConfig = () => {
     setDeckOpen(true);
@@ -650,7 +680,7 @@ export function Settings({
       return false;
     }
     if (id !== "api" && status !== "ready") {
-      cliHint(id);
+      openPiConfig(id);
       return false;
     }
     void selectAgent(id);
@@ -661,11 +691,11 @@ export function Settings({
     if (status === "ready") return true;
     if (status === "pending") toast.info("正在检测 Agent，请稍候");
     else if (id === "api") toast.warning("请先配置 API Key");
-    else cliHint(id);
+    else openPiConfig(id);
     return false;
   };
   const deckItems: DeckItem[] = [
-    ...(["codex", "claude", "kimi", "api"] as const).map((name): DeckItem => {
+    ...agentConnections.map((name): DeckItem => {
       const capability = config?.capabilities[name];
       const ready = installed(name);
       const selected = config?.primary === name;
@@ -676,7 +706,7 @@ export function Settings({
           !loading && !ready
             ? name === "api"
               ? "未配置"
-              : "未安装"
+              : "未连接"
             : undefined,
         icon: <ProviderIcon provider={name} size={40} />,
         status: agentStatus(name),
@@ -690,17 +720,24 @@ export function Settings({
           name === "api"
             ? ready && apiReady("text") && apiReady("vision")
             : !testing.has(name) &&
-              cliReady(name, "text") &&
-              cliReady(name, "vision"),
+              providerReady(name, "text") &&
+              providerReady(name, "vision"),
+        quota:
+          ready && (name === "codex" || name === "claude")
+            ? providerQuota(name, localQuota[name])
+            : undefined,
         tour: "agent-card",
-        extra: name === "api" && (
+        extra: (
           <Button
             variant="ghost"
             size="icon-sm"
             className="pointer-events-auto -mb-1"
-            aria-label="配置 API Key"
-            title="配置 API Key"
-            onClick={openAPIConfig}
+            aria-label={
+              name === "api" ? "配置 API Key" : `配置${providerLabel(name)}`
+            }
+            onClick={() =>
+              name === "api" ? openAPIConfig() : openPiConfig(name)
+            }
           >
             <Pencil />
           </Button>
@@ -1175,7 +1212,21 @@ export function Settings({
                   open={deckOpen}
                   onOpenChange={setDeckOpen}
                   panel={
-                    apiDetails ? (
+                    piDetails ? (
+                      <PiConnectionPanel
+                        key={piDetails}
+                        provider={piDetails}
+                        connected={installed(piDetails)}
+                        autoConnect={
+                          probed && !loading && !installed(piDetails)
+                        }
+                        onBack={() => setPiDetails(null)}
+                        onChange={() => {
+                          checked.current.clear();
+                          void refresh(true);
+                        }}
+                      />
+                    ) : apiDetails ? (
                       <div className="p-5" data-tour="api-panel">
                         <Button
                           variant="ghost"
@@ -1363,6 +1414,7 @@ export function Settings({
                   }
                   onPanelClose={() => {
                     setAPIDetails(false);
+                    setPiDetails(null);
                   }}
                   onFallback={rememberCard}
                   usable={(id) => agentStatus(id) === "ready"}

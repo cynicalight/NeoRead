@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -25,6 +26,24 @@ func (m *PaperMetadata) FillFrom(other PaperMetadata) []string {
 			m.set(key, *other.textField(key), source)
 		}
 		filled = append(filled, key)
+	}
+	// The abbreviation belongs to its venue, not to the duplicate paper alone.
+	// Check after filling fields so a copied venue can bring its abbreviation.
+	if m.VenueShort == "" && other.VenueShort != "" && m.Venue != "" && other.Venue != "" {
+		sameVenue := strings.EqualFold(strings.TrimSpace(m.Venue), strings.TrimSpace(other.Venue))
+		if !sameVenue {
+			venue, ok := matchConference(m.Venue)
+			otherVenue, otherOK := matchConference(other.Venue)
+			sameVenue = ok && otherOK && venue.Abbreviation == otherVenue.Abbreviation
+		}
+		if sameVenue {
+			source := other.Sources["venueShort"]
+			if source == "" {
+				source = "file"
+			}
+			m.set("venueShort", other.VenueShort, source)
+			filled = append(filled, "venueShort")
+		}
 	}
 	if m.Rating == 0 && other.Rating > 0 {
 		m.set("rating", other.Rating, "manual")

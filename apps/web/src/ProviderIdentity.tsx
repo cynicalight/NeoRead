@@ -23,9 +23,12 @@ function APIAvatar({ size = 20 }: { size?: number; iconClassName?: string }) {
 }
 
 const providers = {
-  codex: { Icon: OpenAI, Avatar: OpenAI.Avatar, label: "Codex" },
-  claude: { Icon: Claude, Avatar: Claude.Avatar, label: "Claude Code" },
+  codex: { Icon: OpenAI, Avatar: OpenAI.Avatar, label: "ChatGPT" },
+  claude: { Icon: Claude, Avatar: Claude.Avatar, label: "Claude" },
   kimi: { Icon: Kimi, Avatar: Kimi.Avatar, label: "Kimi Code" },
+  "openai-api": { Icon: OpenAI, Avatar: OpenAI.Avatar, label: "OpenAI API" },
+  "claude-api": { Icon: Claude, Avatar: Claude.Avatar, label: "Claude API" },
+  "kimi-api": { Icon: Kimi, Avatar: Kimi.Avatar, label: "Kimi 开放平台" },
   api: { Icon: APIIcon, Avatar: APIAvatar, label: "API" },
 };
 

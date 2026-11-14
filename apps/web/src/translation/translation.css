@@ -190,6 +190,26 @@
   color: var(--muted-foreground);
   font-size: 0.85em;
 }
+/* The action trails the last translated line, outside the selectable text. */
+.translation-complete > .translation-sentences {
+  display: inline;
+}
+.translation-retranslate {
+  margin-inline-start: 2px;
+  vertical-align: middle;
+  color: var(--muted-foreground);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.translation-complete:hover .translation-retranslate,
+.translation-retranslate:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .translation-retranslate {
+    opacity: 1;
+  }
+}
 .translation-warning {
   font-size: 0.8em;
   color: var(--muted-foreground);

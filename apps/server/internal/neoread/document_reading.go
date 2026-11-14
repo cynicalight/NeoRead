@@ -3,7 +3,6 @@ package neoread
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 )
@@ -17,7 +16,7 @@ func (a *documentAgent) toolFailure(ctx context.Context, err error) (json.RawMes
 	a.mu.Lock()
 	fatal := a.fatal
 	a.mu.Unlock()
-	if ctx.Err() != nil || a.ctx.Err() != nil || fatal != nil || errors.Is(err, errDocumentAttemptEnded) || errorKind(err) == ErrorSave {
+	if ctx.Err() != nil || a.ctx.Err() != nil || fatal != nil || errorKind(err) == ErrorCanceled || errorKind(err) == ErrorSave {
 		return nil, err
 	}
 	slog.WarnContext(ctx, "document.tool.failed", "requestId", requestID(ctx), "errorCode", errorKind(err))
@@ -29,7 +28,6 @@ const documentToolCalls = 128
 const documentReadingRounds = 64
 
 var errDocumentReadingBudget = generationError(ErrorLimit, "本轮检索已收束，请基于已有资料回答")
-var errDocumentAttemptEnded = generationError(ErrorCanceled, "文档工具尝试已结束")
 
 func (a *documentAgent) stopReading(reason string) {
 	a.mu.Lock()

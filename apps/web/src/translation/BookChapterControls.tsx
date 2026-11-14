@@ -144,7 +144,11 @@ export function BookChapterControls({
       </div>
     );
   }
-  const working = phase === "translating";
+  // Saved scopes without a kind predate chapter scopes.
+  const paragraphTask =
+    !!job?.translationBlocks?.length && job.translationScopeKind !== "chapter";
+  const action = paragraphTask && phase ? "untranslated" : phase;
+  const working = action === "translating";
   return (
     <div className="assistance-controls">
       <Button
@@ -159,7 +163,7 @@ export function BookChapterControls({
         }
       >
         {working ? <Pause /> : <Languages />}
-        {working ? "暂停翻译" : phase === "paused" ? "继续翻译" : "翻译本章"}
+        {working ? "暂停翻译" : action === "paused" ? "继续翻译" : "翻译本章"}
       </Button>
     </div>
   );

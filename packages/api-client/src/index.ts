@@ -450,10 +450,10 @@ export const api = {
     }
     return response.blob();
   },
-  translate: (id: string, blockId = "") =>
+  translate: (id: string, blockId = "", force = false) =>
     request<{ queued: boolean }>(`/api/documents/${id}/translations`, {
       method: "POST",
-      body: JSON.stringify({ blockId }),
+      body: JSON.stringify({ blockId, force }),
     }),
   /** Queues the entire page range through the shared translation workers. */
   translateRange: (
@@ -545,19 +545,21 @@ export const api = {
     }),
   processing: (signal?: AbortSignal) =>
     request<Processing[]>("/api/processing", { signal }),
+  /** Accepts a background reparse; the server decides any translation follow-up from current settings. */
   reparseDocument: (id: string) =>
-    request<{ reparsed: boolean }>(
-      `/api/documents/${encodeURIComponent(id)}/reparse`,
-      {
-        method: "POST",
-      },
-    ),
+    request<Processing>(`/api/documents/${encodeURIComponent(id)}/reparse`, {
+      method: "POST",
+    }),
   process: (id: string) =>
     request<Processing>(`/api/documents/${id}/processing`, { method: "POST" }),
   blocks: (id: string, signal?: AbortSignal) =>
     request<PDFBlock[]>(`/api/documents/${id}/blocks`, { signal }),
   aiConfig: (signal?: AbortSignal) =>
     request<AIConfig>("/api/ai/config", { signal }),
+  agentQuota: (provider: "codex" | "claude", signal?: AbortSignal) =>
+    request<
+      paths["/api/ai/quota"]["get"]["responses"][200]["content"]["application/json"]
+    >(`/api/ai/quota?provider=${provider}`, { signal }),
   agentModels: (
     provider: string,
     signal?: AbortSignal,
@@ -628,9 +630,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ref, ...options }),
     }),
-  lookupMetadata: (id: string, byTitle = false) =>
+  lookupMetadata: (id: string) =>
     request<Document>(
-      `/api/documents/${encodeURIComponent(id)}/metadata/lookup${byTitle ? "?by=title" : ""}`,
+      `/api/documents/${encodeURIComponent(id)}/metadata/lookup`,
       { method: "POST" },
     ),
   removeDocument: (id: string) =>
@@ -837,17 +839,77 @@ export const api = {
       `/api/documents/${id}/chat-sessions/${sessionId}/runs/${runId}/cancel`,
       { method: "POST", signal: AbortSignal.timeout(30_000) },
     ),
-  codexHandoff: (id: string, sessionId?: string) =>
-    request<components["schemas"]["CodexHandoff"]>(
-      `/api/documents/${encodeURIComponent(id)}/codex-handoff${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`,
-      { method: "POST" },
-    ),
   validateEvidence: (id: string, message: string, source: string) =>
     request<{ valid: boolean }>(
       `/api/documents/${encodeURIComponent(id)}/messages/${encodeURIComponent(message)}/sources/${encodeURIComponent(source)}`,
     ),
-  providers: (checkAuth = true) =>
-    request<Provider[]>(`/api/providers${checkAuth ? "" : "?auth=skip"}`),
+  providers: () => request<Provider[]>("/api/providers"),
+  disconnectPiProvider: (provider: string) =>
+    request<void>(`/api/ai/auth/${encodeURIComponent(provider)}`, {
+      method: "DELETE",
+    }),
+  connectPiProvider: async (
+    provider: string,
+    signal: AbortSignal,
+    onEvent: (
+      event:
+        | { type: "auth_url" | "device_code"; url: string; code?: string }
+        | { type: "progress"; phase: "authorizing" | "exchanging" },
+    ) => void,
+  ) => {
+    const response = await diagnosticFetch(
+      `/api/ai/auth/${encodeURIComponent(provider)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
+        body: "{}",
+        signal,
+      },
+    );
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new RequestError(data.error || "无法连接模型服务");
+    }
+    if (!response.body) throw new RequestError("模型连接没有返回结果");
+    const reader = response.body
+      .pipeThrough(new TextDecoderStream())
+      .getReader();
+    let pending = "";
+    let complete = false;
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        const lines = (pending + chunk.value).split("\n");
+        pending = lines.pop() ?? "";
+        for (const line of lines) {
+          const event = JSON.parse(line);
+          if (complete) throw new RequestError("模型连接返回无效状态");
+          if (
+            (event.type === "auth_url" || event.type === "device_code") &&
+            typeof event.url === "string"
+          )
+            onEvent(event);
+          else if (
+            event.type === "progress" &&
+            (event.phase === "authorizing" || event.phase === "exchanging")
+          )
+            onEvent(event);
+          else if (event.type === "complete") complete = true;
+          else if (event.type === "error") throw new RequestError(event.error);
+          else throw new RequestError("模型连接返回无效状态");
+        }
+      }
+      if (!complete || pending) throw new RequestError("模型连接未确认");
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
+  },
   /** Rename a category across a library, or remove it when `to` is omitted. */
   changeLibraryFolder: (library: LibraryMode, from: string, to?: string) =>
     request<{ changed: number }>(`/api/libraries/${library}/folders`, {

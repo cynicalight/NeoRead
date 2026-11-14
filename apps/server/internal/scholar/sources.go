@@ -35,12 +35,13 @@ func (c *Client) arxivMetadata(ctx context.Context, id string) (Metadata, error)
 	}
 	var feed struct {
 		Entries []struct {
-			ID        string `xml:"id"`
-			Title     string `xml:"title"`
-			Summary   string `xml:"summary"`
-			Published string `xml:"published"`
-			DOI       string `xml:"http://arxiv.org/schemas/atom doi"`
-			Authors   []struct {
+			ID         string `xml:"id"`
+			Title      string `xml:"title"`
+			Summary    string `xml:"summary"`
+			Published  string `xml:"published"`
+			DOI        string `xml:"http://arxiv.org/schemas/atom doi"`
+			JournalRef string `xml:"http://arxiv.org/schemas/atom journal_ref"`
+			Authors    []struct {
 				Name string `xml:"name"`
 			} `xml:"author"`
 		} `xml:"entry"`
@@ -52,7 +53,7 @@ func (c *Client) arxivMetadata(ctx context.Context, id string) (Metadata, error)
 		return Metadata{}, ErrNotFound
 	}
 	e := feed.Entries[0]
-	m := Metadata{Title: clean(e.Title), ItemType: "preprint", Abstract: clean(e.Summary), ArXiv: id, DOI: clean(e.DOI), URL: "https://arxiv.org/abs/" + bareArXiv(id)}
+	m := Metadata{Venue: clean(e.JournalRef), Title: clean(e.Title), ItemType: "preprint", Abstract: clean(e.Summary), ArXiv: id, DOI: clean(e.DOI), URL: "https://arxiv.org/abs/" + bareArXiv(id)}
 	if len(e.Published) >= 10 {
 		m.Date = e.Published[:10]
 	}
@@ -84,6 +85,11 @@ func (c *Client) arxivFull(ctx context.Context, id string) (Metadata, error) {
 			abstract := m.Abstract
 			m = overlay(m, pub)
 			m.Abstract, m.ArXiv = abstract, id
+		}
+	}
+	if m.Venue == "" {
+		if pub, e := c.s2(ctx, "ARXIV:"+bareArXiv(id)); e == nil && bareArXiv(pub.ExternalIDs.ArXiv) == bareArXiv(id) {
+			m.Venue = clean(pub.Venue)
 		}
 	}
 	return m, nil

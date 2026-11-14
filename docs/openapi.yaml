@@ -1824,6 +1824,7 @@
                                               "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$",
                                             },
                                           "venue": { "type": "string" },
+                                          "venueShort": { "type": "string", "maxLength": 500 },
                                           "volume": { "type": "string" },
                                           "issue": { "type": "string" },
                                           "pages": { "type": "string" },
@@ -2521,55 +2522,6 @@
                 ],
             },
         },
-      "/api/documents/{id}/codex-handoff":
-        {
-          "post":
-            {
-              "description": "Fork the last committed Codex reading turn into an independent conversation with local document and chat snapshots. Does not generate a model answer or change the NeoRead conversation. Repeated requests for the same snapshot reuse the fork.",
-              "parameters":
-                [
-                  {
-                    "in": "path",
-                    "name": "id",
-                    "required": true,
-                    "schema": { "type": "string" },
-                  },
-                  {
-                    "in": "query",
-                    "name": "sessionId",
-                    "required": false,
-                    "schema": { "type": "string" },
-                  },
-                ],
-              "responses":
-                {
-                  "200":
-                    {
-                      "description": "Prepared independent Codex conversation",
-                      "content":
-                        {
-                          "application/json":
-                            {
-                              "schema":
-                                { "$ref": "#/components/schemas/CodexHandoff" },
-                            },
-                        },
-                    },
-                  "default":
-                    {
-                      "description": "Document unavailable, no committed Codex conversation, active generation, or handoff failed",
-                      "content":
-                        {
-                          "application/json":
-                            {
-                              "schema":
-                                { "$ref": "#/components/schemas/Error" },
-                            },
-                        },
-                    },
-                },
-            },
-        },
       "/api/documents/{id}/chat":
         {
           "post":
@@ -2979,7 +2931,7 @@
                                           "resume",
                                           "retranslate",
                                         ],
-                                      "description": "retranslate restarts completed paper text with saved current translation choices, retaining previous translations until replacement succeeds. Books keep chapter translation controls.",
+                                      "description": "retranslate is an explicit manual request for a completed PDF paper: it queues a background reparse and then retranslates every unit of the new layout with saved current translation choices, even above the automatic translation page limit. Previous translations stay visible until replacement succeeds.",
                                     },
                                 },
                             },
@@ -3034,7 +2986,7 @@
         {
           "post":
             {
-              "description": "Rebuild the EPUB publication cache or PDF layout from the stored original while keeping document identity and user data.",
+              "description": "Queue a background reparse of the PDF paper, PDF book, or EPUB, keeping document identity and user data. The stored original is parsed again; the previous source stays readable until the new layout or publication cache validates and is published, and `layoutRevision` then changes. Reparse does not grant translation permission. The current automatic translation settings are captured when the request is accepted: a PDF paper whose new layout has at most `autoTranslateMaxPages` pages is retranslated automatically; above the limit, with the limit 0, or with legacy `autoTranslatePDF=false`, it waits for manual translation (`manualTranslation=true`). PDF books and EPUB are never translated automatically after reparse; their new units stay idle until a chapter or paragraph is requested. The response is returned once the job is persisted; the job continues after the request disconnects or the app restarts.",
               "parameters":
                 [
                   {
@@ -3046,20 +2998,15 @@
                 ],
               "responses":
                 {
-                  "200":
+                  "202":
                     {
-                      "description": "Reparsed",
+                      "description": "Reparse queued",
                       "content":
                         {
                           "application/json":
                             {
                               "schema":
-                                {
-                                  "type": "object",
-                                  "required": ["reparsed"],
-                                  "properties":
-                                    { "reparsed": { "type": "boolean" } },
-                                },
+                                { "$ref": "#/components/schemas/Processing" },
                             },
                         },
                     },
@@ -3275,6 +3222,89 @@
                   "default":
                     {
                       "description": "Error",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+      "/api/ai/quota": {
+        "get": {
+          "summary": "Read Claude weekly quota or Codex app allowance availability",
+          "parameters": [{"in": "query", "name": "provider", "required": true, "schema": {"type": "string", "enum": ["codex", "claude"]}}],
+          "responses": {"200": {"description": "Quota or an explicit unavailable reason", "content": {"application/json": {"schema": {"type": "object", "properties": {"remaining": {"type": "number", "minimum": 0, "maximum": 100}, "resetsAt": {"type": "string", "format": "date-time"}, "error": {"type": "string"}}}}}}}
+        }
+      },
+      "/api/ai/auth/{provider}":
+        {
+          "parameters":
+            [
+              {
+                "in": "path",
+                "name": "provider",
+                "required": true,
+                "schema":
+                  { "type": "string", "enum": ["codex", "claude", "kimi"] },
+              },
+            ],
+          "post":
+            {
+              "description": "Connect a built-in Pi provider with browser authorization or a device code. The NDJSON stream emits auth_url, device_code, progress (authorizing or exchanging), complete or error. Browser callbacks are handled by the SDK; complete confirms credentials were saved and activated.",
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema":
+                            {
+                              "type": "object",
+                              "additionalProperties": false,
+                            },
+                        },
+                    },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Connection events",
+                      "content":
+                        {
+                          "application/x-ndjson":
+                            { "schema": { "type": "string" } },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Connection rejected",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+          "delete":
+            {
+              "description": "Remove the local credential for a built-in Pi provider.",
+              "responses":
+                {
+                  "204": { "description": "Disconnected" },
+                  "default":
+                    {
+                      "description": "Disconnection rejected",
                       "content":
                         {
                           "application/json":
@@ -3670,6 +3700,7 @@
             },
           "post":
             {
+              "description": "Queue unfinished translation units. With force=true, blockId is required and only that unit is explicitly retranslated, including completed or paused units; unrelated units and automatic translation policy remain unchanged.",
               "parameters":
                 [
                   {
@@ -3689,7 +3720,16 @@
                           "schema":
                             {
                               "type": "object",
-                              "properties": { "blockId": { "type": "string" } },
+                              "properties":
+                                {
+                                  "blockId": { "type": "string" },
+                                  "force":
+                                    {
+                                      "type": "boolean",
+                                      "default": false,
+                                      "description": "Explicitly retranslate only blockId. Requires a nonempty blockId.",
+                                    },
+                                },
                             },
                         },
                     },
@@ -3698,7 +3738,7 @@
                 {
                   "202":
                     {
-                      "description": "Translation queued; completed blocks are retained",
+                      "description": "Translation queued; completed blocks are retained unless their blockId is explicitly forced",
                       "content":
                         {
                           "application/json":
@@ -5005,7 +5045,7 @@
         {
           "post":
             {
-              "summary": "Look up metadata by DOI, arXiv ID (also detected on the first pages) or a close title match; manual fields are kept",
+              "summary": "Look up metadata using the current paper title; returned fields replace existing values and missing fields are preserved",
               "parameters":
                 [
                   {
@@ -5013,13 +5053,6 @@
                     "name": "id",
                     "required": true,
                     "schema": { "type": "string" },
-                  },
-                  {
-                    "in": "query",
-                    "name": "by",
-                    "required": false,
-                    "schema": { "type": "string", "enum": ["title"] },
-                    "description": "Search by the current title even if identifiers are present",
                   },
                 ],
               "responses":
@@ -5887,25 +5920,6 @@
                   "size": { "type": "integer", "minimum": 0 },
                 },
             },
-          "CodexHandoff":
-            {
-              "type": "object",
-              "required": ["threadId", "url", "directory"],
-              "properties":
-                {
-                  "threadId": { "type": "string", "format": "uuid" },
-                  "url":
-                    {
-                      "type": "string",
-                      "description": "Local codex://threads/<threadId> link",
-                    },
-                  "directory":
-                    {
-                      "type": "string",
-                      "description": "Absolute path of the independent document snapshot",
-                    },
-                },
-            },
           "OverviewContent":
             {
               "type": "object",
@@ -6695,7 +6709,13 @@
                       "type": "string",
                       "enum": ["codex", "claude", "kimi", "api"],
                     },
-                  "installed": { "type": "boolean" },
+                  "installed":
+                    {
+                      "type": "boolean",
+                      "description": "Whether the connection is configured.",
+                    },
+                  "authMethod":
+                    { "type": "string", "enum": ["oauth"] },
                   "authenticated": { "type": "boolean" },
                   "status": { "type": "string" },
                 },
@@ -6892,7 +6912,26 @@
                   "enabled": { "type": "boolean" },
                   "manualTranslation": { "type": "boolean", "readOnly": true },
                   "retranslating": { "type": "boolean", "readOnly": true },
-                  "layoutRevision": { "type": "string", "readOnly": true },
+                  "translationScopeKind":
+                    {
+                      "type": "string",
+                      "enum": ["paragraph", "chapter"],
+                      "readOnly": true,
+                      "description": "Kind of the persisted translationBlocks scope. Chapter requests cancel and join paragraph work before replacing its scope. Missing kind with nonempty IDs denotes a paragraph scope.",
+                    },
+                  "translationBlocks":
+                    {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "readOnly": true,
+                      "description": "Explicitly requested paragraph IDs processed by the existing translation lane without resuming unrelated paused work.",
+                    },
+                  "layoutRevision":
+                    {
+                      "type": "string",
+                      "readOnly": true,
+                      "description": "Changes when a reparse publishes new source; readers reload source and translations.",
+                    },
                   "autoTranslateMaxPages":
                     {
                       "type": "integer",
@@ -7123,11 +7162,6 @@
               "type": "object",
               "properties":
                 {
-                  "cliEnabled":
-                    {
-                      "type": "boolean",
-                      "description": "Allow supported CLI native web search. Currently Codex.",
-                    },
                   "provider":
                     {
                       "type": "string",
@@ -7146,7 +7180,7 @@
                       "description": "An empty key with hasKey=true preserves the saved key only at the same address.",
                     },
                 },
-              "required": ["cliEnabled", "provider", "url", "hasKey"],
+              "required": ["provider", "url", "hasKey"],
             },
           "AIConfig":
             {
@@ -7272,7 +7306,7 @@
                     {
                       "enum":
                         ["idle", "pending", "running", "complete", "failed"],
-                      "description": "idle: a book paragraph that has not been requested.",
+                      "description": "idle: a book paragraph that has not been requested. failed with error \"重新解析后匹配错误\": an earlier translation lost its correspondence to a replaced layout and no new translation is queued.",
                     },
                   "sentences":
                     {
@@ -7514,6 +7548,7 @@
                       "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$",
                     },
                   "venue": { "type": "string" },
+                  "venueShort": { "type": "string", "maxLength": 500 },
                   "volume": { "type": "string" },
                   "issue": { "type": "string" },
                   "pages": { "type": "string" },
@@ -7539,7 +7574,7 @@
                   "sources":
                     {
                       "type": "object",
-                      "description": "Origin per field; lookups never replace manual values",
+                      "description": "Origin per field; successful lookups can replace existing values",
                       "additionalProperties":
                         { "enum": ["file", "lookup", "manual"] },
                     },

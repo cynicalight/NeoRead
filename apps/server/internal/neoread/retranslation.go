@@ -1,11 +1,10 @@
 package neoread
 
 import (
+	"database/sql"
 	"encoding/json"
-	"errors"
 	"maps"
 	"net/http"
-	"slices"
 )
 
 // Task choices and layout progress are persisted. Connections, capabilities
@@ -14,6 +13,7 @@ type translationRunOptions struct {
 	// One full layout parse per explicit restart; retries resume the same run.
 	LayoutRun   string `json:"layoutRun,omitempty"`
 	LayoutReady bool   `json:"layoutReady,omitempty"`
+	Automatic   bool   `json:"automatic,omitempty"`
 	Provider    string `json:"provider"`
 	Model       string `json:"model"`
 	Effort      string `json:"effort"`
@@ -30,7 +30,7 @@ func snapshotTranslationOptions(c AIConfig) translationRunOptions {
 }
 
 func (o *translationRunOptions) apply(c AIConfig) AIConfig {
-	if o == nil {
+	if o == nil || o.Provider == "" {
 		return c
 	}
 	c.Primary = o.Provider
@@ -85,6 +85,10 @@ func (s *Server) translationPrevious(documentID string) (map[string]bool, error)
 }
 
 func (s *Server) requestRetranslation(w http.ResponseWriter, r *http.Request) {
+	s.requestReparseAndTranslation(w, r, true)
+}
+
+func (s *Server) requestReparseAndTranslation(w http.ResponseWriter, r *http.Request, requireProvider bool) {
 	lock := s.annotationRecoveryLock(r.PathValue("id"))
 	if !lock.TryLock() {
 		fail(w, 409, "正在检查批注，请稍后重新翻译")
@@ -92,7 +96,8 @@ func (s *Server) requestRetranslation(w http.ResponseWriter, r *http.Request) {
 	}
 	defer lock.Unlock()
 	config := s.aiConfig()
-	if !validAgent(config.Primary) || !(primaryCapable(config, taskTranslation) || capable(config, "text-api", false)) {
+	providerReady := validAgent(config.Primary) && (primaryCapable(config, taskTranslation) || capable(config, "text-api", false))
+	if requireProvider && !providerReady {
 		fail(w, 409, "请先配置并检测翻译模型")
 		return
 	}
@@ -103,18 +108,36 @@ func (s *Server) requestRetranslation(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "文档不存在")
 		return
 	}
-	if d.Type != "pdf" || d.Library == "books" {
-		fail(w, 400, "全文重译仅适用于论文；图书请按章节翻译")
+	if d.Type != "pdf" && d.Type != "epub" {
+		fail(w, 400, "文档不支持重新解析并翻译")
 		return
 	}
-	m, err := s.readTranslationSource(d.ID)
-	if err != nil {
-		fail(w, 409, "正文仍在解析中")
+	if requireProvider && (d.Type != "pdf" || d.Library != "papers") {
+		fail(w, 400, "图书请按章节翻译")
 		return
 	}
+	if !requireProvider {
+		s.documentMu.Lock()
+		busy := s.documentClosed || s.deletingDocuments[d.ID] || len(s.documentTasks[d.ID]) > 0
+		s.documentMu.Unlock()
+		if busy {
+			fail(w, 409, "文档正在处理，请稍后重试")
+			return
+		}
+	}
+	var policy Processing
+	if !requireProvider {
+		var settings string
+		if err = s.Store.DB.QueryRow("SELECT value FROM settings WHERE key='neoread'").Scan(&settings); err != nil && err != sql.ErrNoRows {
+			fail(w, 500, "无法读取翻译设置")
+			return
+		}
+		policy = initialDocumentProcessing(d, settings)
+	}
+	m, _ := s.readTranslationSource(d.ID)
 	s.processingMu.Lock()
 	p, err := s.Store.processing(d.ID)
-	if err != nil || p.Status != "complete" {
+	if err != nil || (p.Status != "complete" && p.Status != "paused" && p.Status != "failed" && p.Status != "waiting") {
 		s.processingMu.Unlock()
 		fail(w, 409, "请等待当前翻译完成后再重新翻译")
 		return
@@ -137,7 +160,15 @@ func (s *Server) requestRetranslation(w http.ResponseWriter, r *http.Request) {
 	// Joining prevents a previous worker's delayed results from replacing this run.
 	p, err = s.Store.processing(d.ID)
 	if err == nil {
-		err = s.queueRetranslation(p, m, snapshotTranslationOptions(config))
+		var options translationRunOptions
+		if providerReady {
+			options = snapshotTranslationOptions(config)
+		}
+		options.Automatic = !requireProvider
+		if options.Automatic {
+			p.AutoTranslateMaxPages = policy.AutoTranslateMaxPages
+		}
+		err = s.queueRetranslation(p, m, options)
 	}
 	if err != nil {
 		fail(w, 409, "无法开始重新翻译："+err.Error())
@@ -148,31 +179,22 @@ func (s *Server) requestRetranslation(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "无法读取翻译任务")
 		return
 	}
-	respond(w, 200, p)
+	status := http.StatusOK
+	if !requireProvider {
+		status = http.StatusAccepted
+	}
+	respond(w, status, p)
 }
 
 func (s *Server) queueRetranslation(p Processing, m translationInput, options translationRunOptions) error {
 	options.LayoutRun, options.LayoutReady = id(), false
-	items, err := s.translations(p.DocumentID, m)
-	if err != nil {
-		return err
-	}
-	previousItems := slices.Clone(items)
-	text := map[string]bool{}
-	for _, paragraph := range m.translationParagraphs() {
-		text[paragraph.BlockID+":"+paragraph.SourceHash] = true
-	}
-	count := 0
-	for i := range items {
-		if text[items[i].BlockID+":"+items[i].SourceHash] && items[i].Status == "complete" {
-			items[i].Status = "pending"
-			items[i].Sentences = []TranslationSentence{}
-			items[i].Error = ""
-			count++
+	var previousItems []TranslationBlock
+	var err error
+	if m != nil {
+		previousItems, err = s.translations(p.DocumentID, m)
+		if err != nil {
+			return err
 		}
-	}
-	if count == 0 {
-		return errors.New("没有已完成的正文译文")
 	}
 	s.translationMu.Lock()
 	defer s.translationMu.Unlock()
@@ -186,31 +208,25 @@ func (s *Server) queueRetranslation(p Processing, m translationInput, options tr
 	if err = captureAnnotationAnchors(tx, p.DocumentID, previousItems); err != nil {
 		return err
 	}
-	for _, item := range items {
-		if !text[item.BlockID+":"+item.SourceHash] || item.Status != "pending" {
-			continue
-		}
-		if _, err = tx.Exec(`INSERT INTO translation_previous(document_id,block_id,source_hash,body)
-SELECT document_id,block_id,source_hash,body FROM translations WHERE document_id=? AND block_id=? AND source_hash=? AND status='complete'
-ON CONFLICT(document_id,block_id,source_hash) DO UPDATE SET body=excluded.body`, p.DocumentID, item.BlockID, item.SourceHash); err != nil {
-			return err
-		}
-		body, err := json.Marshal(item)
-		if err != nil {
-			return err
-		}
-		if _, err = tx.Exec("UPDATE translations SET status='pending',body=? WHERE document_id=? AND block_id=? AND source_hash=?", string(body), p.DocumentID, item.BlockID, item.SourceHash); err != nil {
-			return err
-		}
+	if _, err = tx.Exec(`INSERT INTO translation_previous(document_id,block_id,source_hash,body)
+SELECT document_id,block_id,source_hash,body FROM translations WHERE document_id=? AND status='complete'
+ON CONFLICT(document_id,block_id,source_hash) DO UPDATE SET body=excluded.body`, p.DocumentID); err != nil {
+		return err
 	}
 	if _, err = tx.Exec("INSERT INTO translation_restarts(document_id,options) VALUES(?,?) ON CONFLICT(document_id) DO UPDATE SET options=excluded.options", p.DocumentID, jsonText(options)); err != nil {
 		return err
 	}
+	p.TranslationBlocks = nil
+	p.TranslationScopeKind = ""
 	p.Enabled, p.Retranslating = true, true
-	p.AutoTranslateMaxPages, p.ManualTranslation = nil, false
+	if !options.Automatic {
+		p.AutoTranslateMaxPages = nil
+	}
+	p.ManualTranslation, p.Chapter = false, nil
+	p.EPUBManual = true
 	p.Phase, p.Status, p.Detail = "translating", "queued", "等待重新解析版面"
 	p.CompletedAt, p.Warning = "", ""
-	p.TranslationsDone, p.TranslationsTotal = translationCounts(items)
+	p.TranslationsDone, p.TranslationsTotal = translationCounts(previousItems)
 	p.Translating = &ProcessingStage{Status: "queued", Detail: "等待重新解析版面"}
 	p.UpdatedAt = now()
 	if _, err = tx.Exec("UPDATE document_processing SET phase=?,status=?,body=? WHERE document_id=?", p.Phase, p.Status, jsonText(p), p.DocumentID); err != nil {

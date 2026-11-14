@@ -2,6 +2,8 @@ package neoread
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -10,7 +12,7 @@ func TestSearchSettingsKeepSecretsSeparateAndPreserveOmittedChanges(t *testing.T
 	s := testServer(t)
 	c := s.aiConfig()
 	c.API = APIConnection{URL: "https://model.example/v1", Key: "model-secret"}
-	c.WebSearch = &WebSearchConfig{CLIEnabled: true, Provider: "deepseek", URL: "https://search.example/v1", Key: "search-secret"}
+	c.WebSearch = &WebSearchConfig{Provider: "deepseek", URL: "https://search.example/v1", Key: "search-secret"}
 	save := func(config AIConfig, want int) {
 		t.Helper()
 		w := request(t, s, "PUT", "/api/ai/config", strings.NewReader(jsonText(config)))
@@ -33,7 +35,6 @@ func TestSearchSettingsKeepSecretsSeparateAndPreserveOmittedChanges(t *testing.T
 		t.Fatal("unrelated save dropped search settings")
 	}
 	public = publicConfig(s.aiConfig())
-	public.WebSearch.CLIEnabled = false
 	save(public, 200)
 	if s.aiConfig().WebSearch.Key != "search-secret" || s.aiConfig().API.Key != "model-secret" {
 		t.Fatal("masked save dropped a key")
@@ -82,15 +83,35 @@ func TestSearchSettingsValidationAndSavedPermissions(t *testing.T) {
 		t.Fatal("selecting a provider without a key authorized search")
 	}
 	c.WebSearch = &WebSearchConfig{Provider: "deepseek", URL: "http://127.0.0.1:1234/v1", Key: "search-secret"}
-	if !webSearchEnabled(c, "api") || webSearchEnabled(c, "codex") || webSearchEnabled(c, "claude") || webSearchEnabled(c, "kimi") {
-		t.Fatal("permissions crossed provider boundaries")
-	}
-	c.WebSearch.CLIEnabled = true
-	if !webSearchEnabled(c, "codex") {
-		t.Fatal("CLI setting was ignored")
+	for _, provider := range []string{"api", "codex", "claude", "kimi"} {
+		if !webSearchEnabled(c, provider) {
+			t.Fatal("valid search connection unavailable", provider)
+		}
 	}
 	encoded, _ := json.Marshal(publicConfig(c))
 	if strings.Contains(string(encoded), "search-secret") {
 		t.Fatal("search key exposed")
+	}
+}
+
+func TestRetiredCLISearchSettingIsIgnored(t *testing.T) {
+	s := testServer(t)
+	path := filepath.Join(s.Store.Root, "ai-connections.json")
+	legacy := `{"config":{"webSearch":{"cliEnabled":true,"provider":"deepseek","url":"https://search.example/v1","key":"legacy-search-key"}}}`
+	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, s, "GET", "/api/ai/config", nil)
+	if w.Code != 200 || strings.Contains(w.Body.String(), "cliEnabled") ||
+		strings.Contains(w.Body.String(), "legacy-search-key") || !strings.Contains(w.Body.String(), `"hasKey":true`) {
+		t.Fatal("legacy search settings did not migrate to the public shape", w.Code)
+	}
+	w = request(t, s, "PUT", "/api/ai/config", strings.NewReader(`{"webSearch":{"cliEnabled":false,"provider":"deepseek","url":"https://search.example/v1","hasKey":true}}`))
+	if w.Code != 200 || strings.Contains(w.Body.String(), "cliEnabled") {
+		t.Fatal("older client could not save settings", w.Code)
+	}
+	config := s.aiConfig()
+	if config.WebSearch.Key != "legacy-search-key" || !webSearchEnabled(config, "api") {
+		t.Fatal("legacy field affected saved search credentials or permissions")
 	}
 }

@@ -122,6 +122,7 @@ export interface PaperMetadata {
   /** YYYY, YYYY-MM or YYYY-MM-DD. */
   date?: string;
   venue?: string;
+  venueShort?: string;
   volume?: string;
   issue?: string;
   pages?: string;
@@ -136,7 +137,7 @@ export interface PaperMetadata {
   remark?: string;
   /** The reader's own 1–5 star rating; absent or 0 when unrated. */
   rating?: number;
-  /** Where each field came from; lookups never replace manual values. */
+  /** Where each field came from; successful lookups can replace existing values. */
   sources?: Partial<Record<string, MetadataSource>>;
   /** Automatic lookup state for papers imported from files. */
   lookup?: "pending" | "done" | "notFound" | "failed";
@@ -620,6 +621,7 @@ export function locationLabel(location?: DocumentLocation): string {
     : `章节进度 ${Math.round((location.progression ?? 0) * 100)}%`;
 }
 export interface Provider {
+  authMethod?: "oauth";
   id: "codex" | "claude" | "kimi" | "api";
   installed: boolean;
   authenticated: boolean;
@@ -705,10 +707,14 @@ export interface ProcessingStage {
 }
 export interface Processing {
   retranslating?: boolean;
+  /** Changes when a reparse publishes new source; readers reload source and translations. */
   layoutRevision?: string;
   autoTranslateMaxPages?: number;
   manualTranslation?: boolean;
   enabled?: boolean;
+  /** Persisted execution scope. A chapter request supersedes paragraph work. */
+  translationBlocks?: string[];
+  translationScopeKind?: "paragraph" | "chapter";
   translating?: ProcessingStage;
   usageTracked?: boolean;
   startedAt?: string;
@@ -791,7 +797,6 @@ export interface APIConnection {
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export interface WebSearchConfig {
-  cliEnabled: boolean;
   provider: "" | "deepseek";
   url: string;
   key?: string;

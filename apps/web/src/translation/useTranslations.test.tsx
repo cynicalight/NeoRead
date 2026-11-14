@@ -40,3 +40,54 @@ it("does not drive annotation refresh from chapter snapshots or translation even
     window.removeEventListener("neoread:annotations-changed", changed);
   }
 });
+
+it("replaces the subscription and drops old translations when the layout revision changes", async () => {
+  const receivers: Parameters<typeof api.translationStream>[2][] = [];
+  const signals: AbortSignal[] = [];
+  vi.mocked(api.translationStream).mockReset();
+  vi.mocked(api.translationStream).mockImplementation(
+    async (_id, signal, callback) => {
+      receivers.push(callback);
+      signals.push(signal);
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+    },
+  );
+  let seen: string[] = [];
+  function Fixture({ revision }: { revision: string }) {
+    seen = useTranslations("doc", undefined, true, revision).translations.map(
+      (t) => `${t.blockId}:${t.status}`,
+    );
+    return null;
+  }
+  const block = (status: "complete" | "pending") => ({
+    blockId: "p1-b1",
+    sourceHash: status,
+    status,
+    sentences: [],
+  });
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<Fixture revision="old" />));
+    await act(async () =>
+      receivers[0]({ event: "snapshot", data: [block("complete")] }),
+    );
+    expect(seen).toEqual(["p1-b1:complete"]);
+    await act(async () => root.render(<Fixture revision="new" />));
+    expect(seen).toEqual([]);
+    expect(signals).toHaveLength(2);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    await act(async () =>
+      receivers[0]({ event: "translation", data: block("complete") }),
+    );
+    expect(seen).toEqual([]);
+    await act(async () =>
+      receivers[1]({ event: "snapshot", data: [block("pending")] }),
+    );
+    expect(seen).toEqual(["p1-b1:pending"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

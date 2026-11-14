@@ -184,6 +184,7 @@ func TestAPIModelCheckIsPerModel(t *testing.T) {
 }
 
 func TestAPITranslationBatchesAreIndependent(t *testing.T) {
+	piTestRuntime(t)
 	s := testServer(t)
 	upstream, calls := fakeAPI(t, func(n int, _ apiCall) string {
 		if n == 2 {
@@ -193,10 +194,9 @@ func TestAPITranslationBatchesAreIndependent(t *testing.T) {
 	})
 	config := AIConfig{Primary: "api", API: APIConnection{URL: upstream.URL + "/v1", Key: "sk-test"}, Models: map[string]string{}}
 	passModels(&config, map[string]bool{"deepseek-flash": true})
-	service, sessions := s.translationService(config)
-	defer sessions.close()
+	service := s.taskGenerationService(config, taskTranslation)
 	adapter := service.connections["api"].Adapter
-	if _, ok := adapter.(apiAgentAdapter); !ok {
+	if _, ok := adapter.(piAPIAdapter); !ok {
 		t.Fatalf("translation wraps the API adapter: %T", adapter)
 	}
 	for i, prompt := range []string{"batch-1", "batch-2", "batch-3"} {
@@ -255,6 +255,7 @@ func TestLiveDeepSeekTranslationSession(t *testing.T) {
 	if os.Getenv("NEOREAD_TEST_DEEPSEEK") != "1" || key == "" {
 		t.Skip("set NEOREAD_TEST_DEEPSEEK=1 and DEEPSEEK_API_KEY")
 	}
+	piTestRuntime(t)
 	s := testServer(t)
 	conn := APIConnection{URL: "https://api.deepseek.com", Key: key}
 	models, err := s.apiCatalog(conn)(t.Context())
@@ -264,8 +265,7 @@ func TestLiveDeepSeekTranslationSession(t *testing.T) {
 	t.Logf("models: %+v", models)
 	config := AIConfig{Primary: "api", API: conn, Models: map[string]string{}, TranslationModels: map[string]string{"api": "deepseek-flash"}}
 	passModels(&config, map[string]bool{"deepseek-flash": true})
-	service, sessions := s.translationService(config)
-	defer sessions.close()
+	service := s.taskGenerationService(config, taskTranslation)
 	session := service.connections["api"].Adapter
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

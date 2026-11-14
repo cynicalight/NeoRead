@@ -8,6 +8,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -70,21 +72,35 @@ func (s *Server) translationRecords(documentID string, m translationInput, visib
 	if err != nil {
 		return nil, err
 	}
-	query := "SELECT body FROM translations WHERE document_id=?"
-	if visible {
-		query = `SELECT CASE WHEN t.status='failed' THEN t.body ELSE COALESCE(previous.body,t.body) END FROM translations t LEFT JOIN translation_previous previous
-ON previous.document_id=t.document_id AND previous.block_id=t.block_id AND previous.source_hash=t.source_hash WHERE t.document_id=?`
+	projectHistory := visible || (len(scoped) > 0 && scoped[0])
+	query := "SELECT body, status='complete', 1 FROM translations WHERE document_id=?"
+	if projectHistory {
+		body := "t.body"
+		if visible {
+			body = "CASE WHEN t.status='failed' THEN t.body ELSE COALESCE(previous.body,t.body) END"
+		}
+		query = `SELECT body, translated, current FROM (
+SELECT ` + body + ` AS body, t.status='complete' OR previous.block_id IS NOT NULL AS translated, 1 AS current, t.block_id
+FROM translations t LEFT JOIN translation_previous previous
+ON previous.document_id=t.document_id AND previous.block_id=t.block_id AND previous.source_hash=t.source_hash WHERE t.document_id=?
+UNION ALL SELECT previous.body, 1, 0, previous.block_id FROM translation_previous previous
+WHERE previous.document_id=? AND NOT EXISTS (
+SELECT 1 FROM translations t WHERE t.document_id=previous.document_id AND t.block_id=previous.block_id AND t.source_hash=previous.source_hash))`
 	}
 	args := []any{documentID}
+	if projectHistory {
+		args = append(args, documentID)
+	}
 	// Chapter-scoped subscriptions must not decode the entire book's saved prose.
 	if len(scoped) > 0 && scoped[0] {
 		items := m.translationItems()
 		if len(items) == 0 {
 			return []TranslationBlock{}, nil
 		}
-		query += " AND "
-		if visible {
-			query += "t."
+		if projectHistory {
+			query += " WHERE "
+		} else {
+			query += " AND "
 		}
 		query += "block_id IN (SELECT value FROM json_each(?))"
 		ids := make([]string, len(items))
@@ -99,10 +115,15 @@ ON previous.document_id=t.document_id AND previous.block_id=t.block_id AND previ
 		return nil, err
 	}
 	saved := map[string]TranslationBlock{}
+	var translated map[string]bool
+	if projectHistory {
+		translated = map[string]bool{}
+	}
 	for rows.Next() {
 		var body string
 		var t TranslationBlock
-		if err = rows.Scan(&body); err != nil {
+		var successful, current bool
+		if err = rows.Scan(&body, &successful, &current); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -110,18 +131,36 @@ ON previous.document_id=t.document_id AND previous.block_id=t.block_id AND previ
 			rows.Close()
 			return nil, errors.New("译文记录损坏")
 		}
-		saved[t.BlockID+":"+t.SourceHash] = t
+		if current || visible {
+			saved[t.BlockID+":"+t.SourceHash] = t
+		}
+		// Equal prose under another block ID may be an untouched duplicate.
+		if successful && projectHistory {
+			translated[t.BlockID] = true
+		}
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		return nil, err
 	}
+	replaced := false
+	if projectHistory {
+		if d.Type == "epub" {
+			marker, _ := os.ReadFile(filepath.Join(s.Store.Root, "cache", documentID, "retranslation-run"))
+			replaced = len(marker) != 0
+		} else {
+			_, raw, readErr := readLayoutFile(filepath.Join(s.analysisDir(documentID), "manifest.json"))
+			replaced = readErr == nil && len(raw["retranslationRun"]) > 0
+		}
+	}
 	result := []TranslationBlock{}
 	for _, t := range m.translationItems() {
 		if value, ok := saved[t.BlockID+":"+t.SourceHash]; ok {
 			t = value
-		} else if d.Library == "books" || d.Type == "epub" {
+		} else if replaced && translated[t.BlockID] {
+			t.Status, t.Error = "failed", "重新解析后匹配错误，需要重新翻译"
+		} else if replaced || d.Library == "books" || d.Type == "epub" {
 			t.Status = "idle"
 		}
 		result = append(result, t)
@@ -233,10 +272,17 @@ func (s *Server) requestTranslation(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		BlockID string `json:"blockId"`
+		Force   bool   `json:"force"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
+	if req.Force && strings.TrimSpace(req.BlockID) == "" {
+		fail(w, 400, "重新翻译需要指定段落")
+		return
+	}
+	s.processingControlMu.Lock()
+	defer s.processingControlMu.Unlock()
 	if req.BlockID == "" && (d.Library == "books" || d.Type == "epub") {
 		fail(w, 400, "图书请按章节翻译")
 		return
@@ -249,8 +295,35 @@ func (s *Server) requestTranslation(w http.ResponseWriter, r *http.Request) {
 	s.processingMu.Lock()
 	defer s.processingMu.Unlock()
 	p, err := s.Store.processing(d.ID)
-	if err != nil || !p.Enabled {
+	if err != nil || (!req.Force && !p.Enabled) {
 		fail(w, 409, "请先开始翻译")
+		return
+	}
+	if req.Force {
+		if p.Retranslating || s.blockedProcessing[d.ID] || p.Phase == "learning" {
+			fail(w, 409, "正文仍在解析中")
+			return
+		}
+		if p.TranslationScopeKind == "chapter" && len(p.TranslationBlocks) > 0 {
+			fail(w, 409, "请先暂停或完成当前章节翻译，再重新翻译单个段落")
+			return
+		}
+		items, readErr := s.translations(d.ID, selectTranslationBlocks(m, []string{req.BlockID}))
+		if readErr != nil {
+			fail(w, 500, "无法读取译文")
+			return
+		}
+		if len(items) == 0 {
+			fail(w, 404, "没有可翻译的段落")
+			return
+		}
+		if err = s.queueTranslationBlock(p, items[0]); err != nil {
+			s.diagnosticEvent(slog.LevelError, "translation.block_queue_failed", "documentId", d.ID, "blockId", req.BlockID, "errorCode", ErrorSave)
+			fail(w, 500, "无法保存翻译任务")
+			return
+		}
+		s.diagnosticEvent(slog.LevelInfo, "translation.block_queued", "documentId", d.ID, "blockId", req.BlockID)
+		respond(w, 202, map[string]bool{"queued": true})
 		return
 	}
 	items, err := s.translations(d.ID, m)

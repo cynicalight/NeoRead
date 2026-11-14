@@ -88,10 +88,12 @@ export function EPUBReadingView({
   const [chapter, setChapter] = useState(
     doc.progress?.type === "epub" ? doc.progress.href.split("#")[0] : "",
   );
+  const layoutRevision = processing?.layoutRevision;
   const { translations, error: streamError } = useTranslations(
     doc.id,
     [...new Set(blocks.map((b) => b.location.href))],
     active,
+    layoutRevision,
   );
   const root = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLDivElement>(null);
@@ -113,6 +115,18 @@ export function EPUBReadingView({
   const position = useRef<EPUBLocation>(
     doc.progress?.type === "epub" ? doc.progress : { type: "epub", href: "" },
   );
+  const [source, setSource] = useState({ layoutRevision, document: doc });
+  if (source.document.id !== doc.id)
+    setSource({ layoutRevision, document: doc });
+  else if (source.layoutRevision !== layoutRevision) {
+    setSource({
+      layoutRevision,
+      document: position.current.href
+        ? { ...doc, progress: position.current }
+        : doc,
+    });
+    setBlocks([]);
+  }
   const side = useRef<"source" | "translation">("source");
   // The paragraph whose chapter the toolbar describes. A click, selection,
   // jump or paragraph request pins it; afterwards scrolling moves it to the
@@ -653,11 +667,11 @@ export function EPUBReadingView({
         void engine.current?.goTo(target).catch((e) => toast.error(e.message));
     });
   };
-  const retry = (id = "") => {
+  const retry = (id: string) => {
     const block = live.current.blocks.find((b) => b.id === id);
     if (block) pinAnchor(blockAnchor(block));
     void api
-      .translate(doc.id, id)
+      .translate(doc.id, id, true)
       .then(refreshChapter)
       .catch((e) => toast.error(e.message));
   };
@@ -686,8 +700,9 @@ export function EPUBReadingView({
   );
   const sourceView = (
     <ReaderView
+      key={source.layoutRevision}
       active={active}
-      document={doc}
+      document={source.document}
       theme={theme}
       annotations={annotations}
       onReady={(adapter, toc) => {
@@ -851,7 +866,10 @@ export function EPUBReadingView({
                   block={block}
                   documentId={doc.id}
                   translation={translations.find((t) => t.blockId === id)}
-                  paused={processing?.enabled === false}
+                  paused={
+                    processing?.enabled === false ||
+                    processing?.status === "paused"
+                  }
                   retry={() => retry(id)}
                 />,
                 node,
@@ -1023,7 +1041,10 @@ export function EPUBReadingView({
                     translation={translations.find(
                       (t) => t.blockId === block.id,
                     )}
-                    paused={processing?.enabled === false}
+                    paused={
+                      processing?.enabled === false ||
+                      processing?.status === "paused"
+                    }
                     retry={() => retry(block.id)}
                   />
                 </section>

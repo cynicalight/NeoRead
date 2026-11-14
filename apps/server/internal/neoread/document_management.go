@@ -39,9 +39,6 @@ func (s *Server) beginDocumentTask(parent context.Context, id string) (context.C
 	if s.documentClosed || s.deletingDocuments[id] {
 		return nil, nil, errors.New("document is being deleted")
 	}
-	if s.reparsingDocuments[id] {
-		return nil, nil, errors.New("document is being reparsed")
-	}
 	d, err := s.Store.Document(id)
 	if err != nil {
 		return nil, nil, err
@@ -85,10 +82,6 @@ func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request) {
 // The caller holds importMu. It returns a status and message on failure.
 func (s *Server) purgeDocument(ctx context.Context, id string) (int, string) {
 	s.documentMu.Lock()
-	if s.reparsingDocuments[id] {
-		s.documentMu.Unlock()
-		return 409, "文档正在重新解析"
-	}
 	if s.deletingDocuments[id] {
 		s.documentMu.Unlock()
 		return 409, "文档正在删除"
@@ -120,8 +113,6 @@ func (s *Server) purgeDocument(ctx context.Context, id string) (int, string) {
 			return 408, "等待后台任务停止超时，请重试"
 		}
 	}
-	s.codexChat.deleteDocument(id)
-	s.documentCodex.deleteDocument(id)
 	attachments, err := s.Store.paperAttachments(id)
 	if err != nil {
 		return 500, "无法读取附件，文档已保留"

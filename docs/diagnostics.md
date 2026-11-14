@@ -4,6 +4,16 @@ NeoRead 持续保存本地运行日志。用户在「设置 → 诊断 → 导�
 
 桌面版的代理设置和 ChatGPT 连接检测也在「设置 → 诊断」中，可先排查连接，再按需导出日志。检测固定访问 `https://chatgpt.com/robots.txt`；跟随系统模式检测当前已生效配置，切换系统代理后需重启 NeoRead。
 
+Agent 未连接时，点击卡片直接在浏览器发起授权；应用自动接收 SDK 回调，不再要求粘贴授权码或回调地址。浏览器显示成功仅代表回调已收到，应用收到换码、凭据保存与激活的完成确认后才更新连接。登录期间可取消，失败后可重新登录；重新登录失败不会替换已有连接。
+
+`ai.connection.phase` 记录 `authorizing` / `exchanging`，`ai.connection.finish` 记录最终阶段与 `upstreamStatus`（未收到有效 HTTP 状态时为 `0`）。可按 `runId` 区分“仍在等待浏览器”和“回调后换码被上游拒绝”；不记录授权码、state、令牌、URL 或上游响应正文。
+
+`GET /api/ai/quota?provider=codex|claude` 使用现有 loopback API 认证，仅读取 NeoRead 当前活跃的 Pi 连接，不读取 CLI 凭据、自定义 API 余额或任何 NeoRead 账户账务。Claude 显示 `seven_day` 周窗口的剩余百分比与重置时间；Codex 的 Sign in with ChatGPT 授权目前无公开的本应用 `client_id` 额度读取接口，明确显示不可用，不以账户周额度替代，也不切换登录通道。
+
+额度响应中的 `remaining` 为 0—100 的百分比，`0` 是有效额度；缺连接、查询期间换号或上游未提供有效窗口时返回 `error`，不伪造零额度。重置时间如有则为 RFC3339。请求最多等待 15 秒并随调用方取消；worker 终态及退出确认后再次核对活跃凭据路径，拒绝旧账号结果。
+
+`agent.quota.read` 记录 `requestId`、`provider`、`outcome`（`success` / `unavailable` / `failed` / `cancelled`）、`durationMs` 和安全 `errorCode`。仅实际失败时分类错误，成功及明确不可用的错误码为空；不保存凭据、请求头、账号 ID、额度响应原文或上游错误正文，界面错误也使用固定安全文案。
+
 ## 导出范围
 
 导出当前保留的全部 NeoRead 运行日志，包括正常、警告和错误事件、轮转文件以及之前的应用会话。不是仅提取错误或故障前后的时间窗口。功能上线前没有记录的历史和已经被保留策略删除的文件不能恢复。
@@ -147,7 +157,7 @@ API 厂商规则、实际强度映射、上游错误分类和请求关联字段�
 
 ## 联网搜索配置与权限
 
-`web.search.config_saved / config_rejected` 记录保存结果、CLI 是否启用、搜索服务类型和是否配置密钥；`web.search.permissions` 记录一次提问请求的提供方、请求的联网状态及设置核验后的授权结果，均带 `requestId`。不采集搜索服务地址、任何 Key、搜索词、网页内容或问题正文。
+`web.search.config_saved / config_rejected` 记录保存结果、搜索服务类型和是否配置密钥；`web.search.permissions` 记录一次提问请求的提供方、请求的联网状态及设置核验后的授权结果，均带 `requestId`。不采集搜索服务地址、任何 Key、搜索词、网页内容或问题正文。
 
 ## PDF 显示渲染
 
