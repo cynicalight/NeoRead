@@ -222,13 +222,13 @@ export function DocumentOverviewDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="max-h-[85vh] grid-cols-1 overflow-y-auto sm:max-w-2xl">
+        <DialogHeader className="min-w-0 pr-8">
           <DialogTitle className="flex items-center gap-2">
             <BookOpen className="size-5" />
             文档概要
           </DialogTitle>
-          <DialogDescription className="truncate">
+          <DialogDescription className="truncate" title={doc?.title}>
             {doc?.title}
           </DialogDescription>
         </DialogHeader>
