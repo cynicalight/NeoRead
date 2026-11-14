@@ -167,6 +167,18 @@ func (s *Server) requestTranslationRange(w http.ResponseWriter, r *http.Request)
 	if !decode(w, r, &req) {
 		return
 	}
+	s.processingControlMu.Lock()
+	defer s.processingControlMu.Unlock()
+	s.processingMu.Lock()
+	defer s.processingMu.Unlock()
+	p, err := s.Store.processing(d.ID)
+	if err != nil {
+		p = initialProcessing(d.ID)
+	}
+	if p.Retranslating {
+		fail(w, 409, "正文正在重新解析，请稍后再试")
+		return
+	}
 	var known *layoutManifest
 	m, err := s.readLayout(d.ID)
 	pages := m.Pages
@@ -183,10 +195,6 @@ func (s *Server) requestTranslationRange(w http.ResponseWriter, r *http.Request)
 		fail(w, 400, "页码范围无效")
 		return
 	}
-	s.processingControlMu.Lock()
-	defer s.processingControlMu.Unlock()
-	s.processingMu.Lock()
-	defer s.processingMu.Unlock()
 	var items []TranslationBlock
 	if known != nil {
 		if items, err = s.translations(d.ID, m); err != nil {
@@ -203,10 +211,6 @@ func (s *Server) requestTranslationRange(w http.ResponseWriter, r *http.Request)
 		if s.activeProcessing[d.ID] != nil {
 			fail(w, 409, "正在处理其他章节，请稍后再试")
 			return
-		}
-		p, err := s.Store.processing(d.ID)
-		if err != nil {
-			p = initialProcessing(d.ID)
 		}
 		p.Enabled, p.Chapter = true, &PageRange{req.FromPage, req.ToPage}
 		p.Phase, p.Status, p.Detail = "learning", "queued", "等待解析本章"

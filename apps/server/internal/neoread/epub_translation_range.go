@@ -255,6 +255,14 @@ func (s *Server) requestEPUBTranslationChapter(w http.ResponseWriter, r *http.Re
 		fail(w, 400, "章节位置无效")
 		return
 	}
+	s.processingControlMu.Lock()
+	defer s.processingControlMu.Unlock()
+	s.processingMu.Lock()
+	defer s.processingMu.Unlock()
+	if p, err := s.Store.processing(d.ID); err == nil && p.Retranslating {
+		fail(w, 409, "正文正在重新解析，请稍后再试")
+		return
+	}
 	blocks, err := s.readEPUBBlocks(d.ID)
 	if err != nil {
 		fail(w, 500, "无法读取 EPUB 正文")
@@ -265,10 +273,6 @@ func (s *Server) requestEPUBTranslationChapter(w http.ResponseWriter, r *http.Re
 		fail(w, 400, err.Error())
 		return
 	}
-	s.processingControlMu.Lock()
-	defer s.processingControlMu.Unlock()
-	s.processingMu.Lock()
-	defer s.processingMu.Unlock()
 	result, err := s.queueTranslationInput(d, blocks[from:to])
 	if err != nil {
 		fail(w, 500, "无法安排翻译任务")
