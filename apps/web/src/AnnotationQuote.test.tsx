@@ -44,6 +44,84 @@ it("keeps existing unlinked annotations unchanged", () => {
   ).toBe("旧批注");
 });
 
+it("shows only the positioned side of unambiguously mixed legacy reflow quotes", () => {
+  const bounds = { x: 0, y: 0, width: 1, height: 1 };
+  const source: PDFLocation = {
+    type: "pdf",
+    page: 1,
+    sourceAnchors: [
+      { blockId: "a", page: 1, source: "First.", bounds },
+      { blockId: "b", page: 1, source: "Second.", bounds },
+    ],
+  };
+  expect(
+    renderToStaticMarkup(
+      <AnnotationQuote quote="First.第一句。Second." location={source} />,
+    ),
+  ).toBe("First.\n\nSecond.");
+  const translation: PDFLocation = {
+    type: "pdf",
+    page: 1,
+    translation: {
+      blockId: "a",
+      sourceHash: "h",
+      sentenceIndexes: [0],
+      start: 0,
+      end: 4,
+      ranges: [
+        {
+          blockId: "a",
+          sourceHash: "h",
+          sentenceIndexes: [0],
+          start: 0,
+          end: 4,
+          quote: "第一句。",
+        },
+        {
+          blockId: "b",
+          sourceHash: "h2",
+          sentenceIndexes: [0],
+          start: 0,
+          end: 4,
+          quote: "第二句。",
+        },
+      ],
+    },
+  };
+  expect(
+    renderToStaticMarkup(
+      <AnnotationQuote
+        quote="第一句。Second.第二句。"
+        location={translation}
+      />,
+    ),
+  ).toBe("第一句。\n\n第二句。");
+  expect(source.sourceAnchors?.[0].source).toBe("First.");
+});
+
+it("keeps ambiguous or current quotes unchanged", () => {
+  const bounds = { x: 0, y: 0, width: 1, height: 1 };
+  const old: PDFLocation = {
+    type: "pdf",
+    page: 1,
+    sourceAnchors: [{ blockId: "a", page: 1, source: "word", bounds }],
+  };
+  expect(
+    renderToStaticMarkup(<AnnotationQuote quote="word word" location={old} />),
+  ).toBe("word word");
+  const current: PDFLocation = {
+    ...old,
+    sourceAnchors: [
+      { ...old.sourceAnchors![0], start: 0, end: 4, text: "word" },
+    ],
+  };
+  expect(
+    renderToStaticMarkup(
+      <AnnotationQuote quote="word 译文" location={current} />,
+    ),
+  ).toBe("word 译文");
+});
+
 it.each([
   [
     "通过对 DAMAS 定位算法的研究，对\nDAMAS 算法进行改进。粗定\n位，提高定位的准确\n性。",

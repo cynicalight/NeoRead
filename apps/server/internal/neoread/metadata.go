@@ -19,7 +19,7 @@ type Creator struct {
 }
 
 // PaperMetadata is bibliographic data. Sources records where each field came
-// from ("file", "lookup" or "manual"); lookups never replace manual values.
+// from ("file", "lookup" or "manual"); sources do not lock fields against lookup.
 type PaperMetadata struct {
 	ItemType        string    `json:"itemType,omitempty"`
 	SuggestedTitle  string    `json:"suggestedTitle,omitempty"`
@@ -29,6 +29,7 @@ type PaperMetadata struct {
 	Affiliation     string    `json:"affiliation,omitempty"`
 	Date            string    `json:"date,omitempty"`
 	Venue           string    `json:"venue,omitempty"`
+	VenueShort      string    `json:"venueShort,omitempty"`
 	Volume          string    `json:"volume,omitempty"`
 	Issue           string    `json:"issue,omitempty"`
 	Pages           string    `json:"pages,omitempty"`
@@ -124,6 +125,9 @@ func normalizeMetadataField(key string, raw json.RawMessage) (any, error) {
 		return rating, nil
 	}
 	label := metadataLabels[key]
+	if key == "venueShort" {
+		label = "出处简称"
+	}
 	if label == "" {
 		return nil, fmt.Errorf("未知论文字段：%s", key)
 	}
@@ -150,7 +154,7 @@ func normalizeMetadataField(key string, raw json.RawMessage) (any, error) {
 		return out, nil
 	}
 	var value string
-	if json.Unmarshal(raw, &value) != nil {
+	if json.Unmarshal(raw, &value) != nil || key == "venueShort" && strings.TrimSpace(string(raw)) == "null" {
 		return nil, fmt.Errorf("%s须为文本", label)
 	}
 	limit := 500
@@ -197,7 +201,7 @@ func normalizeMetadataField(key string, raw json.RawMessage) (any, error) {
 func (m *PaperMetadata) textField(key string) *string {
 	return map[string]*string{
 		"itemType": &m.ItemType, "translatedTitle": &m.TranslatedTitle, "shortTitle": &m.ShortTitle, "affiliation": &m.Affiliation,
-		"date": &m.Date, "venue": &m.Venue, "volume": &m.Volume, "issue": &m.Issue, "pages": &m.Pages, "publisher": &m.Publisher,
+		"date": &m.Date, "venue": &m.Venue, "venueShort": &m.VenueShort, "volume": &m.Volume, "issue": &m.Issue, "pages": &m.Pages, "publisher": &m.Publisher,
 		"doi": &m.DOI, "arxiv": &m.ArXiv, "isbn": &m.ISBN, "url": &m.URL, "abstract": &m.Abstract, "language": &m.Language, "remark": &m.Remark,
 	}[key]
 }
@@ -240,6 +244,16 @@ func (m *PaperMetadata) ApplyManual(patch map[string]json.RawMessage) error {
 		}
 		values[key] = value
 	}
+	venue := m.Venue
+	if value, ok := values["venue"]; ok {
+		venue = value.(string)
+	}
+	if short, ok := values["venueShort"]; ok && short.(string) != "" && venue == "" {
+		return errors.New("出处简称须有对应出处")
+	}
+	if !strings.EqualFold(venue, m.Venue) {
+		m.VenueShort = ""
+	}
 	for key, value := range values {
 		if key == "suggestedTitle" {
 			m.SuggestedTitle = value.(string)
@@ -257,12 +271,15 @@ func (m PaperMetadata) has(key string) bool {
 	return *m.textField(key) != ""
 }
 
-// Merge fills fields from found unless the user set them. Values read from the
-// file only fill empty fields; an online lookup refreshes any automatic value.
+// Merge validates nonempty candidates. File/import metadata fills gaps;
+// a lookup refreshes returned fields regardless of their previous source.
 func (m *PaperMetadata) Merge(found PaperMetadata, source string) []string {
 	changed := []string{}
+	if source == "venue-agent" {
+		source = "lookup"
+	}
 	for key := range metadataLabels {
-		if !found.has(key) || m.Sources[key] == "manual" {
+		if !found.has(key) {
 			continue
 		}
 		if m.has(key) && source != "lookup" {
@@ -278,6 +295,9 @@ func (m *PaperMetadata) Merge(found PaperMetadata, source string) []string {
 				continue
 			}
 			value = v
+		}
+		if key == "venue" && (!strings.EqualFold(value.(string), m.Venue) || found.VenueShort != "") {
+			m.set("venueShort", found.VenueShort, source)
 		}
 		m.set(key, value, source)
 		changed = append(changed, key)

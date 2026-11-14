@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Minus, Plus } from "lucide-react";
+import { Minus, Pin, Plus } from "lucide-react";
 import { blockImageURL } from "@neoread/api";
 import type { ImageAttachment } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
@@ -10,6 +10,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@neoread/ui/components/dialog";
+import { FloatingImage } from "./FloatingImage";
+
 export function imageLabel(image: ImageAttachment) {
   // EPUB illustrations have no page.
   if (!image.page) return "书中插图";
@@ -32,6 +34,8 @@ export function ImagePreview({
   renderImage?: (id: string, signal: AbortSignal) => Promise<Blob>;
 }) {
   const [zoom, setZoom] = useState(1);
+  const [pinned, setPinned] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<number>();
   const [error, setError] = useState(false);
   const [highResolution, setHighResolution] = useState<string>();
   const [rendering, setRendering] = useState(!!renderImage);
@@ -55,6 +59,18 @@ export function ImagePreview({
       if (url) URL.revokeObjectURL(url);
     };
   }, [image.id, renderImage]);
+  const src = highResolution || blockImageURL(documentId, image.id);
+  const alt = image.caption || imageLabel(image);
+  if (pinned && aspectRatio) {
+    return (
+      <FloatingImage
+        src={src}
+        alt={alt}
+        aspectRatio={aspectRatio}
+        onClose={onClose}
+      />
+    );
+  }
   return (
     <Dialog
       open
@@ -63,6 +79,17 @@ export function ImagePreview({
       }}
     >
       <DialogContent className="image-preview-dialog">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="image-preview-pin"
+          aria-label="固定为浮动图片"
+          title="固定为浮动图片"
+          disabled={!aspectRatio || error}
+          onClick={() => setPinned(true)}
+        >
+          <Pin />
+        </Button>
         <DialogHeader>
           <DialogTitle>{imageLabel(image)}</DialogTitle>
           <DialogDescription className="sr-only">
@@ -80,8 +107,12 @@ export function ImagePreview({
           ) : (
             <img
               style={{ width: `${zoom * 100}%`, maxWidth: "none" }}
-              src={highResolution || blockImageURL(documentId, image.id)}
-              alt={image.caption || imageLabel(image)}
+              src={src}
+              alt={alt}
+              onLoad={(event) => {
+                const img = event.currentTarget;
+                setAspectRatio(img.naturalWidth / img.naturalHeight);
+              }}
               onError={() => setError(true)}
             />
           )}

@@ -20,6 +20,8 @@ import {
   type ComponentProps,
 } from "react";
 import type { Components } from "react-markdown";
+import type { Root } from "mdast";
+import { visit } from "unist-util-visit";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { ErrorBoundary } from "../ErrorBoundary";
@@ -37,6 +39,18 @@ import { ChatCitationNavigation, remarkChatCitations } from "./citations";
 const Code = lazy(() => import("./CodeBlock"));
 const MathFormula = lazy(() => import("./MathFormula"));
 const plugins = [remarkGfm, remarkMath, remarkLatex];
+// Source-mode annotations can contain unsupported HTML. Keep it visible as
+// escaped text without enabling raw HTML rendering or changing stored Markdown.
+function remarkLiteralHtml() {
+  return (tree: Root) => {
+    visit(tree, "html", (node, index, parent) => {
+      if (parent && index !== undefined)
+        parent.children[index] = /^<br\s*\/?\s*>$/i.test(node.value.trim())
+          ? { type: "break" }
+          : { type: "text", value: node.value };
+    });
+  };
+}
 export const safeMarkdownURL = (url: string) =>
   /^(https?:\/\/|mailto:|#)/i.test(url)
     ? url.replace(/(?:[。，；！？]|%E3%80%82|%EF%BC%8C)+$/gi, "")
@@ -250,10 +264,12 @@ const StaticBlock = memo(function StaticBlock({
   text,
   citationBlockId,
   generating,
+  literalHtml,
 }: {
   text: string;
   citationBlockId?: string;
   generating: boolean;
+  literalHtml: boolean;
 }) {
   const evidence = useContext(ChatCitationNavigation);
   const options = useMemo<
@@ -262,11 +278,12 @@ const StaticBlock = memo(function StaticBlock({
     () => ({
       remarkPlugins: [
         ...plugins,
+        ...(literalHtml ? [remarkLiteralHtml] : []),
         [remarkChatCitations, { sourceIds: evidence?.sourceIds, generating }],
         [remarkReadingCitations, { blockId: citationBlockId }],
       ],
     }),
-    [citationBlockId, evidence?.sourceIds, generating],
+    [citationBlockId, evidence?.sourceIds, generating, literalHtml],
   );
   return (
     <CachedMarkdown {...markdownOptions} {...options}>
@@ -279,11 +296,13 @@ function StaticMarkdown({
   generating,
   global,
   citationBlockId,
+  literalHtml,
 }: {
   content: string;
   generating: boolean;
   global: boolean;
   citationBlockId?: string;
+  literalHtml: boolean;
 }) {
   const blocks = useMemo(() => {
     const text = generating ? remend(content) : content;
@@ -316,6 +335,7 @@ function StaticMarkdown({
           text={text}
           citationBlockId={citationBlockId}
           generating={generating}
+          literalHtml={literalHtml}
         />
       ))}
     </>
@@ -327,12 +347,14 @@ export const MessageMarkdown = memo(function MessageMarkdown({
   reducedMotion = false,
   animated = true,
   citationBlockId,
+  literalHtml = false,
 }: {
   content: string;
   generating?: boolean;
   reducedMotion?: boolean;
   animated?: boolean;
   citationBlockId?: string;
+  literalHtml?: boolean;
 }) {
   const reduced = useMotionPreference();
   const evidence = useContext(ChatCitationNavigation);
@@ -341,9 +363,10 @@ export const MessageMarkdown = memo(function MessageMarkdown({
   >(
     () => [
       ...plugins,
+      ...(literalHtml ? [remarkLiteralHtml] : []),
       [remarkChatCitations, { sourceIds: evidence?.sourceIds, generating }],
     ],
-    [evidence?.sourceIds, generating],
+    [evidence?.sourceIds, generating, literalHtml],
   );
   const [backgrounded, setBackgrounded] = useState(false);
   useEffect(() => {
@@ -388,6 +411,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
             generating={generating}
             global={globalDefinitions}
             citationBlockId={citationBlockId}
+            literalHtml={literalHtml}
           />
         )}
       </ErrorBoundary>

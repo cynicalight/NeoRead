@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -130,38 +128,6 @@ func TestAPIUsageOnlyFrameAfterFinishIsNotText(t *testing.T) {
 		t.Fatal("missing counts became zero")
 	}
 }
-func TestClaudeUsageNormalizesCacheAndMultipleModels(t *testing.T) {
-	var metrics []ModelTokens
-	reportClaudeMetrics([]byte(`{"type":"result","modelUsage":{"model-a":{"inputTokens":10,"outputTokens":5,"cacheReadInputTokens":7,"cacheCreationInputTokens":3},"model-b":{"inputTokens":2,"outputTokens":1}}}`), []func([]ModelTokens){func(m []ModelTokens) { metrics = m }})
-	if len(metrics) != 2 || metrics[0].Tokens.TotalTokens != 25 || metrics[0].Tokens.InputTokens != 20 || metrics[1].Tokens.TotalTokens != 3 {
-		t.Fatal(metrics)
-	}
-}
-func TestCodexUsageUsesThreadTotalAndFiltersOtherThreads(t *testing.T) {
-	// Real adapter with the existing CLI protocol fixture, no live credentials.
-	fakeAgent(t, "codex", "usage")
-	root := t.TempDir()
-	os.MkdirAll(filepath.Join(root, "ai-work"), 0700)
-	var models []ModelTokens
-	text, err := invokeCLI(t.Context(), root, "codex", "", AIInput{Prompt: "test"}, nil, func(m []ModelTokens) { models = mergeModelTokens(models, m) })
-	if err != nil || text != "你好，世界" || len(models) != 1 || models[0].Model != "actual-codex" || models[0].Tokens == nil || models[0].Tokens.TotalTokens != 30 {
-		b, _ := json.Marshal(models)
-		t.Fatalf("%s %s %v", text, b, err)
-	}
-}
-
-func TestCodexMissingCountersRemainUnknown(t *testing.T) {
-	for _, raw := range []string{`{}`, `{"inputTokens":null,"outputTokens":0,"totalTokens":0}`, `{"inputTokens":-1,"outputTokens":1,"totalTokens":0}`} {
-		if codexTokens(json.RawMessage(raw)) != nil {
-			t.Fatal(raw)
-		}
-	}
-	metrics := []ModelTokens{}
-	reportClaudeMetrics([]byte(`{"type":"result","modelUsage":{"model":{}}}`), []func([]ModelTokens){func(m []ModelTokens) { metrics = m }})
-	if len(metrics) != 1 || metrics[0].Tokens != nil {
-		t.Fatal(metrics)
-	}
-}
 func TestUsageStorageFailureDoesNotTriggerFallback(t *testing.T) {
 	attempts := 0
 	g := &GenerationService{primary: "codex", usageSink: func(UsageCall) error { return errors.New("storage unavailable") }, connections: map[string]generationConnection{}}
@@ -178,13 +144,8 @@ func TestUsageStorageFailureDoesNotTriggerFallback(t *testing.T) {
 }
 
 func TestChatUsageRecordsTextAndImageAndSeparatesProcessing(t *testing.T) {
-	fakeAgent(t, "codex", "usage")
 	s, _ := imageFixture(t)
-	config := AIConfig{Primary: "codex", Models: map[string]string{}, Capabilities: map[string]Capability{}}
-	config.Capabilities["codex"] = Capability{Text: true, Vision: true, Fingerprint: configPrint(config, "codex")}
-	if err := s.writeAIConfig(config); err != nil {
-		t.Fatal(err)
-	}
+	fakePiConnection(t, s, "codex", "")
 	for _, body := range []string{`{"provider":"codex","prompt":"explain","context":""}`, `{"provider":"codex","prompt":"describe image","context":"","attachments":["p1-b1"]}`} {
 		res := request(t, s, "POST", "/api/documents/doc/chat", strings.NewReader(body))
 		if !strings.Contains(res.Body.String(), "event: done") {
@@ -192,7 +153,7 @@ func TestChatUsageRecordsTextAndImageAndSeparatesProcessing(t *testing.T) {
 		}
 	}
 	r, err := s.Store.scopedUsageReport("doc", true)
-	if err != nil || !r.HistoryComplete || len(r.Calls) != 2 || r.Total.TotalTokens != 60 || r.Calls[0].Target == r.Calls[1].Target || r.Calls[0].Models[0].Model != "actual-codex" {
+	if err != nil || !r.HistoryComplete || len(r.Calls) != 2 || r.Total.TotalTokens != 60 || r.Calls[0].Target == r.Calls[1].Target || r.Calls[0].Models[0].Model != "fixture" {
 		t.Fatal(r, err)
 	}
 	processing, err := s.Store.usageReport("doc")

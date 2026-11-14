@@ -1,22 +1,9 @@
 import type { EPUBLocation, EPUBReadingBlock } from "@neoread/core";
-export function epubOffsets(
-  location: EPUBLocation,
-): { start: number; end: number } | undefined {
-  try {
-    const loc = JSON.parse(location.locator || "{}").locations;
-    const range = loc?.textRange,
-      slice = loc?.sourceSlice;
-    return range && slice
-      ? { start: range.start + slice.start, end: range.start + slice.end }
-      : range;
-  } catch {
-    return;
-  }
-}
 export function epubBlocksAt(
   location: EPUBLocation,
   blocks: EPUBReadingBlock[],
 ) {
+  if (location.unresolved) return [];
   const chapter = blocks.filter(
     (b) => b.location.href === location.href.split("#")[0],
   );
@@ -31,32 +18,10 @@ export function epubBlocksAt(
     );
     return start >= 0 && end >= start ? blocks.slice(start, end + 1) : [];
   }
-  const range = epubOffsets(location);
-  if (range)
-    return chapter.filter((b) => {
-      const r = epubOffsets(b.location);
-      return r && r.start < range.end && range.start < r.end;
-    });
   const translated = chapter.find(
     (b) => b.id === location.translation?.blockId,
   );
   if (translated) return [translated];
-  try {
-    const locations = JSON.parse(location.locator || "{}").locations;
-    const selector =
-      locations?.domRange?.start?.cssSelector || locations?.cssSelector;
-    if (selector) {
-      const found = chapter.find((b) => {
-        const locations = JSON.parse(b.location.locator || "{}").locations;
-        const target =
-          locations?.domRange?.start?.cssSelector || locations?.cssSelector;
-        return target === selector || target?.startsWith(selector + " > ");
-      });
-      if (found) return [found];
-    }
-  } catch {
-    /* Legacy progress can still open the chapter. */
-  }
   return chapter.slice(0, 1);
 }
 
@@ -99,15 +64,6 @@ export function epubSentenceLocation(
   sentences: { source: string }[],
   indexes: number[],
 ): EPUBLocation {
-  if (!block.location.locator) return block.location;
   const slice = epubSentenceSlice(block, sentences, indexes);
-  if (!slice) return block.location;
-  const locator = JSON.parse(block.location.locator);
-  locator.locations.sourceSlice = slice;
-  return {
-    ...block.location,
-    blockId: block.id,
-    ...slice,
-    locator: JSON.stringify(locator),
-  };
+  return { ...block.location, blockId: block.id, ...(slice ?? {}) };
 }

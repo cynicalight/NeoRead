@@ -33,10 +33,10 @@ func writeConversationReply(w http.ResponseWriter, text, continuation string) {
 	data := map[string]any{"model": "deepseek-test", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": text, "reasoning_content": continuation}, "finish_reason": "stop"}}}
 	fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", jsonText(data))
 }
-func TestAPIConversationPersistsCompactsAndRestarts(t *testing.T) {
+func TestPiConversationPersistsAndRestarts(t *testing.T) {
 	s, _ := prepareConversationFixture(t)
 	_, _ = s.Store.DB.Exec(`INSERT INTO settings VALUES('neoread','{"documentContextTokens":8192}')`)
-	compactCalls, answerCalls := 0, 0
+	answerCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			respond(w, 200, map[string]any{"data": []any{map[string]any{"id": "test", "context_window": 8192}}})
@@ -48,15 +48,6 @@ func TestAPIConversationPersistsCompactsAndRestarts(t *testing.T) {
 		}
 		if json.NewDecoder(r.Body).Decode(&payload) != nil {
 			t.Error("invalid request")
-			return
-		}
-		first, _ := payload.Messages[0].Content.(string)
-		if strings.Contains(first, "整理对话检查点") {
-			compactCalls++
-			if !strings.Contains(jsonText(payload.Messages), "CIVET-42") {
-				t.Error("compaction lost the first-turn requirement")
-			}
-			writeConversationReply(w, "用户要求记住 CIVET-42，使用中文解释；后续问题应延续这个要求。", "")
 			return
 		}
 		answerCalls++
@@ -75,7 +66,7 @@ func TestAPIConversationPersistsCompactsAndRestarts(t *testing.T) {
 	}))
 	defer server.Close()
 	configureDocumentAPI(t, s, server.URL)
-	for i := 0; i < 18; i++ {
+	for i := 0; i < 5; i++ {
 		question := fmt.Sprintf("继续说明第 %d 点", i)
 		if i == 0 {
 			question = "请记住 CIVET-42，后面都用中文解释。"
@@ -87,17 +78,17 @@ func TestAPIConversationPersistsCompactsAndRestarts(t *testing.T) {
 		if !strings.Contains(out.Body.String(), "event: reasoning") {
 			t.Fatal("provider thinking missing from its separate UI channel")
 		}
-		if i == 10 {
+		if i == 2 {
 			s.Close()
 			s = NewServer(s.Store, "test-secret", "")
 			t.Cleanup(s.Close)
 		}
 	}
-	if answerCalls != 18 || compactCalls == 0 {
-		t.Fatal("missing single-loop replies or compaction", answerCalls, compactCalls)
+	if answerCalls != 5 {
+		t.Fatal("missing single-loop replies", answerCalls)
 	}
 	history, err := s.Store.chatHistory("doc")
-	if err != nil || len(history) != 36 || !strings.Contains(history[0].Content, "CIVET-42") {
+	if err != nil || len(history) != 10 || !strings.Contains(history[0].Content, "CIVET-42") {
 		t.Fatal("fixed history clipping remains", len(history), err)
 	}
 	var raw string
@@ -106,15 +97,11 @@ func TestAPIConversationPersistsCompactsAndRestarts(t *testing.T) {
 	}
 	var state documentConversation
 	_ = json.Unmarshal([]byte(raw), &state)
-	if state.Compactions == 0 || state.LastMessageID != history[len(history)-1].ID || !strings.Contains(jsonText(state.Messages), "private-continuation") {
-		t.Fatal("active API window not durably saved")
-	}
-	var archived int
-	_ = s.Store.DB.QueryRow("SELECT count(*) FROM chat_agent_runs WHERE json_array_length(json_extract(body,'$.conversationEvents'))>=2").Scan(&archived)
-	if archived != 18 {
-		t.Fatal("raw successful turns not archived", archived)
+	if state.LastMessageID != history[len(history)-1].ID || !strings.Contains(string(state.PiEntries), "private-continuation") {
+		t.Fatal("Pi window not durably saved")
 	}
 }
+
 func TestConversationCompactionKeepsProtocolGroups(t *testing.T) {
 	call := completionToolCall{ID: "call", Type: "function"}
 	call.Function.Name = "read_passage"

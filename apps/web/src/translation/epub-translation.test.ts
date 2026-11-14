@@ -5,17 +5,10 @@ import type {
   TranslationBlock,
   Annotation,
 } from "@neoread/core";
-import { Locator } from "@readium/shared";
-import {
-  selectionLocator,
-  resolveEPUBRange,
-  sliceEPUBRange,
-} from "../readers/selection-locator";
 import {
   epubSentenceLocation,
   epubSentenceSlice,
   epubBlocksAt,
-  epubOffsets,
 } from "./epub-links";
 import { translatedSelection } from "./selection";
 import { translatedAnnotationRanges } from "./annotations";
@@ -27,13 +20,6 @@ function blocks() {
   return [...doc.querySelectorAll("p")].map((node, i) => {
     const range = doc.createRange();
     range.selectNodeContents(node);
-    const locator = selectionLocator(
-      Locator.deserialize({
-        href: "chapter.xhtml",
-        type: "application/xhtml+xml",
-      })!,
-      range,
-    )!;
     return {
       id: `e-${i}`,
       text: range.toString(),
@@ -42,7 +28,9 @@ function blocks() {
         type: "epub",
         href: "chapter.xhtml",
         quote: range.toString(),
-        locator: JSON.stringify(locator.serialize()),
+        blockId: `e-${i}`,
+        start: 0,
+        end: range.toString().length,
       },
     } satisfies EPUBReadingBlock;
   });
@@ -55,24 +43,8 @@ it("keeps repeated EPUB paragraphs distinct and links only the selected sentence
     [1],
   );
   expect(epubBlocksAt(location, input).map((b) => b.id)).toEqual(["e-1"]);
-  expect(epubOffsets(location)!.start).toBe(
-    epubOffsets(input[1].location)!.start + 8,
-  );
-  const doc = new DOMParser().parseFromString(
-    "<body><p>Repeat. <b>😀 second.</b></p><p>Repeat. <b>😀 second.</b></p></body>",
-    "text/html",
-  );
-  const locator = Locator.deserialize(JSON.parse(location.locator!))!;
-  const range = resolveEPUBRange(doc, locator)!;
-  const slice = locator.locations.otherLocations!.get("sourceSlice") as {
-    start: number;
-    end: number;
-  };
-  const chosen = sliceEPUBRange(range, slice.start, slice.end)!;
-  expect(chosen.toString()).toBe("😀 second.");
-  expect(chosen.startContainer.parentElement!.closest("p")).toBe(
-    doc.querySelectorAll("p")[1],
-  );
+  expect(location.start).toBe(8);
+  expect(input[1].text.slice(location.start, location.end)).toBe("😀 second.");
 });
 it("persists cross-paragraph translated marks and rejects stale source versions", () => {
   const input = blocks();

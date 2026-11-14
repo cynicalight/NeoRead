@@ -445,7 +445,7 @@ func (s *Server) epubChapters(w http.ResponseWriter, r *http.Request) {
 		for _, b := range blocks {
 			count += utf16Length(b.Text)
 		}
-		chapters = append(chapters, epubReaderChapter{link.Href, link.Title, i, count, blocks})
+		chapters = append(chapters, epubReaderChapter{link.Href, link.Title, i, count, orderedEPUBChapter(blocks, i)})
 	}
 	respond(w, 200, map[string]any{"chapters": chapters, "toc": manifest.TOC})
 }
@@ -456,7 +456,7 @@ func (s *Server) epubChapterHTML(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "EPUB 不存在")
 		return
 	}
-	for _, link := range manifest.ReadingOrder {
+	for chapter, link := range manifest.ReadingOrder {
 		if link.Href != href {
 			continue
 		}
@@ -465,7 +465,9 @@ func (s *Server) epubChapterHTML(w http.ResponseWriter, r *http.Request) {
 			fail(w, 404, "无效章节")
 			return
 		}
-		source, e := os.ReadFile(filepath.Join(s.Store.Root, "cache", id, filepath.FromSlash(name)))
+		filename := filepath.Join(s.Store.Root, "cache", id, filepath.FromSlash(name))
+		info, _ := os.Stat(filename)
+		source, e := os.ReadFile(filename)
 		if e != nil {
 			fail(w, 500, "无法读取 EPUB 章节")
 			return
@@ -478,6 +480,12 @@ func (s *Server) epubChapterHTML(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fail(w, 500, "无法读取 EPUB 章节")
 			return
+		}
+		blocks = orderedEPUBChapter(blocks, chapter)
+		if info != nil {
+			s.Store.epubBlocksMu.Lock()
+			s.Store.cacheEPUBChapterBlocks(filename, info, blocks)
+			s.Store.epubBlocksMu.Unlock()
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		respond(w, 200, map[string]any{"html": rendered, "blocks": blocks})

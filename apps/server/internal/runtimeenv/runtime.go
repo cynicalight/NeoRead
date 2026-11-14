@@ -19,21 +19,20 @@ import (
 )
 
 type Runtime struct {
-	enabled             bool
-	mu                  sync.Mutex
-	network, path       chan struct{}
-	stopped             chan struct{}
-	stopOnce            sync.Once
-	networkSet, pathSet bool
+	enabled    bool
+	mu         sync.Mutex
+	network    chan struct{}
+	stopped    chan struct{}
+	stopOnce   sync.Once
+	networkSet bool
 }
 
 var Default = New(false)
 
 func New(enabled bool) *Runtime {
-	r := &Runtime{enabled: enabled, network: make(chan struct{}), path: make(chan struct{}), stopped: make(chan struct{})}
+	r := &Runtime{enabled: enabled, network: make(chan struct{}), stopped: make(chan struct{})}
 	if !enabled {
 		close(r.network)
-		close(r.path)
 	}
 	return r
 }
@@ -69,26 +68,21 @@ func (r *Runtime) Apply(stage string, values map[string]*string) error {
 	if !r.enabled {
 		return errors.New("desktop runtime disabled")
 	}
-	if stage != "network" && stage != "path" {
+	if stage != "network" {
 		return errors.New("invalid runtime stage")
 	}
-	if stage == "network" && r.networkSet || stage == "path" && r.pathSet {
+	if r.networkSet {
 		return errors.New("runtime already configured")
 	}
-	if stage == "path" && (len(values) != 1 || values["PATH"] == nil || *values["PATH"] == "") {
-		return errors.New("invalid PATH")
-	}
 	for key, value := range values {
-		if (stage == "path" && key != "PATH") || (stage == "network" && !networkKeys[key]) {
+		if !networkKeys[key] {
 			return errors.New("invalid runtime key")
 		}
 		if value != nil && strings.ContainsRune(*value, 0) {
 			return errors.New("invalid runtime value")
 		}
 	}
-	if stage == "network" {
-		values = networkEnvironment(values, runtime.GOOS == "windows")
-	}
+	values = networkEnvironment(values, runtime.GOOS == "windows")
 
 	for key, value := range values {
 		if value == nil {
@@ -97,13 +91,8 @@ func (r *Runtime) Apply(stage string, values map[string]*string) error {
 			return err
 		}
 	}
-	if stage == "network" {
-		r.networkSet = true
-		close(r.network)
-	} else {
-		r.pathSet = true
-		close(r.path)
-	}
+	r.networkSet = true
+	close(r.network)
 	return nil
 }
 
@@ -138,17 +127,8 @@ func Proxy(request *http.Request) (*url.URL, error) {
 	// Avoid net/http's process-wide environment cache before desktop discovery.
 	return httpproxy.FromEnvironment().ProxyFunc()(request.URL)
 }
-func LookPath(ctx context.Context, name string) (string, error) {
-	if err := Default.wait(ctx, Default.path); err != nil {
-		return "", err
-	}
-	return exec.LookPath(name)
-}
 func CommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
-	err := Default.wait(ctx, Default.path)
-	if err == nil {
-		err = Default.wait(ctx, Default.network)
-	}
+	err := Default.wait(ctx, Default.network)
 	cmd := exec.CommandContext(ctx, name, args...)
 	if err != nil {
 		cmd.Err = err

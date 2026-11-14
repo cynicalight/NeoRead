@@ -9,8 +9,7 @@ import (
 	"strings"
 )
 
-// One logical conversation per document and provider. Native history belongs to
-// Codex; Messages is the active, possibly compacted Chat Completions window.
+// One logical conversation per document and provider. Pi entries hold the continuation.
 // The UI transcript and per-turn protocol events remain in messages/agent_runs.
 type documentConversation struct {
 	PiEntries       json.RawMessage         `json:"piEntries,omitempty"`
@@ -26,11 +25,6 @@ type documentConversation struct {
 	OverviewVersion string                  `json:"overviewVersion,omitempty"`
 	Messages        []toolCompletionMessage `json:"messages,omitempty"`
 	Compactions     int                     `json:"compactions"`
-	NativeThread    string                  `json:"nativeThread,omitempty"`
-	NativePending   string                  `json:"nativePendingTurn,omitempty"`
-	NativeCommitted string                  `json:"nativeCommittedTurn,omitempty"`
-	NativeDirty     bool                    `json:"nativeDirty"`
-	NativeUsage     *TokenCounts            `json:"nativeUsage,omitempty"`
 }
 
 func (s *Store) documentConversation(ctx context.Context, documentID, provider, key string) (documentConversation, error) {
@@ -193,8 +187,6 @@ func (a *documentAgent) commitConversation(ctx context.Context, tx *sql.Tx, mess
 	}
 	c := *a.conversation
 	c.LastMessageID = messageID
-	c.NativeDirty = false
-	c.NativePending = ""
 	c.ReadBlocks = nil
 	c.ReadPages = nil
 	for _, e := range a.Evidence {

@@ -242,6 +242,9 @@ func (s *Server) learnBookChapter(ctx context.Context, d Document, p *Processing
 	}
 	s.processingMu.Lock()
 	_, err = s.queueTranslationRange(d, m, p.Chapter.From, p.Chapter.To)
+	if err == nil {
+		*p, err = s.Store.processing(d.ID)
+	}
 	s.processingMu.Unlock()
 	if err != nil {
 		return err

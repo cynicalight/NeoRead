@@ -73,6 +73,10 @@ func (s *Server) streamTranslations(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "无法读取译文")
 		return
 	}
+	sourceHashes := map[string]string{}
+	for _, item := range m.translationItems() {
+		sourceHashes[item.BlockID] = item.SourceHash
+	}
 	ch := make(chan TranslationBlock, 64)
 	if s.translationSubscribers == nil {
 		s.translationSubscribers = make(map[string]map[chan TranslationBlock]struct{})
@@ -122,6 +126,10 @@ func (s *Server) streamTranslations(w http.ResponseWriter, r *http.Request) {
 			if allowed != nil && !allowed[block.BlockID] {
 				continue
 			}
+			if hash, known := sourceHashes[block.BlockID]; known && hash != block.SourceHash {
+				continue
+			}
+			sourceHashes[block.BlockID] = block.SourceHash
 			if send("translation", block) != nil {
 				return
 			}

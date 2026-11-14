@@ -6,6 +6,7 @@ import type { AICapability, AIConfig } from "@neoread/core";
 import { api } from "@neoread/api";
 import { Settings } from "./Settings";
 import { useReaderStore } from "./store";
+import type { LocalQuota } from "./useLocalQuota";
 
 vi.mock("@neoread/api", () => ({
   api: {
@@ -17,6 +18,7 @@ vi.mock("@neoread/api", () => ({
       available: [],
     })),
     providers: vi.fn(),
+    agentQuota: vi.fn(async () => ({ error: "未读取" })),
     aiConfig: vi.fn(),
     testAI: vi.fn(),
     agentModels: vi.fn(async () => []),
@@ -210,4 +212,154 @@ it("preserves ready status while reopening settings refreshes metadata", async (
     host.querySelector('[data-agent="codex"]')?.getAttribute("data-status"),
   ).toBe("ready");
   expect(api.testAI).not.toHaveBeenCalled();
+});
+
+const connected = (...ids: string[]) =>
+  vi.mocked(api.providers).mockResolvedValue(
+    (["codex", "claude"] as const).map((id) => ({
+      id,
+      installed: ids.includes(id),
+      authenticated: ids.includes(id),
+      status: ids.includes(id) ? "已登录" : "未登录",
+    })),
+  );
+const quotas = (values: Record<string, LocalQuota | Promise<LocalQuota>>) =>
+  vi
+    .mocked(api.agentQuota)
+    .mockImplementation(async (provider) => values[provider] ?? {});
+const deferred = () => {
+  let resolve!: (value: LocalQuota) => void;
+  const promise = new Promise<LocalQuota>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+const card = (id: string) =>
+  host.querySelector(`[data-agent="${id}"]`)?.textContent ?? "";
+const quotaBar = (id: string) =>
+  host.querySelector(`[data-agent="${id}"] [role="progressbar"]`);
+const refreshAgents = () =>
+  act(async () =>
+    (
+      host.querySelector('[aria-label="重新检测 Agent"]') as HTMLButtonElement
+    ).click(),
+  );
+
+it("shows Claude zero weekly allowance and explains the unavailable Codex app allowance", async () => {
+  config.capabilities = { codex: passed, claude: passed };
+  connected("codex", "claude");
+  quotas({
+    codex: { error: "当前授权不支持读取 NeoRead 本应用额度" },
+    claude: { remaining: 0, resetsAt: "2026-11-18T01:30:00Z" },
+  });
+  await render();
+  expect(card("codex")).toContain("本应用额度");
+  expect(card("codex")).toContain("当前授权不支持读取");
+  expect(card("codex")).not.toContain("周额度");
+  expect(quotaBar("codex")).toBeNull();
+  expect(card("claude")).toContain("周额度剩余");
+  expect(card("claude")).toContain("0%");
+  expect(card("claude")).toContain("下次重置");
+  expect(quotaBar("claude")?.getAttribute("aria-valuenow")).toBe("0");
+});
+
+it("explains unavailable quotas without inventing a percentage", async () => {
+  config.capabilities = { codex: passed, claude: passed };
+  connected("codex", "claude");
+  quotas({
+    codex: { error: "本应用额度暂不可用" },
+    claude: { error: "当前连接未提供周额度窗口" },
+  });
+  await render();
+  for (const id of ["codex", "claude"]) {
+    expect(card(id)).toContain("—");
+    expect(card(id)).not.toMatch(/\d+%/);
+    expect(quotaBar(id)).toBeNull();
+  }
+  expect(card("claude")).toContain("未提供周额度窗口");
+});
+
+it("hides quotas for connections that are not logged in", async () => {
+  config.capabilities = { claude: passed };
+  connected();
+  quotas({ claude: { remaining: 88 } });
+  await render();
+  expect(card("claude")).not.toContain("周额度");
+  expect(card("claude")).not.toContain("88%");
+});
+
+it("keeps the confirmed allowance on a later failure for the same account", async () => {
+  config.capabilities = { claude: passed };
+  connected("claude");
+  quotas({ claude: { remaining: 42 } });
+  await render();
+  await render(false);
+  quotas({ claude: { error: "暂时无法查询" } });
+  await render();
+  expect(card("claude")).toContain("42%");
+  expect(card("claude")).toContain("暂时无法查询");
+  await render(false);
+  vi.mocked(api.agentQuota).mockRejectedValue(new Error("offline"));
+  await render();
+  expect(card("claude")).toContain("42%");
+  expect(card("claude")).toContain("额度查询失败，请重试");
+});
+
+it("ignores quota results that arrive after settings close", async () => {
+  config.capabilities = { claude: passed };
+  connected("claude");
+  const late = deferred();
+  quotas({ claude: late.promise });
+  await render();
+  expect(card("claude")).toContain("…");
+  await render(false);
+  const fresh = deferred();
+  quotas({ claude: fresh.promise });
+  await render();
+  await act(async () => late.resolve({ remaining: 11 }));
+  expect(card("claude")).not.toContain("11%");
+  await act(async () => fresh.resolve({ remaining: 64 }));
+  expect(card("claude")).toContain("64%");
+});
+
+it("drops the previous account's allowance immediately when the connection is refreshed", async () => {
+  config.capabilities = { claude: passed };
+  connected("claude");
+  vi.mocked(api.testAI).mockResolvedValue(passed);
+  quotas({ claude: { remaining: 73 } });
+  await render();
+  expect(card("claude")).toContain("73%");
+  const fresh = deferred();
+  quotas({ claude: fresh.promise });
+  await refreshAgents();
+  expect(card("claude")).not.toContain("73%");
+  expect(card("claude")).toContain("…");
+  await act(async () => fresh.resolve({ error: "新账号额度暂不可用" }));
+  expect(card("claude")).not.toContain("73%");
+  expect(card("claude")).toContain("新账号额度暂不可用");
+});
+
+it("ignores an older account's quota that resolves after a forced refresh", async () => {
+  config.capabilities = { claude: passed };
+  connected("claude");
+  vi.mocked(api.testAI).mockResolvedValue(passed);
+  const old = deferred();
+  quotas({ claude: old.promise });
+  await render();
+  quotas({ claude: { remaining: 30 } });
+  await refreshAgents();
+  await act(async () => old.resolve({ remaining: 99 }));
+  expect(card("claude")).toContain("30%");
+  expect(card("claude")).not.toContain("99%");
+});
+
+it("hides the allowance after the connection logs out", async () => {
+  config.capabilities = { claude: passed };
+  connected("claude");
+  quotas({ claude: { remaining: 42 } });
+  await render();
+  connected();
+  await refreshAgents();
+  expect(card("claude")).not.toContain("周额度");
+  expect(card("claude")).not.toContain("42%");
 });

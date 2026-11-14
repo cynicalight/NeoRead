@@ -130,6 +130,76 @@ it("pauses a chapter in progress and continues it through a chapter request", as
   expect(onRequest).toHaveBeenCalledOnce();
 });
 
+it("offers the chapter while a single paragraph is queued, running, or waiting", async () => {
+  const paragraph = { ...job, translationBlocks: ["p3"] };
+  const cases: [ChapterTranslationStatus, Processing][] = [
+    [counts({ pending: 1, idle: 3 }), { ...paragraph, status: "queued" }],
+    [
+      counts({ running: 1, complete: 1, idle: 2 }),
+      { ...paragraph, status: "running", translationScopeKind: "paragraph" },
+    ],
+    [counts({ pending: 1, idle: 3 }), { ...paragraph, status: "waiting" }],
+    [counts({ idle: 4 }), { ...paragraph, status: "running" }],
+  ];
+  for (const [status, processing] of cases) {
+    vi.mocked(api.assistance).mockResolvedValue(processing);
+    await render(status, processing);
+    expect(host.textContent).toBe("翻译本章");
+    expect(button().disabled).toBe(false);
+    onRequest.mockClear();
+    await act(async () => button().click());
+    expect(onRequest).toHaveBeenCalledOnce();
+  }
+  expect(api.setAssistance).not.toHaveBeenCalled();
+});
+
+it("keeps pause and continue for a chapter scope", async () => {
+  const chapter: Processing = {
+    ...job,
+    status: "running",
+    translationBlocks: ["p1", "p2"],
+    translationScopeKind: "chapter",
+  };
+  vi.mocked(api.assistance).mockResolvedValue(chapter);
+  await render(counts({ running: 1, pending: 1, complete: 2 }), chapter);
+  expect(host.textContent).toBe("暂停翻译");
+  await act(async () => button().click());
+  expect(api.setAssistance).toHaveBeenCalledWith("book", "pause");
+  expect(onRequest).not.toHaveBeenCalled();
+  const paused: Processing = {
+    ...chapter,
+    enabled: false,
+    status: "paused",
+    updatedAt: "2026-11-09T00:00:00Z",
+  };
+  vi.mocked(api.assistance).mockResolvedValue(paused);
+  await render(counts({ pending: 2, complete: 2 }), paused);
+  expect(host.textContent).toBe("继续翻译");
+  await act(async () => button().click());
+  expect(onRequest).toHaveBeenCalledOnce();
+});
+
+it("keeps a finished chapter finished and stale counts inert during a paragraph task", async () => {
+  const paragraph = { ...job, status: "running" as const, translationBlocks: ["p9"] };
+  vi.mocked(api.assistance).mockResolvedValue(paragraph);
+  await render(counts({ complete: 4 }), paragraph);
+  expect(button().getAttribute("aria-label")).toBe("翻译完成：第一章");
+  await act(async () =>
+    root.render(
+      <BookChapterControls
+        documentId="book"
+        processing={paragraph}
+        status={counts({ key: "c2", pending: 1, idle: 3 })}
+        stale
+        onRequest={onRequest}
+        onChange={onChange}
+      />,
+    ),
+  );
+  expect(host.textContent).toBe("翻译本章");
+  expect(button().disabled).toBe(true);
+});
+
 it("names a completion seen in view for three seconds, then keeps only the check", async () => {
   await render(counts({ running: 1, complete: 3 }));
   await render(counts({ complete: 3, failed: 1 }));

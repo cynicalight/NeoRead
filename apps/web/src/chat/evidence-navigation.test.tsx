@@ -29,7 +29,7 @@ afterEach(async () => {
 const location = {
   type: "epub" as const,
   href: "chapter.xhtml",
-  locator: '{"locations":{"progression":0.3}}',
+  progression: 0.3,
 };
 const message: Message = {
   id: "answer",

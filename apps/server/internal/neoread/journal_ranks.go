@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -431,12 +432,25 @@ func (s *Server) fetchJournalRank(ctx context.Context, name, key string, upstrea
 }
 
 func (s *Server) documentJournalRank(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	queryStatus := "error"
+	knownConference, cacheHit, shared := false, false, false
+	defer func() {
+		level := slog.LevelInfo
+		if queryStatus == "error" {
+			level = slog.LevelError
+		}
+		s.diagnosticEvent(level, "journal_rank.query", "requestId", requestID(r.Context()),
+			"queryStatus", queryStatus, "knownConference", knownConference,
+			"cacheHit", cacheHit, "shared", shared, "durationMs", time.Since(started).Milliseconds())
+	}()
 	config, key, err := s.journalConfig()
 	if err != nil {
 		fail(w, 500, "无法读取期刊指标设置")
 		return
 	}
 	if !config.Enabled || key == "" {
+		queryStatus = "disabled"
 		respond(w, 200, journalRankResult{Status: "disabled", Badges: []journalRankBadge{}})
 		return
 	}
@@ -445,29 +459,67 @@ func (s *Server) documentJournalRank(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "论文不存在")
 		return
 	}
-	if doc.Metadata.ItemType != "" && doc.Metadata.ItemType != "journal" && doc.Metadata.ItemType != "conference" {
+	if doc.Metadata.ItemType != "" && doc.Metadata.ItemType != "journal" && doc.Metadata.ItemType != "conference" && !(doc.Metadata.ItemType == "preprint" && strings.TrimSpace(doc.Metadata.Venue) != "") {
+		queryStatus = "notApplicable"
 		respond(w, 200, journalRankResult{Status: "notApplicable", Badges: []journalRankBadge{}})
 		return
 	}
 	publicationName := strings.Join(strings.Fields(doc.Metadata.Venue), " ")
 	if publicationName == "" {
+		queryStatus = "noVenue"
 		respond(w, 200, journalRankResult{Status: "noVenue", Badges: []journalRankBadge{}})
 		return
 	}
+	queries := []string{publicationName}
 	name := journalName(publicationName)
+	strategy := ""
+	if conference, ok := matchConference(publicationName); ok {
+		knownConference = true
+		queries = []string{conference.FullName}
+		// Some distinct conferences share an abbreviation (FSE, SEC, ISWC).
+		// Such a short name cannot identify either publication for ranking.
+		if unique, ok := matchConference(conference.Abbreviation); ok && unique.FullName == conference.FullName {
+			queries = []string{conference.FullName, conference.Abbreviation}
+		}
+		strategy = "conference-v2:"
+	} else if short := strings.Join(strings.Fields(doc.Metadata.VenueShort), " "); short != "" {
+		position, indexed := conferenceIndex[normalizeConferenceName(short)]
+		if !indexed || position >= 0 {
+			queries = []string{publicationName, short}
+			strategy = "venue-short-v1:"
+		}
+	}
+	if len(queries) == 2 && journalName(queries[0]) == journalName(queries[1]) {
+		queries = queries[:1]
+	}
+	if strategy != "" {
+		// Include both names: neither old negative nor partial caches from a
+		// different naming strategy can prevent the corrected bounded query.
+		name = strategy + jsonText(queries)
+	}
 	hash := journalKeyHash(key)
 	refresh := r.URL.Query().Get("refresh") == "1"
 	if cached, ok := s.cachedJournalRank(name, hash, refresh); ok {
+		cacheHit = true
+		queryStatus = cached.Status
 		respond(w, 200, cached)
 		return
 	}
-	value, err, _ := s.journalRankRequests.Do(hash+":"+name, func() (any, error) {
+	value, err, shared := s.journalRankRequests.Do(hash+":"+name, func() (any, error) {
 		if cached, ok := s.cachedJournalRank(name, hash, refresh); ok {
+			cacheHit = true
 			return cached, nil
 		}
-		result, err := s.fetchJournalRank(context.Background(), publicationName, key, 20*time.Second)
-		if err != nil {
-			return result, err
+		var result journalRankResult
+		for _, query := range queries {
+			var err error
+			result, err = s.fetchJournalRank(context.Background(), query, key, 20*time.Second)
+			if err != nil {
+				return result, err
+			}
+			if result.Status != "notFound" {
+				break
+			}
 		}
 		body, _ := json.Marshal(result)
 		if _, err = s.Store.DB.Exec("INSERT INTO journal_rank_cache(name,key_hash,body,checked_at) VALUES(?,?,?,?) ON CONFLICT(name,key_hash) DO UPDATE SET body=excluded.body,checked_at=excluded.checked_at", name, hash, string(body), result.CheckedAt); err != nil {
@@ -479,5 +531,6 @@ func (s *Server) documentJournalRank(w http.ResponseWriter, r *http.Request) {
 		fail(w, 502, err.Error())
 		return
 	}
+	queryStatus = value.(journalRankResult).Status
 	respond(w, 200, value)
 }

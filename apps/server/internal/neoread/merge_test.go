@@ -147,6 +147,99 @@ func TestMergeFoldsDuplicatesIntoTheChosenVersion(t *testing.T) {
 	}
 }
 
+func TestMergePreservesMatchingVenueShort(t *testing.T) {
+	for _, tc := range []struct {
+		name                        string
+		venue, short                string
+		otherVenue, otherShort      string
+		otherSource                 string
+		wantVenue, wantShort        string
+		wantVenueSource, wantSource string
+	}{
+		{
+			name: "same full venue", venue: "Advances in Neural Information Processing Systems",
+			otherVenue: "Advances in Neural Information Processing Systems", otherShort: "NeurIPS", otherSource: "lookup",
+			wantVenue: "Advances in Neural Information Processing Systems", wantShort: "NeurIPS", wantVenueSource: "manual", wantSource: "lookup",
+		},
+		{
+			name: "matching conference alias", venue: "NeurIPS",
+			otherVenue: "Advances in Neural Information Processing Systems", otherShort: "NIPS", otherSource: "lookup",
+			wantVenue: "NeurIPS", wantShort: "NIPS", wantVenueSource: "manual", wantSource: "lookup",
+		},
+		{
+			name: "conflicting venue", venue: "NeurIPS",
+			otherVenue: "International Conference on Machine Learning", otherShort: "ICML", otherSource: "lookup",
+			wantVenue: "NeurIPS", wantVenueSource: "manual",
+		},
+		{
+			name:       "fill venue and short",
+			otherVenue: "International Conference on Machine Learning", otherShort: "ICML", otherSource: "lookup",
+			wantVenue: "International Conference on Machine Learning", wantShort: "ICML", wantVenueSource: "lookup", wantSource: "lookup",
+		},
+		{
+			name: "keep existing short", venue: "NeurIPS", short: "NIPS",
+			otherVenue: "NeurIPS", otherShort: "NeurIPS", otherSource: "lookup",
+			wantVenue: "NeurIPS", wantShort: "NIPS", wantVenueSource: "manual", wantSource: "manual",
+		},
+		{
+			name: "short without associated venue", venue: "NeurIPS",
+			otherShort: "ICML", otherSource: "lookup",
+			wantVenue: "NeurIPS", wantVenueSource: "manual",
+		},
+		{
+			name: "missing source defaults to file", venue: "NeurIPS",
+			otherVenue: "NeurIPS", otherShort: "NIPS",
+			wantVenue: "NeurIPS", wantShort: "NIPS", wantVenueSource: "manual", wantSource: "file",
+		},
+		{
+			name: "same journal ignoring case and outer whitespace", venue: "Nature",
+			otherVenue: " nature ", otherShort: "Nat.", otherSource: "manual",
+			wantVenue: "Nature", wantShort: "Nat.", wantVenueSource: "manual", wantSource: "manual",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := testServer(t)
+			ids := uploadPapers(t, s, 2)
+			for i, metadata := range []PaperMetadata{
+				{Venue: tc.venue, VenueShort: tc.short, Sources: map[string]string{"venue": "manual", "venueShort": "manual"}},
+				{Venue: tc.otherVenue, VenueShort: tc.otherShort, Sources: map[string]string{"venue": tc.otherSource, "venueShort": tc.otherSource}},
+			} {
+				if metadata.Venue == "" {
+					delete(metadata.Sources, "venue")
+				}
+				if metadata.VenueShort == "" {
+					delete(metadata.Sources, "venueShort")
+				}
+				raw, err := json.Marshal(metadata)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.Store.DB.Exec("UPDATE documents SET metadata=? WHERE id=?", string(raw), ids[i]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w := request(t, s, "POST", "/api/documents/"+ids[0]+"/merge", strings.NewReader(`{"from":["`+ids[1]+`"]}`))
+			if w.Code != 200 {
+				t.Fatalf("merge: %d %s", w.Code, w.Body.String())
+			}
+			var result mergeResult
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			persisted, err := s.Store.Document(ids[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, d := range []Document{result.Document, persisted} {
+				m := d.Metadata
+				if d.ID != ids[0] || m.Venue != tc.wantVenue || m.VenueShort != tc.wantShort || m.Sources["venue"] != tc.wantVenueSource || m.Sources["venueShort"] != tc.wantSource {
+					t.Fatalf("merged venue metadata: %+v", m)
+				}
+			}
+		})
+	}
+}
+
 func TestMergeRejectsInvalidRequests(t *testing.T) {
 	s := testServer(t)
 	ids := uploadPapers(t, s, 2)

@@ -225,15 +225,11 @@ Private Function InsertField(lines() As String) As String
         Set target = note.Range
     End If
     Dim f As Field
-#If Mac Then
-    ' An empty field on Mac has no writable result; text lands outside it.
+    ' Empty ADDIN fields can have no writable result on Windows and Mac.
+    ' Create a field with a result before replacing its code with ADDIN.
     Set f = mDocument.Fields.Add(Range:=target, Type:=wdFieldPrintDate, _
         PreserveFormatting:=False)
     f.Code.Text = " ADDIN NEOREAD_TEMP "
-#Else
-    Set f = mDocument.Fields.Add(Range:=target, Type:=wdFieldEmpty, _
-        Text:="ADDIN NEOREAD_TEMP", PreserveFormatting:=False)
-#End If
     f.ShowCodes = False
     If kind = "bibliography" Then
         f.Result.Text = "{Bibliography}"

@@ -11,6 +11,22 @@ import type {
 } from "@neoread/core";
 import { sentenceAnchor } from "@neoread/core";
 import { texText } from "../chat/tex-text";
+import { clipRange, textOffset } from "./dom-ranges";
+
+/** The selected text on one side of an interleaved reflow view. */
+export function selectedSideText(
+  host: HTMLElement,
+  range: Range,
+  selector: string,
+) {
+  return Array.from(host.querySelectorAll<HTMLElement>(selector))
+    .flatMap((node) => {
+      if (!range.intersectsNode(node)) return [];
+      const text = texText(clipRange(node, range)).trim();
+      return text ? [text] : [];
+    })
+    .join("\n\n");
+}
 
 export function translatedSelection(
   host: HTMLElement,
@@ -19,6 +35,7 @@ export function translatedSelection(
   translations: TranslationBlock[],
 ) {
   const ranges: NonNullable<TranslationLocation["ranges"]> = [];
+  const targetQuotes: string[] = [];
   const passages: PDFPassage[] = [],
     links: PDFSentenceLink[] = [];
   for (const node of host.querySelectorAll<HTMLElement>(
@@ -30,33 +47,21 @@ export function translatedSelection(
         (t) => t.blockId === block?.id && t.status === "complete",
       );
     if (!block || !translation) continue;
-    const clipped = document.createRange();
-    clipped.selectNodeContents(node);
-    if (range.compareBoundaryPoints(Range.START_TO_START, clipped) > 0)
-      clipped.setStart(range.startContainer, range.startOffset);
-    if (range.compareBoundaryPoints(Range.END_TO_END, clipped) < 0)
-      clipped.setEnd(range.endContainer, range.endOffset);
+    const clipped = clipRange(node, range);
     const quote = clipped.toString().trim();
     if (!quote) continue;
     const sentenceIndexes = Array.from(
       node.querySelectorAll<HTMLElement>("[data-sentence]"),
     )
-      .filter((n) => {
-        if (!clipped.intersectsNode(n)) return false;
-        const part = document.createRange();
-        part.selectNodeContents(n);
-        if (clipped.compareBoundaryPoints(Range.START_TO_START, part) > 0)
-          part.setStart(clipped.startContainer, clipped.startOffset);
-        if (clipped.compareBoundaryPoints(Range.END_TO_END, part) < 0)
-          part.setEnd(clipped.endContainer, clipped.endOffset);
-        return !!part.toString().trim();
-      })
+      .filter(
+        (n) =>
+          clipped.intersectsNode(n) &&
+          !!clipRange(n, clipped).toString().trim(),
+      )
       .map((n) => Number(n.dataset.sentence));
     if (!sentenceIndexes.length) continue;
-    const before = clipped.cloneRange();
-    before.selectNodeContents(node);
-    before.setEnd(clipped.startContainer, clipped.startOffset);
-    const start = before.toString().length;
+    if ("location" in block) targetQuotes.push(texText(clipped).trim());
+    const start = textOffset(node, clipped);
     ranges.push({
       blockId: block.id,
       sourceHash: translation.sourceHash,
@@ -77,6 +82,7 @@ export function translatedSelection(
       targetText: translation.sentences
         .map((sentence) => sentence.target)
         .join(""),
+      renderedText: node.textContent ?? "",
       start,
       end: start + clipped.toString().length,
       quote,
@@ -110,7 +116,8 @@ export function translatedSelection(
     rect = range.getBoundingClientRect();
   const selection: ReaderSelection = {
     context: selectionContext(range, host),
-    text: texText(range).trim(),
+    text:
+      "location" in block ? targetQuotes.join("\n\n") : texText(range).trim(),
     anchor: {
       x: (rect.left + rect.right) / 2,
       top: rect.top,

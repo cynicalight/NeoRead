@@ -61,3 +61,18 @@ func TestSimilarTextIgnoresGreekVariablesOnBothSides(t *testing.T) {
 		t.Fatal("restored Greek variables must match the extracted Greek letters")
 	}
 }
+
+func TestTranslationPromptSplitsParagraphsIntoSentences(t *testing.T) {
+	for _, doc := range []Document{{Title: "t"}, {Title: "t", Type: "epub"}} {
+		prompt := translationPrompt(doc, layoutManifest{Pages: 1}, translationBatch{}, "")
+		for _, rule := range []string{`{"source":"第一句原文","target":"第一句译文"},{"source":"第二句原文"`, "必须按原文句子拆分", "不能把整段放进一个元素"} {
+			if !strings.Contains(prompt, rule) {
+				t.Fatalf("%s prompt lacks %q", doc.Type, rule)
+			}
+		}
+		// Paragraph rules must not read as forbidding sentence splits.
+		if strings.Contains(prompt, "不合并、拆分或遗漏") {
+			t.Fatalf("%s prompt forbids splitting next to sentences", doc.Type)
+		}
+	}
+}

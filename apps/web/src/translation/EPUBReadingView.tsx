@@ -1,5 +1,7 @@
+import { sourceEPUBSelection } from "../readers/epub-web-location";
 import { reflowBlockText } from "./reflow";
 import { copyText } from "../chat/clipboard";
+import { texText } from "../chat/tex-text";
 import { useSentenceMarks } from "./useSentenceMarks";
 import { useTranslations } from "./useTranslations";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
@@ -56,7 +58,7 @@ const blockAnchor = (block: EPUBReadingBlock): EPUBLocation => ({
 function chapterAnchor(location: EPUBLocation): EPUBLocation {
   return location.blockId
     ? { type: "epub", href: location.href, blockId: location.blockId }
-    : { type: "epub", href: location.href, locator: location.locator };
+    : { type: "epub", href: location.href, progression: location.progression };
 }
 export function EPUBReadingView({
   document: doc,
@@ -86,10 +88,12 @@ export function EPUBReadingView({
   const [chapter, setChapter] = useState(
     doc.progress?.type === "epub" ? doc.progress.href.split("#")[0] : "",
   );
+  const layoutRevision = processing?.layoutRevision;
   const { translations, error: streamError } = useTranslations(
     doc.id,
     [...new Set(blocks.map((b) => b.location.href))],
     active,
+    layoutRevision,
   );
   const root = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLDivElement>(null);
@@ -111,6 +115,18 @@ export function EPUBReadingView({
   const position = useRef<EPUBLocation>(
     doc.progress?.type === "epub" ? doc.progress : { type: "epub", href: "" },
   );
+  const [source, setSource] = useState({ layoutRevision, document: doc });
+  if (source.document.id !== doc.id)
+    setSource({ layoutRevision, document: doc });
+  else if (source.layoutRevision !== layoutRevision) {
+    setSource({
+      layoutRevision,
+      document: position.current.href
+        ? { ...doc, progress: position.current }
+        : doc,
+    });
+    setBlocks([]);
+  }
   const side = useRef<"source" | "translation">("source");
   // The paragraph whose chapter the toolbar describes. A click, selection,
   // jump or paragraph request pins it; afterwards scrolling moves it to the
@@ -125,7 +141,7 @@ export function EPUBReadingView({
     setAnchor((current) =>
       current?.href === next.href &&
       current.blockId === next.blockId &&
-      current.locator === next.locator
+      current.progression === next.progression
         ? current
         : next,
     );
@@ -538,21 +554,36 @@ export function EPUBReadingView({
       !host.contains(range.endContainer)
     )
       return;
-    // Source text in the reflowed column belongs to the EPUB reader.
-    const start =
-      range.startContainer instanceof Element
-        ? range.startContainer
-        : range.startContainer.parentElement;
-    if (live.current.reflow && !start?.closest("[data-translation-block]"))
-      return;
-    const value = translatedSelection(host, range, visible, translations);
-    if (!value || value.selection.location.type !== "epub") return;
-    side.current = "translation";
-    selection.current = value.selection;
-    live.current.events.selection(value.selection);
-    updateLocation(value.selection.location);
-    pinAnchor(value.selection.location);
-    if (!live.current.reflow) void syncSource(value.selection.location);
+    const source =
+      live.current.reflow && live.current.mode !== "translation"
+        ? sourceEPUBSelection(host, range, live.current.blocks)
+        : undefined;
+    const translated =
+      live.current.reflow && live.current.mode === "source"
+        ? undefined
+        : translatedSelection(host, range, visible, translations)?.selection;
+    // The native EPUB adapter already captured source-only selections, including
+    // their pointer anchor and context. Only override translated/mixed ranges.
+    if (!translated) return;
+    const value: ReaderSelection = source
+      ? {
+          ...source,
+          text: texText(range).trim(),
+          anchor: translated.anchor,
+          context: translated.context,
+          parts: [
+            source,
+            { text: translated.text, location: translated.location },
+          ],
+        }
+      : translated;
+    if (!value || value.location.type !== "epub") return;
+    side.current = source ? "source" : "translation";
+    selection.current = value;
+    live.current.events.selection(value);
+    updateLocation(value.location);
+    pinAnchor(value.location);
+    if (!live.current.reflow) void syncSource(value.location);
   };
   const scroll = () => {
     live.current.events.annotationHover?.(null);
@@ -636,11 +667,11 @@ export function EPUBReadingView({
         void engine.current?.goTo(target).catch((e) => toast.error(e.message));
     });
   };
-  const retry = (id = "") => {
+  const retry = (id: string) => {
     const block = live.current.blocks.find((b) => b.id === id);
     if (block) pinAnchor(blockAnchor(block));
     void api
-      .translate(doc.id, id)
+      .translate(doc.id, id, true)
       .then(refreshChapter)
       .catch((e) => toast.error(e.message));
   };
@@ -669,8 +700,9 @@ export function EPUBReadingView({
   );
   const sourceView = (
     <ReaderView
+      key={source.layoutRevision}
       active={active}
-      document={doc}
+      document={source.document}
       theme={theme}
       annotations={annotations}
       onReady={(adapter, toc) => {
@@ -834,7 +866,10 @@ export function EPUBReadingView({
                   block={block}
                   documentId={doc.id}
                   translation={translations.find((t) => t.blockId === id)}
-                  paused={processing?.enabled === false}
+                  paused={
+                    processing?.enabled === false ||
+                    processing?.status === "paused"
+                  }
                   retry={() => retry(id)}
                 />,
                 node,
@@ -1006,7 +1041,10 @@ export function EPUBReadingView({
                     translation={translations.find(
                       (t) => t.blockId === block.id,
                     )}
-                    paused={processing?.enabled === false}
+                    paused={
+                      processing?.enabled === false ||
+                      processing?.status === "paused"
+                    }
                     retry={() => retry(block.id)}
                   />
                 </section>

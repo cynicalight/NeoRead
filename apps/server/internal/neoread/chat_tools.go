@@ -209,7 +209,7 @@ func validateWebSearchConfig(c AIConfig) error {
 	if webSearchEnabled(c, c.Primary) {
 		return nil
 	}
-	return generationError(ErrorConfiguration, "请在设置的联网搜索中开启 CLI 原生搜索或配置搜索 API")
+	return generationError(ErrorConfiguration, "请在设置的联网搜索中配置搜索 API")
 }
 func webInstructions(base string, enabled bool) string {
 	if !enabled {

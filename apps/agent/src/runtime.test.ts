@@ -2,6 +2,11 @@ import { createServer } from "node:http";
 import { spawn, execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { once } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createConnection, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeAll, expect, test } from "vitest";
 import {
   SessionManager,
@@ -1748,3 +1753,219 @@ test("short BYOK keys do not rewrite entry IDs, model names, or normal message c
     upstream.closeAllConnections();
   }
 });
+
+// A real subprocess/socket regression needs a platform-clock deadline; fake
+// timers cannot advance another process. Successful runs await events, not sleep.
+async function bounded<T>(
+  promise: Promise<T>,
+  milliseconds: number,
+  message: string,
+) {
+  let timer: NodeJS.Timeout;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), milliseconds);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+test.each([200, 400])(
+  "browser login exits promptly with token status %s despite an open preconnect socket",
+  async (tokenStatus) => {
+    const directory = await mkdtemp(join(tmpdir(), "neoread-login-worker-"));
+    const preload = join(directory, "token-fixture.mjs");
+    await writeFile(
+      preload,
+      `
+    globalThis.fetch = async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.origin !== "https://platform.claude.com" || url.pathname !== "/v1/oauth/token")
+        throw new Error("Unexpected external request");
+      return new Response(JSON.stringify(${tokenStatus} === 200
+        ? {access_token:"fixture-access", refresh_token:"fixture-refresh", expires_in:3600}
+        : {error:"invalid_grant"}), {status:${tokenStatus}});
+    };
+  `,
+    );
+    const child = spawn(
+      process.execPath,
+      ["--import", preload, "dist/main.mjs"],
+      { cwd: root },
+    );
+    const exited = once(child, "exit");
+    let idle: Socket | undefined;
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    const lines = createInterface({ input: child.stdout });
+    let callback: Promise<Response> | undefined;
+    try {
+      child.stdin.write(
+        JSON.stringify({
+          type: "login",
+          input: {
+            runId: "worker-login",
+            connection: {
+              provider: "anthropic",
+              authPath: join(directory, "auth.json"),
+            },
+            deviceId: "fixture-device",
+          },
+        }) + "\n",
+      );
+      const complete = (async () => {
+        for await (const line of lines) {
+          const event = JSON.parse(line);
+          if (event.type === "auth_url") {
+            const authorization = new URL(event.url);
+            const target = new URL(
+              authorization.searchParams.get("redirect_uri")!,
+            );
+            idle = createConnection({
+              host: "127.0.0.1",
+              port: Number(target.port),
+            });
+            idle.on("error", () => {});
+            await once(idle, "connect");
+            target.searchParams.set("code", "fixture-code");
+            target.searchParams.set(
+              "state",
+              authorization.searchParams.get("state")!,
+            );
+            callback = fetch(target, { signal: AbortSignal.timeout(3000) });
+            void callback.catch(() => {});
+          }
+          if (event.type === "complete" || event.type === "error") return event;
+        }
+        throw new Error("Worker closed without completing login: " + stderr);
+      })();
+      const terminal = await bounded(
+        complete,
+        4000,
+        "SDK did not settle browser login",
+      );
+      expect((await callback!).status).toBe(200);
+      const [code] = await bounded(
+        exited,
+        1000,
+        "Login credentials are saved but the worker stays alive waiting for the browser socket",
+      );
+      expect(terminal.type).toBe(tokenStatus === 200 ? "complete" : "error");
+      expect(code).toBe(tokenStatus === 200 ? 0 : 1);
+    } finally {
+      idle?.destroy();
+      lines.close();
+      if (child.exitCode === null && child.signalCode === null)
+        child.kill("SIGKILL");
+      await exited;
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test.each([
+  "success",
+  "unauthorized",
+  "redirect",
+  "invalid-json",
+  "cancel",
+] as const)(
+  "quota one-shot worker flushes a sanitized terminal for %s",
+  async (mode) => {
+    const directory = await mkdtemp(join(tmpdir(), "neoread-quota-worker-"));
+    const authPath = join(directory, "auth.json");
+    const preload = join(directory, "quota-fixture.mjs");
+    await writeFile(
+      authPath,
+      JSON.stringify({
+        anthropic: {
+          type: "oauth",
+          access: "fixture-secret",
+          refresh: "refresh-secret",
+          expires: Date.now() + 3600000,
+        },
+      }),
+    );
+    await writeFile(
+      preload,
+      `
+      globalThis.fetch = async (input, init) => {
+        if (String(input) !== "https://api.anthropic.com/api/oauth/usage" ||
+            init.method !== "GET" || init.redirect !== "error" ||
+            new Headers(init.headers).get("authorization") !== "Bearer fixture-secret")
+          throw new Error("Unexpected fixture request");
+        if (${JSON.stringify(mode)} === "cancel") {
+          const { promise, reject } = Promise.withResolvers();
+          init.signal.addEventListener("abort", () => reject(new Error("fixture-secret")), {once:true});
+          process.kill(process.pid, "SIGINT");
+          await promise;
+        }
+        if (${JSON.stringify(mode)} === "redirect") throw new Error("redirect fixture-secret");
+        if (${JSON.stringify(mode)} === "unauthorized") return new Response("upstream-secret", {status:401});
+        if (${JSON.stringify(mode)} === "invalid-json") return new Response("upstream-secret");
+        return Response.json({seven_day:{utilization:100,resets_at:"2026-11-20T00:00:00Z"},secret:"upstream-secret"});
+      };
+    `,
+    );
+    const child = spawn(
+      process.execPath,
+      ["--import", preload, "dist/main.mjs"],
+      { cwd: root },
+    );
+    const exited = once(child, "exit");
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    try {
+      child.stdin.write(
+        JSON.stringify({
+          type: "quota",
+          input: {
+            runId: "fixture-quota",
+            connection: { provider: "anthropic", authPath },
+          },
+        }) + "\n",
+      );
+      const [code] = await bounded(exited, 4000, "Quota worker did not exit");
+      const events = stdout
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(events).toHaveLength(1);
+      expect(code).toBe(mode === "success" ? 0 : 1);
+      expect(stdout + stderr).not.toMatch(
+        /fixture-secret|refresh-secret|upstream-secret/,
+      );
+      if (mode === "success")
+        expect(events[0]).toEqual({
+          version: 1,
+          runId: "fixture-quota",
+          type: "complete",
+          quota: {
+            remaining: 0,
+            resetsAt: "2026-11-20T00:00:00.000Z",
+          },
+        });
+      else {
+        expect(events[0].type).toBe("error");
+        expect(events[0].quota).toBeUndefined();
+        if (mode === "unauthorized")
+          expect(events[0]).toMatchObject({
+            errorCode: "authentication",
+            upstreamStatus: 401,
+          });
+        if (mode === "redirect") expect(events[0].errorCode).toBe("network");
+      }
+    } finally {
+      if (child.exitCode === null) child.kill("SIGKILL");
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);

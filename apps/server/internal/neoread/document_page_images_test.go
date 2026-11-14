@@ -74,7 +74,7 @@ func pageImageFixture(t *testing.T, cached bool) (*Server, *documentAgent) {
 	return s, a
 }
 
-func TestPDFPageToolScopeEvidenceAndMCPImages(t *testing.T) {
+func TestPDFPageToolScopeAndEvidence(t *testing.T) {
 	s, a := pageImageFixture(t, true)
 	for _, args := range []string{`{"pages":[0]}`, `{"pages":[3]}`, `{"pages":[]}`, `{"pages":[1],"path":"/etc/passwd"}`} {
 		raw, err := a.call(t.Context(), "read_pdf_pages", json.RawMessage(args))
@@ -82,44 +82,22 @@ func TestPDFPageToolScopeEvidenceAndMCPImages(t *testing.T) {
 			t.Fatal("invalid read", string(raw), err)
 		}
 	}
-	url, token, stop, err := serveDocumentMCP(a)
+	raw, err := a.call(t.Context(), "read_pdf_pages", json.RawMessage(`{"pages":[2,1,2]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stop()
-	req, _ := http.NewRequest("POST", url, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_pdf_pages","arguments":{"pages":[2,1,2]}}}`))
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	req.Header.Set("MCP-Protocol-Version", "2025-11-25")
-	response, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	var result struct {
-		Result struct {
-			Content []struct {
-				Type string `json:"type"`
-				Data []byte `json:"data"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	if err = json.NewDecoder(response.Body).Decode(&result); err != nil {
-		t.Fatal(err)
-	}
-	images := 0
-	for _, item := range result.Result.Content {
-		if item.Type == "image" {
-			images++
-			if _, err := png.DecodeConfig(bytes.NewReader(item.Data)); err != nil {
-				t.Fatal("MCP image bytes not PNG", err)
-			}
-		}
-	}
-	if images != 2 || len(a.Evidence) != 2 || a.Evidence[0].PageImage.Page != 2 {
+	images := resultPageImages(raw)
+	if len(images) != 2 || len(a.Evidence) != 2 || images[0].Page != 2 || images[1].Page != 1 {
 		t.Fatal("page order or dedup lost", images, a.Evidence)
+	}
+	for _, page := range images {
+		data, err := a.pageImageData(page)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = png.DecodeConfig(bytes.NewReader(data)); err != nil {
+			t.Fatal("page image bytes not PNG", err)
+		}
 	}
 	a.prepared, a.sourceTokens = true, pageImageTokens
 	bounded, err := a.call(t.Context(), "read_pdf_pages", json.RawMessage(`{"pages":[1,2]}`))
@@ -157,7 +135,7 @@ func TestPDFPageToolScopeEvidenceAndMCPImages(t *testing.T) {
 		t.Fatalf("unread image citation gained navigation metadata: %s %v", refs, err)
 	}
 	a.canViewPages = false
-	raw, err := a.call(t.Context(), "read_pdf_pages", json.RawMessage(`{"pages":[1]}`))
+	raw, err = a.call(t.Context(), "read_pdf_pages", json.RawMessage(`{"pages":[1]}`))
 	if err != nil || !strings.Contains(string(raw), "vision_unavailable") {
 		t.Fatal("text model received image", err)
 	}
@@ -172,8 +150,8 @@ func TestPDFPageToolScopeEvidenceAndMCPImages(t *testing.T) {
 	}
 }
 
-func TestAPIPageImagesPersistWithoutBase64AndCompact(t *testing.T) {
-	s, a := pageImageFixture(t, true)
+func TestPiPageImagesPersistAndReplay(t *testing.T) {
+	s, _ := pageImageFixture(t, true)
 	calls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
@@ -260,45 +238,9 @@ func TestAPIPageImagesPersistWithoutBase64AndCompact(t *testing.T) {
 	}
 	var raw string
 	_ = s.Store.DB.QueryRow("SELECT body FROM document_conversations WHERE document_id='doc' AND provider='api'").Scan(&raw)
-	if strings.Contains(raw, "data:image") || !strings.Contains(raw, "readerPageImages") {
-		t.Fatal("durable window contains image bytes or lost references")
-	}
 	var state documentConversation
-	_ = json.Unmarshal([]byte(raw), &state)
-	if len(state.ReadPages) != 2 {
-		t.Fatal("visual evidence did not survive next question")
-	}
-	groups, err := conversationGroups(state.Messages[1:])
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	var freshImages []toolCompletionMessage
-	for _, g := range groups {
-		if len(g[0].Calls) > 0 && len(g[len(g)-1].PageImages) == 2 {
-			found = true
-			freshImages = g
-		}
-	}
-	if !found {
-		t.Fatal("images separated from tool group")
-	}
-	a.conversation = &state
-	a.contextTokens = 8192
-	a.needsCompaction = true
-	req := completionRequest{Model: "test", Vision: true, PageImageData: a.pageImageData}
-	state.Messages = append(state.Messages, toolCompletionMessage{Role: "user", Content: "继续"})
-	next, err := compactAPIConversation(t.Context(), config.API, req, a, state.Messages)
-	if err != nil || strings.Contains(jsonText(next), "readerPageImages") {
-		t.Fatal("old visual group not compacted", err)
-	}
-	// New images must survive compact until the next actual model request.
-	a.contextTokens, a.needsCompaction = 65536, true
-	fresh := []toolCompletionMessage{state.Messages[0], {Role: "user", Content: "旧问题"}, {Role: "assistant", Content: strings.Repeat("旧的说明", 10000)}, {Role: "user", Content: "看这两页"}}
-	fresh = append(fresh, freshImages...)
-	next, err = compactAPIConversation(t.Context(), config.API, req, a, fresh)
-	if err != nil || len(next[len(next)-1].PageImages) != 2 {
-		t.Fatal("fresh images compacted before model could view them", err)
+	if err := json.Unmarshal([]byte(raw), &state); err != nil || len(state.ReadPages) != 2 || len(state.PiEntries) == 0 {
+		t.Fatal("visual evidence or Pi history was lost", err)
 	}
 }
 
@@ -340,63 +282,4 @@ func TestLivePDFPageRendering(t *testing.T) {
 	if _, err = s.renderDocumentPages(context.Background(), a.corpus, []int{1, 2}); err != nil {
 		t.Fatal("cache did not bypass renderer", err)
 	}
-}
-
-func TestLiveCodexPDFPageImages(t *testing.T) {
-	processor := os.Getenv("NEOREAD_TEST_PAGE_PROCESSOR")
-	if processor == "" || os.Getenv("NEOREAD_TEST_NATIVE_IMAGES") != "1" {
-		t.Skip("opt-in real Codex test using only synthetic vector pages")
-	}
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("NEOREAD_NODE", node)
-	t.Setenv("NEOREAD_PROCESSOR", processor)
-	s, _ := pageImageFixture(t, false)
-	config := AIConfig{Primary: "codex", Models: map[string]string{}, Capabilities: map[string]Capability{}}
-	config.Capabilities["codex"] = Capability{Text: true, Vision: true, Fingerprint: configPrint(config, "codex")}
-	if err = s.writeAIConfig(config); err != nil {
-		t.Fatal(err)
-	}
-	question := "请调用一次 read_pdf_pages，pages=[1,2]，同时查看两页完整图像。不要调用文字检索或读取工具，图形没有可提取文字。分别数出第1页红色三角形和第2页蓝色圆形数量。用格式 red triangles: N; blue circles: N 作答，并给两页来源引用。"
-	out := conversationRequest(t, s, "codex", question)
-	if !strings.Contains(out.Body.String(), "event: done") {
-		t.Fatal(out.Body.String())
-	}
-	history, _ := s.Store.chatHistory("doc")
-	answer := history[len(history)-1]
-	t.Log("live visual answer:", answer.Content)
-	if !strings.Contains(strings.ToLower(answer.Content), "red triangles: 2") || !strings.Contains(strings.ToLower(answer.Content), "blue circles: 3") {
-		t.Fatal("incorrect visual count", answer.Content)
-	}
-	var raw string
-	_ = s.Store.DB.QueryRow("SELECT body FROM chat_agent_runs WHERE document_id='doc'").Scan(&raw)
-	var run struct {
-		Tools    []documentToolTrace `json:"tools"`
-		Evidence []documentEvidence  `json:"evidence"`
-	}
-	_ = json.Unmarshal([]byte(raw), &run)
-	visualCalls := 0
-	for _, tool := range run.Tools {
-		if tool.Tool == "read_pdf_pages" {
-			visualCalls++
-			if len(resultPageImages(tool.Result)) != 2 {
-				t.Fatal("pages not returned together")
-			}
-		}
-	}
-	if visualCalls != 1 || len(run.Evidence) != 2 {
-		t.Fatal("missing multi-page native tool execution", visualCalls, len(run.Evidence))
-	}
-	// Native history and the local source ledger both survive a NeoRead restart.
-	s.Close()
-	s = NewServer(s.Store, "test-secret", "")
-	t.Cleanup(s.Close)
-	out = conversationRequest(t, s, "codex", "沿用上轮看到的两页图像，不再调用工具。重复 red triangles 和 blue circles 的数量，并引用原来的两页。")
-	if !strings.Contains(out.Body.String(), "event: done") {
-		t.Fatal(out.Body.String())
-	}
-	history, _ = s.Store.chatHistory("doc")
-	t.Log("resumed visual answer:", history[len(history)-1].Content)
 }

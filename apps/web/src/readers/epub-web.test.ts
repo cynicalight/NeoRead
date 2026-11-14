@@ -25,6 +25,7 @@ function block(
   text: string,
   href = "a.xhtml",
   offset = 0,
+  order?: EPUBLocation["order"],
 ): EPUBReadingBlock {
   return {
     id,
@@ -34,20 +35,25 @@ function block(
       type: "epub",
       href,
       blockId: id,
+      order,
       start: 0,
       end: text.length,
       quote: text,
-      locator: JSON.stringify({
-        href,
-        type: "application/xhtml+xml",
-        locations: { textRange: { start: offset, end: offset + text.length } },
-      }),
     },
   };
 }
-const a = block("a", "Same words. Same words. 😀", "a.xhtml", 0);
-const b = block("b", "Same words. Next sentence.", "a.xhtml", 30);
-const c = block("c", "Chapter two. Only here.", "b.xhtml", 0);
+const a = block("a", "Same words. Same words. 😀", "a.xhtml", 0, {
+  chapter: 0,
+  block: 0,
+});
+const b = block("b", "Same words. Next sentence.", "a.xhtml", 30, {
+  chapter: 0,
+  block: 1,
+});
+const c = block("c", "Chapter two. Only here.", "b.xhtml", 0, {
+  chapter: 1,
+  block: 0,
+});
 const chapters: EPUBChapter[] = [
   {
     href: "a.xhtml",
@@ -235,15 +241,23 @@ it("renders ordered chapter placeholders, lazily inserts sanitized content witho
 });
 it("captures exact repeated text offsets and UTF-16 positions with a viewport toolbar anchor", async () => {
   await open();
+  expect(reader.getLocation().order).toEqual(a.location.order);
   select("a", 12, 22);
   expect(reader.getSelection()).toMatchObject({
     text: "Same words",
-    location: { href: "a.xhtml", blockId: "a", start: 12, end: 22 },
+    location: {
+      href: "a.xhtml",
+      blockId: "a",
+      start: 12,
+      end: 22,
+      order: a.location.order,
+    },
     anchor: { x: 40 },
   });
   select("b", 0, 10);
   expect(reader.getSelection()?.location).toMatchObject({
     blockId: "b",
+    order: b.location.order,
     start: 0,
     end: 10,
   });
@@ -409,23 +423,31 @@ it("expands FTS chapter hits into exact repeated occurrences and selects the req
     end: 22,
   });
 });
-it("resolves legacy offsets and unique quotes without changing stored locations, and leaves ambiguous marks unresolved", async () => {
+it("resolves migrated ranges and leaves unresolved marks untouched", async () => {
   await open();
   const legacy: EPUBLocation = {
     type: "epub",
     href: "a.xhtml",
+    blockId: "b",
+    start: 0,
+    end: 10,
     quote: "Same words",
-    locator: JSON.stringify({
-      locations: { textRange: { start: 30, end: 40 } },
-    }),
   };
   expect(resolveEPUBLocation(legacy, [a, b])).toMatchObject([
     { block: b, start: 0, end: 10 },
   ]);
   expect(
-    resolveEPUBLocation({ type: "epub", href: "b.xhtml", quote: "Only here" }, [
-      c,
-    ]),
+    resolveEPUBLocation(
+      {
+        type: "epub",
+        href: "b.xhtml",
+        blockId: "c",
+        start: 13,
+        end: 22,
+        quote: "Only here",
+      },
+      [c],
+    ),
   ).toMatchObject([{ block: c, start: 13, end: 22 }]);
   const ambiguous: EPUBLocation = {
     type: "epub",
@@ -576,7 +598,9 @@ it("supports a selection spanning adjacent chapters and restores its exact range
     end: 11,
   });
   await reader.goTo(selected.location);
-  expect(window.getSelection()?.toString()).toBe(selected.text);
+  expect(window.getSelection()?.toString()).toBe(
+    selected.text.replace(/\n\n/g, ""),
+  );
 });
 it("keeps UTF-16 offsets correct across inline markup and trimmed block whitespace", async () => {
   vi.mocked(api.epubChapter).mockResolvedValue({
@@ -594,19 +618,27 @@ it("keeps UTF-16 offsets correct across inline markup and trimmed block whitespa
   expect(reader.getSelection()?.text).toBe("words. Same words.");
   expect(reader.getSelection()?.location).toMatchObject({ start: 5, end: 23 });
 });
-it("restores a legacy chapter progression without persisting a migration on open", async () => {
+it("restores migrated chapter progress without writing on open", async () => {
   await open({
     type: "epub",
     href: "b.xhtml",
-    locator: JSON.stringify({ locations: { progression: 0.3 } }),
+    progression: 0.3,
   });
   expect(reader.getLocation().href).toBe("b.xhtml");
   expect(events.location).not.toHaveBeenCalled();
   expect(toast.error).not.toHaveBeenCalled();
 });
-it("resolves unique legacy quotations across paragraphs with normalized whitespace", () => {
+it("resolves migrated cross-paragraph ranges", () => {
   const slices = resolveEPUBLocation(
-    { type: "epub", href: "a.xhtml", quote: "words. 😀 Same words. Next" },
+    {
+      type: "epub",
+      href: "a.xhtml",
+      blockId: "a",
+      start: 17,
+      endBlockId: "b",
+      end: 16,
+      quote: "words. 😀 Same words. Next",
+    },
     [a, b],
   );
   expect(slices.map((s) => s.block.id)).toEqual(["a", "b"]);
@@ -966,4 +998,27 @@ it("goes to the visible translation of a paragraph whose source reflow hides", a
   });
   // Centred on the translation at 700, not on the hidden source at 0.
   expect(host.scrollTop - before).toBe(400);
+});
+
+it("excludes reflow translations from cross-paragraph source quotes", async () => {
+  await open();
+  const translation = document.createElement("section");
+  translation.dataset.translationBlock = "a";
+  translation.textContent = "夹在原文段落中的译文";
+  host.querySelector('[data-epub-block="a"]')!.append(translation);
+  const range = document.createRange();
+  range.setStart(host.querySelector('[data-epub-run="a"]')!.firstChild!, 12);
+  range.setEnd(host.querySelector('[data-epub-run="b"]')!.firstChild!, 10);
+  window.getSelection()!.addRange(range);
+  host.dispatchEvent(new Event("keyup"));
+  expect(reader.getSelection()).toMatchObject({
+    text: "Same words. 😀\n\nSame words",
+    location: {
+      blockId: "a",
+      endBlockId: "b",
+      start: 12,
+      end: 10,
+      quote: "Same words. 😀\n\nSame words",
+    },
+  });
 });

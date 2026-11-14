@@ -20,6 +20,7 @@ func chatMessages(t *testing.T, s *Server) []Message {
 }
 
 func TestChatRegenerationReusesQuestionWithCurrentModel(t *testing.T) {
+	piTestRuntime(t)
 	s, _ := prepareConversationFixture(t)
 	models := []string{}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -147,8 +148,9 @@ func TestChatRetryRejectsChangedOrNonTailQuestion(t *testing.T) {
 }
 
 func TestChatRetryKeepsImagesAndUsesNewProvider(t *testing.T) {
+	piTestRuntime(t)
 	s, pixels := imageFixture(t)
-	fakeAgent(t, "codex", "fail-after")
+
 	calls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {

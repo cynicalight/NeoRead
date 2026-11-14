@@ -416,24 +416,6 @@ func (s *Store) recoverUsage() error {
 	return err
 }
 
-func codexTokens(raw json.RawMessage) *TokenCounts {
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(raw, &fields) != nil {
-		return nil
-	}
-	for _, key := range []string{"inputTokens", "outputTokens", "totalTokens"} {
-		value, ok := fields[key]
-		if !ok || string(value) == "null" {
-			return nil
-		}
-	}
-	var result TokenCounts
-	if json.Unmarshal(raw, &result) != nil || !validTokens(&result) {
-		return nil
-	}
-	return &result
-}
-
 // One lifecycle for a model call, whether a normal generation or an Agent round.
 func trackModelUsage(call UsageCall, sink func(UsageCall) error, emit func(ProviderEvent) error, run func(func(ProviderEvent) error) (GenerateResult, error)) (GenerateResult, error) {
 	if call.ID == "" {

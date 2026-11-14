@@ -5,30 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 )
-
-func TestTranslationInstructionsReachCLIProviders(t *testing.T) {
-	for _, provider := range []string{"codex", "claude", "kimi"} {
-		t.Run(provider, func(t *testing.T) {
-			fakeAgent(t, provider, "success")
-			s := testServer(t)
-			capture := filepath.Join(t.TempDir(), "system.txt")
-			t.Setenv("NEOREAD_SYSTEM_CAPTURE", capture)
-			in := AIInput{Prompt: "Translate this paragraph.", SystemPrompt: translationSystemPrompt}
-			if _, err := invokeCLI(t.Context(), s.Store.Root, provider, "", in, nil); err != nil {
-				t.Fatal(err)
-			}
-			b, err := os.ReadFile(capture)
-			if err != nil || !strings.Contains(string(b), translationSystemPrompt) || strings.Contains(string(b), readerFormulaRules) {
-				t.Fatalf("wrong translation instructions: %q %v", b, err)
-			}
-		})
-	}
-}
 
 func TestTranslationInstructionsReachPublicAPIProtocols(t *testing.T) {
 	for _, protocol := range []string{"openai", "anthropic"} {

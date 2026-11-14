@@ -15,8 +15,6 @@
     "@neoread/api": "workspace:*",
     "@neoread/core": "workspace:*",
     "@neoread/ui": "workspace:*",
-    "@readium/navigator": "2.11.1",
-    "@readium/shared": "2.6.0",
     "citeproc": "2.4.63",
     "katex": "0.18.1",
     "lucide-react": "^0.577.0",

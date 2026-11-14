@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import type { TranslationBlock } from "@neoread/core";
 import { api } from "@neoread/api";
+/**
+ * A new `layoutRevision` replaces the source, and block IDs may be reused for
+ * other text, so its old translations are dropped before the new snapshot.
+ */
 export function useTranslations(
   documentId: string,
   hrefs?: string[],
   active = true,
+  layoutRevision = "",
 ) {
   const [translations, setTranslations] = useState<TranslationBlock[]>([]);
   const [error, setError] = useState("");
   const scope = hrefs?.join("\0");
-  const previousDocument = useRef<string | undefined>(undefined);
+  const source = `${documentId}\0${layoutRevision}`;
+  const previousSource = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (previousDocument.current !== documentId || scope === "")
-      setTranslations([]);
-    previousDocument.current = documentId;
+    if (previousSource.current !== source || scope === "") setTranslations([]);
+    previousSource.current = source;
     setError("");
     if (!active || scope === "") return;
     const controller = new AbortController();
@@ -55,6 +60,6 @@ export function useTranslations(
       controller.abort();
       clearTimeout(timer);
     };
-  }, [documentId, scope, active]);
+  }, [documentId, source, scope, active]);
   return { translations, error };
 }

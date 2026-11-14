@@ -70,8 +70,7 @@ export function PaperRefreshSettings({ open }: { open: boolean }) {
             重新识别论文标题，并查找论文信息
           </h3>
           <p className="text-xs leading-5 text-muted-foreground">
-            处理出处为空且标题未手动编辑过的 PDF 论文。AI
-            标题会显示为建议，供你确认。
+            重新查询论文库中的所有 PDF。查到的信息会更新已有值，包括手动编辑；未查到的字段保留。
           </p>
         </div>
         <Button

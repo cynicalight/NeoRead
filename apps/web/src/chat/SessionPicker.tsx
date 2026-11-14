@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Check, LoaderCircle, Plus, Pencil, Trash2 } from "lucide-react";
 import { api } from "@neoread/api";
 import type { DocumentChatSession } from "@neoread/core";
@@ -41,7 +41,6 @@ export function SessionPicker({
   sessions,
   current,
   provider,
-  continueAction,
   onChange,
   onRefresh,
 }: {
@@ -49,7 +48,6 @@ export function SessionPicker({
   sessions: DocumentChatSession[];
   current?: DocumentChatSession;
   provider: string;
-  continueAction?: ReactNode;
   onChange: (id: string) => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -174,7 +172,6 @@ export function SessionPicker({
             ))}
           </SelectContent>
         </Select>
-        {continueAction}
         <Button
           variant="ghost"
           size="icon-xs"

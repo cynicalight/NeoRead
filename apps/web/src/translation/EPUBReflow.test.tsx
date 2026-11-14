@@ -72,7 +72,6 @@ const blocks: EPUBReadingBlock[] = [
     location: {
       type: "epub",
       href: "a.xhtml",
-      locator: JSON.stringify({ href: "a.xhtml", locations: {} }),
     },
   },
   {
@@ -83,7 +82,6 @@ const blocks: EPUBReadingBlock[] = [
     location: {
       type: "epub",
       href: "a.xhtml",
-      locator: JSON.stringify({ href: "a.xhtml", locations: {} }),
     },
   },
 ];
@@ -255,4 +253,107 @@ it("centres the current paragraph after switching modes", async () => {
     blockId: "p1",
     fraction: 0.5,
   });
+});
+
+it.each([false, true])(
+  "splits mixed reflow ranges into source and translation marks (reverse=%s)",
+  async (reverse) => {
+    await renderView();
+    await click("原文译文");
+    const second: EPUBReadingBlock = {
+      id: "p2",
+      label: "text",
+      text: "Another source paragraph.",
+      location: { type: "epub", href: "a.xhtml", blockId: "p2" },
+    };
+    const paragraph = document.createElement("p");
+    paragraph.dataset.epubBlock = "p2";
+    paragraph.innerHTML =
+      '<span data-epub-run="p2">Another source paragraph.</span>';
+    host.querySelector(".epub-web-chapter")!.append(paragraph);
+    await act(async () =>
+      fixture.events!.epubBlocksChanged?.([...blocks, second]),
+    );
+    const first = host.querySelector('[data-epub-run="p1"]')!.firstChild!,
+      last = paragraph.firstChild!.firstChild!;
+    const selected = window.getSelection()!;
+    selected.setBaseAndExtent(
+      reverse ? last : first,
+      reverse ? 7 : 6,
+      reverse ? first : last,
+      reverse ? 6 : 7,
+    );
+    Object.assign(selected.getRangeAt(0), {
+      getBoundingClientRect: () => new DOMRect(0, 0, 100, 100),
+    });
+    await act(async () =>
+      paragraph.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
+    );
+    const value = events.selection.mock.calls.at(-1)![0];
+    expect(value.parts).toHaveLength(2);
+    expect(value.parts[0]).toMatchObject({
+      text: "sentence. Second sentence.\n\nAnother",
+      location: { blockId: "p1", endBlockId: "p2", start: 6, end: 7 },
+    });
+    expect(value.parts[0].location.translation).toBeUndefined();
+    expect(value.parts[1]).toMatchObject({
+      text: "第一句。第二句。",
+      location: {
+        translation: { ranges: [{ blockId: "p1", start: 0, end: 8 }] },
+      },
+    });
+  },
+);
+
+it("keeps a translation-starting mixed range and excludes hidden source in translation-only mode", async () => {
+  await renderView();
+  await click("原文译文");
+  const second: EPUBReadingBlock = {
+    id: "p2",
+    label: "text",
+    text: "Another paragraph.",
+    location: { type: "epub", href: "a.xhtml", blockId: "p2" },
+  };
+  const paragraph = document.createElement("p");
+  paragraph.dataset.epubBlock = "p2";
+  paragraph.innerHTML = '<span data-epub-run="p2">Another paragraph.</span>';
+  host.querySelector(".epub-web-chapter")!.append(paragraph);
+  await act(async () =>
+    fixture.events!.epubBlocksChanged?.([...blocks, second]),
+  );
+  const first = document
+    .createTreeWalker(
+      companion()!.querySelector('[data-sentence="0"]')!,
+      NodeFilter.SHOW_TEXT,
+    )
+    .nextNode()!;
+  const range = document.createRange();
+  range.setStart(first, 2);
+  range.setEnd(paragraph.firstChild!.firstChild!, 7);
+  Object.assign(range, {
+    getBoundingClientRect: () => new DOMRect(0, 0, 100, 100),
+  });
+  window.getSelection()!.addRange(range);
+  await act(async () =>
+    paragraph.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
+  );
+  let value = events.selection.mock.calls.at(-1)![0];
+  expect(value.parts.map((p: { text: string }) => p.text)).toEqual([
+    "Another",
+    "句。第二句。",
+  ]);
+  expect(value.parts[0].location).toMatchObject({
+    blockId: "p2",
+    start: 0,
+    end: 7,
+  });
+  await click("仅译文");
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  await act(async () =>
+    paragraph.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
+  );
+  value = events.selection.mock.calls.at(-1)![0];
+  expect(value.parts).toBeUndefined();
+  expect(value.text).toBe("句。第二句。");
 });

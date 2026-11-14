@@ -36,18 +36,6 @@ func TestWebBudgetMigrationKeepsToolsAvailable(t *testing.T) {
 		t.Fatalf("execution history dropped: %d", len(c.Tools))
 	}
 }
-func TestCodexWebBudgetMigrationDoesNotAbort(t *testing.T) {
-	c := &chatInput{WebSearch: true}
-	for n := 0; n < 202; n++ {
-		raw := json.RawMessage(fmt.Sprintf(`{"item":{"id":"web-%d","type":"webSearch","query":"docs"}}`, n))
-		if err := c.codexToolEvent("item/started", raw); err != nil {
-			t.Fatalf("call%d: %v", n, err)
-		}
-	}
-	if c.webCalls != 202 {
-		t.Fatal(c.webCalls)
-	}
-}
 func TestWebBudgetMigrationPreservesAllSources(t *testing.T) {
 	calls := 0
 	c := &chatInput{WebSearch: true, webTransport: webRoundTrip(func(*http.Request) (*http.Response, error) {

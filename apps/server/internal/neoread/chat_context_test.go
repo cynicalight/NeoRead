@@ -11,7 +11,8 @@ import (
 )
 
 func TestChatKeepsLongSourceWithoutRepeatingIt(t *testing.T) {
-	fakeAgent(t, "codex", "fail-before")
+	piTestRuntime(t)
+
 	s := testServer(t)
 	if _, err := s.Store.DB.Exec("INSERT INTO documents(id,type,title,author,size,created_at,last_opened_at) VALUES('doc','pdf','test','',1,?,?)", now(), now()); err != nil {
 		t.Fatal(err)
@@ -142,6 +143,7 @@ func TestChatSummaryIsSeparateFromExplicitSources(t *testing.T) {
 }
 
 func TestEveryChatKindIncludesTitleAndSummary(t *testing.T) {
+	piTestRuntime(t)
 	for _, kind := range []string{"ordinary", "selection", "image"} {
 		t.Run(kind, func(t *testing.T) {
 			s, _ := imageFixture(t)
@@ -175,6 +177,7 @@ func TestEveryChatKindIncludesTitleAndSummary(t *testing.T) {
 }
 
 func TestChatAcceptsConfirmedLongContextUpToHardCap(t *testing.T) {
+	piTestRuntime(t)
 	s := testServer(t)
 	d := organizationDoc(t, s)
 	upstream, calls := fakeAPI(t, func(int, apiCall) string { return "回答" })

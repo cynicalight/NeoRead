@@ -64,7 +64,6 @@ interface Window {
     showDocumentFile: (id: string, type: "pdf" | "epub") => Promise<void>;
     openDocumentFile: (id: string, type: "pdf" | "epub") => Promise<void>;
     openExternal: (url: string) => Promise<void>;
-    openCodexThread?: (threadId: string) => Promise<void>;
     focusWindow?: () => Promise<void>;
     setCitationVisible?: (visible: boolean) => Promise<void>;
     setCitationSize?: (width: number, height: number) => Promise<void>;

@@ -5,11 +5,10 @@ describe("format-specific persistent locations", () => {
     const saved: DocumentLocation = {
       type: "epub",
       href: "chapter.xhtml",
-      locator: JSON.stringify({
-        href: "chapter.xhtml",
-        locations: { progression: 0.32 },
-        text: { highlight: "quoted passage" },
-      }),
+      blockId: "p1",
+      start: 2,
+      end: 8,
+      quote: "quoted passage",
       progression: 0.32,
     };
     const restored: DocumentLocation = JSON.parse(JSON.stringify(saved));

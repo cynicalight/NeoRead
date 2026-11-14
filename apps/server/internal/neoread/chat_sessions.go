@@ -69,8 +69,6 @@ func (s *Server) ensureChatSession(documentID, provider string) (string, error) 
 	defer s.aiMu.Unlock()
 	session, err := s.Store.ensureDefaultChatSession(documentID, provider)
 	if err == nil {
-		s.codexChat.deleteDocument(documentID)
-		s.documentCodex.deleteDocument(documentID)
 	}
 	return session, err
 }

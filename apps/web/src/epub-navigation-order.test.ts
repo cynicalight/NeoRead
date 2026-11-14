@@ -14,11 +14,13 @@ const block = (
 ): EPUBReadingBlock => ({
   id,
   label: "text",
-  text: "content",
+  text: "x".repeat(end - start),
   location: {
     type: "epub",
     href,
-    locator: JSON.stringify({ locations: { textRange: { start, end } } }),
+    blockId: id,
+    start: 0,
+    end: end - start,
   },
 });
 it("uses spine order and DOM anchor offsets for same-chapter headings and bookmarks", async () => {

@@ -86,7 +86,7 @@ func TestPiWorkerCorrelationFailuresRemainFatal(t *testing.T) {
 
 func TestDocumentToolFailurePreservesInvalidationAndSaveErrors(t *testing.T) {
 	_, a := originalDocumentFixture(t)
-	for _, failure := range []error{errDocumentAttemptEnded, generationError(ErrorSave, "private storage detail")} {
+	for _, failure := range []error{generationError(ErrorCanceled, "document attempt cancelled"), generationError(ErrorSave, "private storage detail")} {
 		raw, fatal := a.toolFailure(t.Context(), failure)
 		if fatal != failure || len(raw) != 0 {
 			t.Fatalf("fatal error recovered: raw=%s err=%v", raw, fatal)

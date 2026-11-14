@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@neoread/ui/components/button";
+import { Progress } from "@neoread/ui/components/progress";
 import { cn } from "@neoread/ui/lib/utils";
 import {
   Dialog,
@@ -38,6 +39,7 @@ export interface DeckItem {
   checks?: ReactNode;
   /** Every check passed: the row folds into one check after a pause. */
   passed?: boolean;
+  quota?: { label: string; value: string; percent?: number; hint?: string };
   /** `agent-card` for agents, read by the guided tour. */
   tour: "agent-card";
   /** A control placed beside the detail arrow in the open deck. */
@@ -77,21 +79,46 @@ function CardFace({ item, detail }: { item: DeckItem; detail?: ReactNode }) {
   const settled = useSettled(!!item.passed);
   return (
     <div className="pointer-events-none relative flex h-full gap-4">
-      <div className="flex min-w-0 max-w-[45%] shrink-0 flex-col justify-center gap-2">
+      <div className="flex min-w-0 max-w-[55%] shrink-0 flex-col justify-center">
         <span className="flex min-w-0 items-center gap-3">
           {item.icon}
           <span className="truncate text-lg font-semibold">{item.title}</span>
+          {item.subtitle && (
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {item.subtitle}
+            </span>
+          )}
         </span>
-        {item.subtitle && (
-          <span className="truncate text-xs text-muted-foreground">
-            {item.subtitle}
-          </span>
-        )}
       </div>
       {item.sideStatus && (
         <span className="ml-auto flex items-center text-xs text-muted-foreground">
           {item.sideStatus}
         </span>
+      )}
+      {item.quota && (
+        <div
+          className="flex min-w-0 flex-1 flex-col justify-center gap-2 px-3"
+          title={item.quota.hint}
+        >
+          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>{item.quota.label}</span>
+            <span className="text-sm font-medium text-foreground tabular-nums">
+              {item.quota.value}
+            </span>
+          </div>
+          {item.quota.percent !== undefined && (
+            <Progress
+              value={item.quota.percent}
+              aria-label={item.quota.label}
+              aria-valuetext={`${item.quota.percent}%`}
+            />
+          )}
+          {item.quota.hint && (
+            <span className="truncate text-[10px] text-muted-foreground">
+              {item.quota.hint}
+            </span>
+          )}
+        </div>
       )}
       <div
         className={cn(
@@ -698,7 +725,7 @@ export function AgentDeck({
                       data-slot="agent-select"
                       role="radio"
                       aria-checked={!!item.selected}
-                      aria-disabled={item.status !== "ready"}
+                      aria-disabled={item.status === "pending"}
                       aria-label={`使用 ${item.title}`}
                       tabIndex={d === 0 ? 0 : -1}
                       className="absolute inset-0 h-auto rounded-2xl p-0 hover:bg-transparent dark:hover:bg-transparent"

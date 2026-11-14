@@ -2,14 +2,10 @@ package neoread
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
-
-	"neoread.local/server/internal/scholar"
 )
 
 type paperRefreshProgress struct {
@@ -27,7 +23,7 @@ type paperRefreshState struct {
 }
 
 func paperRefreshEligible(d Document) bool {
-	return d.Library == "papers" && d.Type == "pdf" && d.DeletedAt == "" && strings.TrimSpace(d.Metadata.Venue) == ""
+	return d.Library == "papers" && d.Type == "pdf" && d.DeletedAt == ""
 }
 
 func (s *Server) paperRefreshStatus(w http.ResponseWriter, r *http.Request) {
@@ -107,19 +103,8 @@ func (s *Server) runPaperRefresh(ctx context.Context) {
 			skipped = e != nil || !paperRefreshEligible(d)
 			if !skipped {
 				lookupCtx, cancel := context.WithTimeout(work, time.Minute)
-				if d.Metadata.Sources["title"] == "manual" {
-					_, err = s.lookupDocument(lookupCtx, docID, true)
-				} else {
-					_, err = s.autoPaperLookup(lookupCtx, docID, true)
-				}
+				_, err = s.lookupDocument(lookupCtx, docID, false)
 				cancel()
-				if err != nil && work.Err() == nil {
-					state := "failed"
-					if errors.Is(err, errNoIdentifier) || errors.Is(err, scholar.ErrNotFound) {
-						state = "notFound"
-					}
-					_, _ = s.applyFound(docID, PaperMetadata{}, "", "lookup", state)
-				}
 			}
 			finish()
 		}

@@ -78,7 +78,7 @@ export function windowsProxySettings(value: unknown): Record<string, unknown> {
   for (const key of ["proxy", "bypass", "autoConfigUrl"])
     if (raw[key] != null && typeof raw[key] !== "string")
       throw new Error("Windows 系统代理字段无效");
-  if (raw.autoConfigUrl) throw new Error("暂不支持将 PAC 代理传递给 Agent CLI");
+  if (raw.autoConfigUrl) throw new Error("暂不支持将 PAC 代理传递给 Pi worker");
   const proxy = (raw.proxy as string | null | undefined)?.trim();
   if (!proxy) {
     if (raw.autoDetect) throw new Error("暂不支持自动发现代理");

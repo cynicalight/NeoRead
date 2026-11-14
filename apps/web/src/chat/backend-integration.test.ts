@@ -72,7 +72,6 @@ it.skipIf(!fixtureFile)(
 it.skipIf(!readyFile)(
   "real backend SDK -> session -> saved messages, followed by cancellation reconciliation",
   async () => {
-    if (provider === "kimi") await api.testAI("kimi");
     const bytes = await readFile(
       new URL("../../public/samples/the-art-of-reading.epub", import.meta.url),
     );

@@ -18,13 +18,13 @@ func TestEPUBTextBlocksPreserveNestedTextAndUTF16(t *testing.T) {
 	expected := []string{"Before 😀", "Same words.", "After", "Same words."}
 	ids := map[string]bool{}
 	for i, b := range blocks {
-		if b.Text != expected[i] || ids[b.ID] || !validEPUBLocator(b.Location.Locator, b.Location.Href) {
+		if b.Text != expected[i] || ids[b.ID] || !validEPUBLocator(legacyBlockLocator(b), b.Location.Href) {
 			t.Fatalf("invalid block: %+v", b)
 		}
 		ids[b.ID] = true
 	}
 	var loc annotationLocator
-	_ = json.Unmarshal([]byte(blocks[0].Location.Locator), &loc)
+	_ = json.Unmarshal([]byte(legacyBlockLocator(blocks[0])), &loc)
 	if loc.Locations.DOMRange.End.CharOffset != 2 || loc.Locations.TextRange.End != 9 {
 		t.Fatalf("wrong UTF16 offsets: %+v", loc.Locations)
 	}

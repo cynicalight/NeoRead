@@ -69,6 +69,14 @@ Public Function RunIsolationTests() As String
         "run" & vbTab & vbTab & "[1]" & vbLf & "end")
     Check a.Fields(2).Result.Text = "[1]", "Citation result was written outside the field"
     Check InStr(a.Content.Text, "{Citation}") = 0, "Placeholder leaked into document text"
+    ignored = Op("Document.getState")
+    Check InStr(ignored, """text"":""[1]""") > 0, "State lost the written citation text"
+    ignored = Op("Document.updateFields" & vbLf & "field" & vbTab & "1" & vbLf & _
+        "text" & vbLf & "run" & vbTab & vbTab & "[2]" & vbLf & "end")
+    Check a.Fields(2).Result.Text = "[2]", "Refresh did not replace the citation result"
+    Check InStr(a.Content.Text, "[1]") = 0, "Previous citation leaked into document text"
+    ignored = Op("Document.getState")
+    Check InStr(ignored, """text"":""[2]""") > 0, "State lost the refreshed citation text"
 
     ignored = Op("Document.getState")
     b.Activate

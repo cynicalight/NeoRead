@@ -1750,6 +1750,7 @@ export interface paths {
                             affiliation?: string;
                             date?: string;
                             venue?: string;
+                            venueShort?: string;
                             volume?: string;
                             issue?: string;
                             pages?: string;
@@ -2284,55 +2285,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/documents/{id}/codex-handoff": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description Fork the last committed Codex reading turn into an independent conversation with local document and chat snapshots. Does not generate a model answer or change the NeoRead conversation. Repeated requests for the same snapshot reuse the fork. */
-        post: {
-            parameters: {
-                query?: {
-                    sessionId?: string;
-                };
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Prepared independent Codex conversation */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CodexHandoff"];
-                    };
-                };
-                /** @description Document unavailable, no committed Codex conversation, active generation, or handoff failed */
-                default: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/documents/{id}/chat": {
         parameters: {
             query?: never;
@@ -2626,7 +2578,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /**
-                         * @description retranslate restarts completed paper text with saved current translation choices, retaining previous translations until replacement succeeds. Books keep chapter translation controls.
+                         * @description retranslate is an explicit manual request for a completed PDF paper: it queues a background reparse and then retranslates every unit of the new layout with saved current translation choices, even above the automatic translation page limit. Previous translations stay visible until replacement succeeds.
                          * @enum {string}
                          */
                         action: "start" | "pause" | "resume" | "retranslate";
@@ -2715,7 +2667,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Rebuild the EPUB publication cache or PDF layout from the stored original while keeping document identity and user data. */
+        /** @description Queue a background reparse of the PDF paper, PDF book, or EPUB, keeping document identity and user data. The stored original is parsed again; the previous source stays readable until the new layout or publication cache validates and is published, and `layoutRevision` then changes. Reparse does not grant translation permission. The current automatic translation settings are captured when the request is accepted: a PDF paper whose new layout has at most `autoTranslateMaxPages` pages is retranslated automatically; above the limit, with the limit 0, or with legacy `autoTranslatePDF=false`, it waits for manual translation (`manualTranslation=true`). PDF books and EPUB are never translated automatically after reparse; their new units stay idle until a chapter or paragraph is requested. The response is returned once the job is persisted; the job continues after the request disconnects or the app restarts. */
         post: {
             parameters: {
                 query?: never;
@@ -2727,15 +2679,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Reparsed */
-                200: {
+                /** @description Reparse queued */
+                202: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": {
-                            reparsed: boolean;
-                        };
+                        "application/json": components["schemas"]["Processing"];
                     };
                 };
                 /** @description Error */
@@ -2943,6 +2893,131 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/quota": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Claude weekly quota or Codex app allowance availability */
+        get: {
+            parameters: {
+                query: {
+                    provider: "codex" | "claude";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Quota or an explicit unavailable reason */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            remaining?: number;
+                            /** Format: date-time */
+                            resetsAt?: string;
+                            error?: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/auth/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: "codex" | "claude" | "kimi";
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Connect a built-in Pi provider with browser authorization or a device code. The NDJSON stream emits auth_url, device_code, progress (authorizing or exchanging), complete or error. Browser callbacks are handled by the SDK; complete confirms credentials were saved and activated. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    provider: "codex" | "claude" | "kimi";
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            responses: {
+                /** @description Connection events */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/x-ndjson": string;
+                    };
+                };
+                /** @description Connection rejected */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        /** @description Remove the local credential for a built-in Pi provider. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    provider: "codex" | "claude" | "kimi";
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Disconnected */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Disconnection rejected */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -3279,6 +3354,7 @@ export interface paths {
             };
         };
         put?: never;
+        /** @description Queue unfinished translation units. With force=true, blockId is required and only that unit is explicitly retranslated, including completed or paused units; unrelated units and automatic translation policy remain unchanged. */
         post: {
             parameters: {
                 query?: never;
@@ -3292,11 +3368,16 @@ export interface paths {
                 content: {
                     "application/json": {
                         blockId?: string;
+                        /**
+                         * @description Explicitly retranslate only blockId. Requires a nonempty blockId.
+                         * @default false
+                         */
+                        force?: boolean;
                     };
                 };
             };
             responses: {
-                /** @description Translation queued; completed blocks are retained */
+                /** @description Translation queued; completed blocks are retained unless their blockId is explicitly forced */
                 202: {
                     headers: {
                         [name: string]: unknown;
@@ -3351,7 +3432,6 @@ export interface paths {
                             type: "epub";
                             href: string;
                             blockId?: string;
-                            locator?: string;
                             start?: number;
                             end?: number;
                         };
@@ -3417,7 +3497,6 @@ export interface paths {
                             type: "epub";
                             href: string;
                             blockId?: string;
-                            locator?: string;
                         };
                         fromPage?: number;
                         toPage?: number;
@@ -4418,13 +4497,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Look up metadata by DOI, arXiv ID (also detected on the first pages) or a close title match; manual fields are kept */
+        /** Look up metadata using the current paper title; returned fields replace existing values and missing fields are preserved */
         post: {
             parameters: {
-                query?: {
-                    /** @description Search by the current title even if identifiers are present */
-                    by?: "title";
-                };
+                query?: never;
                 header?: never;
                 path: {
                     id: string;
@@ -5091,14 +5167,6 @@ export interface components {
             kind: "file" | "link";
             size: number;
         };
-        CodexHandoff: {
-            /** Format: uuid */
-            threadId: string;
-            /** @description Local codex://threads/<threadId> link */
-            url: string;
-            /** @description Absolute path of the independent document snapshot */
-            directory: string;
-        };
         OverviewContent: {
             summary: string;
             findings: {
@@ -5387,7 +5455,10 @@ export interface components {
         Provider: {
             /** @enum {string} */
             id: "codex" | "claude" | "kimi" | "api";
+            /** @description Whether the connection is configured. */
             installed: boolean;
+            /** @enum {string} */
+            authMethod?: "oauth";
             authenticated: boolean;
             status: string;
         };
@@ -5467,6 +5538,14 @@ export interface components {
             enabled?: boolean;
             readonly manualTranslation?: boolean;
             readonly retranslating?: boolean;
+            /**
+             * @description Kind of the persisted translationBlocks scope. Chapter requests cancel and join paragraph work before replacing its scope. Missing kind with nonempty IDs denotes a paragraph scope.
+             * @enum {string}
+             */
+            readonly translationScopeKind?: "paragraph" | "chapter";
+            /** @description Explicitly requested paragraph IDs processed by the existing translation lane without resuming unrelated paused work. */
+            readonly translationBlocks?: string[];
+            /** @description Changes when a reparse publishes new source; readers reload source and translations. */
             readonly layoutRevision?: string;
             readonly autoTranslateMaxPages?: number;
             /** @description EPUB work uses explicit chapter requests; the legacy automatic queue has been migrated. */
@@ -5571,8 +5650,6 @@ export interface components {
         /** @enum {string} */
         ReasoningEffort: "low" | "medium" | "high" | "max";
         WebSearchConfig: {
-            /** @description Allow supported CLI native web search. Currently Codex. */
-            cliEnabled: boolean;
             /**
              * @description Empty disables the search API.
              * @enum {string}
@@ -5638,7 +5715,7 @@ export interface components {
             blockId: string;
             sourceHash: string;
             /**
-             * @description idle: a book paragraph that has not been requested.
+             * @description idle: a book paragraph that has not been requested. failed with error "重新解析后匹配错误": an earlier translation lost its correspondence to a replaced layout and no new translation is queued.
              * @enum {unknown}
              */
             status: "idle" | "pending" | "running" | "complete" | "failed";
@@ -5721,6 +5798,7 @@ export interface components {
             affiliation?: string;
             date?: string;
             venue?: string;
+            venueShort?: string;
             volume?: string;
             issue?: string;
             pages?: string;
@@ -5735,7 +5813,7 @@ export interface components {
             remark?: string;
             /** @description The reader's own star rating; absent when unrated */
             rating?: number;
-            /** @description Origin per field; lookups never replace manual values */
+            /** @description Origin per field; successful lookups can replace existing values */
             sources?: {
                 [key: string]: "file" | "lookup" | "manual";
             };
@@ -5786,13 +5864,18 @@ export interface components {
         EPUBLocation: {
             /** @constant */
             type: "epub";
+            unresolved?: boolean;
+            /** @description Zero-based publication chapter and chapter-local block positions. */
+            order?: {
+                chapter: number;
+                block: number;
+            };
             href: string;
             blockId?: string;
             start?: number;
             end?: number;
             endBlockId?: string;
             endHref?: string;
-            locator?: string;
             progression?: number;
             quote?: string;
             sentenceLink?: components["schemas"]["SentenceLink"];

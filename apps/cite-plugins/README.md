@@ -10,6 +10,10 @@ NeoRead. Design and protocol: `docs/research/word-plugin.md`.
   that key at `/v1/cite/bootstrap` for a rotating runtime credential; HTML
   never embeds credentials. Existing installations need reinstalling once. `js/word-document.js` implements the operations on the Word
   object model and is tested against a fake model in `js/wps-client.test.mjs`.
+  Online registration uses `jspluginonline` in WPS's `publish.xml`; restart WPS
+  after replacing this registration. WPS can also load Word's startup template,
+  so inspect `/wps/` resource requests and `/v1/cite/` command requests when
+  diagnosing the JavaScript add-in.
 - `word/` — Word template for Windows and macOS.
   - `NeoReadCite.bas`: the VBA module. Keep it ASCII; write Chinese messages as
     `T("\u....")` escapes, because Word reads modules in the system code page.

@@ -60,20 +60,20 @@ func TestManualMetadataValidation(t *testing.T) {
 		t.Fatal(CreatorNames(m.Creators))
 	}
 }
-func TestMergeNeverReplacesManualValues(t *testing.T) {
+func TestMergeLookupReplacesExistingValues(t *testing.T) {
 	m := PaperMetadata{Venue: "My venue", Sources: map[string]string{"venue": "manual"}}
 	found := PaperMetadata{Venue: "ICML", Date: "2024-07", DOI: "doi.org/10.5555/abc", Creators: []Creator{{Given: "A", Family: "B"}}}
 	changed := m.Merge(found, "file")
 	if m.Venue != "My venue" || m.Date != "2024-07" || m.DOI != "10.5555/abc" || len(m.Creators) != 1 || len(changed) != 3 {
 		t.Fatalf("file merge: %+v %v", m, changed)
 	}
-	// Values from the file only fill gaps; a lookup refreshes automatic values.
+	// File metadata only fills gaps; lookup values replace existing fields.
 	m.Merge(PaperMetadata{Date: "2023"}, "file")
 	if m.Date != "2024-07" {
 		t.Fatal("file overwrote a value")
 	}
 	m.Merge(PaperMetadata{Date: "2023", Venue: "Other"}, "lookup")
-	if m.Date != "2023" || m.Sources["date"] != "lookup" || m.Venue != "My venue" {
+	if m.Date != "2023" || m.Sources["date"] != "lookup" || m.Venue != "Other" || m.Sources["venue"] != "lookup" {
 		t.Fatalf("lookup merge: %+v", m)
 	}
 	m.Merge(PaperMetadata{DOI: "not a doi"}, "lookup")

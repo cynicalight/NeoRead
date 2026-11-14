@@ -68,6 +68,7 @@ import { Settings } from "./Settings";
 import { DocumentTabs, ReadingWorkspaces } from "./DocumentTabs";
 import { flushProgress } from "./progress";
 import { useProcessing } from "./ProcessingStatus";
+import { observeReparsedLayouts } from "./reparse-document";
 import { useUpdateProgress } from "./update-progress";
 import { applyDocumentTheme, useResolvedTheme } from "./appearance";
 import { LibraryFilterBar, LibraryTagFilters } from "./DocumentManagement";
@@ -103,12 +104,15 @@ export function App() {
   const mode = libraryMode(libraryPreferences);
   const papers = mode === "papers";
   const documents = allDocuments.filter((d) => d.library === mode);
-  const pinnedBooks = (libraryPreferences.papers?.pinned || []).flatMap((key) => {
-    const doc = documents.find((d) => `doc:${d.id}` === key);
-    return doc ? [doc] : [];
-  });
+  const pinnedBooks = (libraryPreferences.papers?.pinned || []).flatMap(
+    (key) => {
+      const doc = documents.find((d) => `doc:${d.id}` === key);
+      return doc ? [doc] : [];
+    },
+  );
   const resolvedTheme = useResolvedTheme(theme);
   const { jobs, error: processingError } = useProcessing();
+  useEffect(() => observeReparsedLayouts(jobs), [jobs]);
   useUpdateProgress();
   const jobsById = useMemo(
     () => new Map(jobs.map((job) => [job.documentId, job])),
@@ -958,14 +962,7 @@ export function App() {
           job={jobs.find((job) => job.documentId === usageDocument?.id)}
           onClose={() => setUsageDocument(null)}
         />
-        <Settings
-          open={settings}
-          onOpenChange={setSettings}
-          onOpenGuide={() => {
-            setSettings(false);
-            setGuide(true);
-          }}
-        />
+        <Settings open={settings} onOpenChange={setSettings} />
         <ImportPaperDialog
           open={importingPaper}
           onOpenChange={setImportingPaper}

@@ -1,16 +1,13 @@
 import type { EPUBLocation, EPUBReadingBlock } from "@neoread/core";
-import { epubOffsets } from "../translation/epub-links";
 
 export type EPUBSlice = { block: EPUBReadingBlock; start: number; end: number };
 
-/** Resolve in memory only. Ambiguous legacy quotes must never move a note. */
+/** Resolve canonical paragraph ranges; legacy data is migrated by the server. */
 export function resolveEPUBLocation(
   location: EPUBLocation,
   blocks: EPUBReadingBlock[],
 ): EPUBSlice[] {
-  const chapter = blocks.filter(
-    (b) => b.location.href === location.href.split("#")[0],
-  );
+  if (location.unresolved) return [];
   if (location.blockId) {
     const first = blocks.findIndex(
       (b) =>
@@ -40,55 +37,7 @@ export function resolveEPUBLocation(
       end: i === selected.length - 1 ? end : block.text.length,
     }));
   }
-  const offsets = epubOffsets(location);
-  if (offsets) {
-    const slices = chapter.flatMap((block) => {
-      const range = epubOffsets(block.location);
-      return range && range.start < offsets.end && offsets.start < range.end
-        ? [
-            {
-              block,
-              start: Math.max(0, offsets.start - range.start),
-              end: Math.min(block.text.length, offsets.end - range.start),
-            },
-          ]
-        : [];
-    });
-    if (slices.length) return slices;
-  }
-  let quote = location.quote;
-  try {
-    quote ||= JSON.parse(location.locator || "{}").text?.highlight;
-  } catch {
-    /* Old malformed locators may still carry a quote. */
-  }
-  if (!quote) return [];
-  const normalized = quote.replace(/\s+/g, " ").trim();
-  if (!normalized) return [];
-  let text = "";
-  const positions: { block: number; offset: number }[] = [];
-  chapter.forEach((block, index) => {
-    if (block.image) return;
-    if (text && !text.endsWith(" ")) {
-      text += " ";
-      positions.push({ block: index, offset: 0 });
-    }
-    for (let offset = 0; offset < block.text.length; offset++) {
-      const char = /\s/.test(block.text[offset]) ? " " : block.text[offset];
-      if (char === " " && text.endsWith(" ")) continue;
-      text += char;
-      positions.push({ block: index, offset });
-    }
-  });
-  const at = text.indexOf(normalized);
-  if (at < 0 || text.indexOf(normalized, at + 1) >= 0) return [];
-  const first = positions[at],
-    last = positions[at + normalized.length - 1];
-  return chapter.slice(first.block, last.block + 1).map((block, i) => ({
-    block,
-    start: i === 0 ? first.offset : 0,
-    end: first.block + i === last.block ? last.offset + 1 : block.text.length,
-  }));
+  return [];
 }
 
 export function blockPieces(host: HTMLElement, id: string) {
@@ -147,4 +96,59 @@ export function blockOffset(
     at += text.length;
   }
   return Math.max(0, Math.min(block.text.length, at - leading));
+}
+
+/** Extract source runs only, excluding translation companions between them. */
+export function sourceEPUBSelection(
+  host: HTMLElement,
+  range: Range,
+  blocks: EPUBReadingBlock[],
+) {
+  const touched = new Set(
+    [...host.querySelectorAll<HTMLElement>("[data-epub-run]")]
+      .filter((node) => range.intersectsNode(node))
+      .map((node) => node.dataset.epubRun),
+  );
+  const matches = blocks.filter((block) => {
+    if (!touched.has(block.id)) return false;
+    const r = blockRange(host, { block, start: 0, end: block.text.length });
+    return (
+      r &&
+      range.compareBoundaryPoints(Range.END_TO_START, r) < 0 &&
+      range.compareBoundaryPoints(Range.START_TO_END, r) > 0
+    );
+  });
+  const first = matches[0],
+    last = matches.at(-1);
+  if (!first || !last) return;
+  const start = blockOffset(
+    host,
+    first,
+    range.startContainer,
+    range.startOffset,
+  );
+  const end = blockOffset(host, last, range.endContainer, range.endOffset);
+  const text = matches
+    .map((b, i) =>
+      b.text.slice(
+        i === 0 ? start : 0,
+        i === matches.length - 1 ? end : b.text.length,
+      ),
+    )
+    .join("\n\n");
+  if (!text.trim()) return;
+  const location: EPUBLocation = {
+    type: "epub",
+    href: first.location.href,
+    order: first.location.order,
+    blockId: first.id,
+    start,
+    end,
+    quote: text,
+    ...(last.id !== first.id ? { endBlockId: last.id } : {}),
+    ...(last.location.href !== first.location.href
+      ? { endHref: last.location.href }
+      : {}),
+  };
+  return { text, location };
 }

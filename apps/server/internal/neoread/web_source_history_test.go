@@ -106,19 +106,6 @@ func TestWebFetchKeepsBodyLargerThanOldTransportAndSourceLimits(t *testing.T) {
 	}
 }
 
-func TestNativeWebReferencesBeyond128RemainResolvable(t *testing.T) {
-	chat := &chatInput{WebSearch: true}
-	for i := 0; i < 200; i++ {
-		chat.rememberNativeWebSource(fmt.Sprintf("turn%dsearch0", i), fmt.Sprintf("https://example.org/%d", i))
-	}
-	for _, i := range []int{0, 128, 199} {
-		got := chat.normalizeWebCitations(fmt.Sprintf("citeturn%dsearch0", i))
-		if !strings.Contains(got, fmt.Sprintf("https://example.org/%d", i)) {
-			t.Fatalf("mapping %d was discarded: %s", i, got)
-		}
-	}
-}
-
 func TestWebSourceHistoryPersistsFullText(t *testing.T) {
 	s, agent := originalDocumentFixture(t)
 	chat := &chatInput{}

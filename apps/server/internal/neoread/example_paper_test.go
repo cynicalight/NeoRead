@@ -56,7 +56,8 @@ func TestNewLibraryExample(t *testing.T) {
 	if !bytes.Contains([]byte(prefs), []byte(paper.ID)) {
 		t.Fatal("missing onboarding example")
 	}
-	// Restart does not duplicate; completely emptying the library seeds again.
+	// Restart does not duplicate, and purging every document never seeds or
+	// onboards again.
 	s.DB.Close()
 	s, err = OpenLibrary(root)
 	if err != nil {
@@ -71,14 +72,23 @@ func TestNewLibraryExample(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.DB.Close()
-	s, err = OpenLibrary(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.DB.Close()
-	s.DB.QueryRow("SELECT count(*) FROM documents").Scan(&count)
-	if count != 1 {
-		t.Fatal("empty library was not reseeded")
+	for range 2 {
+		s, err = OpenLibrary(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.DB.QueryRow("SELECT count(*) FROM documents").Scan(&count)
+		if count != 0 {
+			t.Fatal("emptied library was reseeded")
+		}
+		var onboarded bool
+		if err = s.DB.QueryRow("SELECT json_extract(value,'$.onboarded') FROM settings WHERE key='preferences:guide'").Scan(&onboarded); err != nil {
+			t.Fatal(err)
+		}
+		if !onboarded {
+			t.Fatal("emptied library triggered onboarding again")
+		}
+		s.DB.Close()
 	}
 }
 

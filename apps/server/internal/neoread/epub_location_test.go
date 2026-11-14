@@ -39,9 +39,15 @@ func TestEPUBExactAnnotationSurvivesReopen(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	locator := `{"href":"EPUB/chapter1.xhtml","type":"application/xhtml+xml","locations":{"domRange":{"start":{"cssSelector":"html > body > p:nth-of-type(2)","textNodeIndex":0,"charOffset":2},"end":{"cssSelector":"html > body > p:nth-of-type(2)","textNodeIndex":0,"charOffset":6}},"textRange":{"start":12,"end":16}},"text":{"highlight":"阅读😀","before":"前文","after":"后文"}}`
-	location, _ := json.Marshal(map[string]any{"type": "epub", "href": "EPUB/chapter1.xhtml", "locator": locator, "quote": "阅读😀"})
-	body, _ := json.Marshal(Annotation{Kind: "note", Location: location, Quote: "阅读😀", Note: "Keep this note", Color: "#e6b94c"})
+	blocks, err := s.readEPUBBlocks(document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := blocks[0]
+	locator := legacyBlockLocator(block)
+
+	location, _ := json.Marshal(map[string]any{"type": "epub", "href": block.Location.Href, "locator": locator, "quote": block.Text})
+	body, _ := json.Marshal(Annotation{Kind: "note", Location: location, Quote: block.Text, Note: "Keep this note", Color: "#e6b94c"})
 	w = request(t, s, "POST", "/api/documents/"+document.ID+"/annotations", bytes.NewReader(body))
 	if w.Code != 201 {
 		t.Fatal(w.Body.String())
@@ -66,9 +72,10 @@ func TestEPUBExactAnnotationSurvivesReopen(t *testing.T) {
 	}
 	var saved struct {
 		Locator string `json:"locator"`
+		BlockID string `json:"blockId"`
 	}
 	json.Unmarshal(annotations[0].Location, &saved)
-	if saved.Locator != locator || annotations[0].Note != "Keep this note" {
+	if saved.Locator != "" || saved.BlockID != block.ID || annotations[0].Note != "Keep this note" {
 		t.Fatal("annotation changed during persistence")
 	}
 	w = request(t, reopened, "DELETE", "/api/documents/"+document.ID+"/annotations/"+created.ID, nil)

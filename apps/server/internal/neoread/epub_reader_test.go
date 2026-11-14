@@ -174,7 +174,7 @@ func TestEPUBReaderPreservesNewAndLegacyAnnotations(t *testing.T) {
 		t.Fatal(err)
 	}
 	fresh, _ := json.Marshal(blocks[0].Location)
-	legacy, _ := json.Marshal(map[string]any{"type": "epub", "href": blocks[0].Location.Href, "locator": blocks[0].Location.Locator, "quote": blocks[0].Text})
+	legacy, _ := json.Marshal(map[string]any{"type": "epub", "href": blocks[0].Location.Href, "locator": legacyBlockLocator(blocks[0]), "quote": blocks[0].Text})
 	for _, location := range []json.RawMessage{fresh, legacy} {
 		encoded, _ := json.Marshal(Annotation{Kind: "note", Location: location, Quote: blocks[0].Text, Note: "保留原始位置", Color: "#e6b94c"})
 		response = request(t, s, "POST", "/api/documents/"+d.ID+"/annotations", bytes.NewReader(encoded))
@@ -182,7 +182,10 @@ func TestEPUBReaderPreservesNewAndLegacyAnnotations(t *testing.T) {
 			t.Fatal(response.Body.String())
 		}
 	}
-	// NeoRead endpoints are read-only, including legacy location handling.
+	// Startup migration preserves both notes; list reads do not perform migration.
+	if err := s.Store.migrateEPUBLocations(); err != nil {
+		t.Fatal(err)
+	}
 	request(t, s, "GET", "/api/documents/"+d.ID+"/epub-chapters", nil)
 	response = request(t, s, "GET", "/api/documents/"+d.ID+"/annotations", nil)
 	var notes []Annotation
@@ -190,17 +193,25 @@ func TestEPUBReaderPreservesNewAndLegacyAnnotations(t *testing.T) {
 	if len(notes) != 2 {
 		t.Fatal(response.Body.String())
 	}
-	for _, location := range []json.RawMessage{fresh, legacy} {
-		found := false
-		for _, note := range notes {
-			if bytes.Equal(note.Location, location) {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatal("saved location was changed", string(location), response.Body.String())
+	for _, note := range notes {
+		var location EPUBReadingLocation
+		var fields map[string]any
+		json.Unmarshal(note.Location, &location)
+		json.Unmarshal(note.Location, &fields)
+		if location.BlockID != blocks[0].ID || location.Start != 0 || location.End != blocks[0].Location.End || fields["locator"] != nil || note.Note != "保留原始位置" || note.Quote != blocks[0].Text {
+			t.Fatal("note or migrated range changed", string(note.Location))
 		}
 	}
+	var backup string
+	if err := s.Store.DB.QueryRow("SELECT body FROM epub_location_backups WHERE document_id=? AND source='annotations'", d.ID).Scan(&backup); err != nil {
+		t.Fatal(err)
+	}
+	var original Annotation
+	json.Unmarshal([]byte(backup), &original)
+	if !bytes.Equal(original.Location, legacy) {
+		t.Fatal("legacy original not retained")
+	}
+
 }
 
 func TestEPUBReaderLargePublication(t *testing.T) {

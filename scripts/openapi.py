@@ -4,7 +4,7 @@ string={'type':'string'};number={'type':'number'};boolean={'type':'boolean'}
 ref=lambda n:{'$ref':'#/components/schemas/'+n}
 array=lambda s:{'type':'array','items':s}
 pdf=S(type={'const':'pdf'},page={'type':'integer','minimum':1});pdf['properties'].update(x=number,y=number,quote=string,rects=array(S(x=number,y=number,width=number,height=number)))
-epub=S(type={'const':'epub'},href=string);epub['properties'].update(locator=string,progression=number,quote=string)
+epub=S(type={'const':'epub'},href=string);epub['properties'].update(progression=number,quote=string,unresolved=boolean)
 doc=S(id=string,type={'enum':['pdf','epub']},title=string,author=string,size=number,createdAt=string,lastOpenedAt=string,favorite=boolean,percentage=number);doc['properties']['progress']=ref('DocumentLocation')
 annotation=S(id=string,documentId=string,kind={'enum':['highlight','underline','note','bookmark']},location=ref('DocumentLocation'),quote=string,note=string,color=string,createdAt=string)
 schemas={'DocumentLocation':{'oneOf':[pdf,epub]},'Document':doc,'Annotation':annotation,'SearchResult':S(id=string,excerpt=string,location=ref('DocumentLocation')),'Message':S(id=string,documentId=string,role={'enum':['user','assistant']},content=string,createdAt=string),'Provider':S(id={'enum':['codex','claude']},installed=boolean,authenticated=boolean,status=string),'Settings':{'type':'object','additionalProperties':True},'Error':S(error=string)}

@@ -1,3 +1,11 @@
+import {
+  authOrigin,
+  connectionModels,
+  loginConnection,
+  type PiConnection,
+} from "./connections";
+import { loginInteraction } from "./login-interaction";
+import { connectionQuota } from "./quota";
 import { createInterface } from "node:readline";
 import {
   runAgent,
@@ -5,6 +13,24 @@ import {
   type AgentRequest,
   type ToolResult,
 } from "./runtime";
+
+function upstreamError(status: number) {
+  switch (status) {
+    case 401:
+      return "authentication";
+    case 402:
+      return "billing";
+    case 403:
+      return "permission";
+    case 408:
+    case 504:
+      return "timeout";
+    case 429:
+      return "limit";
+    default:
+      return status >= 400 ? "upstream" : "";
+  }
+}
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const controller = new AbortController();
@@ -19,8 +45,14 @@ const checkpointAcks = new Map<
 let checkpointCounter = 0;
 let started = false,
   runId = "";
-const send = (event: Record<string, unknown>) =>
-  process.stdout.write(JSON.stringify({ version: 1, runId, ...event }) + "\n");
+const send = (
+  event: Record<string, unknown>,
+  flushed?: (error?: Error | null) => void,
+) =>
+  process.stdout.write(
+    JSON.stringify({ version: 1, runId, ...event }) + "\n",
+    flushed,
+  );
 const close = () => {
   controller.abort();
   for (const entry of pending.values()) entry.reject(new Error("运行已取消"));
@@ -35,7 +67,71 @@ lines.on("close", close);
 lines.on("line", (line) => {
   try {
     const message = JSON.parse(line);
-    if (message.type === "start" && !started) {
+    if (
+      (message.type === "login" ||
+        message.type === "catalog" ||
+        message.type === "quota") &&
+      !started
+    ) {
+      started = true;
+      const input = message.input as {
+        runId: string;
+        connection: PiConnection;
+        deviceId: string;
+      };
+      runId = input.runId;
+      const fetch = globalThis.fetch;
+      let errorCode = "";
+      let upstreamStatus = 0;
+      let phase = "starting";
+      globalThis.fetch = async (url, options) => {
+        try {
+          const response = await fetch(
+            url,
+            message.type === "quota"
+              ? { ...options, redirect: "error" }
+              : options,
+          );
+          errorCode = upstreamError(response.status);
+          upstreamStatus = response.status;
+          return response;
+        } catch (error) {
+          errorCode = "network";
+          throw error;
+        }
+      };
+      const operation =
+        message.type === "quota"
+          ? connectionQuota(input.connection, controller.signal).then(
+              (quota) => ({ quota }),
+            )
+          : message.type === "catalog"
+            ? connectionModels(input.connection, controller.signal).then(
+                (models) => ({ models }),
+              )
+            : loginConnection(
+                input.connection,
+                input.deviceId,
+                loginInteraction(controller.signal, (event) => {
+                  if (event.type === "progress") phase = event.phase;
+                  send(event);
+                }),
+              ).then(() => ({}));
+      const finish = (event: Record<string, unknown>, exitCode: 0 | 1) => {
+        // SDK callbacks may retain browser preconnect sockets for a minute.
+        // This one-shot operation is settled; flush its terminal event before
+        // exiting so Go can check the exit status and activate the credential.
+        send(event, (error) => {
+          lines.close();
+          process.stdin.destroy();
+          process.exit(error ? 1 : exitCode);
+        });
+      };
+      void operation.then(
+        (result) => finish({ type: "complete", ...result }, 0),
+        () => finish({ type: "error", errorCode, upstreamStatus, phase }, 1),
+      );
+    } else if (message.type === "start" && !started) {
       started = true;
       const input = message.input as AgentRequest;
       runId = input.runId;
@@ -44,20 +140,47 @@ lines.on("line", (line) => {
       if (input.endpoint && new URL(input.endpoint).origin !== upstream.origin)
         throw new Error("模型端点不匹配");
       const fetch = globalThis.fetch;
+      const cwd = `\n<cwd>\n${process.cwd()}\n</cwd>`;
+      let errorCode = "";
       globalThis.fetch = async (url, init) => {
         const target = new URL(url instanceof Request ? url.url : String(url));
-        if (target.origin !== upstream.origin)
+        if (
+          target.origin !== upstream.origin &&
+          target.origin !== authOrigin(input.connection)
+        )
           throw new Error("模型请求目标不匹配");
+        if (target.origin !== upstream.origin)
+          return fetch(url, { ...init, redirect: "error" });
         const headers = new Headers(
           init?.headers ?? (url instanceof Request ? url.headers : undefined),
         );
-        if (!input.key) {
+        if (!input.key && !input.connection) {
           headers.delete("authorization");
           headers.delete("x-api-key");
         }
         let body = init?.body;
         if (input.payload && typeof body === "string") {
           const payload = JSON.parse(body);
+          if (typeof payload.instructions === "string")
+            payload.instructions = payload.instructions
+              .replace(cwd, "")
+              .trimEnd();
+          for (const item of payload.messages ?? payload.input ?? []) {
+            if (item.role !== "system" && item.role !== "developer") continue;
+            if (typeof item.content === "string")
+              item.content = item.content.replace(cwd, "").trimEnd();
+            else
+              for (const part of item.content ?? []) {
+                if (typeof part.text === "string")
+                  part.text = part.text.replace(cwd, "").trimEnd();
+              }
+          }
+          for (const part of Array.isArray(payload.system)
+            ? payload.system
+            : []) {
+            if (typeof part.text === "string")
+              part.text = part.text.replace(cwd, "").trimEnd();
+          }
           for (const field of [
             "reasoning_effort",
             "reasoning",
@@ -70,14 +193,56 @@ lines.on("line", (line) => {
           ])
             delete payload[field];
           Object.assign(payload, input.payload);
+          if (
+            !input.connection &&
+            input.model.api === "openai-completions" &&
+            Array.isArray(payload.messages)
+          ) {
+            for (const message of payload.messages) {
+              if (
+                message.role !== "user" ||
+                !Array.isArray(message.content) ||
+                message.content.length !== 1
+              )
+                continue;
+              const [part] = message.content;
+              if (part.type === "text" && typeof part.text === "string")
+                message.content = part.text;
+            }
+          }
+          if (input.connection?.provider === "openai") {
+            payload.store = false;
+            payload.stream = true;
+            for (const field of [
+              "background",
+              "conversation",
+              "max_output_tokens",
+              "max_tool_calls",
+              "metadata",
+              "moderation",
+              "multi_agent",
+              "prompt",
+              "prompt_cache_retention",
+              "safety_identifier",
+              "temperature",
+              "top_logprobs",
+              "top_p",
+              "truncation",
+              "user",
+              "previous_response_id",
+            ])
+              delete payload[field];
+          }
           body = JSON.stringify(payload);
         }
-        return fetch(input.endpoint || url, {
+        const response = await fetch(input.endpoint || url, {
           ...init,
           body,
           headers,
           redirect: "error",
         });
+        errorCode = upstreamError(response.status);
+        return response;
       };
       void runAgent(
         input,
@@ -112,6 +277,7 @@ lines.on("line", (line) => {
             error instanceof Error ? error.message : "Agent 运行失败";
           send({
             type: "error",
+            errorCode,
             canContinue: error instanceof AgentRunError && error.canContinue,
             message: input.key
               ? text.split(input.key).join("[redacted]")

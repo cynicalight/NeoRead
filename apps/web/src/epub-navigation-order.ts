@@ -1,7 +1,6 @@
 import { api } from "@neoread/api";
 import type { Annotation, EPUBLocation, TOCItem } from "@neoread/core";
 import { flattenTOC } from "./navigation-model";
-import { epubOffsets } from "./translation/epub-links";
 
 /** Resolve source DOM anchors, never screen pagination or lexicographic filenames. */
 export async function epubNavigationOrders(
@@ -51,7 +50,7 @@ export async function epubNavigationOrders(
       !location.translation?.blockId &&
       location.progression === undefined
     ) {
-      result[entry.id] = [chapterIndex, epubOffsets(location)?.start ?? 0];
+      result[entry.id] = [chapterIndex, 0];
       continue;
     }
     if (!details.has(href))
@@ -63,16 +62,15 @@ export async function epubNavigationOrders(
         })),
       );
     const { doc, blocks: chapter } = await details.get(href)!;
-    let offset = epubOffsets(location)?.start;
+    let offset: number | undefined;
     const block = chapter.find(
       (b) => b.id === (location.blockId ?? location.translation?.blockId),
     );
     if (block)
       offset =
-        (epubOffsets(block.location)?.start ??
-          chapter
-            .slice(0, chapter.indexOf(block))
-            .reduce((n, b) => n + b.text.length, 0)) + (location.start ?? 0);
+        chapter
+          .slice(0, chapter.indexOf(block))
+          .reduce((n, b) => n + b.text.length, 0) + (location.start ?? 0);
     if (offset === undefined && fragment) {
       let anchor: Element | null = null;
       try {
@@ -93,14 +91,15 @@ export async function epubNavigationOrders(
           ),
       );
       const target = chapter.find((b) => b.id === run?.dataset.epubRun);
-      offset = target ? epubOffsets(target.location)?.start : undefined;
+      offset = target
+        ? chapter
+            .slice(0, chapter.indexOf(target))
+            .reduce((n, b) => n + b.text.length, 0)
+        : undefined;
       if (offset === undefined) throw new Error("无法确定目录的原文顺序");
     }
     if (offset === undefined && location.progression !== undefined) {
-      const end = Math.max(
-        0,
-        ...chapter.map((b) => epubOffsets(b.location)?.end ?? 0),
-      );
+      const end = chapter.reduce((n, b) => n + b.text.length, 0);
       offset = location.progression * end;
     }
     result[entry.id] = [chapterIndex, offset ?? 0];

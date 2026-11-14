@@ -150,10 +150,11 @@ func TestAPIHTTPBoundaries(t *testing.T) {
 }
 
 func TestAPIFallbackStreamsOverHTTP(t *testing.T) {
+	piTestRuntime(t)
 	for _, provider := range []string{"codex", "claude", "kimi"} {
 		for _, vision := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/image=%t", provider, vision), func(t *testing.T) {
-				fakeAgent(t, provider, "fail-before")
+
 				gate := make(chan struct{})
 				var released sync.Once
 				defer released.Do(func() { close(gate) })
@@ -228,7 +229,7 @@ func TestAPIFallbackStreamsOverHTTP(t *testing.T) {
 						fallback++
 					case "done":
 						done++
-					case "delta":
+					case "draft", "delta":
 						if fallback != 1 {
 							t.Fatal("delta before fallback")
 						}
@@ -238,8 +239,10 @@ func TestAPIFallbackStreamsOverHTTP(t *testing.T) {
 						if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &e) != nil {
 							t.Fatal(line)
 						}
-						text += e.Text
-						if text == "首段" {
+						if event == "delta" {
+							text += e.Text
+						}
+						if event == "draft" && e.Text == "首段" {
 							var count int
 							if err := s.Store.DB.QueryRow("SELECT count(*) FROM messages").Scan(&count); err != nil || count != 1 {
 								t.Fatal("premature save", count, err)

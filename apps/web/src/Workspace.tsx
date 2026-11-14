@@ -105,7 +105,6 @@ import { ChatSession } from "./chat/chat-session";
 import { getChatSession } from "./chat/session-registry";
 import { SessionPicker } from "./chat/SessionPicker";
 import { AssistantPanel } from "./chat/AssistantPanel";
-import { CodexHandoffButton } from "./chat/CodexHandoffButton";
 import { ImagePreview, imageLabel } from "./ImagePreview";
 import { readingContext } from "./chat/reading-context";
 import { referenceLabel } from "./references";
@@ -116,7 +115,9 @@ import { useAnnotationUndo } from "./useAnnotationUndo";
 import { useAnnotationDeletion } from "./useAnnotationDeletion";
 import {
   activeAnnotation,
+  annotationRequests,
   applySavedAnnotation,
+  saveAnnotationParts,
   highlightPalette,
 } from "./annotations";
 import { ColorSwatches } from "./ColorSwatches";
@@ -632,11 +633,18 @@ export function Workspace({
     if (!target || annotationSaving.current) return;
     annotationSaving.current = true;
     setNoteSaving(written);
+    let savedCount = 0;
     try {
       const prepared =
         source && kind !== "bookmark" && !editingAnnotation
           ? ((await adapter?.prepareAnnotation?.(source)) ?? source)
           : source;
+      // PDF notes keep their single positioned side; highlights and EPUB
+      // mixed selections retain independent parts with partial-save recovery.
+      const selected =
+        doc.type === "pdf" && written && prepared
+          ? { ...prepared, parts: undefined }
+          : prepared;
       const a =
         written && editingAnnotation
           ? await api.updateAnnotationNote(
@@ -644,15 +652,26 @@ export function Workspace({
               editingAnnotation.id,
               noteText,
             )
-          : await api.annotate(doc.id, {
-              kind,
-              location:
-                kind === "bookmark" ? target : (prepared?.location ?? target),
-              quote: kind === "bookmark" ? "" : source?.text || "",
-              note: noteText,
-              color,
-            });
-      setAnnotations((items) => applySavedAnnotation(items, a));
+          : await saveAnnotationParts(
+              kind === "bookmark"
+                ? { text: "", location: target }
+                : (selected ?? { text: "", location: target }),
+              (part) =>
+                api.annotate(
+                  doc.id,
+                  annotationRequests(kind, part, target, noteText, color)[0],
+                ),
+              (saved) => {
+                setAnnotations((items) => applySavedAnnotation(items, saved));
+                savedCount++;
+              },
+              (pending) => {
+                if (written) setNoteSelection(pending);
+                else setSelection(pending);
+              },
+            );
+      if (written && editingAnnotation)
+        setAnnotations((items) => applySavedAnnotation(items, a));
       adapter?.clearSelection();
       if (kind === "bookmark")
         toast.success("已添加书签", { id: "neoread-annotation-save" });
@@ -662,7 +681,11 @@ export function Workspace({
       setNote("");
       return a;
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(
+        savedCount
+          ? `部分高亮已保存，其余保存失败：${(e as Error).message}`
+          : (e as Error).message,
+      );
     } finally {
       annotationSaving.current = false;
       setNoteSaving(false);
@@ -879,7 +902,6 @@ export function Workspace({
     try {
       const captured = await readingContext(
         adapter,
-        provider,
         selected,
         useSection,
         attachments.length > 0,
@@ -1586,22 +1608,7 @@ export function Workspace({
                   sessions={sessions}
                   current={currentSession}
                   provider={provider}
-                  continueAction={
-                    provider === "codex" && (
-                      <CodexHandoffButton
-                        key={doc.id}
-                        documentId={doc.id}
-                        sessionId={currentSession?.id}
-                        disabled={
-                          sending ||
-                          !chat.loaded ||
-                          !chat.messages.some(
-                            (message) => message.role === "assistant",
-                          )
-                        }
-                      />
-                    )
-                  }
+
                   onChange={selectSession}
                   onRefresh={refreshSessions}
                 />

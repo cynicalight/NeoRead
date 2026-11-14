@@ -77,7 +77,7 @@ func (s *Server) translationChapterState(w http.ResponseWriter, r *http.Request)
 	}
 	out := translationChapterStatus{}
 	if d.Type == "epub" {
-		if req.Location == nil || req.Location.Type != "epub" || !validEPUBLocator(req.Location.Locator, req.Location.Href) {
+		if req.Location == nil || req.Location.Type != "epub" || req.Location.Href == "" {
 			fail(w, 400, "章节位置无效")
 			return
 		}

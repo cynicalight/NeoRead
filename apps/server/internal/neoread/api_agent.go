@@ -66,7 +66,7 @@ func primaryCapable(c AIConfig, task modelTask) bool {
 	return capable(c, c.Primary, false)
 }
 
-func (s *Server) apiAgentAdapter(c AIConfig, task modelTask) apiAgentAdapter {
+func (s *Server) apiAgentAdapter(c AIConfig, task modelTask) piAPIAdapter {
 	models, efforts := c.Models, c.Efforts
 	if task == taskTranslation {
 		models, efforts = c.TranslationModels, c.TranslationEfforts
@@ -79,9 +79,9 @@ func (s *Server) apiAgentAdapter(c AIConfig, task modelTask) apiAgentAdapter {
 		}
 		return apiModelChoice{model, level}
 	}
-	return apiAgentAdapter{c.API, choice(models, efforts), choice(c.VisionModels, c.VisionEfforts), task, func(ctx context.Context) ([]AgentModel, error) {
+	return piAPIAdapter{apiAgentAdapter{c.API, choice(models, efforts), choice(c.VisionModels, c.VisionEfforts), task, func(ctx context.Context) ([]AgentModel, error) {
 		return s.apiAgentModels(ctx, c)
-	}}
+	}}, s.Store.Root}
 }
 
 // resolve fixes the model and requested effort for one request. Wire mapping

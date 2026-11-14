@@ -46,7 +46,7 @@ const epubBlocks: EPUBReadingBlock[] = [
     id: t.blockId,
     text: "Original sentence.",
     label: "text",
-    location: { type: "epub", href: "chapter.xhtml", locator: "{}" },
+    location: { type: "epub", href: "chapter.xhtml" },
   },
 ];
 const events = {
@@ -551,6 +551,90 @@ it("draws split source anchors independently of translation and linking settings
   expect(events.annotationHover).toHaveBeenLastCalledWith(null);
 });
 
+it("draws a reflow mark at its saved occurrence of repeated text", async () => {
+  const text = "Original sentence.";
+  const start = text.lastIndexOf("e");
+  const a: Annotation = {
+    id: "second-occurrence",
+    documentId: "doc",
+    kind: "highlight",
+    quote: "e",
+    note: "",
+    color: "#6cc58c",
+    createdAt: "",
+    location: {
+      type: "pdf",
+      page: 1,
+      sourceAnchors: [
+        {
+          blockId: "p1-b1",
+          page: 1,
+          source: "e",
+          bounds: blocks[0].bounds,
+          text,
+          start,
+          end: start + 1,
+        },
+      ],
+    },
+  };
+  await act(async () => root.render(<App reflow annotations={[a]} />));
+  const mark = [...registry.entries()].find(([name]) =>
+    name.includes("-highlight-"),
+  );
+  const range = [...mark![1]][0];
+  expect(range.toString()).toBe("e");
+  expect(range.startOffset).toBe(start);
+});
+
+it("draws both source and translation for a mixed reflow selection", async () => {
+  const a: Annotation = {
+    id: "mixed",
+    documentId: "doc",
+    kind: "highlight",
+    quote: "Original sentence.翻译句子。",
+    note: "",
+    color: "#6cc58c",
+    createdAt: "",
+    location: {
+      type: "pdf",
+      page: 1,
+      sourceAnchors: [
+        {
+          blockId: "p1-b1",
+          page: 1,
+          source: "Original sentence.",
+          bounds: blocks[0].bounds,
+        },
+      ],
+      translation: {
+        blockId: "p1-b1",
+        sourceHash: "hash",
+        sentenceIndexes: [0],
+        start: 0,
+        end: 5,
+        ranges: [
+          {
+            blockId: "p1-b1",
+            sourceHash: "hash",
+            sentenceIndexes: [0],
+            start: 0,
+            end: 5,
+            quote: "翻译句子。",
+          },
+        ],
+      },
+    },
+  };
+  await act(async () => root.render(<App reflow annotations={[a]} />));
+  const mark = [...registry.entries()].find(([name]) =>
+    name.includes("-highlight-"),
+  );
+  expect(texts(mark![1])).toEqual(
+    expect.arrayContaining(["Original sentence.", "翻译句子。"]),
+  );
+});
+
 it("links EPUB sentences across inline runs in both directions without changing selection", async () => {
   await act(async () => root.render(<App epub />));
   await pointer("[data-epub-run]", "pointermove", 5);
@@ -587,6 +671,44 @@ it("segments untranslated EPUB source and rejects mismatched translation anchors
   );
   await pointer("[data-sentence]", "pointermove", 205);
   expect(texts(hover())).toEqual(["翻译句子。"]);
+});
+
+it("hit-tests the EPUB adapter's source marks without drawing them again", async () => {
+  const a: Annotation = {
+    id: "epub-source",
+    documentId: "doc",
+    kind: "highlight",
+    quote: "Original",
+    note: "",
+    color: "#6cc58c",
+    createdAt: "",
+    location: {
+      type: "epub",
+      href: "chapter.xhtml",
+      blockId: "p1-b1",
+      start: 0,
+      end: 8,
+    },
+  };
+  engine.annotationRanges = () => {
+    const range = document.createRange();
+    range.selectNodeContents(
+      host.querySelector("[data-epub-run]")!.firstChild!,
+    );
+    return [{ annotation: a, range }];
+  };
+  try {
+    await act(async () => root.render(<App epub annotations={[a]} />));
+    expect(
+      [...registry.keys()].filter((name) => name.includes("-highlight-")),
+    ).toEqual([]);
+    await pointer("[data-epub-run]", "pointermove", 5);
+    expect(events.annotationHover).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ids: ["epub-source"] }),
+    );
+  } finally {
+    delete engine.annotationRanges;
+  }
 });
 
 it("links reflowed PDF source sentences with their translations", async () => {

@@ -87,7 +87,11 @@ func (s *Server) corpusFingerprintAt(d Document, logicalRoot string) (string, er
 			return "", e
 		}
 	}
-	return sourceKey(corpusVersion + "\n" + strings.Join(parts, "\n")), nil
+	version := corpusVersion
+	if d.Type == "epub" {
+		version += "-paragraph-locations-v1"
+	}
+	return sourceKey(version + "\n" + strings.Join(parts, "\n")), nil
 }
 func (s *Server) documentCorpus(ctx context.Context, documentID string, preparing func() error) (*documentCorpus, error) {
 	if ctx.Err() != nil {
@@ -260,12 +264,6 @@ func addCorpusPassage(c *documentCorpus, section, label, text string, location a
 		if loc, ok := location.(EPUBReadingLocation); ok {
 			loc.Quote = piece
 			loc.Start, loc.End = offset, offset+utf16Length(piece)
-			var locator map[string]any
-			if json.Unmarshal([]byte(loc.Locator), &locator) == nil {
-				locator["text"] = map[string]string{"highlight": piece}
-				encoded, _ := json.Marshal(locator)
-				loc.Locator = string(encoded)
-			}
 			pieceLocation, _ = json.Marshal(loc)
 		}
 		c.Passages = append(c.Passages, documentPassage{Section: section, Label: label, Text: piece, Location: pieceLocation, Precision: precision})

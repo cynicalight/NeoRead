@@ -153,9 +153,7 @@ export function PaperNote({
       <DialogContent className="paper-note-dialog" finalFocus={expandButton}>
         <DialogHeader>
           <DialogTitle>论文笔记</DialogTitle>
-          <DialogDescription>
-            Markdown 笔记 · 公式可在源码中编辑
-          </DialogDescription>
+          <DialogDescription>Markdown 笔记</DialogDescription>
         </DialogHeader>
         {expanded && active && (
           <PaperNoteRichEditor

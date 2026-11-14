@@ -8,7 +8,9 @@ it("uses exact saved locations for selected passages and bounds long previews", 
   const location: DocumentLocation = {
     type: "epub",
     href: "ch2.xhtml",
-    locator: '{"locations":{"domRange":{}}}',
+    blockId: "paragraph-2",
+    start: 3,
+    end: 12,
   };
   const cards = referenceCards(
     { references: [{ text: "A long passage ".repeat(100), location }] },
@@ -78,7 +80,9 @@ it("retains a return point on failed navigation and permits retrying", async () 
     getLocation: () => ({
       type: "epub" as const,
       href: "ch2.xhtml",
-      locator: "exact-position",
+      blockId: "paragraph-2",
+      start: 3,
+      end: 12,
     }),
     goTo: vi.fn().mockResolvedValue(undefined),
   };
@@ -92,7 +96,9 @@ it("retains a return point on failed navigation and permits retrying", async () 
   expect(reader.goTo).toHaveBeenLastCalledWith({
     type: "epub",
     href: "ch2.xhtml",
-    locator: "exact-position",
+    blockId: "paragraph-2",
+    start: 3,
+    end: 12,
   });
 });
 it("finds a PDF quote's text run instead of always jumping to the page top", () => {

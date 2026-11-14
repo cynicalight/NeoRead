@@ -21,7 +21,7 @@ func setup(t *testing.T) *Runtime {
 	return r
 }
 func str(value string) *string { return &value }
-func TestIndependentNetworkAndPath(t *testing.T) {
+func TestNetworkReadiness(t *testing.T) {
 	r := setup(t)
 	req, _ := http.NewRequest("GET", "https://example.com", nil)
 	network := make(chan error, 1)
@@ -48,33 +48,20 @@ func TestIndependentNetworkAndPath(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("network blocked on PATH")
 	}
-	binary, _ := os.Executable()
-	found := make(chan error, 1)
-	go func() { _, err := LookPath(context.Background(), binary); found <- err }()
-	select {
-	case <-found:
-		t.Fatal("lookup did not wait")
-	case <-time.After(20 * time.Millisecond):
-	}
-	if err := r.Apply("path", map[string]*string{"PATH": str(os.Getenv("PATH"))}); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-found; err != nil {
-		t.Fatal(err)
-	}
+
 }
 func TestValidationAndOneTimeApplication(t *testing.T) {
 	r := setup(t)
-	if err := r.Apply("path", map[string]*string{"PATH": str("changed"), "HOME": str("injected")}); err == nil {
+	if err := r.Apply("network", map[string]*string{"HTTPS_PROXY": str("changed"), "HOME": str("injected")}); err == nil {
 		t.Fatal("accepted arbitrary variable")
 	}
-	if os.Getenv("PATH") == "changed" {
+	if os.Getenv("HTTPS_PROXY") == "changed" {
 		t.Fatal("partial change")
 	}
-	if err := r.Apply("path", map[string]*string{"PATH": str(os.Getenv("PATH"))}); err != nil {
+	if err := r.Apply("network", map[string]*string{"HTTPS_PROXY": str("http://localhost:7890")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Apply("path", map[string]*string{"PATH": str("replacement")}); err == nil {
+	if err := r.Apply("network", map[string]*string{"HTTPS_PROXY": str("replacement")}); err == nil {
 		t.Fatal("accepted replacement")
 	}
 }
@@ -86,11 +73,11 @@ func TestLoopbackAndCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := LookPath(ctx, "missing-cli"); err != context.Canceled {
+	if err := CommandContext(ctx, "missing-worker").Err; err != context.Canceled {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
-	go func() { done <- CommandContext(context.Background(), "missing-cli").Err }()
+	go func() { done <- CommandContext(context.Background(), "missing-worker").Err }()
 	r.Stop()
 	select {
 	case err := <-done:

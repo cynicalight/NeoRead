@@ -78,7 +78,7 @@ func TestChatSessionMigrationPreservesEvidence(t *testing.T) {
 	if err := s.Store.saveMessage(original); err != nil {
 		t.Fatal(err)
 	}
-	if err := saveDocumentConversation(t.Context(), s.Store.DB, "doc", "codex", documentConversation{ID: "state", ConnectionKey: "key", NativeThread: "native"}); err != nil {
+	if err := saveDocumentConversation(t.Context(), s.Store.DB, "doc", "codex", documentConversation{ID: "state", ConnectionKey: "key", LastMessageID: "existing-message"}); err != nil {
 		t.Fatal(err)
 	}
 	out := request(t, s, "GET", "/api/documents/doc/chat-sessions", nil)
@@ -95,7 +95,7 @@ func TestChatSessionMigrationPreservesEvidence(t *testing.T) {
 		t.Fatal(messages, err)
 	}
 	state, err := s.Store.documentConversation(t.Context(), "doc", conversationProvider(sessions[0].ID, "codex"), "key")
-	if err != nil || state.NativeThread != "native" {
+	if err != nil || state.LastMessageID != "existing-message" {
 		t.Fatal(state, err)
 	}
 	request(t, s, "GET", "/api/documents/doc/chat-sessions", nil)
@@ -305,6 +305,7 @@ func TestPiReadingToolsAndAcceptedContinuation(t *testing.T) {
 
 func TestRunConcurrencyLimitAndRestartReconciliation(t *testing.T) {
 	s, _ := prepareConversationFixture(t)
+	fakePiConnection(t, s, "codex", "")
 	session := createSessionTest(t, s)
 	s.chatMu.Lock()
 	s.chatRuns = map[string]*chatRun{}
@@ -347,48 +348,5 @@ func TestRunConcurrencyLimitAndRestartReconciliation(t *testing.T) {
 		if err != nil || restored.Status != status {
 			t.Fatal(restored, err)
 		}
-	}
-}
-
-func TestManagedCodexSessionsKeepSeparateNativeThreads(t *testing.T) {
-	s, a := prepareConversationFixture(t)
-	fakeAgent(t, "codex", "document-conversation")
-	t.Setenv("NEOREAD_CONVERSATION_CAPTURE", filepath.Join(t.TempDir(), "capture.jsonl"))
-	t.Setenv("NEOREAD_DOCUMENT_TEST_BLOCK", a.corpus.Passages[1].ID)
-	first, second := createSessionTest(t, s), createSessionTest(t, s)
-	start := func(session ChatSession, prompt string) ChatRun {
-		out := request(t, s, "POST", "/api/documents/doc/chat-sessions/"+session.ID+"/chat", strings.NewReader(jsonText(map[string]any{"provider": "codex", "prompt": prompt, "context": ""})))
-		if out.Code != 202 {
-			t.Fatal(out.Code, out.Body.String())
-		}
-		var run ChatRun
-		_ = json.Unmarshal(out.Body.Bytes(), &run)
-		return run
-	}
-	ar, br := start(first, "记住 CIVET-42"), start(second, "独立问题")
-	for _, run := range []ChatRun{ar, br} {
-		if result := awaitRunTest(t, s, run); result.Status != "completed" {
-			t.Fatal(result.Error)
-		}
-	}
-	aHistory, _ := s.Store.chatHistory("doc", first.ID)
-	bHistory, _ := s.Store.chatHistory("doc", second.ID)
-	if len(aHistory) != 2 || len(bHistory) != 2 || !strings.Contains(aHistory[1].Content, "CIVET-42") || strings.Contains(bHistory[1].Content, "CIVET-42") {
-		t.Fatal("native thread history mixed", aHistory, bHistory)
-	}
-	aState, err := s.Store.documentConversation(t.Context(), "doc", conversationProvider(first.ID, "codex"), "codex-native-v1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	bState, err := s.Store.documentConversation(t.Context(), "doc", conversationProvider(second.ID, "codex"), "codex-native-v1")
-	if err != nil || aState.NativeThread == bState.NativeThread {
-		t.Fatal(aState, bState, err)
-	}
-	if result := awaitRunTest(t, s, start(first, "继续")); result.Status != "completed" {
-		t.Fatal(result.Error)
-	}
-	aHistory, _ = s.Store.chatHistory("doc", first.ID)
-	if len(aHistory) != 4 || !strings.Contains(aHistory[3].Content, "CIVET-42") {
-		t.Fatal("native resume lost accepted history", aHistory)
 	}
 }

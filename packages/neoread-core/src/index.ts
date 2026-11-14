@@ -26,6 +26,10 @@ export type PDFLocation = {
     source: string;
     page: number;
     bounds: { x: number; y: number; width: number; height: number };
+    /** UTF-16 offsets in the rendered source paragraph at selection time. */
+    start?: number;
+    end?: number;
+    text?: string;
   }[];
   type: "pdf";
   page: number;
@@ -64,10 +68,16 @@ export type TranslationLocation = TranslationRecoveryAnchor & {
     start: number;
     end: number;
     quote: string;
+    /** Rendered paragraph text used to interpret the UTF-16 offsets. */
+    renderedText?: string;
     location?: EPUBLocation;
   })[];
 };
 export type EPUBLocation = {
+  /** Zero-based publication chapter and chapter-local block positions. */
+  order?: { chapter: number; block: number };
+  /** A historical location could not be safely migrated; retain its note. */
+  unresolved?: boolean;
   blockId?: string;
   /** UTF-16 offsets in block text; endBlockId supports multi-paragraph selections. */
   start?: number;
@@ -79,7 +89,6 @@ export type EPUBLocation = {
   href: string;
   sentenceLink?: SentenceLink;
   translation?: TranslationLocation;
-  locator?: string;
   progression?: number;
   quote?: string;
 };
@@ -113,6 +122,7 @@ export interface PaperMetadata {
   /** YYYY, YYYY-MM or YYYY-MM-DD. */
   date?: string;
   venue?: string;
+  venueShort?: string;
   volume?: string;
   issue?: string;
   pages?: string;
@@ -127,7 +137,7 @@ export interface PaperMetadata {
   remark?: string;
   /** The reader's own 1–5 star rating; absent or 0 when unrated. */
   rating?: number;
-  /** Where each field came from; lookups never replace manual values. */
+  /** Where each field came from; successful lookups can replace existing values. */
   sources?: Partial<Record<string, MetadataSource>>;
   /** Automatic lookup state for papers imported from files. */
   lookup?: "pending" | "done" | "notFound" | "failed";
@@ -349,6 +359,8 @@ export interface SelectionAnchor {
   bottom: number;
 }
 export interface ReaderSelection {
+  /** Independent sides selected together, saved as separate highlights. */
+  parts?: ReaderSelection[];
   /** Nearby source text, captured before the DOM selection is cleared. */
   context?: { before: string; after: string };
   /** Transient renderer viewport position; never persist as a document anchor. */
@@ -584,6 +596,8 @@ export interface ReaderAdapter {
     scroll?: boolean,
   ): Promise<void>;
   sentenceRanges?(passages: PDFPassage[]): Range[];
+  /** Source marks the adapter draws itself, with their current ranges. */
+  annotationRanges?(): { annotation: Annotation; range: Range }[];
   prepareAnnotation?(selection: ReaderSelection): Promise<ReaderSelection>;
   focusPassages?(passages: PDFPassage[], scroll?: boolean): Promise<void>;
   matchSentences?(
@@ -607,6 +621,7 @@ export function locationLabel(location?: DocumentLocation): string {
     : `章节进度 ${Math.round((location.progression ?? 0) * 100)}%`;
 }
 export interface Provider {
+  authMethod?: "oauth";
   id: "codex" | "claude" | "kimi" | "api";
   installed: boolean;
   authenticated: boolean;
@@ -692,10 +707,14 @@ export interface ProcessingStage {
 }
 export interface Processing {
   retranslating?: boolean;
+  /** Changes when a reparse publishes new source; readers reload source and translations. */
   layoutRevision?: string;
   autoTranslateMaxPages?: number;
   manualTranslation?: boolean;
   enabled?: boolean;
+  /** Persisted execution scope. A chapter request supersedes paragraph work. */
+  translationBlocks?: string[];
+  translationScopeKind?: "paragraph" | "chapter";
   translating?: ProcessingStage;
   usageTracked?: boolean;
   startedAt?: string;
@@ -778,7 +797,6 @@ export interface APIConnection {
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export interface WebSearchConfig {
-  cliEnabled: boolean;
   provider: "" | "deepseek" | "keenable";
   url: string;
   key?: string;

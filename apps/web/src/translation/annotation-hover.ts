@@ -65,7 +65,7 @@ export function annotationsInRects(
   });
 }
 
-const inside = (r: DOMRect, x: number, y: number) =>
+export const inside = (r: DOMRect, x: number, y: number) =>
   r.width > 0 &&
   r.height > 0 &&
   x >= r.left &&

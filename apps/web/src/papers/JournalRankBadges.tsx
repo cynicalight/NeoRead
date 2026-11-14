@@ -25,11 +25,13 @@ function tone(badge: JournalRankBadge) {
 export function JournalRankBadges({
   id,
   venue,
+  venueShort,
   config,
   refreshRevision,
 }: {
   id: string;
   venue: string;
+  venueShort?: string;
   config: JournalRankConfig | null;
   refreshRevision: number;
 }) {
@@ -74,7 +76,15 @@ export function JournalRankBadges({
       cancelled = true;
       observer?.disconnect();
     };
-  }, [id, venue, config?.enabled, config?.hasKey, refreshRevision, retry]);
+  }, [
+    id,
+    venue,
+    venueShort,
+    config?.enabled,
+    config?.hasKey,
+    refreshRevision,
+    retry,
+  ]);
   const badges =
     result?.badges.filter((badge) =>
       config?.filterMode === "exclude"

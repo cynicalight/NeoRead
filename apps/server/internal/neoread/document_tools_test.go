@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -222,8 +221,8 @@ func TestDocumentCorpusExtractsOnlyMissingPages(t *testing.T) {
 	if e := os.WriteFile(path, data, 0600); e != nil {
 		t.Fatal(e)
 	}
-	fakeAgent(t, "node", "corpus-worker")
-	node, e := exec.LookPath("node")
+	t.Setenv("NEOREAD_CORPUS_TEST_CHILD", "1")
+	node, e := os.Executable()
 	if e != nil {
 		t.Fatal(e)
 	}

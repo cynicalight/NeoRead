@@ -29,8 +29,6 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { createStartupWindow } from "./startup-window";
 import { prepareStartupExit } from "./startup-exit";
-import { agentPath } from "./agent-path";
-import { codexThreadURL } from "../../../packages/neoread-core/src/codex-link";
 import { annotationUndoShortcut } from "../../../packages/neoread-core/src/undo-shortcut";
 import { zoomCommand } from "../../../packages/neoread-core/src/zoom-shortcut";
 import { documentTabCommand } from "../../../packages/neoread-core/src/document-tab-shortcut";
@@ -565,20 +563,8 @@ app
       startupStage("startup.proxy_ready", proxyStarted);
       return service;
     });
-    // Start both discoveries together; neither is a prerequisite for Go.
-    const pathStarted = performance.now();
-    const pathReady = agentPath(process.env, homedir(), process.platform).then(
-      (value) => {
-        startupStage("startup.agent_path_ready", pathStarted);
-        return value;
-      },
-    );
-    // Observe errors immediately while library initialization proceeds.
     void proxyReady.catch((error) =>
       diagnostics?.record("startup.proxy_failed", error),
-    );
-    void pathReady.catch((error) =>
-      diagnostics?.record("startup.agent_path_failed", error),
     );
     try {
       activeLibrary = await libraryDirectory(app.getPath("userData"));
@@ -642,12 +628,6 @@ app
         .catch((error) => {
           if (!quitting)
             diagnostics?.record("startup.network_delivery_failed", error);
-        });
-      void pathReady
-        .then((value) => sendRuntime("path", { PATH: value }))
-        .catch((error) => {
-          if (!quitting)
-            diagnostics?.record("startup.path_delivery_failed", error);
         });
     }
 
@@ -921,7 +901,8 @@ app
       );
       const feedback = startupWindow;
       await feedback?.waitForMinimumDisplay();
-      let exitStartup: Awaited<ReturnType<typeof prepareStartupExit>> | undefined;
+      let exitStartup:
+        Awaited<ReturnType<typeof prepareStartupExit>> | undefined;
       const canShow = () =>
         !quitRequested && !quitting && !createdWindow.isDestroyed();
       if (canShow() && feedback && !feedback.nativeWindow.isDestroyed()) {
@@ -934,7 +915,8 @@ app
             createdWindow,
           );
         } catch (error) {
-          if (canShow()) diagnostics?.record("startup.exit_prepare_failed", error);
+          if (canShow())
+            diagnostics?.record("startup.exit_prepare_failed", error);
         }
       }
       const reveal = canShow();
@@ -1119,10 +1101,13 @@ app
       settingsSender(event);
       return (await proxyReady).state();
     });
-    ipcMain.handle("neoread:save-proxy-settings", async (event, value: unknown) => {
-      settingsSender(event);
-      return (await proxyReady).save(value);
-    });
+    ipcMain.handle(
+      "neoread:save-proxy-settings",
+      async (event, value: unknown) => {
+        settingsSender(event);
+        return (await proxyReady).save(value);
+      },
+    );
     ipcMain.handle("neoread:check-proxy", async (event, value: unknown) => {
       settingsSender(event);
       return (await proxyReady).check(value, serverBinary());
@@ -1212,17 +1197,6 @@ app
       openedClaimed = true;
       return pendingOpened.splice(0);
     });
-    ipcMain.handle(
-      "neoread:open-codex-thread",
-      async (event, threadId: unknown) => {
-        if (
-          event.sender !== window?.webContents ||
-          event.senderFrame !== window.webContents.mainFrame
-        )
-          throw new Error("Invalid sender");
-        await shell.openExternal(codexThreadURL(threadId));
-      },
-    );
     const citeOptions = () => ({
       platform: process.platform,
       home: homedir(),
