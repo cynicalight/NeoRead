@@ -19,7 +19,7 @@ import (
 
 var journalRankURL = "https://www.easyscholar.cc/open/getPublicationRank"
 
-var defaultJournalRankFields = []string{"sciif", "sci", "sciUp", "sciUpSmall"}
+var defaultJournalRankFields = []string{"sciif", "sci", "sciUp", "sciUpSmall", "ccf"}
 var journalRankFieldOrder = []string{"sciif", "sciif5", "jci", "sci", "ssci", "sciUp", "sciUpSmall", "sciBase", "sciBaseSmall", "sciUpTop"}
 
 var journalRankNames = map[string]string{

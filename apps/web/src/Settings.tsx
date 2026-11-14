@@ -77,6 +77,7 @@ import { Checkbox } from "@neoread/ui/components/checkbox";
 import { toast } from "sonner";
 import { columnLabels, defaultColumns, toggleColumn } from "./papers/model";
 import { savePaperPreferences } from "./papers/actions";
+import { openExternalLink } from "./reading-links";
 import { AppearancePicker } from "./AppearancePicker";
 import { AgentDeck, type DeckItem } from "./AgentDeck";
 import { recentAgentCalls } from "./agentUsage";
@@ -930,6 +931,7 @@ export function Settings({
                       type="password"
                       autoComplete="off"
                       aria-label="easyScholar SecretKey"
+                      aria-describedby="journal-rank-key-help"
                       placeholder={
                         journalRank.hasKey
                           ? "已保存 SecretKey；输入新密钥可替换"
@@ -948,6 +950,23 @@ export function Settings({
                       保存
                     </Button>
                   </div>
+                  <p
+                    id="journal-rank-key-help"
+                    className="mt-2 text-xs text-muted-foreground"
+                  >
+                    <a
+                      href="https://www.easyscholar.cc/console/user/open"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-4 hover:text-foreground"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        openExternalLink(event.currentTarget.href);
+                      }}
+                    >
+                      前往 easyScholar 获取 API Key
+                    </a>
+                  </p>
                   <div className="mt-4 flex items-center gap-2 text-xs">
                     <span id="journal-rank-filter-label">指标筛选</span>
                     <Tabs
