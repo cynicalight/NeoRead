@@ -1,0 +1,57 @@
+[
+  {
+    "abbreviation": "NeurIPS",
+    "fullName": "Conference on Neural Information Processing Systems",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(neurips|nips|(conference on )?neural information processing systems|advances in neural information processing systems( [0-9]+)?)( \\((neurips|nips)( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+  },
+  {
+    "abbreviation": "ICML",
+    "fullName": "International Conference on Machine Learning",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(icml|international conference on machine learning)( \\(icml( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+  },
+  {
+    "abbreviation": "IJCAI",
+    "fullName": "International Joint Conference on Artificial Intelligence",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(ijcai|international joint conference on artificial intelligence)( \\(ijcai( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+  },
+  {
+    "abbreviation": "ICLR",
+    "fullName": "International Conference on Learning Representations",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(iclr|international conference on learning representations)( \\(iclr( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+  },
+  {
+    "abbreviation": "AAAI",
+    "fullName": "AAAI Conference on Artificial Intelligence",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(aaai|aaai conference on artificial intelligence)( \\(aaai( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+  },
+  {
+    "abbreviation": "ACL",
+    "fullName": "Annual Meeting of the Association for Computational Linguistics",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(acl|annual meeting of the association for computational linguistics)( \\(acl( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+  },
+  {
+    "abbreviation": "EMNLP",
+    "fullName": "Conference on Empirical Methods in Natural Language Processing",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(emnlp|conference on empirical methods in natural language processing)( \\(emnlp( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+  },
+  {
+    "abbreviation": "NAACL",
+    "fullName": "Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(naacl(-hlt)?|(conference of the )?north american chapter of the association for computational linguistics(: human language technologies)?)( \\(naacl(-hlt)?( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?(, volume 1 \\(long and short papers\\))?$"
+  },
+  {
+    "abbreviation": "CVPR",
+    "fullName": "IEEE/CVF Conference on Computer Vision and Pattern Recognition",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(cvpr|(ieee(/cvf)? )?conference on computer vision and pattern recognition)( \\(cvpr( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+  },
+  {
+    "abbreviation": "ICCV",
+    "fullName": "IEEE/CVF International Conference on Computer Vision",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(iccv|(ieee(/cvf)? )?international conference on computer vision)( \\(iccv( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+  },
+  {
+    "abbreviation": "ECCV",
+    "fullName": "European Conference on Computer Vision",
+    "pattern": "^(proceedings of (the )?)?((19|20)[0-9]{2} )?([0-9]+(st|nd|rd|th) )?(eccv|european conference on computer vision)( \\(eccv( (19|20)[0-9]{2})?\\))?(,? (19|20)[0-9]{2})?$"
+  }
+]

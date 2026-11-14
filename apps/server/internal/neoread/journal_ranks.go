@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -431,12 +432,25 @@ func (s *Server) fetchJournalRank(ctx context.Context, name, key string, upstrea
 }
 
 func (s *Server) documentJournalRank(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	queryStatus := "error"
+	knownConference, cacheHit, shared := false, false, false
+	defer func() {
+		level := slog.LevelInfo
+		if queryStatus == "error" {
+			level = slog.LevelError
+		}
+		s.diagnosticEvent(level, "journal_rank.query", "requestId", requestID(r.Context()),
+			"queryStatus", queryStatus, "knownConference", knownConference,
+			"cacheHit", cacheHit, "shared", shared, "durationMs", time.Since(started).Milliseconds())
+	}()
 	config, key, err := s.journalConfig()
 	if err != nil {
 		fail(w, 500, "无法读取期刊指标设置")
 		return
 	}
 	if !config.Enabled || key == "" {
+		queryStatus = "disabled"
 		respond(w, 200, journalRankResult{Status: "disabled", Badges: []journalRankBadge{}})
 		return
 	}
@@ -446,23 +460,35 @@ func (s *Server) documentJournalRank(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if doc.Metadata.ItemType != "" && doc.Metadata.ItemType != "journal" && doc.Metadata.ItemType != "conference" {
+		queryStatus = "notApplicable"
 		respond(w, 200, journalRankResult{Status: "notApplicable", Badges: []journalRankBadge{}})
 		return
 	}
 	publicationName := strings.Join(strings.Fields(doc.Metadata.Venue), " ")
 	if publicationName == "" {
+		queryStatus = "noVenue"
 		respond(w, 200, journalRankResult{Status: "noVenue", Badges: []journalRankBadge{}})
 		return
 	}
 	name := journalName(publicationName)
+	if conference, ok := matchConference(publicationName); ok {
+		knownConference = true
+		publicationName = conference.Abbreviation
+		// Keep all pre-normalization cache entries, including incomplete found
+		// results, outside the corrected conference lookup namespace.
+		name = "conference-v1:" + journalName(conference.Abbreviation)
+	}
 	hash := journalKeyHash(key)
 	refresh := r.URL.Query().Get("refresh") == "1"
 	if cached, ok := s.cachedJournalRank(name, hash, refresh); ok {
+		cacheHit = true
+		queryStatus = cached.Status
 		respond(w, 200, cached)
 		return
 	}
-	value, err, _ := s.journalRankRequests.Do(hash+":"+name, func() (any, error) {
+	value, err, shared := s.journalRankRequests.Do(hash+":"+name, func() (any, error) {
 		if cached, ok := s.cachedJournalRank(name, hash, refresh); ok {
+			cacheHit = true
 			return cached, nil
 		}
 		result, err := s.fetchJournalRank(context.Background(), publicationName, key, 20*time.Second)
@@ -479,5 +505,6 @@ func (s *Server) documentJournalRank(w http.ResponseWriter, r *http.Request) {
 		fail(w, 502, err.Error())
 		return
 	}
+	queryStatus = value.(journalRankResult).Status
 	respond(w, 200, value)
 }

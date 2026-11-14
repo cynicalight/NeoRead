@@ -24,8 +24,8 @@ Download installers from [GitHub Releases](https://github.com/cynicalight/NeoRea
 **Libraries and paper management**
 
 - **Book and paper libraries**: manage books and papers separately and move documents between them. The book library accepts EPUB / PDF; the paper library accepts PDFs up to 50 MB and 150 pages, asking first above 50 pages.
-- **Paper metadata**: edit authors, year, venue, DOI, arXiv ID, abstract, and more; online lookup never overwrites manual edits. Nested categories, tags with smart tag categories, list and sortable table views, reading status, batch actions, duplicate detection and merging, and two-way related papers.
-- **Journal ranks**: with an easyScholar key configured, show journal rank badges next to paper titles and choose which ranking systems to display.
+- **Paper metadata**: edit authors, year, venue, DOI, arXiv ID, abstract, and more; online lookup never overwrites manual edits. Common AI conference venues use abbreviations with full names on hover or keyboard focus; stored venues and citation exports remain unchanged. Nested categories, tags with smart tag categories, list and sortable table views, reading status, batch actions, duplicate detection and merging, and two-way related papers.
+- **Journal and conference ranks**: with an easyScholar key configured, show rank badges next to paper titles and choose which ranking systems to display. Recognized common AI conference aliases use a standard abbreviation and shared cache, bypassing older full-name lookup results; rankings come from easyScholar.
 - **Several ways to add papers**: import by identifier, URL, or title; capture PDFs, metadata, and offline page snapshots from paper pages or search results with the [NeoRead Connector](docs/neoread-connector.md) Chrome extension (Chinese); or [migrate from a local Zotero library](docs/zotero-migration.md) (Chinese), including PDFs, metadata, collections, tags, notes, and convertible annotations.
 - **Citations**: copy or batch-export GB/T 7714, APA, BibTeX, and RIS citations.
 - **Trash**: deleted documents keep their files, annotations, and conversations until permanently deleted, and can be undone or restored.
