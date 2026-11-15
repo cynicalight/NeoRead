@@ -1724,24 +1724,46 @@ kbd {
   margin-bottom: 8px;
 }
 .note-card {
+  position: relative;
   border: 1px solid var(--border);
   padding: 12px;
   border-radius: 9px;
   margin-bottom: 12px;
 }
-.note-card > div:first-child {
+/* Card actions float over the top-right corner while the card is hovered. */
+.note-card-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--popover);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+.note-card:hover > .note-card-actions,
+.note-card:focus-within > .note-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+:root[data-reduced-motion="true"] .note-card-actions {
+  transition: none;
+}
+.note-card-status {
+  margin: 0 0 6px;
+  font-size: 10px;
+  color: var(--destructive);
 }
 .note-card > .note-editor {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-}
-.note-card [data-slot="badge"] {
-  font-size: 9px;
 }
 .note-quote {
   display: block;
@@ -1751,7 +1773,7 @@ kbd {
   height: auto;
   text-align: left;
   font-weight: 400;
-  margin: 10px 0;
+  margin: 0 0 10px;
   padding: 4px 0 4px 10px;
   border-left: 2px solid #c9ae6d;
   border-radius: 0;

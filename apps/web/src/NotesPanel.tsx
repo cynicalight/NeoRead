@@ -21,7 +21,6 @@ import {
   type Document,
   type Message,
 } from "@neoread/core";
-import { Badge } from "@neoread/ui/components/badge";
 import { Button } from "@neoread/ui/components/button";
 import { Input } from "@neoread/ui/components/input";
 import { PaperNoteRichEditor } from "./PaperNoteRichEditor";
@@ -38,7 +37,6 @@ import {
 } from "@neoread/ui/components/toggle-group";
 import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
 import { toast } from "sonner";
-import { annotationLabels } from "./AnnotationToolbar";
 import { copyText } from "./chat/clipboard";
 import {
   colorLabel,
@@ -131,51 +129,43 @@ function NoteCard({
   const question = a.kind === "question";
   return (
     <article className="note-card" data-kind={a.kind}>
-      <div>
-        <Badge variant="outline">
-          {annotationLabels[a.kind]}
-          {a.location.type === "epub" && a.location.unresolved && " · 定位异常"}
-          {question &&
-            (a.answerId ? " · 已回答" : a.resolved ? " · 已解决" : "")}
-        </Badge>
-        <span className="flex items-center">
-          {a.kind !== "bookmark" && !editing && (
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={question ? "编辑问题" : "编辑批注"}
-              onClick={() => {
-                setDraft(a.note);
-                setEditing(true);
-              }}
-            >
-              <Pencil />
-            </Button>
-          )}
+      <div className="note-card-actions">
+        {a.kind !== "bookmark" && !editing && (
           <Button
             size="icon-xs"
             variant="ghost"
-            aria-label="复制链接"
-            title="复制链接，可在笔记软件中点开回到这里"
-            onClick={() =>
-              void copyText(
-                neoreadLink({ id: a.documentId, annotation: a.id }),
-                "已复制链接",
-              )
-            }
+            aria-label={question ? "编辑问题" : "编辑批注"}
+            onClick={() => {
+              setDraft(a.note);
+              setEditing(true);
+            }}
           >
-            <Link />
+            <Pencil />
           </Button>
-          <Button
-            size="icon-xs"
-            variant="destructive-ghost"
-            aria-label="删除记录"
-            disabled={deleting}
-            onClick={onDelete}
-          >
-            <Trash2 />
-          </Button>
-        </span>
+        )}
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          aria-label="复制链接"
+          title="复制链接，可在笔记软件中点开回到这里"
+          onClick={() =>
+            void copyText(
+              neoreadLink({ id: a.documentId, annotation: a.id }),
+              "已复制链接",
+            )
+          }
+        >
+          <Link />
+        </Button>
+        <Button
+          size="icon-xs"
+          variant="destructive-ghost"
+          aria-label="删除记录"
+          disabled={deleting}
+          onClick={onDelete}
+        >
+          <Trash2 />
+        </Button>
       </div>
       <Button
         variant="ghost"
@@ -193,6 +183,9 @@ function NoteCard({
           location={a.location}
         />
       </Button>
+      {a.location.type === "epub" && a.location.unresolved && (
+        <p className="note-card-status">定位异常</p>
+      )}
       {editing ? (
         <div
           className="note-editor"
