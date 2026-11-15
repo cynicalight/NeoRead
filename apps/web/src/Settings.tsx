@@ -944,7 +944,7 @@ export function Settings({
             </section>
             <section className="space-y-4">
               <h3 className="text-sm font-medium">阅读交互</h3>
-              <label className="flex items-center justify-between gap-4 text-sm">
+              <div className="flex items-center justify-between gap-4 text-sm">
                 <span>多文档标签页</span>
                 <Switch
                   aria-label="多文档标签页"
@@ -953,8 +953,8 @@ export function Settings({
                     setTheme({ documentTabs: !!checked })
                   }
                 />
-              </label>
-              <label className="flex items-center justify-between gap-4 text-sm">
+              </div>
+              <div className="flex items-center justify-between gap-4 text-sm">
                 <span>自动复制选中文字</span>
                 <Switch
                   aria-label="自动复制选中文字"
@@ -963,8 +963,8 @@ export function Settings({
                     setTheme({ autoCopySelection: !!checked })
                   }
                 />
-              </label>
-              <label className="flex items-center justify-between gap-4 text-sm">
+              </div>
+              <div className="flex items-center justify-between gap-4 text-sm">
                 <span>
                   原文译文悬停关联
                   <span className="block text-xs text-muted-foreground">
@@ -978,8 +978,8 @@ export function Settings({
                     setTheme({ linkTranslationAnnotations: !!checked })
                   }
                 />
-              </label>
-              <label className="flex items-center justify-between gap-4 text-sm">
+              </div>
+              <div className="flex items-center justify-between gap-4 text-sm">
                 <span>点击段落聚焦</span>
                 <Switch
                   aria-label="点击段落聚焦"
@@ -988,7 +988,7 @@ export function Settings({
                     setTheme({ blockFocus: !!checked })
                   }
                 />
-              </label>
+              </div>
             </section>
             <section>
               <HighlightColorsEditor />

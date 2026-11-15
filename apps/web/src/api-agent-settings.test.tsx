@@ -341,10 +341,9 @@ it("keeps selection auto-copy opt-in and lets reading settings toggle it", async
       ...host.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
     ].find((tab) => tab.textContent === "阅读")!;
     await act(async () => reading.click());
-    const label = [...host.querySelectorAll("label")].find((node) =>
-      node.textContent?.includes("自动复制选中文字"),
+    const toggle = host.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="自动复制选中文字"]',
     )!;
-    const toggle = label.querySelector<HTMLButtonElement>('[role="switch"]')!;
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     await act(async () => toggle.click());
     expect(useReaderStore.getState().theme.autoCopySelection).toBe(true);
@@ -586,4 +585,31 @@ it("saves the last navigated ready agent when the previous save is still running
     expect.objectContaining({ primary: "codex" }),
   );
   expect(useReaderStore.getState().aiConfig?.primary).toBe("codex");
+});
+
+it.each([
+  ["多文档标签页", "documentTabs"],
+  ["自动复制选中文字", "autoCopySelection"],
+  ["原文译文悬停关联", "linkTranslationAnnotations"],
+  ["点击段落聚焦", "blockFocus"],
+] as const)("changes %s only when its switch is clicked", async (name, key) => {
+  const theme = useReaderStore.getState().theme;
+  try {
+    useReaderStore.getState().setTheme({ [key]: false });
+    await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+    const control = host.querySelector<HTMLElement>(
+      `[role="switch"][aria-label="${name}"]`,
+    )!;
+    const row = control.parentElement!;
+    await act(async () => row.querySelector("span")!.click());
+    expect(useReaderStore.getState().theme[key]).toBe(false);
+    await act(async () => row.click());
+    expect(useReaderStore.getState().theme[key]).toBe(false);
+    await act(async () => control.click());
+    expect(useReaderStore.getState().theme[key]).toBe(true);
+    await act(async () => control.click());
+    expect(useReaderStore.getState().theme[key]).toBe(false);
+  } finally {
+    await act(async () => useReaderStore.getState().setTheme(theme));
+  }
 });
