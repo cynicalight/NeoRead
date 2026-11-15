@@ -169,7 +169,7 @@ export function CitationEditor({
           </DialogDescription>
         </DialogHeader>
         <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
           <SearchInput
             ref={search}
             autoFocus

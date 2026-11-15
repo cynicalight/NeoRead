@@ -418,8 +418,11 @@ kbd {
   position: relative;
   width: 245px;
 }
+/* Leading icons sit above the positioned SearchInput wrapper that follows. */
 .search-field > svg {
   position: absolute;
+  z-index: 1;
+  pointer-events: none;
   top: 10px;
   left: 11px;
   color: var(--muted-foreground);
@@ -1667,6 +1670,7 @@ kbd {
 }
 .notes-search > svg {
   position: absolute;
+  z-index: 1;
   top: 20px;
   left: 25px;
   width: 16px;
