@@ -1,30 +1,21 @@
 import { moveColumn, type TableColumn } from "./columns";
 
 /** Keep native drag sources mounted; preview the new slots with transforms only. */
-export function beginColumnReorder(
-  source: HTMLElement,
-  order: TableColumn[],
-  vertical: boolean,
-) {
-  const container = source.closest<HTMLElement>(
-    vertical ? ".paper-columns-popover" : "table",
-  )!;
-  const scroller = vertical
-    ? container
-    : container.closest<HTMLElement>('[data-slot="table-container"]');
-  const scroll = () =>
-    (vertical ? scroller?.scrollTop : scroller?.scrollLeft) || 0;
+export function beginColumnReorder(source: HTMLElement, order: TableColumn[]) {
+  const container = source.closest<HTMLElement>("table")!;
+  const scroller = container.closest<HTMLElement>(
+    '[data-slot="table-container"]',
+  );
+  const scroll = () => scroller?.scrollLeft || 0;
   const initialScroll = scroll();
   const items = [
-    ...container.querySelectorAll<HTMLElement>(
-      vertical ? ".paper-column-option" : "th[data-column]",
-    ),
+    ...container.querySelectorAll<HTMLElement>("th[data-column]"),
   ].map((element) => {
     const rect = element.getBoundingClientRect();
     return {
       column: element.dataset.column as TableColumn,
-      start: vertical ? rect.top : rect.left,
-      size: vertical ? rect.height : rect.width,
+      start: rect.left,
+      size: rect.width,
     };
   });
   const gap =
@@ -39,7 +30,7 @@ export function beginColumnReorder(
     items
       .map(
         ({ column }) =>
-          `[data-column-reordering] [data-column="${column}"] { transform: translate${vertical ? "Y" : "X"}(var(--column-${column}, 0px)); }`,
+          `[data-column-reordering] [data-column="${column}"] { transform: translateX(var(--column-${column}, 0px)); }`,
       )
       .join("\n") +
     `

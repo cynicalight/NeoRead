@@ -4317,47 +4317,11 @@ textarea.citation-preview {
 .paper-column-heading > :last-child {
   flex-shrink: 0;
 }
-.paper-column-grip.paper-column-grip {
-  width: 16px;
-  min-width: 16px;
-  padding: 0;
-  color: var(--muted-foreground);
-  cursor: grab;
-  opacity: 0.45;
-}
-.paper-column-grip:hover,
-.paper-column-grip:focus-visible {
-  opacity: 1;
-}
-.paper-column-grip:active {
-  cursor: grabbing;
-}
-.paper-column-option {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 2px;
-  border-radius: 4px;
-}
-.paper-columns-popover {
-  max-height: min(70vh, 440px);
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-.paper-columns-popover::-webkit-scrollbar {
-  display: none;
-}
 :root:not([data-reduced-motion="true"]) {
-  .paper-column-option,
-  .paper-table th,
-  .paper-column-grip {
+  .paper-table th {
     transition:
       opacity 140ms ease,
       background-color 140ms ease;
-  }
-  .paper-column-grip:active svg {
-    transform: scale(0.9);
   }
 }
 

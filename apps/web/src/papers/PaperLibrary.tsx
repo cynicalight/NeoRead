@@ -1,4 +1,4 @@
-import { PaperColumns, usePaperColumns } from "./PaperColumns";
+import { usePaperColumns } from "./PaperColumns";
 import { setPaperDragImage } from "./paper-drag-image";
 import type { TableColumn } from "./columns";
 import { PaperTagFilterButton } from "./PaperTagFilter";
@@ -849,7 +849,6 @@ export function PaperLibrary({
                 </SelectContent>
               </Select>
             )}
-            {table && <PaperColumns controls={columnControls} />}
             <Tabs
               value={layout}
               onValueChange={(value) =>
@@ -1173,7 +1172,6 @@ export function PaperLibrary({
                                 ) : (
                                   columnControls.handle(
                                     c,
-                                    false,
                                     <>
                                       <span className="shrink-0 whitespace-nowrap">
                                         {c === "title"
