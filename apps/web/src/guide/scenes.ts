@@ -1919,7 +1919,7 @@ const ranks = scene({
     const appear = f.after("close") ? 1 - f.progress("close", 200) : 1;
     dialog(f, D, appear, () => {
       settingsFrame(f);
-      tabs(f, settingsTabs, ["Agent", "显示", "阅读", "论文库"], 1);
+      tabs(f, settingsTabs, ["Agent", "显示", "阅读", "论文库"], 3);
       p.text("期刊指标", D.x + 22, D.y + 99, { size: 12, weight: 600 });
       checkbox(f, D.x + 28, D.y + 126, true);
       p.text("在论文库显示 easyScholar 期刊指标", D.x + 42, D.y + 126, {

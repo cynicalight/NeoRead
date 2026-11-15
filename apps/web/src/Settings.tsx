@@ -38,7 +38,6 @@ import type {
   APIConnection,
   LibraryMode,
   JournalRankConfig,
-  PaperColumn,
   Provider,
 } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
@@ -75,8 +74,13 @@ import {
 import { libraryModes } from "./LibraryModeSwitcher";
 import { Checkbox } from "@neoread/ui/components/checkbox";
 import { toast } from "sonner";
-import { columnLabels, defaultColumns, toggleColumn } from "./papers/model";
 import { savePaperPreferences } from "./papers/actions";
+import {
+  columnOrder,
+  showColumn,
+  tableColumnLabel,
+  visibleColumns,
+} from "./papers/columns";
 import { openExternalLink } from "./reading-links";
 import { AppearancePicker } from "./AppearancePicker";
 import { AgentDeck, type DeckItem } from "./AgentDeck";
@@ -876,174 +880,31 @@ export function Settings({
             <section>
               <fieldset>
                 <legend className="mb-1 text-sm font-medium">表格显示列</legend>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                  {(Object.keys(columnLabels) as PaperColumn[]).map(
-                    (column) => (
-                      <label
-                        key={column}
-                        htmlFor={`paper-column-${column}`}
-                        className="flex items-center gap-2 text-sm"
-                      >
-                        <Checkbox
-                          id={`paper-column-${column}`}
-                          checked={(
-                            paperPreferences.columns ?? defaultColumns
-                          ).includes(column)}
-                          onCheckedChange={() =>
-                            void savePaperPreferences((prefs) => ({
-                              ...prefs,
-                              columns: toggleColumn(
-                                prefs.columns ?? defaultColumns,
-                                column,
-                              ),
-                            }))
-                          }
-                        />
-                        {columnLabels[column]}
-                      </label>
-                    ),
-                  )}
+                <div className="grid grid-cols-4 gap-x-4 gap-y-3">
+                  {columnOrder(paperPreferences).map((column) => (
+                    <label
+                      key={column}
+                      htmlFor={`paper-column-${column}`}
+                      className="flex min-w-0 items-center gap-2 text-sm"
+                    >
+                      <Checkbox
+                        id={`paper-column-${column}`}
+                        checked={visibleColumns(paperPreferences).includes(
+                          column,
+                        )}
+                        onCheckedChange={(checked) =>
+                          void savePaperPreferences((prefs) =>
+                            showColumn(prefs, column, !!checked),
+                          )
+                        }
+                      />
+                      <span className="truncate">
+                        {tableColumnLabel(column)}
+                      </span>
+                    </label>
+                  ))}
                 </div>
               </fieldset>
-            </section>
-            <section>
-              <h3 className="mb-3 text-sm font-medium">期刊指标</h3>
-              <div className="flex items-center justify-between gap-4 text-sm">
-                <span>
-                  在论文库显示 easyScholar 期刊指标
-                  <span className="block text-xs text-muted-foreground">
-                    默认开启；配置 SecretKey 后按论文出处查询。
-                  </span>
-                </span>
-                <Switch
-                  aria-label="在论文库显示 easyScholar 期刊指标"
-                  checked={journalRank?.enabled ?? true}
-                  disabled={!journalRank || journalSaving}
-                  onCheckedChange={(checked) =>
-                    void saveJournalRank({ enabled: !!checked })
-                  }
-                />
-              </div>
-              {journalRank?.enabled && (
-                <>
-                  <div className="mt-4 flex items-center gap-2">
-                    <Input
-                      type="password"
-                      autoComplete="off"
-                      aria-label="easyScholar SecretKey"
-                      aria-describedby="journal-rank-key-help"
-                      placeholder={
-                        journalRank.hasKey
-                          ? "已保存 SecretKey；输入新密钥可替换"
-                          : "输入 easyScholar SecretKey"
-                      }
-                      value={journalKey}
-                      onChange={(event) => setJournalKey(event.target.value)}
-                    />
-                    <Button
-                      variant="outline"
-                      disabled={!journalKey.trim() || journalSaving}
-                      onClick={() =>
-                        void saveJournalRank({}, journalKey.trim())
-                      }
-                    >
-                      保存
-                    </Button>
-                  </div>
-                  <p
-                    id="journal-rank-key-help"
-                    className="mt-2 text-xs text-muted-foreground"
-                  >
-                    <a
-                      href="https://www.easyscholar.cc/console/user/open"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline underline-offset-4 hover:text-foreground"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        openExternalLink(event.currentTarget.href);
-                      }}
-                    >
-                      前往 easyScholar 获取 API Key
-                    </a>
-                  </p>
-                  <div className="mt-4 flex items-center gap-2 text-xs">
-                    <span id="journal-rank-filter-label">指标筛选</span>
-                    <Tabs
-                      value={journalRank.filterMode}
-                      className="ml-auto w-1/2 min-w-fit"
-                      onValueChange={(value) => {
-                        if (value !== "include" && value !== "exclude") return;
-                        void saveJournalRank({
-                          filterMode: value,
-                          selected:
-                            value === "include"
-                              ? journalRank.available.map((field) => field.key)
-                              : [],
-                        });
-                      }}
-                    >
-                      <TabsList
-                        aria-labelledby="journal-rank-filter-label"
-                        className="w-full"
-                      >
-                        <TabsTrigger value="include" disabled={journalSaving}>
-                          只显示选中的指标
-                        </TabsTrigger>
-                        <TabsTrigger value="exclude" disabled={journalSaving}>
-                          隐藏选中的指标
-                        </TabsTrigger>
-                      </TabsList>
-                    </Tabs>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {journalRank.filterMode === "include"
-                      ? "勾选要显示的指标。"
-                      : "勾选不想显示的指标。"}
-                    无数据或超出标题列宽度的标签会省略。
-                  </p>
-                  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
-                    {journalRank.available.map((field) => (
-                      <label
-                        key={field.key}
-                        className="flex min-w-0 items-center gap-2 text-xs"
-                      >
-                        <Checkbox
-                          checked={journalRank.selected.includes(field.key)}
-                          disabled={journalSaving}
-                          onCheckedChange={(checked) =>
-                            void saveJournalRank({
-                              selected: checked
-                                ? [...journalRank.selected, field.key]
-                                : journalRank.selected.filter(
-                                    (value) => value !== field.key,
-                                  ),
-                            })
-                          }
-                        />
-                        <span className="truncate" title={field.name}>
-                          {field.name}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  {journalRank.hasKey && (
-                    <Button
-                      className="mt-4"
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        window.dispatchEvent(
-                          new Event("neoread:journal-rank-refresh"),
-                        )
-                      }
-                    >
-                      <RefreshCw />
-                      刷新当前列表的期刊指标
-                    </Button>
-                  )}
-                </>
-              )}
             </section>
           </TabsContent>
           <TabsContent value="reading" className="settings-panel" keepMounted>
@@ -1179,6 +1040,150 @@ export function Settings({
                     />
                   </label>
                   <AutoTranslationSettings theme={theme} setTheme={setTheme} />
+                </section>
+                <section>
+                  <h3 className="mb-3 text-sm font-medium">期刊指标</h3>
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <span>
+                      在论文库显示 easyScholar 期刊指标
+                      <span className="block text-xs text-muted-foreground">
+                        默认开启；配置 SecretKey 后按论文出处查询。
+                        <a
+                          href="https://www.easyscholar.cc/console/user/open"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline underline-offset-4 hover:text-foreground"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            openExternalLink(event.currentTarget.href);
+                          }}
+                        >
+                          前往 easyScholar 获取 API Key
+                        </a>
+                      </span>
+                    </span>
+                    <Switch
+                      aria-label="在论文库显示 easyScholar 期刊指标"
+                      checked={journalRank?.enabled ?? true}
+                      disabled={!journalRank || journalSaving}
+                      onCheckedChange={(checked) =>
+                        void saveJournalRank({ enabled: !!checked })
+                      }
+                    />
+                  </div>
+                  {journalRank?.enabled && (
+                    <>
+                      <div className="mt-4 flex items-center gap-2">
+                        <Input
+                          type="password"
+                          autoComplete="off"
+                          aria-label="easyScholar SecretKey"
+                          placeholder={
+                            journalRank.hasKey
+                              ? "已保存 SecretKey；输入新密钥可替换"
+                              : "输入 easyScholar SecretKey"
+                          }
+                          value={journalKey}
+                          onChange={(event) =>
+                            setJournalKey(event.target.value)
+                          }
+                        />
+                        <Button
+                          variant="outline"
+                          disabled={!journalKey.trim() || journalSaving}
+                          onClick={() =>
+                            void saveJournalRank({}, journalKey.trim())
+                          }
+                        >
+                          保存
+                        </Button>
+                      </div>
+                      <div className="mt-4 flex items-center gap-2 text-xs">
+                        <span id="journal-rank-filter-label">指标筛选</span>
+                        <Tabs
+                          value={journalRank.filterMode}
+                          className="ml-auto w-1/2 min-w-fit"
+                          onValueChange={(value) => {
+                            if (value !== "include" && value !== "exclude")
+                              return;
+                            void saveJournalRank({
+                              filterMode: value,
+                              selected:
+                                value === "include"
+                                  ? journalRank.available.map(
+                                      (field) => field.key,
+                                    )
+                                  : [],
+                            });
+                          }}
+                        >
+                          <TabsList
+                            aria-labelledby="journal-rank-filter-label"
+                            className="w-full"
+                          >
+                            <TabsTrigger
+                              value="include"
+                              disabled={journalSaving}
+                            >
+                              只显示选中的指标
+                            </TabsTrigger>
+                            <TabsTrigger
+                              value="exclude"
+                              disabled={journalSaving}
+                            >
+                              隐藏选中的指标
+                            </TabsTrigger>
+                          </TabsList>
+                        </Tabs>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {journalRank.filterMode === "include"
+                          ? "勾选要显示的指标。"
+                          : "勾选不想显示的指标。"}
+                        无数据或超出标题列宽度的标签会省略。
+                      </p>
+                      <div className="mt-2 grid grid-cols-4 gap-x-4 gap-y-2">
+                        {journalRank.available.map((field) => (
+                          <label
+                            key={field.key}
+                            className="flex min-w-0 items-center gap-2 text-xs"
+                          >
+                            <Checkbox
+                              checked={journalRank.selected.includes(field.key)}
+                              disabled={journalSaving}
+                              onCheckedChange={(checked) =>
+                                void saveJournalRank({
+                                  selected: checked
+                                    ? [...journalRank.selected, field.key]
+                                    : journalRank.selected.filter(
+                                        (value) => value !== field.key,
+                                      ),
+                                })
+                              }
+                            />
+                            <span className="truncate" title={field.name}>
+                              {field.name}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      {journalRank.hasKey && (
+                        <Button
+                          className="mt-4"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            window.dispatchEvent(
+                              new Event("neoread:journal-rank-refresh"),
+                            )
+                          }
+                        >
+                          <RefreshCw />
+                          刷新当前列表的期刊指标
+                        </Button>
+                      )}
+                    </>
+                  )}
                 </section>
                 <PaperServiceSettings open={open} />
               </>

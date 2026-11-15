@@ -27,6 +27,26 @@ export function visibleColumns(prefs: PaperLibraryPreferences): TableColumn[] {
   return columnOrder(prefs).filter((column) => shown.has(column));
 }
 
+/** Show or hide one table column, keeping its place in the saved order. */
+export function showColumn(
+  prefs: PaperLibraryPreferences,
+  column: TableColumn,
+  shown: boolean,
+): PaperLibraryPreferences {
+  const visible = new Set(visibleColumns(prefs));
+  if (shown) visible.add(column);
+  else visible.delete(column);
+  const order = columnOrder(prefs);
+  return {
+    ...prefs,
+    columnOrder: order,
+    ...(column === "title" ? { showTitle: shown } : {}),
+    columns: order.filter(
+      (c): c is PaperColumn => c !== "title" && visible.has(c),
+    ),
+  };
+}
+
 export function moveColumn(
   order: TableColumn[],
   from: TableColumn,

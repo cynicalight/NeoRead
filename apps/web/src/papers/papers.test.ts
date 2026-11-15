@@ -1,3 +1,4 @@
+import { showColumn } from "./columns";
 import { expect, it } from "vitest";
 import type { Document, Processing } from "@neoread/core";
 import { paper } from "./fixtures";
@@ -24,7 +25,6 @@ import {
   saveSmartCategory,
   paperTags,
   sortPapers,
-  toggleColumn,
   filterPapers,
   flattenCategories,
   matchesView,
@@ -382,12 +382,6 @@ it("sorts by every column in either direction", () => {
   expect(ids("status")).toEqual(["b", "c", "a"]);
   expect(ids("notes")).toEqual(["b", "a", "c"]);
   expect(ids("title", true)).toEqual(["c", "a", "b"]);
-  expect(toggleColumn(["status", "authors"], "year")).toEqual([
-    "authors",
-    "year",
-    "status",
-  ]);
-  expect(toggleColumn(["authors", "year"], "authors")).toEqual(["year"]);
 });
 
 it("lists tag views and smart tag categories that need every tag", () => {
@@ -590,14 +584,21 @@ it("applies temporary tags after finding duplicate groups", () => {
 
 it("keeps tags immediately after the title when toggling other default or optional columns", () => {
   for (const column of ["status", "authors", "published"] as const) {
-    const toggled = toggleColumn(defaultColumns, column);
-    expect(toggled[0]).toBe("tags");
-    expect(toggleColumn(toggled, column)).toEqual(defaultColumns);
+    const toggled = showColumn(
+      {},
+      column,
+      !defaultColumns.includes(column as never),
+    );
+    expect(toggled.columns![0]).toBe("tags");
+    expect(
+      showColumn(toggled, column, defaultColumns.includes(column as never))
+        .columns,
+    ).toEqual(defaultColumns);
   }
 });
 
 it("restores the tag column to its default position after hiding and showing it", () => {
-  const hidden = toggleColumn(defaultColumns, "tags");
-  expect(hidden).toEqual(["year", "venue", "status"]);
-  expect(toggleColumn(hidden, "tags")).toEqual(defaultColumns);
+  const hidden = showColumn({}, "tags", false);
+  expect(hidden.columns).toEqual(["year", "venue", "status"]);
+  expect(showColumn(hidden, "tags", true).columns).toEqual(defaultColumns);
 });

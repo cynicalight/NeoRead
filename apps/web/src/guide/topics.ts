@@ -199,7 +199,7 @@ export const guideTopics: GuideTopic[] = [
       {
         id: "ranks",
         title: "在论文库查看期刊评级",
-        body: "在「设置 → 显示」的期刊指标中填写 easyScholar SecretKey 并保存，论文标题旁就会显示 CCF、SCI 分区、中科院分区、影响因子等指标。可以只显示选中的指标，不需要时关闭即可。",
+        body: "在「设置 → 论文库」的期刊指标中填写 easyScholar SecretKey 并保存，论文标题旁就会显示 CCF、SCI 分区、中科院分区、影响因子等指标。可以只显示选中的指标，不需要时关闭即可。",
         scene: "ranks",
       },
       {

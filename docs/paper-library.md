@@ -55,7 +55,7 @@ NeoRead 分为图书库和论文库，侧栏顶部切换，主要模式可在“
 
 ## 期刊指标
 
-在「设置 → 论文库 → 期刊指标」填写 easyScholar SecretKey；输入框下方提供[获取 API Key](https://www.easyscholar.cc/console/user/open)的入口。首次使用默认显示 IF、SCI/JCR、中科院分区（大类与小类）和 CCF；已有自定义指标筛选保持不变。
+在「设置 → 论文库 → 期刊指标」填写 easyScholar SecretKey；开关说明中提供[获取 API Key](https://www.easyscholar.cc/console/user/open)的入口。首次使用默认显示 IF、SCI/JCR、中科院分区（大类与小类）和 CCF；已有自定义指标筛选保持不变。
 
 ## 标签与分类
 

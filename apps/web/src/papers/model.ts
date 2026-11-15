@@ -135,14 +135,6 @@ export const descendingSorts: ReadonlySet<PaperSort> = new Set([
   "size",
   "notes",
 ]);
-/** Show or hide a column, keeping the canonical column order. */
-export function toggleColumn(columns: PaperColumn[], column: PaperColumn) {
-  const on = new Set(columns);
-  if (on.has(column)) on.delete(column);
-  else on.add(column);
-  return (Object.keys(columnLabels) as PaperColumn[]).filter((c) => on.has(c));
-}
-
 const busy = (job?: Processing) =>
   !!job &&
   job.enabled !== false &&
