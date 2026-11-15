@@ -531,7 +531,7 @@ function importDialog(
     p.text("导入到分类", I.x + 18, importFolder.y + 13, { size: 11.5 });
     select(f, importFolder, "不放入分类");
     p.line(I.x + 18, I.y + 158, I.x + I.w - 18, I.y + 158, c.border);
-    p.text("从文献管理软件迁移", I.x + 18, I.y + 174, {
+    p.text("从其他软件迁移", I.x + 18, I.y + 174, {
       size: 10.5,
       weight: 500,
       color: c.mutedForeground,

@@ -175,7 +175,7 @@ export function ImportPaperDialog({
         <Separator />
         <section className="grid gap-2">
           <h3 className="text-xs font-medium text-muted-foreground">
-            从文献管理软件迁移
+            从其他软件迁移
           </h3>
           <div className="grid grid-cols-2 gap-2">
             <Button
