@@ -140,11 +140,14 @@ function sourceText(
 ): ReactNode {
   if (markdownSource.test(text))
     return (
-      <MessageMarkdown
-        content={text}
-        blockId={blockId}
-        onCitation={onCitation}
-      />
+      <>
+        <MessageMarkdown
+          content={text}
+          blockId={blockId}
+          onCitation={onCitation}
+        />
+        {text.match(/\s+$/)?.[0]}
+      </>
     );
   if (!onCitation) return text;
   return readingLinkTokens(text).map((token, k) =>
