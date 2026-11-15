@@ -420,7 +420,8 @@ export interface ReaderTheme {
   /** Reflowable source text weight. */
   fontWeight?: "normal" | "bold";
   lineHeight: number;
-  margin: number;
+  /** Rendered text inset in px from each side of its reading pane. */
+  readingMargin: number;
   scroll: boolean;
   zoom: number | "width";
   /** Explicit zoom preferences for individual PDFs; global zoom is the fallback. */
@@ -442,11 +443,6 @@ export interface ReaderTheme {
   translationFontWeight?: "normal" | "bold";
   /** The highlight palette, in order; the defaults apply when unset. */
   highlightColors?: HighlightColor[];
-  /**
-   * PDF translation margin in px per side, on the same 0–96 scale as the EPUB
-   * margin; the default 48 keeps a focused text block's width.
-   */
-  pdfTranslationMargin?: number;
   /** Reflowable EPUB text scrolls vertically unless pages are chosen. */
   epubFlow?: "scroll" | "paginated";
 }
@@ -470,7 +466,7 @@ export const defaultTheme: ReaderTheme = {
   fontFamily: "serif",
   fontWeight: "normal",
   lineHeight: 1.8,
-  margin: 48,
+  readingMargin: 32,
   scroll: false,
   zoom: "width",
   translationFontSize: 1,
@@ -479,7 +475,6 @@ export const defaultTheme: ReaderTheme = {
   assistantFontWeight: "normal",
   translationFontFamily: "serif",
   translationFontWeight: "bold",
-  pdfTranslationMargin: 48,
   linkTranslationAnnotations: true,
   textReflow: false,
   blockFocus: true,
@@ -551,8 +546,6 @@ export interface ReaderAdapter {
   open(document: Document): Promise<void>;
   getTOC(): Promise<TOCItem[]>;
   getPageCount?(): number;
-  /** First page width in CSS pixels at 100%. */
-  getPageWidth?(): Promise<number | undefined>;
   getLocation(): DocumentLocation;
   goTo(location: DocumentLocation): Promise<void>;
   next(): Promise<void>;

@@ -107,8 +107,8 @@ export function translationFont(
   return `"${family.replace(/["\\]/g, "")}", system-ui, sans-serif`;
 }
 
-/** Margin in px per side shared by EPUB text and PDF translation. */
-export const READING_MARGIN = { min: 0, max: 96, step: 16, default: 48 };
+/** Rendered text inset in px from each side of its reading pane. */
+export const READING_MARGIN = { min: 0, max: 96, step: 16 };
 
 /** EPUB source size as a percentage of the default size. */
 export const epubSizePercent = (fontSize: number) =>

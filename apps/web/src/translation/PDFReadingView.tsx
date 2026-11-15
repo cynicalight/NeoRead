@@ -1,12 +1,12 @@
 import { figureTarget } from "../readers/figure-references";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
-import { pdfFocusWidth, pdfTranslationColumn } from "./pdf-column";
 import {
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useTranslations } from "./useTranslations";
@@ -60,7 +60,7 @@ import {
   translatedSelection as captureTranslationSelection,
 } from "./selection";
 import { installTranslationSelectionHighlight } from "./selection-highlight";
-import { READING_MARGIN, sourceFont, translationFont } from "../appearance";
+import { sourceFont, translationFont } from "../appearance";
 import { selectSentence } from "../readers/sentence-selection";
 import { installCitationHover } from "../readers/citation-hover";
 import { numberedReference } from "../readers/pdf-citations";
@@ -295,22 +295,6 @@ export function PDFReadingView({
   const imageKey = `${imageTheme}:${blockImages ? "ready" : "pending"}`;
   const visibleBlocks = blocks.filter(
     (b) => !isPDFPageDecoration(b) && !equationNumbers.pairedIds.has(b.id),
-  );
-  const [pageWidth, setPageWidth] = useState<number>();
-  useEffect(() => {
-    let current = true;
-    setPageWidth(undefined);
-    void engine
-      ?.getPageWidth?.()
-      .then((width) => current && setPageWidth(width))
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [engine]);
-  const focusWidth = useMemo(
-    () => (reflow ? undefined : pdfFocusWidth(blocks, pageWidth)),
-    [blocks, pageWidth, reflow],
   );
   const searchBlockIds = useMemo(
     () => [
@@ -1129,6 +1113,9 @@ export function PDFReadingView({
   return (
     <div
       className="pdf-reading"
+      style={
+        { "--reading-margin": `${theme.readingMargin}px` } as CSSProperties
+      }
       data-reading-mode={mode}
       data-reflow={reflow || undefined}
       ref={root}
@@ -1316,20 +1303,12 @@ export function PDFReadingView({
               onKeyDownCapture={() => input("translation")}
               onKeyUp={translatedSelection}
               onClick={(event) => overlay.current?.click(event.nativeEvent)}
-              data-column={focusWidth && !reflow ? "" : undefined}
               style={{
                 ...(reflow && {
-                  "--reflow-margin": `${theme.pdfTranslationMargin ?? READING_MARGIN.default}px`,
                   "--reflow-source-font": sourceFont(theme.fontFamily),
                   "--reflow-source-size": `${theme.fontSize / (theme.translationFontSize ?? 1)}em`,
                   "--reflow-source-weight":
                     theme.fontWeight === "bold" ? 600 : 400,
-                }),
-                ...(focusWidth && {
-                  "--pdf-column-width": `${pdfTranslationColumn(
-                    focusWidth,
-                    theme.pdfTranslationMargin,
-                  )}px`,
                 }),
                 fontSize: `${theme.translationFontSize ?? 1}rem`,
                 fontFamily: translationFont(theme.translationFontFamily),

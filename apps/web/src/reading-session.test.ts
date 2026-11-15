@@ -98,11 +98,11 @@ it("ignores malformed or deleted saved tabs and preserves reading preferences", 
     documentIds: [],
     activeId: null,
   });
-  state().setTheme({ zoom: 1.5, margin: 62 });
+  state().setTheme({ zoom: 1.5, readingMargin: 62 });
   state().open(docs[0]);
   expect(state().theme).toMatchObject({
     zoom: 1.5,
-    margin: 62,
+    readingMargin: 62,
   });
 });
 

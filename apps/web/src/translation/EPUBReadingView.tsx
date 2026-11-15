@@ -912,7 +912,9 @@ export function EPUBReadingView({
       ref={root}
       className="epub-reading"
       data-theme={theme.mode}
-      style={{ "--epub-margin": `${theme.margin}px` } as CSSProperties}
+      style={
+        { "--reading-margin": `${theme.readingMargin}px` } as CSSProperties
+      }
     >
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       <TranslationPanes

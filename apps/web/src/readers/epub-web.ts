@@ -283,7 +283,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   private estimate(info: EPUBChapter) {
     const width = Math.max(
       240,
-      Math.min(864, this.container.clientWidth) - this.theme.margin * 2,
+      this.container.clientWidth - this.theme.readingMargin * 2,
     );
     const font = this.theme.fontSize * 16;
     return Math.max(
@@ -1129,7 +1129,10 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       backgroundColor: palette[0],
       color: palette[1],
     });
-    this.container.style.setProperty("--epub-margin", `${this.theme.margin}px`);
+    this.container.style.setProperty(
+      "--reading-margin",
+      `${this.theme.readingMargin}px`,
+    );
   }
   async setTheme(theme: ReaderTheme) {
     this.rememberAnchor();

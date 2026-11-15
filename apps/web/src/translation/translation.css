@@ -76,7 +76,8 @@
   flex: 1;
   min-width: 0;
   overflow: auto;
-  padding: max(32px, var(--translation-inset, 32px)) clamp(16px, 3vw, 44px);
+  padding: max(32px, var(--translation-inset, 32px))
+    var(--reading-margin, 32px);
   scrollbar-gutter: stable;
   background: var(--background);
   color: var(--foreground);
@@ -86,21 +87,9 @@
   background: var(--pdf-dark-paper);
   color: var(--pdf-dark-ink);
 }
-.pdf-reading .translation-document {
-  padding-left: 16px;
-  padding-right: 16px;
-}
-.pdf-reading .translation-document section {
-  max-width: none;
-}
-/* A focused body block's width at the Focus Block zoom limit. */
-.pdf-reading .translation-document[data-column] section {
-  max-width: var(--pdf-column-width);
-}
 .translation-document section {
   position: relative;
-  margin: 0 auto 1.25em;
-  max-width: 44rem;
+  margin: 0 0 1.25em;
   overflow-wrap: anywhere;
   outline: 0.5px solid transparent;
   border-radius: 4px;
@@ -109,21 +98,9 @@
     outline-color 180ms ease-out,
     box-shadow 180ms ease-out;
 }
-/* Match the source chapter's border-box width and reading margins. */
-.epub-reading .translation-panes[data-stacked] {
-  --epub-page-width: 54rem;
-}
+/* Stacked source text keeps the same line width as the translation below. */
 .epub-reading .translation-panes[data-stacked] .epub-web-reader {
   scrollbar-gutter: stable;
-}
-.epub-reading .translation-panes[data-stacked] .translation-document {
-  padding-inline: var(--epub-margin, 32px);
-}
-.epub-reading .translation-panes[data-stacked] .translation-document section {
-  max-width: max(
-    0px,
-    calc(var(--epub-page-width) - 2 * var(--epub-margin, 32px))
-  );
 }
 .translation-document [data-label="doc_title"] {
   font-size: 1.45em;
@@ -457,7 +434,6 @@
 .pdf-reading[data-reflow] .translation-document {
   position: relative;
   padding-top: 32px;
-  padding-inline: var(--reflow-margin, 48px);
 }
 .reflow-source {
   font-family: var(--reflow-source-font, inherit);

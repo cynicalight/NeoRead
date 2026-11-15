@@ -496,11 +496,11 @@ it("applies reader theme and ignores stale paginated preferences", async () => {
     fontSize: 1.4,
     fontFamily: "serif",
     lineHeight: 2,
-    margin: 48,
+    readingMargin: 48,
     mode: "sepia",
   });
   expect(host.style.fontSize).toBe("1.4rem");
-  expect(host.style.getPropertyValue("--epub-margin")).toBe("48px");
+  expect(host.style.getPropertyValue("--reading-margin")).toBe("48px");
   expect(host.classList.contains("epub-web-reader")).toBe(true);
 });
 

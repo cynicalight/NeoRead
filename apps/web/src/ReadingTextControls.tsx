@@ -77,40 +77,33 @@ export function ReadingTextControls({
   const translationSize = theme.translationFontSize ?? 1;
   const assistantSize = theme.assistantFontScale ?? 1;
   // Reflowed PDF text renders its source like EPUB text, so it takes the same
-  // source font settings and one margin for the whole column.
+  // source font settings.
   const reflowed = docType === "epub" || theme.textReflow === true;
-  const margin =
-    docType === "epub"
-      ? theme.margin
-      : (theme.pdfTranslationMargin ?? READING_MARGIN.default);
-  // EPUB margins frame the whole page; PDF margins only shape the translation.
-  const marginRow = (
-    <StepRow
-      label="边距"
-      title={reflowed ? "边距" : "译文边距"}
-      value={margin}
-      display={`${margin}`}
-      min={READING_MARGIN.min}
-      max={READING_MARGIN.max}
-      step={READING_MARGIN.step}
-      onValue={(value) =>
-        setTheme(
-          docType === "epub"
-            ? { margin: value }
-            : { pdfTranslationMargin: value },
-        )
-      }
-      reset={READING_MARGIN.default}
-    />
-  );
   return (
     <div className="space-y-4">
-      {reflowed && (
-        <>
-          <Section title="版面">{marginRow}</Section>
-          <Separator />
-        </>
-      )}
+      <Section title="版面">
+        <StepRow
+          label="边距"
+          value={theme.readingMargin}
+          display={`${theme.readingMargin}`}
+          min={READING_MARGIN.min}
+          max={READING_MARGIN.max}
+          step={READING_MARGIN.step}
+          onValue={(readingMargin) => setTheme({ readingMargin })}
+          reset={defaultTheme.readingMargin}
+        />
+        <StepRow
+          label="行距"
+          value={theme.lineHeight}
+          display={theme.lineHeight.toFixed(1)}
+          min={1.4}
+          max={2.2}
+          step={0.2}
+          onValue={(lineHeight) => setTheme({ lineHeight })}
+          reset={defaultTheme.lineHeight}
+        />
+      </Section>
+      <Separator />
       <Section title="原文">
         {reflowed ? (
           <>
@@ -140,16 +133,6 @@ export function ReadingTextControls({
                   恢复
                 </Button>
               }
-            />
-            <StepRow
-              label="行距"
-              value={theme.lineHeight}
-              display={theme.lineHeight.toFixed(1)}
-              min={1.4}
-              max={2.2}
-              step={0.2}
-              onValue={(lineHeight) => setTheme({ lineHeight })}
-              reset={defaultTheme.lineHeight}
             />
           </>
         ) : (
@@ -211,7 +194,6 @@ export function ReadingTextControls({
             </Button>
           }
         />
-        {!reflowed && marginRow}
       </Section>
       <Separator />
       <Section title="Agent">
