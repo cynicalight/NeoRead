@@ -168,14 +168,9 @@ export function PDFReadingView({
     pane = useRef<HTMLDivElement>(null),
     control = useRef(new ReadingSync()),
     side = useRef<"source" | "translation">("source"),
-    reading = useRef<PDFReadingAnchor | undefined>(
-      doc.progress?.type === "pdf" &&
-        doc.progress.reflowPosition?.page === doc.progress.page
-        ? { blockId: doc.progress.reflowPosition.blockId, fraction: 0.5 }
-        : undefined,
-    );
+    reading = useRef<PDFReadingAnchor | undefined>(undefined);
   const pendingRestore = useRef(true);
-  const progressSeeded = useRef(!!reading.current);
+  const progressSeeded = useRef(false);
   // The page whose chapter the book toolbar describes. A click or jump pins
   // it; afterwards scrolling moves it to the paragraph mid-view.
   const [chapterPage, setChapterPage] = useState(

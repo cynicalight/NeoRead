@@ -2203,3 +2203,45 @@ it.each([
     }
   },
 );
+
+it.each(["reflow", "translation"] as const)(
+  "restores %s from page coordinates when reparsing replaced the saved paragraph ID",
+  async (mode) => {
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await renderView(
+      defaultTheme,
+      [
+        {
+          id: "p2-current",
+          page: 2,
+          label: "text",
+          text: "Reparsed paragraph.",
+          bounds: { x: 0.1, y: 0.3, width: 0.5, height: 0.2 },
+        },
+      ],
+      [],
+      { left: true, right: true },
+      {
+        type: "pdf",
+        page: 2,
+        x: 0.2,
+        y: 0.4,
+        reflowPosition: { page: 2, blockId: "p2-before-reparse" },
+      },
+      mode,
+    );
+    expect(fixture.ready!.getLocation()).toMatchObject({
+      type: "pdf",
+      page: 2,
+      reflowPosition: { page: 2, blockId: "p2-current" },
+    });
+    expect(events.location).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        page: 2,
+        reflowPosition: { page: 2, blockId: "p2-current" },
+      }),
+      expect.any(Number),
+    );
+  },
+);
