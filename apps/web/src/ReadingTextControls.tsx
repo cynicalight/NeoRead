@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Bold, Minus, Plus } from "lucide-react";
+import { Bold } from "lucide-react";
 import { defaultTheme, type ReaderTheme } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
 import {
@@ -211,25 +211,49 @@ export function ReadingTextControls({
         <>
           <Separator />
           <Section title="版面">
-            <StepRow
+            <SizeRow
               label="边距"
-              value={theme.readingMargin}
-              display={`${theme.readingMargin}`}
+              title="边距"
               min={READING_MARGIN.min}
               max={READING_MARGIN.max}
               step={READING_MARGIN.step}
+              value={theme.readingMargin}
+              display={`${theme.readingMargin}`}
               onValue={(readingMargin) => setTheme({ readingMargin })}
-              reset={defaultTheme.readingMargin}
+              action={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setTheme({ readingMargin: defaultTheme.readingMargin })
+                  }
+                >
+                  恢复
+                </Button>
+              }
             />
-            <StepRow
+            <SizeRow
               label="行距"
-              value={theme.lineHeight}
-              display={theme.lineHeight.toFixed(1)}
+              title="行距"
               min={1.4}
               max={2.2}
-              step={0.2}
-              onValue={(lineHeight) => setTheme({ lineHeight })}
-              reset={defaultTheme.lineHeight}
+              step={0.1}
+              value={theme.lineHeight}
+              display={theme.lineHeight.toFixed(1)}
+              onValue={(value) =>
+                setTheme({ lineHeight: Math.round(value * 10) / 10 })
+              }
+              action={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setTheme({ lineHeight: defaultTheme.lineHeight })
+                  }
+                >
+                  恢复
+                </Button>
+              }
             />
           </Section>
         </>
@@ -263,6 +287,7 @@ function SizeRow({
   title = "字号",
   min,
   max,
+  step = 5,
   value,
   display,
   onValue,
@@ -272,6 +297,7 @@ function SizeRow({
   title?: string;
   min: number;
   max: number;
+  step?: number;
   value: number;
   display?: string;
   onValue: (value: number) => void;
@@ -285,7 +311,7 @@ function SizeRow({
           thumbLabel={label}
           min={min}
           max={max}
-          step={5}
+          step={step}
           value={[value]}
           onValueChange={(next) =>
             onValue(Array.isArray(next) ? next[0] : next)
@@ -295,74 +321,6 @@ function SizeRow({
           {display ?? `${value}%`}
         </span>
         {action}
-      </div>
-    </Row>
-  );
-}
-
-/** A value stepped within a range, with the same layout as SizeRow. */
-function StepRow({
-  label,
-  title = label,
-  value,
-  display,
-  min,
-  max,
-  step,
-  onValue,
-  reset,
-}: {
-  label: string;
-  title?: string;
-  value: number;
-  display: string;
-  min: number;
-  max: number;
-  step: number;
-  onValue: (value: number) => void;
-  reset: number;
-}) {
-  // Step onto the grid, so off-grid saved values (40) reach 32 or 48.
-  const move = (direction: number) => {
-    const units = value / step;
-    const next =
-      (direction > 0
-        ? Math.floor(units + 1e-6) + 1
-        : Math.ceil(units - 1e-6) - 1) * step;
-    onValue(Math.round(Math.min(max, Math.max(min, next)) * 100) / 100);
-  };
-  return (
-    <Row label={label}>
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-          <Button
-            size="icon-sm"
-            variant="outline"
-            aria-label={`减小${title}`}
-            disabled={value <= min}
-            onClick={() => move(-1)}
-          >
-            <Minus />
-          </Button>
-          <span
-            className="min-w-0 truncate text-center text-xs tabular-nums"
-            aria-label={title}
-          >
-            {display}
-          </span>
-          <Button
-            size="icon-sm"
-            variant="outline"
-            aria-label={`增大${title}`}
-            disabled={value >= max}
-            onClick={() => move(1)}
-          >
-            <Plus />
-          </Button>
-        </div>
-        <Button size="sm" variant="outline" onClick={() => onValue(reset)}>
-          恢复
-        </Button>
       </div>
     </Row>
   );

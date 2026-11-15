@@ -55,14 +55,7 @@ it.each([true, false])(
     const layout = [...node.querySelectorAll("section")].find(
       (section) => section.querySelector("h4")?.textContent === "版面",
     )!;
-    expect(labels(layout)).toEqual([
-      "减小边距",
-      "边距",
-      "增大边距",
-      "减小行距",
-      "行距",
-      "增大行距",
-    ]);
+    expect(labels(layout).filter(Boolean)).toEqual(["边距", "行距"]);
   },
 );
 

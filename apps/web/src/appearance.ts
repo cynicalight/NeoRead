@@ -108,7 +108,7 @@ export function translationFont(
 }
 
 /** Rendered text inset in px from each side of its reading pane. */
-export const READING_MARGIN = { min: 0, max: 96, step: 16 };
+export const READING_MARGIN = { min: 0, max: 96, step: 4 };
 
 /** EPUB source size as a percentage of the default size. */
 export const epubSizePercent = (fontSize: number) =>
