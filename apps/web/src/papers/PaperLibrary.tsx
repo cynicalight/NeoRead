@@ -824,28 +824,31 @@ export function PaperLibrary({
                 onClear={() => ui.setQuery("")}
               />
             </div>
-            <Select
-              value={sort}
-              onValueChange={(value) => {
-                if (value)
-                  void savePaperPreferences((p) => ({
-                    ...p,
-                    sort: value as PaperSort,
-                    sortReverse: false,
-                  }));
-              }}
-            >
-              <SelectTrigger size="sm" aria-label="排序">
-                <SelectValue>{sortLabels[sort]}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(sortLabels) as PaperSort[]).map((key) => (
-                  <SelectItem key={key} value={key}>
-                    {sortLabels[key]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Table column headers sort the table themselves. */}
+            {!table && (
+              <Select
+                value={sort}
+                onValueChange={(value) => {
+                  if (value)
+                    void savePaperPreferences((p) => ({
+                      ...p,
+                      sort: value as PaperSort,
+                      sortReverse: false,
+                    }));
+                }}
+              >
+                <SelectTrigger size="sm" aria-label="排序">
+                  <SelectValue>{sortLabels[sort]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(sortLabels) as PaperSort[]).map((key) => (
+                    <SelectItem key={key} value={key}>
+                      {sortLabels[key]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {table && <PaperColumns controls={columnControls} />}
             <Tabs
               value={layout}
