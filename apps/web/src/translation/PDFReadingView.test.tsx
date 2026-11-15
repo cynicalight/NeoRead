@@ -2245,3 +2245,38 @@ it.each(["reflow", "translation"] as const)(
     );
   },
 );
+
+it.each(["unparsed", "decoration", "empty"] as const)(
+  "saves native progress while restoring a PDF page with %s content",
+  async (kind) => {
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await renderView(
+      defaultTheme,
+      kind === "unparsed"
+        ? []
+        : [
+            {
+              id: "p2-unreadable",
+              page: 2,
+              label: kind === "decoration" ? "footer" : "text",
+              text: kind === "decoration" ? "2" : "",
+              bounds: { x: 0.45, y: 0.96, width: 0.1, height: 0.02 },
+            },
+          ],
+      [],
+      { left: true, right: true },
+      { type: "pdf", page: 2, x: 0.1, y: 0.3 },
+      "source",
+    );
+    const location = { type: "pdf" as const, page: 2, x: 0.1, y: 0.6 };
+    const native = vi.spyOn(adapter, "getLocation").mockReturnValue(location);
+    try {
+      await act(async () => fixture.events!.location(location, 0.5));
+      expect(events.location).toHaveBeenLastCalledWith(location, 0.5);
+      expect(fixture.ready!.getLocation()).toEqual(location);
+    } finally {
+      native.mockRestore();
+    }
+  },
+);
