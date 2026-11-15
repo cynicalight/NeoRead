@@ -84,61 +84,71 @@ export function ReadingTextControls({
   const reflowed = docType === "epub" || theme.textReflow === true;
   // PDF source mode shows only the page canvas, which has no text layout.
   const showLayout = docType === "epub" || readingMode !== "source";
+  // Translation-only PDF reading hides the page, so its zoom has no effect.
+  const showSource = docType === "epub" || readingMode !== "translation";
   return (
     <div className="space-y-4">
-      <Section title="原文">
-        {reflowed ? (
-          <>
-            <FontRow
-              label="原文"
-              family={theme.fontFamily}
-              preview={sourceFont}
-              onFamily={(fontFamily) => setTheme({ fontFamily })}
-              bold={theme.fontWeight === "bold"}
-              onBold={(bold) =>
-                setTheme({ fontWeight: bold ? "bold" : "normal" })
-              }
-              fonts={fonts}
-            />
-            <SizeRow
-              label="原文字号"
-              min={70}
-              max={200}
-              value={epubSizePercent(theme.fontSize)}
-              onValue={(value) => setTheme({ fontSize: epubFontSize(value) })}
-              action={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setTheme({ fontSize: defaultTheme.fontSize })}
-                >
-                  恢复
-                </Button>
-              }
-            />
-          </>
-        ) : (
-          <SizeRow
-            label="原文缩放"
-            title="缩放"
-            min={50}
-            max={300}
-            value={zoom === undefined ? 100 : Math.round(zoom * 100)}
-            display={zoom === undefined ? "自动" : undefined}
-            onValue={(value) => setTheme({ zoom: value / 100 })}
-            action={
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setTheme({ zoom: "width" })}
-              >
-                适宽
-              </Button>
-            }
-          />
-        )}
-      </Section>
-      <Separator />
+      {showSource && (
+        <>
+          <Section title="原文">
+            {reflowed ? (
+              <>
+                <FontRow
+                  label="原文"
+                  family={theme.fontFamily}
+                  preview={sourceFont}
+                  onFamily={(fontFamily) => setTheme({ fontFamily })}
+                  bold={theme.fontWeight === "bold"}
+                  onBold={(bold) =>
+                    setTheme({ fontWeight: bold ? "bold" : "normal" })
+                  }
+                  fonts={fonts}
+                />
+                <SizeRow
+                  label="原文字号"
+                  min={70}
+                  max={200}
+                  value={epubSizePercent(theme.fontSize)}
+                  onValue={(value) =>
+                    setTheme({ fontSize: epubFontSize(value) })
+                  }
+                  action={
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setTheme({ fontSize: defaultTheme.fontSize })
+                      }
+                    >
+                      恢复
+                    </Button>
+                  }
+                />
+              </>
+            ) : (
+              <SizeRow
+                label="原文缩放"
+                title="缩放"
+                min={50}
+                max={300}
+                value={zoom === undefined ? 100 : Math.round(zoom * 100)}
+                display={zoom === undefined ? "自动" : undefined}
+                onValue={(value) => setTheme({ zoom: value / 100 })}
+                action={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setTheme({ zoom: "width" })}
+                  >
+                    适宽
+                  </Button>
+                }
+              />
+            )}
+          </Section>
+          <Separator />
+        </>
+      )}
       <Section title="译文">
         <FontRow
           label="译文"

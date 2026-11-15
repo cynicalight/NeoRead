@@ -71,3 +71,9 @@ it("hides the layout section for the PDF page canvas but keeps it for EPUB sourc
   host!.remove();
   expect(render({}, "source", "epub").textContent).toContain("版面");
 });
+
+it("hides PDF source zoom in translation-only mode", () => {
+  const node = render({ textReflow: false }, "translation");
+  expect(node.textContent).not.toContain("缩放");
+  expect(node.textContent).toContain("译文");
+});
