@@ -611,12 +611,7 @@ export function Workspace({
     setLocation(next);
     if (navigationRef.current?.settle()) setReturnLocation(undefined);
     if (next.type === "pdf") setPageInput(String(next.page));
-    if (next.type === "pdf")
-      pdfProgress.current = savePDFProgress(
-        pdfProgress.current,
-        next,
-        theme.textReflow === true,
-      );
+    if (next.type === "pdf") pdfProgress.current = savePDFProgress(next);
     scheduleProgress(
       doc.id,
       {

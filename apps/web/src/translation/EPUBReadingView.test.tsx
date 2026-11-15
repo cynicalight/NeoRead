@@ -640,3 +640,61 @@ it("smoothly retargets the translated midpoint and cancels following on user inp
     vi.useRealTimers();
   }
 });
+
+it.each(["原文", "重排"])(
+  "publishes the latest center paragraph in %s instead of a stale top location",
+  async (label) => {
+    await click(label);
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+    await act(async () => {
+      fixture.events!.epubInteraction?.();
+      fixture.events!.epubReadingAnchor?.("e-b", 0.8);
+      fixture.events!.location(
+        { type: "epub", href: "b.xhtml", blockId: "old-top", start: 0 },
+        0.2,
+      );
+    });
+    expect(fixture.ready!.getLocation()).toEqual({
+      ...blocks[1].location,
+      blockId: "e-b",
+    });
+    expect(events.location).toHaveBeenLastCalledWith(
+      { ...blocks[1].location, blockId: "e-b" },
+      expect.any(Number),
+    );
+    const pane = host.querySelector<HTMLElement>(".translation-document")!;
+    expect(pane.scrollTop).toBe(0);
+  },
+);
+
+it("ignores hidden source anchors and interactions while translation owns progress", async () => {
+  await click("译文");
+  await act(async () => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 40));
+  });
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  Object.defineProperty(pane, "clientHeight", { value: 400 });
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 400, 400);
+  const nodes = pane.querySelectorAll<HTMLElement>("[data-translation-block]");
+  nodes[0].getBoundingClientRect = () => new DOMRect(0, -200, 400, 100);
+  nodes[1].getBoundingClientRect = () => new DOMRect(0, 180, 400, 100);
+  await act(async () => {
+    pane.dispatchEvent(new Event("wheel", { bubbles: true }));
+    pane.dispatchEvent(new Event("scroll"));
+    await new Promise<void>((resolve) => setTimeout(resolve, 40));
+  });
+  const current = fixture.ready!.getLocation();
+  expect(current).toMatchObject({ href: "b.xhtml", blockId: "e-b" });
+  await act(async () => {
+    fixture.events!.epubInteraction?.();
+    fixture.events!.location(blocks[0].location, 0);
+    fixture.events!.epubReadingAnchor?.("p1-b1");
+    fixture.events!.selection({
+      text: blocks[0].text,
+      location: blocks[0].location,
+    });
+  });
+  expect(fixture.ready!.getLocation()).toEqual(current);
+});

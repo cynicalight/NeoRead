@@ -4,40 +4,25 @@ export function pdfModeLocation(
   progress: PDFLocation | undefined,
   reflow: boolean,
 ): PDFLocation | undefined {
-  if (!reflow) return progress?.reflowBlockId ? undefined : progress;
-  const saved =
-    progress?.reflowPosition ??
-    (progress?.reflowBlockId
-      ? { page: progress.page, blockId: progress.reflowBlockId }
+  if (!progress) return;
+  const { reflowBlockId, reflowPosition, ...location } = progress;
+  const blockId =
+    reflowBlockId ??
+    (reflowPosition?.page === location.page
+      ? reflowPosition.blockId
       : undefined);
-  return saved
-    ? { type: "pdf", page: saved.page, reflowBlockId: saved.blockId }
-    : undefined;
+  return reflow && blockId ? { ...location, reflowBlockId: blockId } : location;
 }
 
-/** Persist each PDF view independently in the existing document progress. */
-export function savePDFProgress(
-  previous: PDFLocation | undefined,
-  current: PDFLocation,
-  reflow: boolean,
-): PDFLocation {
-  const savedReflow =
-    previous?.reflowPosition ??
-    (previous?.reflowBlockId
-      ? { page: previous.page, blockId: previous.reflowBlockId }
+/** Save one current paragraph in both PDF coordinate and text projections. */
+export function savePDFProgress(current: PDFLocation): PDFLocation {
+  const { reflowBlockId, reflowPosition, ...location } = current;
+  const blockId =
+    reflowBlockId ??
+    (reflowPosition?.page === location.page
+      ? reflowPosition.blockId
       : undefined);
-  const original =
-    previous && !previous.reflowBlockId
-      ? previous
-      : { type: "pdf" as const, page: 1 };
-  if (reflow) {
-    return {
-      ...original,
-      reflowPosition: current.reflowBlockId
-        ? { page: current.page, blockId: current.reflowBlockId }
-        : savedReflow,
-    };
-  }
-  const { reflowBlockId: _, reflowPosition: __, ...location } = current;
-  return { ...location, ...(savedReflow && { reflowPosition: savedReflow }) };
+  return blockId
+    ? { ...location, reflowPosition: { page: location.page, blockId } }
+    : location;
 }

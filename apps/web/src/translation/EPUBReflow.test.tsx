@@ -76,6 +76,18 @@ const blocks: EPUBReadingBlock[] = [
     },
   },
   {
+    id: "p2",
+    label: "text",
+    text: "New paragraph 😀.",
+    location: {
+      type: "epub",
+      href: "a.xhtml",
+      blockId: "p2",
+      start: 32,
+      end: 49,
+    },
+  },
+  {
     id: "img",
     label: "image",
     text: "",
@@ -109,6 +121,9 @@ vi.mock("../ReaderView", () => ({
         <section className="epub-web-chapter">
           <p data-epub-block="p1">
             <span data-epub-run="p1">First sentence. Second sentence.</span>
+          </p>
+          <p data-epub-block="p2">
+            <span data-epub-run="p2">New paragraph 😀.</span>
           </p>
           <img data-epub-block="img" alt="" />
         </section>
@@ -283,13 +298,15 @@ it.each([false, true])(
       text: "Another source paragraph.",
       location: { type: "epub", href: "a.xhtml", blockId: "p2" },
     };
-    const paragraph = document.createElement("p");
-    paragraph.dataset.epubBlock = "p2";
+    const paragraph = host.querySelector<HTMLParagraphElement>(
+      '[data-epub-block="p2"]',
+    )!;
     paragraph.innerHTML =
       '<span data-epub-run="p2">Another source paragraph.</span>';
-    host.querySelector(".epub-web-chapter")!.append(paragraph);
     await act(async () =>
-      fixture.events!.epubBlocksChanged?.([...blocks, second]),
+      fixture.events!.epubBlocksChanged?.(
+        blocks.map((block) => (block.id === second.id ? second : block)),
+      ),
     );
     const first = host.querySelector('[data-epub-run="p1"]')!.firstChild!,
       last = paragraph.firstChild!.firstChild!;
@@ -331,12 +348,14 @@ it("keeps a translation-starting mixed range", async () => {
     text: "Another paragraph.",
     location: { type: "epub", href: "a.xhtml", blockId: "p2" },
   };
-  const paragraph = document.createElement("p");
-  paragraph.dataset.epubBlock = "p2";
+  const paragraph = host.querySelector<HTMLParagraphElement>(
+    '[data-epub-block="p2"]',
+  )!;
   paragraph.innerHTML = '<span data-epub-run="p2">Another paragraph.</span>';
-  host.querySelector(".epub-web-chapter")!.append(paragraph);
   await act(async () =>
-    fixture.events!.epubBlocksChanged?.([...blocks, second]),
+    fixture.events!.epubBlocksChanged?.(
+      blocks.map((block) => (block.id === second.id ? second : block)),
+    ),
   );
   const first = document
     .createTreeWalker(
@@ -400,18 +419,38 @@ it.each(
   ).toEqual(modeLabels);
   await click(from);
   await flush();
-  const location = {
-    type: "epub" as const,
-    href: "a.xhtml",
-    blockId: "p1",
-    start: 12,
-    end: 12,
-  };
   if (from === "译文") {
-    // A source interaction hands location ownership back from the hidden pane.
-    await act(async () => fixture.events!.epubInteraction?.());
+    const pane = host.querySelector<HTMLElement>(".translation-document")!;
+    Object.defineProperty(pane, "clientHeight", { value: 400 });
+    pane.getBoundingClientRect = () => new DOMRect(0, 0, 400, 400);
+    for (const node of pane.querySelectorAll<HTMLElement>(
+      "[data-translation-block]",
+    ))
+      node.getBoundingClientRect = () =>
+        new DOMRect(
+          0,
+          node.dataset.translationBlock === "p1" ? -100 : 180,
+          400,
+          100,
+        );
+    await act(async () => {
+      pane.dispatchEvent(new Event("wheel", { bubbles: true }));
+      pane.dispatchEvent(new Event("scroll"));
+    });
+    await flush();
+  } else {
+    await act(async () => {
+      fixture.events!.epubReadingAnchor?.("p2", 0.8);
+      fixture.events!.location(
+        { type: "epub", href: "a.xhtml", blockId: "p1", start: 0 },
+        0,
+      );
+    });
   }
-  await act(async () => fixture.events!.location(location, 0.5));
+  expect(events.location).toHaveBeenLastCalledWith(
+    expect.objectContaining(blocks[1].location),
+    expect.any(Number),
+  );
   vi.mocked(adapter.goTo).mockClear();
   vi.mocked(adapter.followBlock!).mockClear();
   await click(to);
@@ -423,15 +462,15 @@ it.each(
   expect(
     host.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
   ).toBe(to);
-  if (to === "重排") {
-    expect(adapter.followBlock).toHaveBeenCalledWith({
-      blockId: "p1",
+  if (to !== "译文") {
+    expect(adapter.followBlock).toHaveBeenCalledExactlyOnceWith({
+      blockId: "p2",
       fraction: 0.5,
     });
-    expect(adapter.goTo).not.toHaveBeenCalled();
   } else {
-    expect(adapter.goTo).toHaveBeenCalledExactlyOnceWith(location);
+    expect(adapter.followBlock).not.toHaveBeenCalled();
   }
+  expect(adapter.goTo).not.toHaveBeenCalled();
 });
 
 it("cancels obsolete mode frames during rapid switching", async () => {
@@ -450,8 +489,11 @@ it("cancels obsolete mode frames during rapid switching", async () => {
   await click("译文");
   await click("原文");
   await flush();
-  expect(adapter.goTo).toHaveBeenCalledExactlyOnceWith(location);
-  expect(adapter.followBlock).not.toHaveBeenCalled();
+  expect(adapter.goTo).not.toHaveBeenCalled();
+  expect(adapter.followBlock).toHaveBeenCalledExactlyOnceWith({
+    blockId: "p1",
+    fraction: 0.5,
+  });
   expect(adapter.open).toHaveBeenCalledTimes(1);
 });
 
@@ -468,6 +510,7 @@ it("restores a pending reflow paragraph when blocks arrive without reopening its
     fixture.events!.epubBlocksChanged?.([]);
   });
   vi.mocked(adapter.goTo).mockClear();
+  vi.mocked(adapter.followBlock!).mockClear();
   await click("重排");
   await flush();
   expect(adapter.followBlock).not.toHaveBeenCalled();
@@ -480,4 +523,72 @@ it("restores a pending reflow paragraph when blocks arrive without reopening its
   });
   expect(adapter.goTo).not.toHaveBeenCalled();
   expect(adapter.open).toHaveBeenCalledTimes(1);
+});
+
+it.each(["原文", "对照", "译文"])(
+  "retains a new reflow center paragraph through %s and back",
+  async (label) => {
+    await renderView();
+    const flush = queuedFrames();
+    const reader = host.querySelector(".epub-web-reader");
+    await act(async () => {
+      fixture.events!.epubReadingAnchor?.("p1");
+      fixture.events!.epubReadingAnchor?.("p2", 0.9);
+    });
+    await click(label);
+    const pane = host.querySelector<HTMLElement>(".translation-document")!;
+    Object.defineProperty(pane, "clientHeight", { value: 400 });
+    pane.getBoundingClientRect = () => new DOMRect(0, 0, 400, 400);
+    const node = pane.querySelector<HTMLElement>(
+      '[data-translation-block="p2"]',
+    )!;
+    node.getBoundingClientRect = () =>
+      new DOMRect(0, 600 - pane.scrollTop, 400, 100);
+    await flush();
+    if (label !== "原文") expect(pane.scrollTop).toBe(450);
+    await act(async () => {
+      fixture.events!.location(
+        { type: "epub", href: "a.xhtml", blockId: "p1" },
+        0,
+      );
+      if (label === "译文") {
+        fixture.events!.epubInteraction?.();
+        fixture.events!.epubReadingAnchor?.("p1");
+      }
+    });
+    vi.mocked(adapter.followBlock!).mockClear();
+    await click("重排");
+    await flush();
+    expect(adapter.followBlock).toHaveBeenCalledExactlyOnceWith({
+      blockId: "p2",
+      fraction: 0.5,
+    });
+    expect(host.querySelector(".epub-web-reader")).toBe(reader);
+    expect(adapter.open).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("lets source navigation replace a pending restore before delayed blocks arrive", async () => {
+  await renderView();
+  const flush = queuedFrames();
+  await act(async () => {
+    fixture.events!.epubReadingAnchor?.("p1");
+    fixture.events!.epubBlocksChanged?.([]);
+  });
+  await click("原文");
+  await flush();
+  await act(async () => {
+    fixture.events!.epubInteraction?.();
+    fixture.events!.epubBlocksChanged?.(blocks);
+  });
+  await act(async () => fixture.events!.epubReadingAnchor?.("p2"));
+  await flush();
+  expect(adapter.followBlock).not.toHaveBeenCalled();
+  await click("重排");
+  await flush();
+  expect(adapter.followBlock).toHaveBeenCalledExactlyOnceWith({
+    blockId: "p2",
+    fraction: 0.5,
+  });
+  expect(adapter.goTo).not.toHaveBeenCalled();
 });

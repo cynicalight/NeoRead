@@ -130,19 +130,22 @@ beforeEach(() => {
   root = createRoot(host);
 });
 
-it("keeps native and reflow progress separate despite an old global reflow preference", async () => {
+it("saves one latest PDF paragraph across mode switches despite an old global reflow preference", async () => {
   await act(async () => render(0, { ...defaultTheme, textReflow: true }));
   const original = { type: "pdf" as const, page: 4, x: 0.2, y: 0.6 };
   await act(async () => panels.reader!.events.location(original, 0.4));
   await act(async () => panels.reader!.onReadingModeChange("reflow"));
   await act(async () =>
     panels.reader!.events.location(
-      { type: "pdf", page: 9, reflowBlockId: "p9-b4" },
+      { type: "pdf", page: 9, x: 0.3, y: 0.7, reflowBlockId: "p9-b4" },
       0.9,
     ),
   );
   const progress = {
-    ...original,
+    type: "pdf",
+    page: 9,
+    x: 0.3,
+    y: 0.7,
     reflowPosition: { page: 9, blockId: "p9-b4" },
   };
   expect(scheduleProgress).toHaveBeenLastCalledWith(
@@ -151,12 +154,18 @@ it("keeps native and reflow progress separate despite an old global reflow prefe
     expect.any(Function),
   );
   await act(async () => panels.reader!.onReadingModeChange("parallel"));
-  const next = { type: "pdf" as const, page: 6, x: 0.1, y: 0.4 };
+  const next = {
+    type: "pdf" as const,
+    page: 6,
+    x: 0.1,
+    y: 0.4,
+    reflowPosition: { page: 6, blockId: "p6-b2" },
+  };
   await act(async () => panels.reader!.events.location(next, 0.6));
   expect(scheduleProgress).toHaveBeenLastCalledWith(
     doc.id,
     {
-      progress: { ...next, reflowPosition: progress.reflowPosition },
+      progress: next,
       percentage: 0.6,
     },
     expect.any(Function),

@@ -352,7 +352,7 @@ export function EPUBReadingView({
     const operation = ++motion.operation;
     motion.moving = true;
     setFocusedBlock(id);
-    updateLocation(block.location);
+    updateLocation({ ...block.location, blockId: block.id });
     pinAnchor(blockAnchor(block));
     const current = live.current.mode;
     const cancelled = () => operation !== motion.operation;
@@ -596,6 +596,9 @@ export function EPUBReadingView({
     cancelAnimationFrame(scrollFrame.current);
     scrollFrame.current = requestAnimationFrame(() => {
       if (
+        live.current.reflow ||
+        live.current.mode === "source" ||
+        modeTarget.current ||
         focusMotion.current.moving ||
         !sync.current.canFollow("translation") ||
         dragging.current ||
@@ -620,7 +623,7 @@ export function EPUBReadingView({
           void engine.current
             ?.goTo(block.location)
             .catch((e) => toast.error(e.message));
-        updateLocation(block.location);
+        updateLocation({ ...block.location, blockId: block.id });
         driftAnchor(blockAnchor(block));
         if (live.current.mode === "parallel" && node) {
           const rect = node.getBoundingClientRect();
@@ -669,27 +672,36 @@ export function EPUBReadingView({
     if (!active || !target) return;
     const adapter = engine.current;
     let cancelled = false;
-    const restore = () => {
-      if (cancelled || engine.current !== adapter) return;
-      const block = epubBlocksAt(target, live.current.blocks)[0];
-      if (reflow) {
-        if (!block) return;
-        modeTarget.current = undefined;
-        void adapter
-          ?.followBlock?.({ blockId: block.id, fraction: 0.5 })
-          .catch((e) => toast.error(e.message));
-      } else {
-        if (mode !== "source" && block) follow(block.id, 0.5, true);
-        // Missing blocks can arrive later without reopening the chapter.
-        if (mode !== "source" && !block) return;
-        modeTarget.current = undefined;
-        if (target.href)
-          void adapter?.goTo(target).catch((e) => toast.error(e.message));
+    const restore = async () => {
+      const obsolete = () =>
+        cancelled ||
+        engine.current !== adapter ||
+        modeTarget.current !== target;
+      if (obsolete()) return;
+      const current = adapter?.getLocation();
+      if (
+        target.href &&
+        (current?.type !== "epub" ||
+          current.href.split("#")[0] !== target.href.split("#")[0])
+      ) {
+        await adapter?.goTo(target);
+        if (obsolete()) return;
       }
+      const block = epubBlocksAt(target, live.current.blocks)[0];
+      if (!block) return;
+      if (reflow || mode !== "translation") {
+        await adapter?.followBlock?.({ blockId: block.id, fraction: 0.5 });
+        if (obsolete()) return;
+      }
+      if (!reflow && mode !== "source") follow(block.id, 0.5, true);
+      modeTarget.current = undefined;
     };
     modeFrame.current = requestAnimationFrame(() => {
-      if (reflow) modeFrame.current = requestAnimationFrame(restore);
-      else restore();
+      const run = () => {
+        void restore().catch((e) => toast.error((e as Error).message));
+      };
+      if (reflow) modeFrame.current = requestAnimationFrame(run);
+      else run();
     });
     return () => {
       cancelled = true;
@@ -808,6 +820,8 @@ export function EPUBReadingView({
           setBlocks(items);
         },
         epubInteraction: () => {
+          if (live.current.mode === "translation" && !live.current.reflow)
+            return;
           input("source");
           void engine.current?.focusEPUBLocations?.([]);
           if (selection.current?.location.translation) {
@@ -817,7 +831,17 @@ export function EPUBReadingView({
           }
         },
         location: (location, percent) => {
-          if (location.type !== "epub" || side.current === "translation")
+          if (
+            location.type !== "epub" ||
+            side.current === "translation" ||
+            modeTarget.current ||
+            (live.current.mode === "translation" && !live.current.reflow)
+          )
+            return;
+          if (
+            position.current.blockId &&
+            position.current.href.split("#")[0] === location.href.split("#")[0]
+          )
             return;
           position.current = location;
           setChapter(location.href.split("#")[0]);
@@ -829,30 +853,49 @@ export function EPUBReadingView({
             hover("source", id ?? undefined);
         },
         epubBlockFocus: (id) => {
+          if (live.current.mode === "translation" && !live.current.reflow)
+            return;
           // Clicking a paragraph focuses it unless the setting is off.
           if (theme.blockFocus === false) return;
           if (!live.current.reflow) focusBlock(id, "source");
-          else
+          else {
+            const block = live.current.blocks.find((b) => b.id === id);
+            if (block) {
+              updateLocation({ ...block.location, blockId: block.id });
+              pinAnchor(blockAnchor(block));
+            }
             void engine.current
               ?.focusBlock?.(id, "source")
               .catch((e) => toast.error((e as Error).message));
+          }
         },
         epubReadingAnchor: (id, fraction = 0.5) => {
           if (
-            !focusMotion.current.moving &&
-            sync.current.canFollow("source") &&
-            !selection.current &&
-            live.current.mode === "parallel"
+            side.current !== "source" ||
+            modeTarget.current ||
+            focusMotion.current.moving ||
+            !sync.current.canFollow("source") ||
+            selection.current ||
+            (live.current.mode === "translation" && !live.current.reflow)
           )
+            return;
+          const block = live.current.blocks.find((b) => b.id === id);
+          if (!block) return;
+          updateLocation({ ...block.location, blockId: block.id });
+          driftAnchor(blockAnchor(block));
+          if (live.current.mode === "parallel" && !live.current.reflow)
             follow(id, fraction, true);
         },
         selection: (value) => {
+          if (live.current.mode === "translation" && !live.current.reflow)
+            return;
           if (!value && (side.current === "translation" || navigating.current))
             return;
           side.current = "source";
           selection.current = value;
           live.current.events.selection(value);
           if (value?.location.type === "epub") {
+            updateLocation(value.location);
             pinAnchor(value.location);
             const matches = epubBlocksAt(value.location, live.current.blocks);
             if (matches[0] && live.current.mode === "parallel")

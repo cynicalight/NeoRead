@@ -167,18 +167,14 @@ export function PDFReadingView({
     pane = useRef<HTMLDivElement>(null),
     control = useRef(new ReadingSync()),
     side = useRef<"source" | "translation">("source"),
-    reading = useRef<PDFReadingAnchor | undefined>(undefined);
-  const reflowReading = useRef<PDFReadingAnchor | undefined>(
-    doc.progress?.type === "pdf" &&
-      (doc.progress.reflowPosition?.blockId ?? doc.progress.reflowBlockId)
-      ? {
-          blockId: (doc.progress.reflowPosition?.blockId ??
-            doc.progress.reflowBlockId)!,
-          fraction: 0,
-        }
-      : undefined,
-  );
-  const originalReading = useRef<PDFReadingAnchor | undefined>(undefined);
+    reading = useRef<PDFReadingAnchor | undefined>(
+      doc.progress?.type === "pdf" &&
+        doc.progress.reflowPosition?.page === doc.progress.page
+        ? { blockId: doc.progress.reflowPosition.blockId, fraction: 0.5 }
+        : undefined,
+    );
+  const pendingRestore = useRef(true);
+  const progressSeeded = useRef(!!reading.current);
   // The page whose chapter the book toolbar describes. A click or jump pins
   // it; afterwards scrolling moves it to the paragraph mid-view.
   const [chapterPage, setChapterPage] = useState(
@@ -201,8 +197,25 @@ export function PDFReadingView({
     const block = state.current?.blocks.find((b) => b.id === anchor.blockId);
     if (block) driftPage(block.page);
     reading.current = anchor;
-    if (state.current.reflow) reflowReading.current = anchor;
-    else originalReading.current = anchor;
+    progressSeeded.current = true;
+  };
+  const blockLocation = (block: PDFBlock, fraction = 0.5) => ({
+    type: "pdf" as const,
+    page: block.page,
+    x: block.bounds.x,
+    y: block.bounds.y + fraction * block.bounds.height,
+    reflowPosition: { page: block.page, blockId: block.id },
+    ...(state.current.reflow ? { reflowBlockId: block.id } : {}),
+  });
+  const publishReading = (anchor: PDFReadingAnchor) => {
+    const block = state.current.blocks.find((b) => b.id === anchor.blockId);
+    if (!block) return;
+    state.current.events.location(
+      blockLocation(block, anchor.fraction),
+      block.page /
+        (engine?.getPageCount?.() ||
+          Math.max(1, ...state.current.blocks.map((b) => b.page))),
+    );
   };
   const translationMotion = useRef({
     operation: 0,
@@ -416,13 +429,7 @@ export function PDFReadingView({
         }
       });
     events.location(
-      {
-        type: "pdf",
-        page: block.page,
-        ...(reflow
-          ? { reflowBlockId: block.id }
-          : { x: block.bounds.x, y: block.bounds.y }),
-      },
+      blockLocation(block),
       block.page /
         (engine?.getPageCount?.() || Math.max(1, ...blocks.map((b) => b.page))),
     );
@@ -437,6 +444,9 @@ export function PDFReadingView({
       (b) => !isPDFPageDecoration(b),
     );
     const linked =
+      (location.reflowPosition?.page === location.page
+        ? location.reflowPosition.blockId
+        : undefined) ??
       location.reflowBlockId ??
       location.translation?.blockId ??
       location.sourceAnchors?.[0]?.blockId ??
@@ -475,8 +485,8 @@ export function PDFReadingView({
   };
   const go = async (location: DocumentLocation) => {
     input(mode === "translation" || reflow ? "translation" : "source");
+    const operation = explicitFocus.current.operation;
     if (location.type === "pdf") pinPage(location.page);
-    if (!reflow) await engine?.goTo(location);
     if (location.type !== "pdf") return;
     const block = locationBlock(location);
     if (block) {
@@ -495,12 +505,25 @@ export function PDFReadingView({
       };
       recordReading(anchor);
       followTranslation(anchor, location.translation?.sentenceIndexes[0]);
+      publishReading(anchor);
+    } else {
+      reading.current = undefined;
+      progressSeeded.current = true;
       state.current.events.location(
-        reflow
-          ? { type: "pdf", page: block.page, reflowBlockId: block.id }
-          : location,
-        block.page / Math.max(1, ...state.current.blocks.map((b) => b.page)),
+        location,
+        location.page /
+          (engine?.getPageCount?.() ||
+            Math.max(1, ...state.current.blocks.map((b) => b.page))),
       );
+    }
+    if (!reflow) {
+      explicitFocus.current.moving = true;
+      try {
+        await engine?.goTo(location);
+      } finally {
+        if (operation === explicitFocus.current.operation)
+          explicitFocus.current.moving = false;
+      }
     }
   };
   const focus = async (location: DocumentLocation) => {
@@ -669,19 +692,7 @@ export function PDFReadingView({
               (b) => b.id === reading.current?.blockId,
             );
             return block
-              ? {
-                  type: "pdf",
-                  page: block.page,
-                  ...(state.current.reflow
-                    ? { reflowBlockId: block.id }
-                    : {
-                        x: block.bounds.x,
-                        y:
-                          block.bounds.y +
-                          (reading.current?.fraction ?? 0) *
-                            block.bounds.height,
-                      }),
-                }
+              ? blockLocation(block, reading.current?.fraction)
               : state.current.reflow
                 ? { type: "pdf", page: 1 }
                 : target.getLocation();
@@ -730,16 +741,32 @@ export function PDFReadingView({
     onReady(facade.current, toc);
   };
   useLayoutEffect(() => {
+    if (progressSeeded.current || reading.current) return;
+    if (doc.progress?.type !== "pdf") {
+      progressSeeded.current = true;
+      return;
+    }
+    const block = locationBlock(doc.progress);
+    if (!block) return;
+    reading.current = { blockId: block.id, fraction: 0.5 };
+    progressSeeded.current = true;
+  }, [blocks, doc.id]);
+  useLayoutEffect(() => {
     input(
       readingMode === "translation" || readingMode === "reflow"
         ? "translation"
         : "source",
     );
     cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = 0;
+    pendingRestore.current = true;
+    if (reading.current)
+      reading.current = { ...reading.current, fraction: 0.5 };
     engine?.cancelBlockFocus?.();
     setPopup(undefined);
     return () => {
       cancelAnimationFrame(scrollFrame.current);
+      scrollFrame.current = 0;
       cancelTranslationMotion();
       deferredFocus.cancel();
       explicitFocus.current.operation++;
@@ -758,10 +785,10 @@ export function PDFReadingView({
     events.selection(null);
     window.getSelection()?.removeAllRanges();
     void engine.focusSentences?.("", []);
-    const anchor = reflow ? reflowReading.current : originalReading.current;
-    if (!reflow) reading.current = anchor;
+    const anchor = reading.current;
     const operation = explicitFocus.current.operation;
     const restore = async () => {
+      if (!pendingRestore.current) return;
       // Reflowed text keeps its place; the hidden PDF needs no zoom or sync.
       if (reflow) {
         return;
@@ -772,8 +799,13 @@ export function PDFReadingView({
         events.zoom?.("width");
         await engine.setTheme({ ...state.current.theme, zoom: "width" });
         if (cancelled || operation !== explicitFocus.current.operation) return;
-        if (mode !== "translation" && anchor && syncEnabledRef.current)
-          await engine.followBlock?.(anchor);
+      }
+      if (anchor && !blocks.some((block) => block.id === anchor.blockId))
+        return;
+      if (!anchor && doc.progress?.type === "pdf" && !progressSeeded.current)
+        return;
+      if (mode !== "translation" && anchor) {
+        await engine.followBlock?.(anchor);
       }
       if (
         !cancelled &&
@@ -782,6 +814,22 @@ export function PDFReadingView({
         anchor
       )
         followTranslation(anchor);
+      if (
+        !cancelled &&
+        operation === explicitFocus.current.operation &&
+        anchor
+      ) {
+        pendingRestore.current = false;
+        const block = blocks.find((block) => block.id === anchor.blockId);
+        if (block) pinPage(block.page);
+        publishReading(anchor);
+      } else if (
+        !anchor &&
+        !cancelled &&
+        operation === explicitFocus.current.operation
+      ) {
+        pendingRestore.current = false;
+      }
     };
     const apply = () =>
       void restore().catch((e) => {
@@ -802,12 +850,10 @@ export function PDFReadingView({
       cancelAnimationFrame(frame);
       engine.hoverBlock?.(null);
     };
-  }, [readingMode, engine, active, reflow]);
+  }, [readingMode, engine, active, reflow, blocks]);
   // Wait for the saved paragraph before restoring reflow progress.
   const reflowRestored = useRef(false);
   useLayoutEffect(() => {
-    if (reflow && !reflowReading.current)
-      reflowReading.current = originalReading.current;
     reflowRestored.current = false;
   }, [doc.id, reflow]);
   const restoreReflow = () => {
@@ -818,9 +864,10 @@ export function PDFReadingView({
       !pane.current
     )
       return;
-    reading.current = reflowReading.current;
-    const anchor = reflowReading.current;
+    const anchor = reading.current;
     if (anchor && !targetNode(anchor.blockId)) return;
+    if (!anchor && doc.progress?.type === "pdf" && !progressSeeded.current)
+      return;
     if (!anchor && !visibleBlocks.length) {
       pane.current.scrollTop = 0;
       return;
@@ -829,9 +876,14 @@ export function PDFReadingView({
     if (anchor) {
       reading.current = anchor;
       followTranslation(anchor);
+      const block = blocks.find((block) => block.id === anchor.blockId);
+      if (block) pinPage(block.page);
+      pendingRestore.current = false;
+      publishReading(anchor);
     } else {
       recordReading({ blockId: visibleBlocks[0].id, fraction: 0 });
       pane.current.scrollTop = 0;
+      pendingRestore.current = false;
     }
   };
   useLayoutEffect(restoreReflow, [blocks, doc.id, reflow, active]);
@@ -848,6 +900,8 @@ export function PDFReadingView({
     };
   }, []);
   const input = (active: typeof side.current) => {
+    pendingRestore.current = false;
+    reflowRestored.current = true;
     deferredFocus.cancel();
     cancelTranslationMotion();
     if (explicitFocus.current.moving || active === "translation")
@@ -917,48 +971,41 @@ export function PDFReadingView({
     selection.current = value.selection;
     events.selection(value.selection);
   };
+  const captureTranslatedReading = () => {
+    if (
+      selecting.current ||
+      explicitFocus.current.moving ||
+      translationMotion.current.moving ||
+      !pane.current ||
+      (reflow && !!reading.current && !reflowRestored.current) ||
+      !control.current.canFollow("translation")
+    )
+      return;
+    const v = pane.current.getBoundingClientRect(),
+      y = v.top + v.height * 0.5;
+    const nodes = Array.from(
+      pane.current.querySelectorAll<HTMLElement>(blockSelector),
+    );
+    const node = nodes.find((n) => n.getBoundingClientRect().bottom > y);
+    if (!node) return;
+    const r = node.getBoundingClientRect(),
+      anchor = {
+        blockId: nodeBlockId(node)!,
+        fraction: Math.max(0, Math.min(1, (y - r.top) / (r.height || 1))),
+      };
+    recordReading(anchor);
+    return anchor;
+  };
   const translatedScroll = () => {
+    const anchor = captureTranslatedReading();
     cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = 0;
+    if (!anchor) return;
+    const operation = explicitFocus.current.operation;
     scrollFrame.current = requestAnimationFrame(() => {
-      if (
-        selecting.current ||
-        explicitFocus.current.moving ||
-        translationMotion.current.moving ||
-        !pane.current ||
-        (reflow && !!reflowReading.current && !reflowRestored.current) ||
-        !control.current.canFollow("translation")
-      )
-        return;
-      const v = pane.current.getBoundingClientRect(),
-        y = v.top + v.height * 0.5;
-      const nodes = Array.from(
-        pane.current.querySelectorAll<HTMLElement>(blockSelector),
-      );
-      const node = nodes.find((n) => n.getBoundingClientRect().bottom > y);
-      if (!node) return;
-      const r = node.getBoundingClientRect(),
-        anchor = {
-          blockId: nodeBlockId(node)!,
-          fraction: Math.max(0, Math.min(1, (y - r.top) / (r.height || 1))),
-        };
-      recordReading(anchor);
-      const block = blocks.find((b) => b.id === anchor.blockId);
-      if (block)
-        events.location(
-          {
-            type: "pdf",
-            page: block.page,
-            ...(reflow
-              ? { reflowBlockId: block.id }
-              : {
-                  x: block.bounds.x,
-                  y: block.bounds.y + anchor.fraction * block.bounds.height,
-                }),
-          },
-          block.page /
-            (engine?.getPageCount?.() ||
-              Math.max(1, ...blocks.map((b) => b.page))),
-        );
+      scrollFrame.current = 0;
+      if (operation !== explicitFocus.current.operation) return;
+      publishReading(anchor);
       if (mode === "parallel" && !reflow && syncEnabledRef.current) {
         control.current.following("source");
         void engine?.followBlock?.(anchor);
@@ -1000,6 +1047,7 @@ export function PDFReadingView({
             size="icon-sm"
             aria-label={syncEnabled ? "取消同步效果" : "开启同步效果"}
             aria-pressed={syncEnabled}
+            disabled={reflow}
             onClick={toggleSync}
           />
         }
@@ -1045,7 +1093,7 @@ export function PDFReadingView({
   );
   const toolbar = (
     <div className="translation-toolbar">
-      {!autoCenterHost && !reflow && autoCenterButton}
+      {!autoCenterHost && autoCenterButton}
       {book ? (
         <BookChapterControls
           documentId={doc.id}
@@ -1092,9 +1140,7 @@ export function PDFReadingView({
       data-theme={theme.mode}
       data-dark-contrast={theme.pdfDarkContrast ?? "soft"}
     >
-      {autoCenterHost &&
-        !reflow &&
-        createPortal(autoCenterButton, autoCenterHost)}
+      {autoCenterHost && createPortal(autoCenterButton, autoCenterHost)}
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       {(mode === "translation" || reflow) && (
         <div className="pdf-reading-controls">
@@ -1135,30 +1181,38 @@ export function PDFReadingView({
                     void focusBlock(block, "source");
                 },
                 location: (location, percentage) => {
-                  // Unparsed pages have no paragraphs to report mid-view.
+                  if (
+                    state.current.mode === "translation" ||
+                    state.current.reflow ||
+                    side.current !== "source" ||
+                    pendingRestore.current
+                  )
+                    return;
                   if (
                     location.type === "pdf" &&
-                    side.current === "source" &&
                     !state.current.blocks.some((b) => b.page === location.page)
-                  )
+                  ) {
+                    reading.current = undefined;
+                    progressSeeded.current = true;
                     driftPage(location.page);
-                  if (
-                    state.current.mode !== "translation" &&
-                    !state.current.reflow &&
-                    side.current === "source"
-                  )
                     events.location(location, percentage);
+                  }
                 },
                 readingAnchor: (anchor) => {
-                  if (state.current.reflow) return;
+                  if (
+                    state.current.reflow ||
+                    state.current.mode === "translation"
+                  )
+                    return;
                   if (
                     explicitFocus.current.moving ||
+                    (pendingRestore.current && !!reading.current) ||
                     !control.current.canFollow("source") ||
                     selecting.current
                   )
                     return;
                   recordReading(anchor);
-                  restoreReflow();
+                  publishReading(anchor);
                   if (
                     state.current.mode === "parallel" &&
                     !state.current.reflow &&
