@@ -4,9 +4,9 @@ import { registerTabCloseGuard } from "./document-tab-guards";
 import {
   Check,
   ChevronDown,
+  Copy,
   CircleHelp,
   Download,
-  Link,
   Loader2,
   Pencil,
   Search,
@@ -15,7 +15,6 @@ import {
   Trash2,
 } from "lucide-react";
 import {
-  neoreadLink,
   locationLabel,
   type Annotation,
   type Document,
@@ -146,16 +145,19 @@ function NoteCard({
         <Button
           size="icon-xs"
           variant="ghost"
-          aria-label="复制链接"
-          title="复制链接，可在笔记软件中点开回到这里"
+          aria-label="复制"
+          title="复制原文和批注内容"
           onClick={() =>
             void copyText(
-              neoreadLink({ id: a.documentId, annotation: a.id }),
-              "已复制链接",
+              [a.quote || locationLabel(a.location), a.note]
+                .map((part) => part.trim())
+                .filter(Boolean)
+                .join("\n\n"),
+              "已复制",
             )
           }
         >
-          <Link />
+          <Copy />
         </Button>
         <Button
           size="icon-xs"
