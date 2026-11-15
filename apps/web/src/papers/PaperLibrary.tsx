@@ -866,14 +866,15 @@ export function PaperLibrary({
               </TabsList>
             </Tabs>
             <Button
-              size="sm"
+              size="icon-sm"
               variant={picking ? "secondary" : "outline"}
+              aria-label={picking ? "完成" : "批量"}
+              title={picking ? "完成" : "批量"}
               aria-pressed={picking}
               disabled={!visible.length && !picking}
               onClick={() => (picking ? ui.stopPicking() : ui.startPicking())}
             >
               {picking ? <Check /> : <CheckSquare />}
-              {picking ? "完成" : "批量"}
             </Button>
           </div>
         )}

@@ -138,7 +138,8 @@ it("applies the existing author preference to books immediately", async () => {
 });
 const button = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>("button")].find(
-    (b) => b.textContent?.trim() === label,
+    (b) =>
+      b.textContent?.trim() === label || b.getAttribute("aria-label") === label,
   )!;
 it("moves selected documents to the trash, keeps failures and offers an undo", async () => {
   await act(async () => button("批量").click());

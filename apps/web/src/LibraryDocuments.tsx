@@ -142,12 +142,13 @@ export function LibraryDocuments({
           {!onEditingChange && (
             <Button
               variant={selecting ? "secondary" : "ghost"}
-              size="sm"
+              size="icon-sm"
+              aria-label={selecting ? "完成" : "批量"}
+              title={selecting ? "完成" : "批量"}
               aria-pressed={selecting}
               onClick={() => changeEditing(!selecting)}
             >
               {selecting ? <Check /> : <CheckSquare />}
-              {selecting ? "完成" : "批量"}
             </Button>
           )}
           {selecting && (

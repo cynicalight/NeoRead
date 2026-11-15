@@ -779,13 +779,15 @@ export function App() {
                         count={filtered.length}
                       />
                       <Button
+                        size="icon"
                         variant={editingLibrary ? "secondary" : "outline"}
+                        aria-label={editingLibrary ? "完成" : "批量"}
+                        title={editingLibrary ? "完成" : "批量"}
                         aria-pressed={editingLibrary}
                         disabled={!filtered.length && !editingLibrary}
                         onClick={() => setEditingLibrary(!editingLibrary)}
                       >
                         {editingLibrary ? <Check /> : <CheckSquare />}
-                        {editingLibrary ? "完成" : "批量"}
                       </Button>
                     </div>
                   )}
