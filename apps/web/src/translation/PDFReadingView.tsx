@@ -1180,7 +1180,7 @@ export function PDFReadingView({
                     state.current.mode === "translation" ||
                     state.current.reflow ||
                     side.current !== "source" ||
-                    pendingRestore.current
+                    (pendingRestore.current && !!reading.current)
                   )
                     return;
                   if (
