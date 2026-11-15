@@ -1190,7 +1190,9 @@ export function PDFReadingView({
                     return;
                   if (
                     location.type === "pdf" &&
-                    !state.current.blocks.some((b) => b.page === location.page)
+                    !state.current.blocks.some(
+                      (b) => b.page === location.page && !isPDFPageDecoration(b),
+                    )
                   ) {
                     reading.current = undefined;
                     progressSeeded.current = true;

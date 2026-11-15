@@ -2167,3 +2167,30 @@ it("keeps the translation paragraph centered without a late column width change 
     rect.mockRestore();
   }
 });
+
+it.each(["header", "footer", "number", "header_image", "footer_image", "text"])(
+  "saves native PDF progress on a page containing only %s decoration",
+  async (label) => {
+    await renderView(defaultTheme, [
+      {
+        id: "p2-decoration",
+        page: 2,
+        label,
+        text: "2",
+        bounds: { x: 0.45, y: 0.96, width: 0.1, height: 0.02 },
+      },
+    ]);
+    const location = { type: "pdf" as const, page: 2, x: 0.1, y: 0.4 };
+    const native = vi.spyOn(adapter, "getLocation").mockReturnValue(location);
+    try {
+      await act(async () =>
+        fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+      );
+      await act(async () => fixture.events!.location(location, 0.5));
+      expect(events.location).toHaveBeenLastCalledWith(location, 0.5);
+      expect(fixture.ready!.getLocation()).toEqual(location);
+    } finally {
+      native.mockRestore();
+    }
+  },
+);
