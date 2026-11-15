@@ -710,7 +710,7 @@ const pdf = scene({
 
 // Reading modes.
 const modeTabs = { x: 360, y: 8, w: 222, h: 28 };
-const modeLabels = ["仅原文", "原文译文", "仅译文"];
+const modeLabels = ["原文", "对照", "重排", "译文"];
 const content: Rect = { x: 8, y: 44, w: 624, h: 348 };
 const source =
   "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.";
@@ -751,15 +751,15 @@ function translatedText(f: Frame, x: number, width: number) {
 
 const modeScript = script({ x: 470, y: 230 })
   .wait(900)
-  .move(tabRects(modeTabs, 3)[1], 700)
+  .move(tabRects(modeTabs, 4)[1], 700)
   .click("parallel")
   .wait(1300)
   .mark("parallelShown")
   .wait(900)
-  .move(tabRects(modeTabs, 3)[2], 500)
+  .move(tabRects(modeTabs, 4)[3], 500)
   .click("translation")
   .wait(2000)
-  .move(tabRects(modeTabs, 3)[0], 500)
+  .move(tabRects(modeTabs, 4)[0], 500)
   .click("source")
   .wait(400)
   .build(1400);
@@ -772,7 +772,7 @@ const modes = scene({
     const mode = f.after("source")
       ? 0
       : f.after("translation")
-        ? 2
+        ? 3
         : f.after("parallel")
           ? 1
           : 0;
@@ -783,7 +783,7 @@ const modes = scene({
     card(f, content);
     p.alpha(changed ? f.progress(changed, 260) : 1, () => {
       if (mode === 0) sourceText(f, content.x + 110, content.w - 220);
-      if (mode === 2) translatedText(f, content.x + 110, content.w - 220);
+      if (mode === 3) translatedText(f, content.x + 110, content.w - 220);
       if (mode === 1) {
         const half = content.w / 2;
         sourceText(f, content.x + 26, half - 46);
@@ -2367,7 +2367,6 @@ const interactionLabels = [
   "多文档标签页",
   "自动复制选中文字",
   "原文译文悬停关联",
-  "文字重排",
   "点击段落聚焦",
 ];
 const interactionY = (i: number) => D.y + 130 + i * 44;
@@ -2386,20 +2385,8 @@ function readingSettings(f: Frame, active: number) {
     p.text("阅读交互", D.x + 22, D.y + 99, { size: 12, weight: 600 });
     interactionLabels.forEach((label, i) => {
       const r = interactionToggle(i);
-      const on =
-        i === active ? f.progress("on", 220) : i === 1 || i === 3 ? 0 : 1;
+      const on = i === active ? f.progress("on", 220) : i === 1 ? 0 : 1;
       p.text(label, D.x + 22, interactionY(i), { size: 11.5 });
-      if (i === 3)
-        p.text(
-          "按段落重排正文，译文显示在对应原文下方。",
-          D.x + 22,
-          interactionY(i) + 16,
-          {
-            size: 10,
-            color: c.mutedForeground,
-            max: D.w - 90,
-          },
-        );
       p.box(r, { fill: c.input, radius: 8 });
       p.alpha(on, () => p.box(r, { fill: c.primary, radius: 8 }));
       p.circle(
@@ -2430,19 +2417,14 @@ const reflow = scene({
   pointerScale: 1.5,
   script: script({ x: 470, y: 360 })
     .wait(500)
-    .move(interactionToggle(3), 800)
-    .click("on")
-    .wait(700)
-    .move(settingsClose, 600)
-    .click("close")
-    .wait(300)
-    .mark("reflow")
+    .move(tabRects(modeTabs, 4)[2], 800)
+    .click("reflow")
     .move({ x: 566, y: 330 }, 650)
     .wait(3000)
     .build(1200),
   draw(f) {
     const { p, c } = f;
-    readingToolbar(f, 1);
+    readingToolbar(f, f.after("reflow") ? 2 : 0);
     card(f, content);
     p.alpha(1 - f.progress("reflow", 350), () => {
       p.text("Attention Is All You Need", 320, 83, {
@@ -2476,7 +2458,6 @@ const reflow = scene({
         y += 88;
       });
     });
-    readingSettings(f, 3);
   },
 });
 

@@ -3,6 +3,7 @@ package neoread
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -45,6 +46,14 @@ func OpenLibrary(root string) (store *Store, err error) {
 		return store, err
 	}
 	if count != 0 || initialized != 0 {
+		updated, upgradeErr := store.repairExampleTranslations()
+		if upgradeErr != nil {
+			slog.Error("library.example_failed", "errorCode", "translation_upgrade")
+			return store, upgradeErr
+		}
+		if updated > 0 {
+			slog.Info("library.example_repaired", "updatedBlocks", updated)
+		}
 		// Existing documents, including migrated papers and retained trash, identify
 		// an existing user. Keep release-note and manual-tour preferences intact.
 		_, err = store.DB.Exec(`INSERT INTO settings(key,value) VALUES('preferences:guide','{"onboarded":true}')
@@ -70,11 +79,12 @@ func OpenLibrary(root string) (store *Store, err error) {
 }
 
 type bundledPaper struct {
-	ID           string             `json:"id"`
-	Title        string             `json:"title"`
-	Author       string             `json:"author"`
-	Metadata     PaperMetadata      `json:"metadata"`
-	Translations []TranslationBlock `json:"translations"`
+	ID                   string             `json:"id"`
+	Title                string             `json:"title"`
+	Author               string             `json:"author"`
+	Metadata             PaperMetadata      `json:"metadata"`
+	Translations         []TranslationBlock `json:"translations"`
+	PreviousTranslations map[string]string  `json:"previousTranslations"`
 }
 
 func (s *Store) installExamplePaper() error {
@@ -178,6 +188,80 @@ func (s *Store) installExamplePaper() error {
 		return err
 	}
 	return tx.Commit()
+}
+
+func (s *Store) repairExampleTranslations() (int64, error) {
+	data, err := examplePaper.ReadFile("example-paper/paper.json")
+	if err != nil {
+		return 0, err
+	}
+	var paper bundledPaper
+	if err = json.Unmarshal(data, &paper); err != nil {
+		return 0, err
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var eligible bool
+	err = tx.QueryRow(`SELECT EXISTS(
+ SELECT 1 FROM documents d JOIN settings g ON g.key='preferences:guide'
+ WHERE d.id=? AND d.deleted_at='' AND json_extract(g.value,'$.exampleDocumentId')=d.id
+)`, paper.ID).Scan(&eligible)
+	if err != nil || !eligible {
+		return 0, err
+	}
+	var updated int64
+	for _, item := range paper.Translations {
+		digest, changed := paper.PreviousTranslations[item.BlockID]
+		if !changed || item.Status != "complete" {
+			continue
+		}
+		var oldBody string
+		err = tx.QueryRow(`SELECT body FROM translations
+ WHERE document_id=? AND block_id=? AND source_hash=? AND status='complete'`,
+			paper.ID, item.BlockID, item.SourceHash).Scan(&oldBody)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		var old any
+		if json.Unmarshal([]byte(oldBody), &old) != nil {
+			continue
+		}
+		canonical, err := json.Marshal(old)
+		if err != nil {
+			return 0, err
+		}
+		sum := sha256.Sum256(canonical)
+		if hex.EncodeToString(sum[:]) != digest {
+			continue
+		}
+		body, err := json.Marshal(item)
+		if err != nil {
+			return 0, err
+		}
+		result, err := tx.Exec(`UPDATE translations SET body=?
+ WHERE document_id=? AND block_id=? AND source_hash=? AND status='complete' AND body=?
+ AND EXISTS(SELECT 1 FROM documents WHERE id=? AND deleted_at='')
+ AND EXISTS(SELECT 1 FROM settings WHERE key='preferences:guide' AND json_extract(value,'$.exampleDocumentId')=?)`,
+			string(body), paper.ID, item.BlockID, item.SourceHash, oldBody, paper.ID, paper.ID)
+		if err != nil {
+			return 0, err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		updated += count
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+	return updated, nil
 }
 
 // Recovery may reuse exactly matching files, but never replace user content.

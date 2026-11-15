@@ -46,7 +46,7 @@ import { defaultTheme } from "@neoread/core";
 import { translationFont } from "../appearance";
 import "./translation.css";
 
-type Mode = "source" | "parallel" | "translation";
+import type { ReadingMode } from "./reading-mode";
 /** Scroll settling after a pinned jump or click does not move the anchor. */
 const pinHold = 800;
 /** Only what locates the chapter; offsets would refetch on every scroll. */
@@ -69,15 +69,17 @@ export function EPUBReadingView({
   onReady,
   toolbarHost,
   processing,
+  readingMode,
+  onReadingModeChange,
 }: ComponentProps<typeof ReaderView> & {
+  readingMode: ReadingMode;
+  onReadingModeChange: (mode: ReadingMode) => void;
   toolbarHost?: HTMLElement | null;
   autoCenterHost?: HTMLElement | null;
   processing?: Processing;
   pageNavigation?: ReactNode;
 }) {
-  const [mode, setMode] = useState<Mode>("source");
-  // Reflowed text puts each translation under its source paragraph inside the
-  // EPUB reader, so one column serves all three modes.
+  const mode = readingMode === "reflow" ? "parallel" : readingMode;
   const reflow = theme.textReflow === true;
   const [companions, setCompanions] = useState<Map<string, HTMLElement>>(
     () => new Map(),
@@ -170,6 +172,9 @@ export function EPUBReadingView({
   const translationMotion = useRef(0);
   const scrollFrame = useRef(0);
   const modeFrame = useRef(0);
+  const previousMode = useRef(readingMode);
+  const modeTarget = useRef<EPUBLocation | undefined>(undefined);
+  const modeDocument = useRef(doc.id);
   const dragging = useRef(false);
   const [hoveredBlock, setHoveredBlock] = useState<string>();
   const [focusedBlock, setFocusedBlock] = useState<string>();
@@ -221,7 +226,6 @@ export function EPUBReadingView({
     mode,
     events,
   );
-  const visible = blocks;
   // Each translated paragraph gets a node inside (or, for runs of a mixed
   // container, right after) its source block. Chapter reloads replace the
   // source DOM, so disconnected nodes are recreated on the next block change.
@@ -266,9 +270,9 @@ export function EPUBReadingView({
         : new Map(nodes),
     );
   }, [blocks, mode, reflow]);
-  useEffect(() => {
-    side.current = mode === "translation" && !reflow ? "translation" : "source";
-  }, [reflow]);
+  useLayoutEffect(() => {
+    side.current = mode === "translation" ? "translation" : "source";
+  }, [readingMode]);
   const targetNode = (id: string) =>
     Array.from(
       pane.current?.querySelectorAll<HTMLElement>("[data-translation-block]") ??
@@ -348,7 +352,7 @@ export function EPUBReadingView({
     const operation = ++motion.operation;
     motion.moving = true;
     setFocusedBlock(id);
-    updateLocation(block.location);
+    updateLocation({ ...block.location, blockId: block.id });
     pinAnchor(blockAnchor(block));
     const current = live.current.mode;
     const cancelled = () => operation !== motion.operation;
@@ -383,6 +387,8 @@ export function EPUBReadingView({
     engine.current?.cancelBlockFocus?.();
   };
   const input = (origin: "source" | "translation") => {
+    cancelAnimationFrame(modeFrame.current);
+    modeTarget.current = undefined;
     deferredFocus.cancel();
     translationMotion.current++;
     pendingFollow.current = undefined;
@@ -561,7 +567,7 @@ export function EPUBReadingView({
     const translated =
       live.current.reflow && live.current.mode === "source"
         ? undefined
-        : translatedSelection(host, range, visible, translations)?.selection;
+        : translatedSelection(host, range, blocks, translations)?.selection;
     // The native EPUB adapter already captured source-only selections, including
     // their pointer anchor and context. Only override translated/mixed ranges.
     if (!translated) return;
@@ -590,6 +596,9 @@ export function EPUBReadingView({
     cancelAnimationFrame(scrollFrame.current);
     scrollFrame.current = requestAnimationFrame(() => {
       if (
+        live.current.reflow ||
+        live.current.mode === "source" ||
+        modeTarget.current ||
         focusMotion.current.moving ||
         !sync.current.canFollow("translation") ||
         dragging.current ||
@@ -614,7 +623,7 @@ export function EPUBReadingView({
           void engine.current
             ?.goTo(block.location)
             .catch((e) => toast.error(e.message));
-        updateLocation(block.location);
+        updateLocation({ ...block.location, blockId: block.id });
         driftAnchor(blockAnchor(block));
         if (live.current.mode === "parallel" && node) {
           const rect = node.getBoundingClientRect();
@@ -633,40 +642,72 @@ export function EPUBReadingView({
       }
     });
   };
-  const changeMode = (value: Mode) => {
-    clear();
-    hover("source");
-    hover("translation");
-    setMode(value);
-    // Reflowed text keeps the current paragraph centred once translations
-    // appear or hide; hidden source text cannot hold a finer place.
-    if (live.current.reflow) {
-      input("source");
-      const block = epubBlocksAt(position.current, live.current.blocks)[0];
-      cancelAnimationFrame(modeFrame.current);
-      modeFrame.current = requestAnimationFrame(() => {
-        modeFrame.current = requestAnimationFrame(() => {
-          if (block)
-            void engine.current
-              ?.followBlock?.({ blockId: block.id, fraction: 0.5 })
-              .catch((e) => toast.error(e.message));
-        });
-      });
-      return;
-    }
-    input(value === "translation" ? "translation" : "source");
-    side.current = value === "translation" ? "translation" : "source";
-    const target = position.current;
+  const changeMode = (value: ReadingMode) => {
+    if (value === readingMode) return;
+    modeTarget.current ??= { ...position.current };
     cancelAnimationFrame(modeFrame.current);
-    modeFrame.current = requestAnimationFrame(() => {
-      if (value !== "source") {
-        const block = epubBlocksAt(target, live.current.blocks)[0];
-        if (block) follow(block.id);
-      }
-      if (target.href)
-        void engine.current?.goTo(target).catch((e) => toast.error(e.message));
-    });
+    translationMotion.current++;
+    focusMotion.current.operation++;
+    syncTarget.current = undefined;
+    pendingFollow.current = undefined;
+    onReadingModeChange(value);
   };
+  useLayoutEffect(() => {
+    if (modeDocument.current !== doc.id) {
+      modeDocument.current = doc.id;
+      modeTarget.current = undefined;
+      previousMode.current = readingMode;
+    }
+    const changed = previousMode.current !== readingMode;
+    previousMode.current = readingMode;
+    if (changed) {
+      const target = modeTarget.current ?? { ...position.current };
+      clear();
+      hover("source");
+      hover("translation");
+      input(mode === "translation" ? "translation" : "source");
+      modeTarget.current = target;
+    }
+    const target = modeTarget.current;
+    if (!active || !target) return;
+    const adapter = engine.current;
+    let cancelled = false;
+    const restore = async () => {
+      const obsolete = () =>
+        cancelled ||
+        engine.current !== adapter ||
+        modeTarget.current !== target;
+      if (obsolete()) return;
+      const current = adapter?.getLocation();
+      if (
+        target.href &&
+        (current?.type !== "epub" ||
+          current.href.split("#")[0] !== target.href.split("#")[0])
+      ) {
+        await adapter?.goTo(target);
+        if (obsolete()) return;
+      }
+      const block = epubBlocksAt(target, live.current.blocks)[0];
+      if (!block) return;
+      if (reflow || mode !== "translation") {
+        await adapter?.followBlock?.({ blockId: block.id, fraction: 0.5 });
+        if (obsolete()) return;
+      }
+      if (!reflow && mode !== "source") follow(block.id, 0.5, true);
+      modeTarget.current = undefined;
+    };
+    modeFrame.current = requestAnimationFrame(() => {
+      const run = () => {
+        void restore().catch((e) => toast.error((e as Error).message));
+      };
+      if (reflow) modeFrame.current = requestAnimationFrame(run);
+      else run();
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(modeFrame.current);
+    };
+  }, [readingMode, active, doc.id, blocks]);
   const retry = (id: string) => {
     const block = live.current.blocks.find((b) => b.id === id);
     if (block) pinAnchor(blockAnchor(block));
@@ -689,11 +730,17 @@ export function EPUBReadingView({
         }}
         onChange={refreshChapter}
       />
-      <Tabs value={mode} onValueChange={(value) => changeMode(value as Mode)}>
+      <Tabs
+        value={readingMode}
+        onValueChange={(value) => changeMode(value as ReadingMode)}
+      >
         <TabsList>
-          <TabsTrigger value="source">仅原文</TabsTrigger>
-          <TabsTrigger value="parallel">原文译文</TabsTrigger>
-          <TabsTrigger value="translation">仅译文</TabsTrigger>
+          <TabsTrigger value="source">原文</TabsTrigger>
+          <TabsTrigger value="parallel" data-tour="parallel-mode">
+            对照
+          </TabsTrigger>
+          <TabsTrigger value="reflow">重排</TabsTrigger>
+          <TabsTrigger value="translation">译文</TabsTrigger>
         </TabsList>
       </Tabs>
     </div>
@@ -773,6 +820,8 @@ export function EPUBReadingView({
           setBlocks(items);
         },
         epubInteraction: () => {
+          if (live.current.mode === "translation" && !live.current.reflow)
+            return;
           input("source");
           void engine.current?.focusEPUBLocations?.([]);
           if (selection.current?.location.translation) {
@@ -782,7 +831,17 @@ export function EPUBReadingView({
           }
         },
         location: (location, percent) => {
-          if (location.type !== "epub" || side.current === "translation")
+          if (
+            location.type !== "epub" ||
+            side.current === "translation" ||
+            modeTarget.current ||
+            (live.current.mode === "translation" && !live.current.reflow)
+          )
+            return;
+          if (
+            position.current.blockId &&
+            position.current.href.split("#")[0] === location.href.split("#")[0]
+          )
             return;
           position.current = location;
           setChapter(location.href.split("#")[0]);
@@ -794,34 +853,55 @@ export function EPUBReadingView({
             hover("source", id ?? undefined);
         },
         epubBlockFocus: (id) => {
+          if (live.current.mode === "translation" && !live.current.reflow)
+            return;
           // Clicking a paragraph focuses it unless the setting is off.
           if (theme.blockFocus === false) return;
           if (!live.current.reflow) focusBlock(id, "source");
-          else
+          else {
+            const block = live.current.blocks.find((b) => b.id === id);
+            if (block) {
+              updateLocation({ ...block.location, blockId: block.id });
+              pinAnchor(blockAnchor(block));
+            }
             void engine.current
               ?.focusBlock?.(id, "source")
               .catch((e) => toast.error((e as Error).message));
+          }
         },
         epubReadingAnchor: (id, fraction = 0.5) => {
           if (
-            !focusMotion.current.moving &&
-            sync.current.canFollow("source") &&
-            !selection.current &&
-            live.current.mode === "parallel"
+            side.current !== "source" ||
+            modeTarget.current ||
+            focusMotion.current.moving ||
+            !sync.current.canFollow("source") ||
+            selection.current ||
+            (live.current.mode === "translation" && !live.current.reflow)
           )
+            return;
+          const block = live.current.blocks.find((b) => b.id === id);
+          if (!block) return;
+          updateLocation({ ...block.location, blockId: block.id });
+          driftAnchor(blockAnchor(block));
+          if (live.current.mode === "parallel" && !live.current.reflow)
             follow(id, fraction, true);
         },
         selection: (value) => {
+          if (live.current.mode === "translation" && !live.current.reflow)
+            return;
           if (!value && (side.current === "translation" || navigating.current))
             return;
           side.current = "source";
           selection.current = value;
           live.current.events.selection(value);
           if (value?.location.type === "epub") {
-            pinAnchor(value.location);
-            const matches = epubBlocksAt(value.location, live.current.blocks);
-            if (matches[0] && live.current.mode === "parallel")
-              follow(matches[0].id);
+            const [block] = epubBlocksAt(value.location, live.current.blocks);
+            if (block) {
+              const location = { ...block.location, blockId: block.id };
+              updateLocation(location);
+              pinAnchor(location);
+              if (live.current.mode === "parallel") follow(block.id);
+            }
           }
         },
       }}
@@ -835,142 +915,144 @@ export function EPUBReadingView({
       style={{ "--epub-margin": `${theme.margin}px` } as CSSProperties}
     >
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
-      {reflow ? (
-        <div
-          className="translation-source epub-reflow"
-          data-reflow-mode={mode}
-          style={
-            {
-              "--reflow-translation-font": translationFont(
-                theme.translationFontFamily,
-              ),
-              "--reflow-translation-scale":
-                (theme.translationFontSize ?? 1) / (theme.fontSize || 1),
-              "--reflow-translation-weight":
+      <TranslationPanes
+        mode={reflow ? "source" : mode}
+        swapped={swapped}
+        onSwap={() => updateReaderLayout({ swapped: !swapped })}
+        sourceWidth={sourceWidth}
+        onSourceWidthChange={(sourceWidth) =>
+          updateReaderLayout({ sourceWidth })
+        }
+        source={
+          <div
+            className={`translation-source${reflow ? " epub-reflow" : ""}`}
+            data-reflow-mode={reflow ? "parallel" : undefined}
+            style={
+              reflow
+                ? ({
+                    "--reflow-translation-font": translationFont(
+                      theme.translationFontFamily,
+                    ),
+                    "--reflow-translation-scale":
+                      (theme.translationFontSize ?? 1) / (theme.fontSize || 1),
+                    "--reflow-translation-weight":
+                      (theme.translationFontWeight ??
+                        defaultTheme.translationFontWeight) === "bold"
+                        ? 600
+                        : "inherit",
+                  } as CSSProperties)
+                : undefined
+            }
+            onPointerUp={reflow ? capture : undefined}
+            onKeyUp={reflow ? capture : undefined}
+          >
+            {sourceView}
+            {[...companions].map(([id, node]) => {
+              const block = blocks.find((b) => b.id === id);
+              return (
+                block &&
+                createPortal(
+                  <TranslationText
+                    block={block}
+                    documentId={doc.id}
+                    translation={translations.find((t) => t.blockId === id)}
+                    paused={
+                      processing?.enabled === false ||
+                      processing?.status === "paused"
+                    }
+                    retry={() => retry(id)}
+                  />,
+                  node,
+                  id,
+                )
+              );
+            })}
+          </div>
+        }
+        translation={
+          <div
+            ref={pane}
+            className="translation-document"
+            style={{
+              fontSize: `${theme.translationFontSize ?? 1}rem`,
+              fontFamily: translationFont(theme.translationFontFamily),
+              fontWeight:
                 (theme.translationFontWeight ??
                   defaultTheme.translationFontWeight) === "bold"
                   ? 600
-                  : "inherit",
-            } as CSSProperties
-          }
-          onPointerUp={capture}
-          onKeyUp={capture}
-        >
-          {sourceView}
-          {[...companions].map(([id, node]) => {
-            const block = blocks.find((b) => b.id === id);
-            return (
-              block &&
-              createPortal(
-                <TranslationText
-                  block={block}
-                  documentId={doc.id}
-                  translation={translations.find((t) => t.blockId === id)}
-                  paused={
-                    processing?.enabled === false ||
-                    processing?.status === "paused"
-                  }
-                  retry={() => retry(id)}
-                />,
-                node,
-                id,
-              )
-            );
-          })}
-        </div>
-      ) : (
-        <TranslationPanes
-          mode={mode}
-          swapped={swapped}
-          onSwap={() => updateReaderLayout({ swapped: !swapped })}
-          sourceWidth={sourceWidth}
-          onSourceWidthChange={(sourceWidth) =>
-            updateReaderLayout({ sourceWidth })
-          }
-          source={<div className="translation-source">{sourceView}</div>}
-          translation={
-            <div
-              ref={pane}
-              className="translation-document"
-              style={{
-                fontSize: `${theme.translationFontSize ?? 1}rem`,
-                fontFamily: translationFont(theme.translationFontFamily),
-                fontWeight:
-                  (theme.translationFontWeight ??
-                    defaultTheme.translationFontWeight) === "bold"
-                    ? 600
-                    : undefined,
-                lineHeight: theme.lineHeight,
-              }}
-              onPointerDown={() => {
-                live.current.events.annotationHover?.(null);
-                input("translation");
-                dragging.current = true;
-              }}
-              onPointerUp={capture}
-              onKeyUp={capture}
-              onWheel={() => input("translation")}
-              onTouchStart={() => input("translation")}
-              onKeyDown={() => input("translation")}
-              onScroll={scroll}
-              onClick={(event) => {
-                if (window.getSelection()?.toString().trim() || !pane.current)
-                  return;
-                const hits = translatedAnnotationRanges(
-                  pane.current,
-                  annotations,
-                  translations,
-                ).filter(({ range }) =>
-                  Array.from(range.getClientRects()).some(
-                    (r) =>
-                      event.clientX >= r.left &&
-                      event.clientX <= r.right &&
-                      event.clientY >= r.top &&
-                      event.clientY <= r.bottom,
-                  ),
-                );
-                live.current.events.annotation?.(
-                  hits.length
-                    ? {
-                        ids: hits.map((h) => h.annotation.id),
-                        anchor: {
-                          x: event.clientX,
-                          top: event.clientY - 8,
-                          bottom: event.clientY + 8,
-                        },
-                      }
-                    : null,
-                );
-              }}
-            >
-              {(streamError ||
-                processing?.status === "waiting" ||
-                processing?.status === "failed") && (
-                <div className="translation-warning">
-                  {streamError || processing?.detail}
-                  {processing?.status === "failed" && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        void api
-                          .setAssistance(doc.id, "resume")
-                          .catch((e) => toast.error(e.message))
-                      }
-                    >
-                      重试翻译
-                    </Button>
-                  )}
-                </div>
-              )}
-              {!blocks.length && (
-                <p className="translation-warning">
-                  {processing?.status === "complete"
-                    ? "此书没有可翻译的正文文字"
-                    : "正在读取正文段落…"}
-                </p>
-              )}
-              {visible.map((block) => (
+                  : undefined,
+              lineHeight: theme.lineHeight,
+            }}
+            onPointerDown={() => {
+              live.current.events.annotationHover?.(null);
+              input("translation");
+              dragging.current = true;
+            }}
+            onPointerUp={capture}
+            onKeyUp={capture}
+            onWheel={() => input("translation")}
+            onTouchStart={() => input("translation")}
+            onKeyDown={() => input("translation")}
+            onScroll={scroll}
+            onClick={(event) => {
+              if (window.getSelection()?.toString().trim() || !pane.current)
+                return;
+              const hits = translatedAnnotationRanges(
+                pane.current,
+                annotations,
+                translations,
+              ).filter(({ range }) =>
+                Array.from(range.getClientRects()).some(
+                  (r) =>
+                    event.clientX >= r.left &&
+                    event.clientX <= r.right &&
+                    event.clientY >= r.top &&
+                    event.clientY <= r.bottom,
+                ),
+              );
+              live.current.events.annotation?.(
+                hits.length
+                  ? {
+                      ids: hits.map((h) => h.annotation.id),
+                      anchor: {
+                        x: event.clientX,
+                        top: event.clientY - 8,
+                        bottom: event.clientY + 8,
+                      },
+                    }
+                  : null,
+              );
+            }}
+          >
+            {(streamError ||
+              processing?.status === "waiting" ||
+              processing?.status === "failed") && (
+              <div className="translation-warning">
+                {streamError || processing?.detail}
+                {processing?.status === "failed" && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      void api
+                        .setAssistance(doc.id, "resume")
+                        .catch((e) => toast.error(e.message))
+                    }
+                  >
+                    重试翻译
+                  </Button>
+                )}
+              </div>
+            )}
+            {!blocks.length && (
+              <p className="translation-warning">
+                {processing?.status === "complete"
+                  ? "此书没有可翻译的正文文字"
+                  : "正在读取正文段落…"}
+              </p>
+            )}
+            {!reflow &&
+              blocks.map((block) => (
                 <section
                   key={block.id}
                   data-translation-block={block.id}
@@ -1049,10 +1131,9 @@ export function EPUBReadingView({
                   />
                 </section>
               ))}
-            </div>
-          }
-        />
-      )}
+          </div>
+        }
+      />
     </div>
   );
 }

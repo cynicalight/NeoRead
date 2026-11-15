@@ -35,7 +35,7 @@ export type PDFLocation = {
   page: number;
   /** Paragraph visible in the PDF reflow view. */
   reflowBlockId?: string;
-  /** Independently saved position of the reflow reading view. */
+  /** Text projection of the same latest paragraph as the PDF coordinates. */
   reflowPosition?: { page: number; blockId: string };
   x?: number;
   y?: number;

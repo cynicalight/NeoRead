@@ -36,6 +36,39 @@
     "abstract": "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks in an encoder-decoder configuration. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train. Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles by over 2 BLEU. On the WMT 2014 English-to-French translation task, our model establishes a new single-model state-of-the-art BLEU score of 41.8 after training for 3.5 days on eight GPUs, a small fraction of the training costs of the best models from the literature. We show that the Transformer generalizes well to other tasks by applying it successfully to English constituency parsing both with large and limited training data.",
     "lookup": "done"
   },
+  "previousTranslations": {
+    "p10-b2": "f76a74a3e3474732b8b1679acb7fed2954475998d7632d7f78746ea92290b520",
+    "p2-b12": "4f6bf8aee334d0e7e7a6c027e7e095898aaccf7a499328f7f6bd26372d0fb85f",
+    "p2-b3": "caea8b87ba121438b0c8572f154484ef0687f2b09c651ac393e8af3421360826",
+    "p3-b4": "4d0bdd73174d5fbf45a4ce7070177f2c12e1e9086be197eedeafb95f3275ed8c",
+    "p3-b5": "b85fe6fc0cd292410032bf26666074b561de0c3999d8514031e123ffd223ea26",
+    "p4-b11": "2dddcc1abca8b4f7f9b9d87d9b46277c7b26f9c9252c68c377f764e706d9c1ae",
+    "p4-b12": "b986785b48cf3a7a29efe309b2f6ad5a489f859b819a0c5eba00e69dfd49f930",
+    "p4-b4": "d3febf9a9ca1213a0ce3a80f92c3b9c8ed084343b7b65f296cdceca6034bae13",
+    "p4-b5": "d38b97b50cb636172557d980bc2b96855ef1e3bb1b4404fd83a27bba34f33e7a",
+    "p4-b8": "bd0b1e00aba161d1e973355967109c2746c19246c9a678f8a7dbd8306a091f92",
+    "p4-b9": "c9a97b391643d0e8cc7334edd65713a903d8b6d547388aa8cf61957f5c39f212",
+    "p5-b11": "6a75e82c93202551ec54f4086d2d5688f28406e78a9765f18377da6af21ae8fe",
+    "p5-b16": "fa2fa309292f46b246671447aa20f4a16647e93b385ee911512ffece416e65d7",
+    "p5-b18": "5ee245bc3a1f47839c432e04d09dcc926446908d4a5d9f8a07247dfc2e30001b",
+    "p5-b5": "62705cb0309f221834f30d16e46b2e9fc94147cc58bfe1ff0ee56340f1f4a4b8",
+    "p5-b6": "206972eb6e8eeb616c56c4f9db7213b2d495c3d9851f1c9d85d32e67263c4666",
+    "p6-b1": "68080430be71d024eee4efcfd0991d58adf9ca6df0fd5ad39429ea070526bdee",
+    "p6-b10": "a01da7c9c0ee638247bcb97fca3d64ad0fd376e2474241554307d165d643cc64",
+    "p6-b13": "1be29c91b7e874248de67aefbf658cb984338f784ff82630fe33e00a7fc44e32",
+    "p6-b3": "e9fda296610c7b40973b8b47937bfc76fb4535c3402e87f31a757213b13e7716",
+    "p6-b7": "811a8ecb50a134602df6553c5be6d12367a9cc1c206ff9640b63775b0a65322a",
+    "p7-b1": "bbb63318b89634a7d40c4477200089176b77edcdf0fddf06d44c917d00634f15",
+    "p7-b11": "4517e8dd12171d9bfb41ce2c5955e53d78c1a771265141fc11886a2c1264544c",
+    "p7-b14": "d39a42695c241d5e0f85cfb8b2cfb3d2e4b4afe28601318d064db402fe6cdbbf",
+    "p7-b2": "9ed045fddd95121e549b3eb9bb08659061410f25958a8cce9309db1c47b321f5",
+    "p8-b2": "063116344aed1b765c0b5ec29f6547fb5c83ab17e6a713f5cf19603d4e83deef",
+    "p8-b3": "aaa4935fd697295c712f3157ed808707c460a002e8e0690b1e5f47dc496a938c",
+    "p8-b7": "01ffe755af55369b39c637392c2640ba783ef080d7163cbc9937712cdc07671f",
+    "p8-b8": "8244a62088814fa4a1f076f68c7962f0cdcd0a7a3507d74fc8ebfe44940e3cf0",
+    "p9-b4": "d450f301e39301ffbc493e009810d98952bba49c65957c5f01bb56bec4ab16c6",
+    "p9-b7": "09a1141b25583ed04d7fa18b18f7944e86e8f18651836170beb3d18ce33febe8"
+  },
   "translations": [
     {
       "blockId": "p1-b10",
@@ -275,7 +308,8 @@
           "target": "将最大输出长度增加到输入长度加 300。"
         },
         {
-          "source": "We used a beam size of 21 and α = 0 . 3 for both WSJ only and the semi-supervised setting.",
+          "source": "We used a beam size of 21 and $\\alpha = 0.3$ for both WSJ only and the semi-supervised setting.",
+          "anchor": "We used a beam size of 21 and α = 0 . 3 for both WSJ only and the semi-supervised setting.",
           "target": "在仅使用 WSJ 和半监督两种设置中，我们都使用了 21 的束宽和 $\\alpha = 0.3$。"
         }
       ]
@@ -490,12 +524,12 @@
           "anchor": "Most competitive neural sequence transduction models have an encoder-decoder structure [5, 2, 35]."
         },
         {
-          "source": "Here, the encoder maps an input sequence of symbol representations ( x , ..., x ) to a sequence 1 n of continuous representations z = ( z , ..., z ) .",
+          "source": "Here, the encoder maps an input sequence of symbol representations $(x_1, ..., x_n)$ to a sequence of continuous representations $z = (z_1, ..., z_n)$.",
           "target": "在这种结构中，编码器将由符号表示组成的输入序列 $(x_1, ..., x_n)$ 映射为连续表示序列 $z = (z_1, ..., z_n)$。",
           "anchor": "Here, the encoder maps an input sequence of symbol representations ( x , ..., x ) to a sequence 1 n of continuous representations z = ( z , ..., z ) ."
         },
         {
-          "source": "Given z , the decoder then generates an output 1 n sequence ( y , ..., y ) of symbols one element at a time.",
+          "source": "Given $z$, the decoder then generates an output sequence $(y_1, ..., y_m)$ of symbols one element at a time.",
           "target": "给定 $z$ 后，解码器逐个生成由符号构成的输出序列 $(y_1, ..., y_m)$。",
           "anchor": "Given z , the decoder then generates an output 1 n sequence ( y , ..., y ) of symbols one element at a time."
         },
@@ -531,7 +565,8 @@
           "target": "循环模型通常按照输入和输出序列中的符号位置分解计算。"
         },
         {
-          "source": "Aligning the positions to steps in computation time, they generate a sequence of hidden states h , as a function of the previous hidden state h t t t − and the input for position .",
+          "source": "Aligning the positions to steps in computation time, they generate a sequence of hidden states $h_t$, as a function of the previous hidden state $h_{t-1}$ and the input for position $t$.",
+          "anchor": "Aligning the positions to steps in computation time, they generate a sequence of hidden states h , as a function of the previous hidden state h t t t − and the input for position .",
           "target": "这些模型将各位置与计算时间步对齐，并生成一系列隐藏状态 $h_t$；每个状态由前一隐藏状态 $h_{t-1}$ 和该位置的输入决定。"
         },
         {
@@ -677,7 +712,8 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "Encoder: The encoder is composed of a stack of N = 6 identical layers.",
+          "source": "Encoder: The encoder is composed of a stack of $N = 6$ identical layers.",
+          "anchor": "Encoder: The encoder is composed of a stack of N = 6 identical layers.",
           "target": "编码器：编码器由 $N = 6$ 个相同层堆叠而成。"
         },
         {
@@ -693,11 +729,13 @@
           "target": "我们在两个子层外分别使用残差连接 [11]，然后进行层归一化 [1]。"
         },
         {
-          "source": "That is, the output of each sub-layer is LayerNorm( x + Sublayer( x )) , where Sublayer( x ) is the function implemented by the sub-layer itself.",
+          "source": "That is, the output of each sub-layer is $\\operatorname{LayerNorm}(x + \\operatorname{Sublayer}(x))$, where $\\operatorname{Sublayer}(x)$ is the function implemented by the sub-layer itself.",
+          "anchor": "That is, the output of each sub-layer is LayerNorm( x + Sublayer( x )) , where Sublayer( x ) is the function implemented by the sub-layer itself.",
           "target": "也就是说，每个子层的输出为 LayerNorm($x$ + Sublayer($x$))，其中 Sublayer($x$) 是该子层自身实现的函数。"
         },
         {
-          "source": "To facilitate these residual connections, all sub-layers in the model, as well as the embedding layers, produce outputs of dimension d = 512 . model",
+          "source": "To facilitate these residual connections, all sub-layers in the model, as well as the embedding layers, produce outputs of dimension $d_{\\text{model}} = 512$.",
+          "anchor": "To facilitate these residual connections, all sub-layers in the model, as well as the embedding layers, produce outputs of dimension d = 512 . model",
           "target": "为便于使用这些残差连接，模型中的所有子层以及嵌入层都生成维度为 $d_{model} = 512$ 的输出。"
         }
       ]
@@ -708,7 +746,8 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "Decoder: The decoder is also composed of a stack of N = 6 identical layers.",
+          "source": "Decoder: The decoder is also composed of a stack of $N = 6$ identical layers.",
+          "anchor": "Decoder: The decoder is also composed of a stack of N = 6 identical layers.",
           "target": "解码器：解码器也由 $N = 6$ 个相同层堆叠而成。"
         },
         {
@@ -724,7 +763,8 @@
           "target": "我们还修改了解码器堆栈中的自注意力子层，以防止各位置关注后续位置。"
         },
         {
-          "source": "This masking, combined with fact that the output embeddings are offset by one position, ensures that the predictions for position i can depend only on the known outputs at positions less than i .",
+          "source": "This masking, combined with fact that the output embeddings are offset by one position, ensures that the predictions for position $i$ can depend only on the known outputs at positions less than $i$.",
+          "anchor": "This masking, combined with fact that the output embeddings are offset by one position, ensures that the predictions for position i can depend only on the known outputs at positions less than i .",
           "target": "这种掩码与输出嵌入向后偏移一个位置相结合，确保位置 $i$ 的预测只能依赖位置小于 $i$ 的已知输出。"
         }
       ]
@@ -783,12 +823,12 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "Instead of performing a single attention function with d -dimensional keys, values and queries, model we found it beneficial to linearly project the queries, keys and values h times with different, learned linear projections to d , d and d dimensions, respectively.",
+          "source": "Instead of performing a single attention function with $d_{\\text{model}}$-dimensional keys, values and queries, we found it beneficial to linearly project the queries, keys and values $h$ times with different, learned linear projections to $d_k$, $d_k$ and $d_v$ dimensions, respectively.",
           "target": "我们发现，与其使用 $d_{\\text{model}}$ 维的键、值和查询执行单次注意力函数，不如使用不同的、经过学习的线性投影，将查询、键和值分别投影 $h$ 次，投影到 $d_k$、$d_k$ 和 $d_v$ 维空间，这样做更有益。",
           "anchor": "Instead of performing a single attention function with d -dimensional keys, values and queries, model we found it beneficial to linearly project the queries, keys and values h times with different, learned linear projections to d , d and d dimensions, respectively."
         },
         {
-          "source": "On each of these projected versions of queries, keys and values we then perform the attention function in parallel, yielding d -dimensional",
+          "source": "On each of these projected versions of queries, keys and values we then perform the attention function in parallel, yielding $d_v$-dimensional",
           "target": "随后，我们在这些投影后的查询、键和值上并行执行注意力函数，得到 $d_v$ 维的",
           "anchor": "On each of these projected versions of k k v queries, keys and values we then perform the attention function in parallel, yielding d -dimensional v"
         }
@@ -800,11 +840,13 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "4 To illustrate why the dot products get large, assume that the components of q and k are independent random variables with mean 0 and variance 1 .",
+          "source": "4 To illustrate why the dot products get large, assume that the components of $q$ and $k$ are independent random variables with mean 0 and variance 1.",
+          "anchor": "4 To illustrate why the dot products get large, assume that the components of q and k are independent random variables with mean 0 and variance 1 .",
           "target": "4 为说明点积为何会变大，假设 $q$ 和 $k$ 的各个分量是相互独立的随机变量，均值为 0，方差为 1。"
         },
         {
-          "source": "Then their dot product, q · k = P d k q k , has mean 0 and variance d . i =1 i i k",
+          "source": "Then their dot product, $q \\cdot k = \\sum_{i=1}^{d_k} q_i k_i$, has mean 0 and variance $d_k$.",
+          "anchor": "Then their dot product, q · k = P d k q k , has mean 0 and variance d . i =1 i i k",
           "target": "那么，它们的点积 $q \\cdot k = \\sum_{i=1}^{d_k} q_i k_i$ 的均值为 0，方差为 $d_k$。"
         }
       ]
@@ -841,11 +883,13 @@
           "target": "我们将这种特定的注意力称为“缩放点积注意力”（图 2）。"
         },
         {
-          "source": "The input consists of queries and keys of dimension d , and values of dimension √ d .",
+          "source": "The input consists of queries and keys of dimension $d_k$, and values of dimension $d_v$.",
+          "anchor": "The input consists of queries and keys of dimension d , and values of dimension √ d .",
           "target": "输入包括维度为 $d_k$ 的查询和键，以及维度为 $d_v$ 的值。"
         },
         {
-          "source": "We compute the dot products of the k v query with all keys, divide each by d , and apply a softmax function to obtain the weights on the k values.",
+          "source": "We compute the dot products of the query with all keys, divide each by $\\sqrt{d_k}$, and apply a softmax function to obtain the weights on the values.",
+          "anchor": "We compute the dot products of the k v query with all keys, divide each by d , and apply a softmax function to obtain the weights on the k values.",
           "target": "我们计算查询与所有键的点积，将每个点积除以 $\\sqrt{d_k}$，再应用 softmax 函数，得到各个值的权重。"
         }
       ]
@@ -856,11 +900,13 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "In practice, we compute the attention function on a set of queries simultaneously, packed together into a matrix Q .",
+          "source": "In practice, we compute the attention function on a set of queries simultaneously, packed together into a matrix $Q$.",
+          "anchor": "In practice, we compute the attention function on a set of queries simultaneously, packed together into a matrix Q .",
           "target": "实际应用中，我们将一组查询合并为矩阵 $Q$，并同时计算它们的注意力函数。"
         },
         {
-          "source": "The keys and values are also packed together into matrices K and V .",
+          "source": "The keys and values are also packed together into matrices $K$ and $V$.",
+          "anchor": "The keys and values are also packed together into matrices K and V .",
           "target": "键和值也分别合并为矩阵 $K$ 和 $V$。"
         },
         {
@@ -886,8 +932,9 @@
           "target": "最常用的两种注意力函数是加性注意力 [2] 和点积（乘性）注意力。"
         },
         {
-          "source": "Dot-product attention is identical to our algorithm, except for the scaling factor of √ 1 .",
-          "target": "点积注意力与我们的算法相同，区别仅在于缩放因子 $\frac{1}{\\sqrt{d_k}}$。"
+          "source": "Dot-product attention is identical to our algorithm, except for the scaling factor of $\\frac{1}{\\sqrt{d_k}}$.",
+          "anchor": "Dot-product attention is identical to our algorithm, except for the scaling factor of √ 1 .",
+          "target": "点积注意力与我们的算法相同，区别仅在于缩放因子 $\\frac{1}{\\sqrt{d_k}}$。"
         },
         {
           "source": "Additive attention computes the compatibility function using a feed-forward network with d k a single hidden layer.",
@@ -905,17 +952,17 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "While for small values of d the two mechanisms perform similarly, additive attention outperforms dot product attention without scaling for larger values of d [3].",
+          "source": "While for small values of $d_k$ the two mechanisms perform similarly, additive attention outperforms dot product attention without scaling for larger values of $d_k$ [3].",
           "target": "当 $d_k$ 较小时，这两种机制的表现相近；但当 $d_k$ 较大时，加性注意力的表现优于未进行缩放的点积注意力 [3]。",
           "anchor": "While for small values of d the two mechanisms perform similarly, additive attention outperforms k dot product attention without scaling for larger values of d [3]."
         },
         {
-          "source": "We suspect that for large values of d , the dot products grow large in magnitude, pushing the softmax function into regions where it has extremely small gradients 4 .",
+          "source": "We suspect that for large values of $d_k$, the dot products grow large in magnitude, pushing the softmax function into regions where it has extremely small gradients 4.",
           "target": "我们猜测，当 $d_k$ 较大时，点积的绝对值会变大，使 softmax 函数进入梯度极小的区域 4。",
           "anchor": "We suspect that for large values of k d , the dot products grow large in magnitude, pushing the softmax function into regions where it has k extremely small gradients 4 ."
         },
         {
-          "source": "To counteract this effect, we scale the dot products by √ 1 . d k",
+          "source": "To counteract this effect, we scale the dot products by $\\frac{1}{\\sqrt{d_k}}$.",
           "target": "为抵消这种影响，我们将点积缩放为 $\\sqrt{1/d_k}$。",
           "anchor": "To counteract this effect, we scale the dot products by √ 1 . d k"
         }
@@ -969,7 +1016,8 @@
           "target": "为了保留自回归特性，我们需要阻止解码器中的信息向左流动。"
         },
         {
-          "source": "We implement this inside of scaled dot-product attention by masking out (setting to −∞ ) all values in the input of the softmax which correspond to illegal connections.",
+          "source": "We implement this inside of scaled dot-product attention by masking out (setting to $-\\infty$) all values in the input of the softmax which correspond to illegal connections.",
+          "anchor": "We implement this inside of scaled dot-product attention by masking out (setting to −∞ ) all values in the input of the softmax which correspond to illegal connections.",
           "target": "我们在缩放点积注意力内部通过屏蔽所有对应非法连接的 softmax 输入值来实现这一点（将这些值设为 $-\\infty$）。"
         },
         {
@@ -1025,7 +1073,8 @@
           "target": "换一种说法，这相当于进行两次卷积，卷积核大小为 1。"
         },
         {
-          "source": "The dimensionality of input and output is d = 512 , and the inner-layer has dimensionality model d = 2048 . f f",
+          "source": "The dimensionality of input and output is $d_{\\text{model}} = 512$ , and the inner-layer has dimensionality $d_{\\text{ff}} = 2048$.",
+          "anchor": "The dimensionality of input and output is d = 512 , and the inner-layer has dimensionality model d = 2048 . f f",
           "target": "输入和输出的维度为 $d_{\\text{model}} = 512$，内部层的维度为 $d_{\\text{ff}} = 2048$。"
         }
       ]
@@ -1047,7 +1096,7 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "Similarly to other sequence transduction models, we use learned embeddings to convert the input tokens and output tokens to vectors of dimension d .",
+          "source": "Similarly to other sequence transduction models, we use learned embeddings to convert the input tokens and output tokens to vectors of dimension $d_{\\text{model}}$.",
           "target": "与其他序列转换模型类似，我们使用经过学习的嵌入，将输入词元和输出词元转换为维度为 $d_{\\text{model}}$ 的向量。",
           "anchor": "Similarly to other sequence transduction models, we use learned embeddings to convert the input tokens and output tokens to vectors of dimension d ."
         },
@@ -1062,7 +1111,7 @@
           "anchor": "In our model, we share the same weight matrix between the two embedding layers and the pre-softmax √ linear transformation, similar to [30]."
         },
         {
-          "source": "In the embedding layers, we multiply those weights by √ d . model",
+          "source": "In the embedding layers, we multiply those weights by $\\sqrt{d_{\\text{model}}}$.",
           "target": "在嵌入层中，我们将这些权重乘以 $\\sqrt{d_{\\text{model}}}$。",
           "anchor": "In the embedding layers, we multiply those weights by d . model"
         }
@@ -1103,7 +1152,8 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "Where the projections are parameter matrices W Q ∈ d × d K d × d V model k W ∈ × i R , d model k , model i R W ∈ d v i R and W O ∈ hd × d R v model .",
+          "source": "Where the projections are parameter matrices $W_i^Q \\in \\mathbb{R}^{d_{\\text{model}} \\times d_k}$, $W_i^K \\in \\mathbb{R}^{d_{\\text{model}} \\times d_k}$, $W_i^V \\in \\mathbb{R}^{d_{\\text{model}} \\times d_v}$ and $W^O \\in \\mathbb{R}^{hd_v \\times d_{\\text{model}}}$.",
+          "anchor": "Where the projections are parameter matrices W Q ∈ d × d K d × d V model k W ∈ × i R , d model k , model i R W ∈ d v i R and W O ∈ hd × d R v model .",
           "target": "其中，投影参数矩阵为 $W_i^Q \\in \\mathbb{R}^{d_{\\text{model}} \\times d_k}$、$W_i^K \\in \\mathbb{R}^{d_{\\text{model}} \\times d_k}$、$W_i^V \\in \\mathbb{R}^{d_{\\text{model}} \\times d_v}$，以及 $W^O \\in \\mathbb{R}^{hd_v \\times d_{\\text{model}}}$。"
         }
       ]
@@ -1114,12 +1164,12 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "In this work we employ h = 8 parallel attention layers, or heads.",
+          "source": "In this work we employ $h = 8$ parallel attention layers, or heads.",
           "target": "在本文中，我们使用 $h = 8$ 个并行注意力层，即注意力头。",
           "anchor": "In this work we employ h = 8 parallel attention layers, or heads."
         },
         {
-          "source": "For each of these we use d = d = d /h = 64 . k v model",
+          "source": "For each of these we use $d_k = d_v = d_{\\text{model}}/h = 64$.",
           "target": "对于每个注意力头，我们使用 $d_k = d_v = d_{\\text{model}}/h = 64$。",
           "anchor": "For each of these we use d = d = d /h = 64 . D"
         },
@@ -1181,7 +1231,8 @@
           "target": "表 1：不同层类型的最大路径长度、每层复杂度和最少顺序操作次数。"
         },
         {
-          "source": "n is the sequence length, d is the representation dimension, k is the kernel size of convolutions and r the size of the neighborhood in restricted self-attention.",
+          "source": "$n$ is the sequence length, $d$ is the representation dimension, $k$ is the kernel size of convolutions and $r$ the size of the neighborhood in restricted self-attention.",
+          "anchor": "n is the sequence length, d is the representation dimension, k is the kernel size of convolutions and r the size of the neighborhood in restricted self-attention.",
           "target": "其中，$n$ 是序列长度，$d$ 是表示维度，$k$ 是卷积核大小，$r$ 是受限自注意力中的邻域大小。"
         }
       ]
@@ -1192,7 +1243,7 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "In this section we compare various aspects of self-attention layers to the recurrent and convolutional layers commonly used for mapping one variable-length sequence of symbol representations ( x , ..., x ) to another sequence of equal length ( z , ..., z ) , with x , z ∈ d , such as a hidden 1 n 1 n i i R layer in a typical sequence transduction encoder or decoder.",
+          "source": "In this section we compare various aspects of self-attention layers to the recurrent and convolutional layers commonly used for mapping one variable-length sequence of symbol representations $(x_1, ..., x_n)$ to another sequence of equal length $(z_1, ..., z_n)$ , with $x_i, z_i \\in \\mathbb{R}^d$, such as a hidden layer in a typical sequence transduction encoder or decoder.",
           "target": "在本节中，我们将自注意力层的各个方面与循环层和卷积层进行比较。循环层和卷积层通常用于将一个变长的符号表示序列 $(x_1, \\ldots, x_n)$ 映射到另一个等长序列 $(z_1, \\ldots, z_n)$，其中 $x_i, z_i \\in \\mathbb{R}^d$；典型例子是序列转换编码器或解码器中的隐藏层。",
           "anchor": "In this section we compare various aspects of self-attention layers to the recurrent and convolu- tional layers commonly used for mapping one variable-length sequence of symbol representations ( x , ..., x ) to another sequence of equal length ( z , ..., z ) , with x , z ∈ d , such as a hidden 1 n 1 n i i R layer in a typical sequence transduction encoder or decoder."
         },
@@ -1251,7 +1302,8 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "As noted in Table 1, a self-attention layer connects all positions with a constant number of sequentially executed operations, whereas a recurrent layer requires O ( n ) sequential operations.",
+          "source": "As noted in Table 1, a self-attention layer connects all positions with a constant number of sequentially executed operations, whereas a recurrent layer requires $O(n)$ sequential operations.",
+          "anchor": "As noted in Table 1, a self-attention layer connects all positions with a constant number of sequentially executed operations, whereas a recurrent layer requires O ( n ) sequential operations.",
           "target": "如表 1 所示，自注意力层以固定数量的顺序执行操作连接所有位置，而循环层需要 $O(n)$ 次顺序操作。"
         },
         {
@@ -1285,7 +1337,8 @@
           "target": "为此，我们在编码器和解码器堆栈的底部，将“位置编码”加到输入嵌入中。"
         },
         {
-          "source": "The positional encodings have the same dimension d model as the embeddings, so that the two can be summed.",
+          "source": "The positional encodings have the same dimension $d_{\\text{model}}$ as the embeddings, so that the two can be summed.",
+          "anchor": "The positional encodings have the same dimension d model as the embeddings, so that the two can be summed.",
           "target": "位置编码与嵌入具有相同的维度 $d_{\\text{model}}$，因此二者可以相加。"
         },
         {
@@ -1325,7 +1378,8 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "where pos is the position and i is the dimension.",
+          "source": "where $pos$ is the position and $i$ is the dimension.",
+          "anchor": "where pos is the position and i is the dimension.",
           "target": "其中，$pos$ 表示位置，$i$ 表示维度。"
         },
         {
@@ -1333,11 +1387,13 @@
           "target": "也就是说，位置编码的每个维度都对应一个正弦曲线。"
         },
         {
-          "source": "The wavelengths form a geometric progression from 2 π to 10000 · 2 π .",
+          "source": "The wavelengths form a geometric progression from $2\\pi$ to $10000 \\cdot 2\\pi$.",
+          "anchor": "The wavelengths form a geometric progression from 2 π to 10000 · 2 π .",
           "target": "波长构成等比数列，范围从 $2\\pi$ 到 $10000 \\cdot 2\\pi$。"
         },
         {
-          "source": "We chose this function because we hypothesized it would allow the model to easily learn to attend by relative positions, since for any fixed offset k , P E can be represented as a linear function of pos + k P E . pos",
+          "source": "We chose this function because we hypothesized it would allow the model to easily learn to attend by relative positions, since for any fixed offset $k$, $PE_{pos+k}$ can be represented as a linear function of $PE_{pos}$.",
+          "anchor": "We chose this function because we hypothesized it would allow the model to easily learn to attend by relative positions, since for any fixed offset k , P E can be represented as a linear function of pos + k P E . pos",
           "target": "我们选择这个函数，是因为我们假设它能让模型轻松学会根据相对位置进行关注；对于任意固定偏移量 $k$，$PE_{pos+k}$ 都可以表示为 $PE_{pos}$ 的线性函数。"
         }
       ]
@@ -1374,15 +1430,18 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "length n is smaller than the representation dimensionality d , which is most often the case with sentence representations used by state-of-the-art models in machine translations, such as word-piece [38] and byte-pair [31] representations.",
+          "source": "length $n$ is smaller than the representation dimensionality $d$, which is most often the case with sentence representations used by state-of-the-art models in machine translations, such as word-piece [38] and byte-pair [31] representations.",
+          "anchor": "length n is smaller than the representation dimensionality d , which is most often the case with sentence representations used by state-of-the-art models in machine translations, such as word-piece [38] and byte-pair [31] representations.",
           "target": "长度 $n$ 小于表示维度 $d$ 时，自注意力层比循环层更快；对于机器翻译领域最先进模型使用的句子表示，这通常就是如此，例如 word-piece [38] 和 byte-pair [31] 表示。"
         },
         {
-          "source": "To improve computational performance for tasks involving very long sequences, self-attention could be restricted to considering only a neighborhood of size r in the input sequence centered around the respective output position.",
+          "source": "To improve computational performance for tasks involving very long sequences, self-attention could be restricted to considering only a neighborhood of size $r$ in the input sequence centered around the respective output position.",
+          "anchor": "To improve computational performance for tasks involving very long sequences, self-attention could be restricted to considering only a neighborhood of size r in the input sequence centered around the respective output position.",
           "target": "为了提升涉及超长序列的任务的计算性能，可以将自注意力限制为只考虑输入序列中以相应输出位置为中心、大小为 $r$ 的邻域。"
         },
         {
-          "source": "This would increase the maximum path length to O ( n/r ) .",
+          "source": "This would increase the maximum path length to $O(n/r)$.",
+          "anchor": "This would increase the maximum path length to O ( n/r ) .",
           "target": "这样会将最大路径长度增加到 $O(n/r)$。"
         },
         {
@@ -1408,7 +1467,8 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "We used the Adam optimizer [20] with β = 0 . 9 , β = 0 . 98 and ϵ = 10 − 9 .",
+          "source": "We used the Adam optimizer [20] with $\\beta_1 = 0.9$, $\\beta_2 = 0.98$ and $\\epsilon = 10^{-9}$.",
+          "anchor": "We used the Adam optimizer [20] with β = 0 . 9 , β = 0 . 98 and ϵ = 10 − 9 .",
           "target": "我们使用 Adam 优化器 [20]，其中 $\\beta_1 = 0.9$、$\\beta_2 = 0.98$，且 $\\epsilon = 10^{-9}$。"
         },
         {
@@ -1430,11 +1490,13 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "This corresponds to increasing the learning rate linearly for the first warmup _ steps training steps, and decreasing it thereafter proportionally to the inverse square root of the step number.",
+          "source": "This corresponds to increasing the learning rate linearly for the first $\\text{warmup\\_steps}$ training steps, and decreasing it thereafter proportionally to the inverse square root of the step number.",
+          "anchor": "This corresponds to increasing the learning rate linearly for the first warmup _ steps training steps, and decreasing it thereafter proportionally to the inverse square root of the step number.",
           "target": "这相当于在最初的 $\\text{warmup\\_steps}$ 个训练步骤中线性提高学习率，之后则按步骤数平方根的倒数成比例地降低学习率。"
         },
         {
-          "source": "We used warmup _ steps = 4000 .",
+          "source": "We used $\\text{warmup\\_steps} = 4000$.",
+          "anchor": "We used warmup _ steps = 4000 .",
           "target": "我们使用 $\\text{warmup\\_steps} = 4000$。"
         }
       ]
@@ -1467,27 +1529,27 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "A single convolutional layer with kernel width k < n does not connect all pairs of input and output positions.",
+          "source": "A single convolutional layer with kernel width $k < n$ does not connect all pairs of input and output positions.",
           "target": "卷积核宽度为 $k < n$ 的单个卷积层无法连接所有输入位置与输出位置的组合。",
           "anchor": "A single convolutional layer with kernel width k < n does not connect all pairs of input and output positions."
         },
         {
-          "source": "Doing so requires a stack of O ( n/k ) convolutional layers in the case of contiguous kernels, or O ( log ( n )) in the case of dilated convolutions [18], increasing the length of the longest paths between any two positions in the network.",
+          "source": "Doing so requires a stack of $O(n/k)$ convolutional layers in the case of contiguous kernels, or $O(\\log_k(n))$ in the case of dilated convolutions [18], increasing the length of the longest paths between any two positions in the network.",
           "target": "若要实现这种连接，连续卷积核的情况需要堆叠 $O(n/k)$ 个卷积层，扩张卷积的情况则需要 $O(\\log(n))$ 个卷积层 [18]；这会增加网络中任意两个位置之间最长路径的长度。",
           "anchor": "Doing so requires a stack of O ( n/k ) convolutional layers in the case of contiguous kernels, or O ( log ( n )) in the case of dilated convolutions [18], increasing the length of the longest paths k between any two positions in the network."
         },
         {
-          "source": "Convolutional layers are generally more expensive than recurrent layers, by a factor of k .",
+          "source": "Convolutional layers are generally more expensive than recurrent layers, by a factor of $k$.",
           "target": "卷积层的计算成本通常比循环层高出 $k$ 倍。",
           "anchor": "Convolutional layers are generally more expensive than recurrent layers, by a factor of k ."
         },
         {
-          "source": "Separable convolutions [6], however, decrease the complexity considerably, to O ( k · n · d + n · d 2 ) .",
+          "source": "Separable convolutions [6], however, decrease the complexity considerably, to $O(k \\cdot n \\cdot d + n \\cdot d^2)$.",
           "target": "不过，可分离卷积 [6] 能大幅降低复杂度，将其降至 $O(k \\cdot n \\cdot d + n \\cdot d^2)$。",
           "anchor": "Separable convolutions [6], however, decrease the complexity considerably, to O ( k · n · d + n · d 2 ) ."
         },
         {
-          "source": "Even with k = n , however, the complexity of a separable convolution is equal to the combination of a self-attention layer and a point-wise feed-forward layer, the approach we take in our model.",
+          "source": "Even with $k = n$, however, the complexity of a separable convolution is equal to the combination of a self-attention layer and a point-wise feed-forward layer, the approach we take in our model.",
           "target": "然而，即使 $k = n$，可分离卷积的复杂度仍与自注意力层和逐位置前馈层的组合相同，而这正是我们模型采用的方法。",
           "anchor": "Even with k = n , however, the complexity of a separable convolution is equal to the combination of a self-attention layer and a point-wise feed-forward layer, the approach we take in our model."
         }
@@ -1668,7 +1730,8 @@
           "target": "此外，我们还对编码器和解码器堆栈中嵌入与位置编码的和应用 dropout。"
         },
         {
-          "source": "For the base model, we use a rate of P = 0 . 1 . drop",
+          "source": "For the base model, we use a rate of $P_{\\text{drop}} = 0.1$.",
+          "anchor": "For the base model, we use a rate of P = 0 . 1 . drop",
           "target": "对于基础模型，我们使用的 dropout 率为 $P_{\\text{drop}} = 0.1$。"
         }
       ]
@@ -1679,7 +1742,7 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "Label Smoothing During training, we employed label smoothing of value ϵ = 0 . 1 [36].",
+          "source": "Label Smoothing During training, we employed label smoothing of value $\\epsilon_{\\text{ls}} = 0.1$ [36].",
           "target": "标签平滑：训练期间，我们使用了取值为 $\\epsilon_{\\text{ls}} = 0.1$ 的标签平滑 [36]。",
           "anchor": "Label Smoothing During training, we employed label smoothing of value ϵ = 0 . 1 [36]."
         },
@@ -1745,7 +1808,8 @@
           "target": "在 WMT 2014 英译法翻译任务中，我们的大型模型取得了 41.0 的 BLEU 分数，超过了所有此前发表的单一模型，而训练成本不到此前最先进模型的四分之一。"
         },
         {
-          "source": "The Transformer (big) model trained for English-to-French used dropout rate P = 0 . 1 , instead of 0 . 3 . drop",
+          "source": "The Transformer (big) model trained for English-to-French used dropout rate $P_{\\text{drop}} = 0.1$, instead of 0.3.",
+          "anchor": "The Transformer (big) model trained for English-to-French used dropout rate P = 0 . 1 , instead of 0 . 3 . drop",
           "target": "用于英译法任务的 Transformer（big）模型使用的 dropout 率为 $P_{\\text{drop}} = 0.1$，而不是 0.3。"
         }
       ]
@@ -1764,7 +1828,8 @@
           "target": "对于大型模型，我们对最后 20 个检查点取了平均。"
         },
         {
-          "source": "We used beam search with a beam size of 4 and length penalty α = 0 . 6 [38].",
+          "source": "We used beam search with a beam size of 4 and length penalty $\\alpha = 0.6$ [38].",
+          "anchor": "We used beam search with a beam size of 4 and length penalty α = 0 . 6 [38].",
           "target": "我们使用了束宽为 4、长度惩罚 $\\alpha = 0.6$ 的束搜索 [38]。"
         },
         {
@@ -1855,7 +1920,7 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "In Table 3 rows (B), we observe that reducing the attention key size d hurts model quality.",
+          "source": "In Table 3 rows (B), we observe that reducing the attention key size $d_k$ hurts model quality.",
           "target": "在表 3 的 (B) 行中，我们观察到减小注意力键的维度 $d_k$ 会损害模型质量。",
           "anchor": "In Table 3 rows (B), we observe that reducing the attention key size d hurts model quality."
         },
@@ -1912,7 +1977,8 @@
       "status": "complete",
       "sentences": [
         {
-          "source": "We trained a 4-layer transformer with d = 1024 on the Wall Street Journal (WSJ) portion of the model Penn Treebank [25], about 40K training sentences.",
+          "source": "We trained a 4-layer transformer with $d_{\\text{model}} = 1024$ on the Wall Street Journal (WSJ) portion of the Penn Treebank [25], about 40K training sentences.",
+          "anchor": "We trained a 4-layer transformer with d = 1024 on the Wall Street Journal (WSJ) portion of the model Penn Treebank [25], about 40K training sentences.",
           "target": "我们在 Penn Treebank [25] 的《华尔街日报》（WSJ）部分上训练了一个 4 层 Transformer，$d_{\\text{model}} = 1024$，训练句子约 40K。"
         },
         {

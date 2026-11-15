@@ -3,7 +3,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PDFBlock, TranslationBlock } from "@neoread/core";
-import { TranslationText } from "./TranslationText";
+import { ReflowSource, TranslationText } from "./TranslationText";
+import example from "../../../server/internal/neoread/example-paper/paper.json";
+import "../chat/MathFormula";
 let host: HTMLDivElement, root: Root;
 const base: PDFBlock = {
   id: "p1-b1",
@@ -13,6 +15,72 @@ const base: PDFBlock = {
   image: "assets/p1-b1.png",
   bounds: { x: 0, y: 0, width: 1, height: 1 },
 };
+
+it("renders the bundled dot product as math while retaining its original PDF anchor", async () => {
+  const translation = example.translations.find(
+    (item) => item.blockId === "p4-b12",
+  ) as TranslationBlock;
+  await act(async () =>
+    root.render(
+      <ReflowSource
+        block={{
+          ...base,
+          id: translation.blockId,
+          label: "text",
+          image: undefined,
+        }}
+        translation={translation}
+      />,
+    ),
+  );
+  const sentence = host.querySelector('[data-source-sentence="1"]')!;
+  expect(sentence.querySelector(".katex")?.textContent).toContain("∑");
+  expect(host.textContent).toContain("variance 1. Then their dot product");
+  expect(sentence.getAttribute("data-anchor")).toBe(
+    "Then their dot product, q · k = P d k q k , has mean 0 and variance d . i =1 i i k",
+  );
+  expect(sentence.querySelector(".katex-error")).toBeNull();
+});
+
+it("renders every bundled mathematical source sentence without broken LaTeX", async () => {
+  const translations = example.translations.filter((item) =>
+    item.sentences?.some((sentence) => sentence.target.includes("$")),
+  ) as TranslationBlock[];
+  await act(async () =>
+    root.render(
+      <>
+        {translations.map((translation) => (
+          <ReflowSource
+            key={translation.blockId}
+            block={{
+              ...base,
+              id: translation.blockId,
+              label: "text",
+              image: undefined,
+            }}
+            translation={translation}
+          />
+        ))}
+      </>,
+    ),
+  );
+  for (const translation of translations) {
+    for (const [index, sentence] of translation.sentences.entries()) {
+      if (!sentence.target.includes("$")) continue;
+      const source = host.querySelector(
+        `[data-reflow-source="${translation.blockId}"] [data-source-sentence="${index}"]`,
+      )!;
+      expect(
+        source.querySelector(".katex"),
+        `${translation.blockId}:${index}`,
+      ).not.toBeNull();
+      expect(
+        source.querySelector(".katex-error"),
+        `${translation.blockId}:${index}`,
+      ).toBeNull();
+    }
+  }
+});
 beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("matchMedia", () => ({

@@ -2,7 +2,14 @@
 import { copyText } from "../chat/clipboard";
 import { useReaderStore } from "../store";
 import { ReadingLinkNavigation } from "../reading-links";
-import { act, useContext, useEffect } from "react";
+import {
+  act,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentProps,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -15,8 +22,11 @@ import {
   type SearchResult,
   type TranslationBlock,
 } from "@neoread/core";
+import type { ReadingMode } from "./reading-mode";
 const fixture = vi.hoisted(() => ({
   events: undefined as ReaderEvents | undefined,
+  mounts: 0,
+  setReadingMode: undefined as ((mode: ReadingMode) => void) | undefined,
   ready: undefined as ReaderAdapter | undefined,
   translations: [] as TranslationBlock[],
   push: undefined as
@@ -111,7 +121,13 @@ vi.mock("../ReaderView", () => ({
     onReady: (a: ReaderAdapter, t: []) => void;
   }) => {
     fixture.events = events;
-    useEffect(() => onReady(adapter, []), []);
+    useEffect(() => {
+      fixture.mounts++;
+      onReady(adapter, []);
+      return () => {
+        fixture.mounts--;
+      };
+    }, []);
     return <div>PDF 原文</div>;
   },
 }));
@@ -121,6 +137,8 @@ let root: Root, host: HTMLDivElement;
 const events = { location: vi.fn(), selection: vi.fn() };
 beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  fixture.setReadingMode = undefined;
+  fixture.mounts = 0;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -149,16 +167,42 @@ beforeEach(async () => {
   root = createRoot(host);
   await renderView();
 });
+function ControlledPDFReadingView({
+  initialMode = "source",
+  ...props
+}: Omit<
+  ComponentProps<typeof PDFReadingView>,
+  "readingMode" | "onReadingModeChange"
+> & {
+  initialMode?: ReadingMode;
+}) {
+  const [readingMode, setReadingMode] = useState<ReadingMode>(initialMode);
+  fixture.setReadingMode = setReadingMode;
+  const theme = useMemo(
+    () => ({ ...props.theme, textReflow: readingMode === "reflow" }),
+    [props.theme, readingMode],
+  );
+  return (
+    <PDFReadingView
+      {...props}
+      theme={theme}
+      readingMode={readingMode}
+      onReadingModeChange={setReadingMode}
+    />
+  );
+}
 async function renderView(
   theme: ReaderTheme = defaultTheme,
   extraBlocks: PDFBlock[] = [],
   searchResults: SearchResult[] = [],
   sidebarsOpen = { left: true, right: true },
   progress?: Document["progress"],
+  requestedMode?: ReadingMode,
 ) {
   await act(async () =>
     root.render(
-      <PDFReadingView
+      <ControlledPDFReadingView
+        initialMode={requestedMode}
         sidebarsOpen={sidebarsOpen}
         document={{ id: "doc", type: "pdf", progress } as Document}
         theme={theme}
@@ -181,6 +225,8 @@ async function renderView(
       />,
     ),
   );
+  if (requestedMode)
+    await act(async () => fixture.setReadingMode!(requestedMode));
 }
 
 it("uses repaired text for search and focuses the matching block", async () => {
@@ -188,7 +234,7 @@ it("uses repaired text for search and focuses the matching block", async () => {
   expect(results).toHaveLength(1);
   expect(results[0]).toMatchObject({ blockId: "p1-b1", side: "translation" });
   await renderView(defaultTheme, [], results);
-  await click("原文译文");
+  await click("对照");
   expect(
     host
       .querySelector('[data-translation-block="p1-b1"]')
@@ -227,7 +273,7 @@ async function click(label: string) {
   )!;
   expect(button).toBeTruthy();
   await act(async () => button.click());
-  if (["原文译文", "仅原文", "仅译文"].includes(label) && !vi.isFakeTimers()) {
+  if (["对照", "原文", "重排", "译文"].includes(label) && !vi.isFakeTimers()) {
     await act(async () => {
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -236,7 +282,7 @@ async function click(label: string) {
   }
 }
 it("switches modes without recreating the PDF or marking the opposite selection", async () => {
-  await click("原文译文");
+  await click("对照");
   expect(adapter.focusBlock).not.toHaveBeenCalled();
   await act(async () =>
     fixture.events!.selection({
@@ -253,11 +299,11 @@ it("switches modes without recreating the PDF or marking the opposite selection"
   expect(
     host.querySelector('[data-sentence="0"]')?.hasAttribute("data-linked"),
   ).toBe(false);
-  await click("仅译文");
+  await click("译文");
   expect(host.querySelector(".translation-source")?.hasAttribute("inert")).toBe(
     true,
   );
-  await click("仅原文");
+  await click("原文");
   expect(host.querySelector(".translation-document")).toBeNull();
   expect(adapter.destroy).not.toHaveBeenCalled();
 });
@@ -272,7 +318,7 @@ it("keeps the translated selection and navigation metadata without marking the o
       }
     },
   );
-  await click("原文译文");
+  await click("对照");
   const sentence = host.querySelector('[data-sentence="1"] p')!;
   await act(async () =>
     sentence.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })),
@@ -331,7 +377,7 @@ it("keeps the translated selection and navigation metadata without marking the o
   expect(highlights.has("neoread-translation-selection")).toBe(false);
 });
 it("fits the source width on mode changes without focusing a paragraph", async () => {
-  for (const label of ["原文译文", "仅译文", "原文译文", "仅原文"]) {
+  for (const label of ["对照", "译文", "对照", "原文"]) {
     vi.mocked(adapter.setTheme).mockClear();
     await click(label);
     expect(adapter.setTheme).toHaveBeenCalledWith(
@@ -361,7 +407,7 @@ it("navigates to the matching bibliography block and restores the translated vie
       bounds: { x: 0.1, y: 0.6, width: 0.3, height: 0.2 },
     },
   ]);
-  await click("仅译文");
+  await click("译文");
   const { pane } = translationGeometry();
   const reference = host.querySelector<HTMLElement>(
     '[data-translation-block="p9-ref"]',
@@ -375,7 +421,13 @@ it("navigates to the matching bibliography block and restores the translated vie
     await new Promise(requestAnimationFrame);
   });
   const origin = fixture.ready!.getLocation();
-  expect(origin).toEqual({ type: "pdf", page: 1, x: 0.1, y: 0.35 });
+  expect(origin).toEqual({
+    type: "pdf",
+    page: 1,
+    x: 0.1,
+    y: 0.35,
+    reflowPosition: { page: 1, blockId: "p1-b1" },
+  });
   await act(async () =>
     fixture.ready!.goTo({ type: "pdf", page: 9, x: 0.1, y: 0.7 }),
   );
@@ -387,7 +439,7 @@ it("navigates to the matching bibliography block and restores the translated vie
 });
 
 it("renders an incoming paragraph while the subscription remains open", async () => {
-  await click("原文译文");
+  await click("对照");
   const block = fixture.translations[0];
   await act(async () =>
     fixture.push!({
@@ -403,7 +455,7 @@ it("renders an incoming paragraph while the subscription remains open", async ()
 });
 
 it("links block hover in both directions and clears it without changing sentence selections", async () => {
-  await click("原文译文");
+  await click("对照");
   vi.mocked(adapter.focusSentences!).mockClear();
   await act(async () =>
     fixture.events!.blockHover?.({
@@ -433,7 +485,7 @@ it("links block hover in both directions and clears it without changing sentence
   await act(async () =>
     block.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })),
   );
-  await click("仅原文");
+  await click("原文");
   expect(adapter.hoverBlock).toHaveBeenLastCalledWith(null);
 });
 
@@ -447,7 +499,7 @@ it("supports explicit block focus in source and parallel modes", async () => {
     } as PDFBlock),
   );
   expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b1", "source");
-  await click("原文译文");
+  await click("对照");
   await act(async () =>
     fixture.events!.blockFocus?.({
       id: "p1-b1",
@@ -491,7 +543,7 @@ it("focuses the paragraph containing a saved annotation like clicking it", async
     }),
   );
   expect(adapter.focusBlock).toHaveBeenLastCalledWith("p1-b2", "source");
-  await click("原文译文");
+  await click("对照");
   await act(async () =>
     fixture.ready!.focusLocation?.({
       type: "pdf",
@@ -510,7 +562,7 @@ it("focuses the paragraph containing a saved annotation like clicking it", async
 });
 
 it("can disable automatic original centering while reading the translation", async () => {
-  await click("原文译文");
+  await click("对照");
   vi.mocked(adapter.focusBlock!).mockClear();
   const centerButton = host.querySelector<HTMLButtonElement>(
     '[aria-label="取消同步效果"]',
@@ -583,7 +635,7 @@ function translationGeometry(height = 200) {
 it.each([false, true])(
   "lets either scrollbar lead without wheel input or follower feedback (swapped: %s)",
   async (swapped) => {
-    await click("原文译文");
+    await click("对照");
     if (swapped) await click("交换原文和译文");
     const { pane } = translationGeometry();
     const source = host.querySelector<HTMLElement>(".translation-source")!;
@@ -627,7 +679,7 @@ it.each([false, true])(
   },
 );
 it("smoothly centers clicked translation blocks and follows their original without scroll feedback", async () => {
-  await click("原文译文");
+  await click("对照");
   const { pane, block } = translationGeometry();
   vi.useFakeTimers();
   try {
@@ -654,7 +706,7 @@ it("smoothly centers clicked translation blocks and follows their original witho
   }
 });
 it("top-aligns tall translation blocks and cancels their motion when the user scrolls", async () => {
-  await click("仅译文");
+  await click("译文");
   const { pane, block } = translationGeometry(800);
   vi.useFakeTimers();
   try {
@@ -684,7 +736,7 @@ it("top-aligns tall translation blocks and cancels their motion when the user sc
   }
 });
 it("does not treat drags, native selections or interactive controls as block navigation", async () => {
-  await click("原文译文");
+  await click("对照");
   const { pane, block } = translationGeometry();
   await act(async () => {
     block.dispatchEvent(
@@ -728,7 +780,7 @@ it("replaces an unfinished click with an image focus and does not re-highlight o
       bounds: { x: 0.55, y: 0.4, width: 0.3, height: 0.2 },
     },
   ]);
-  await click("原文译文");
+  await click("对照");
   const { pane, block } = translationGeometry();
   const image = pane.querySelector<HTMLElement>(
     '[data-translation-block="p1-image"]',
@@ -764,7 +816,7 @@ it("replaces an unfinished click with an image focus and does not re-highlight o
   }
 });
 it("does not focus during manual scrolling and cancels keyboard focus when the pane closes", async () => {
-  await click("仅译文");
+  await click("译文");
   const { pane, block } = translationGeometry();
   vi.useFakeTimers();
   try {
@@ -786,7 +838,7 @@ it("does not focus during manual scrolling and cancels keyboard focus when the p
     });
     expect(pane.scrollTop).toBeGreaterThan(0);
     const top = pane.scrollTop;
-    await click("仅原文");
+    await click("原文");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
@@ -798,7 +850,7 @@ it("does not focus during manual scrolling and cancels keyboard focus when the p
 });
 
 it("centers both panels from a source click and recalculates a focused translation after resizing", async () => {
-  await click("原文译文");
+  await click("对照");
   const { pane, block } = translationGeometry(800);
   let width = 600,
     height = 600,
@@ -903,7 +955,7 @@ it.each([false, true])(
       });
     vi.useFakeTimers();
     try {
-      await click("原文译文");
+      await click("对照");
       expanded = true;
       await act(async () =>
         fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0 }),
@@ -933,9 +985,9 @@ it.each(["mode", "wheel"])(
     );
     vi.useFakeTimers();
     try {
-      await click("原文译文");
+      await click("对照");
       expect(adapter.focusBlock).not.toHaveBeenCalled();
-      if (action === "mode") await click("仅原文");
+      if (action === "mode") await click("原文");
       else
         await act(async () =>
           host
@@ -956,7 +1008,7 @@ it.each(["mode", "wheel"])(
 );
 
 it("disables source following and smoothly resynchronizes from the source when enabled", async () => {
-  await click("原文译文");
+  await click("对照");
   const { pane } = translationGeometry();
   await click("取消同步效果");
   await act(async () =>
@@ -982,7 +1034,7 @@ it("disables source following and smoothly resynchronizes from the source when e
 });
 
 it("disables translation following and resynchronizes from the last manually scrolled translation", async () => {
-  await click("原文译文");
+  await click("对照");
   const { pane } = translationGeometry();
   await click("取消同步效果");
   vi.mocked(adapter.followBlock!).mockClear();
@@ -1008,10 +1060,10 @@ it("disables translation following and resynchronizes from the last manually scr
   }
 });
 
-it.each(["仅原文", "原文译文"])(
+it.each(["原文", "对照"])(
   "keeps annotation and search focus available with sync disabled in %s",
   async (mode) => {
-    if (mode === "原文译文") await click(mode);
+    if (mode === "对照") await click(mode);
     await click("取消同步效果");
     vi.mocked(adapter.focusBlock!).mockClear();
     await act(async () => {
@@ -1024,7 +1076,7 @@ it.each(["仅原文", "原文译文"])(
     });
     expect(adapter.focusBlock).toHaveBeenLastCalledWith(
       "p1-b1",
-      mode === "仅原文" ? "source" : "parallel",
+      mode === "原文" ? "source" : "parallel",
     );
     expect(
       host
@@ -1047,7 +1099,7 @@ it("focuses the image from a translated figure reference even with sync disabled
       bounds: { x: 0.1, y: 0.1, width: 0.5, height: 0.3 },
     },
   ]);
-  await click("原文译文");
+  await click("对照");
   await click("取消同步效果");
   vi.mocked(adapter.focusBlock!).mockClear();
   await act(async () =>
@@ -1091,7 +1143,7 @@ it("paints a jump target on an unparsed page after page navigation", async () =>
 it.each(["left", "right"] as const)(
   "lets the PDF viewport adapt to %s sidebar changes without imposing a new block zoom",
   async (closed) => {
-    await click("原文译文");
+    await click("对照");
     vi.mocked(adapter.focusBlock!).mockClear();
     vi.mocked(adapter.goTo).mockClear();
     await renderView(defaultTheme, [], [], {
@@ -1158,7 +1210,7 @@ it("strips legacy cross-side links when preparing a mark without losing its posi
     page: 1,
     rects: location.rects,
   });
-  await click("原文译文");
+  await click("对照");
   await click("取消同步效果");
   vi.mocked(adapter.focusBlock!).mockClear();
   await act(async () => fixture.ready!.focusLocation!(prepared.location));
@@ -1168,41 +1220,85 @@ it("strips legacy cross-side links when preparing a mark without losing its posi
   );
 });
 
-const reflowed = { ...defaultTheme, textReflow: true };
-it("reflows source and translation paragraphs in one column for every mode", async () => {
-  await renderView(reflowed);
-  const sources = () =>
-    Array.from(
-      host.querySelectorAll(
-        '[data-reflow-source="p1-b1"] [data-source-sentence]',
-      ),
-      (n) => n.textContent,
-    );
-  expect(sources()).toEqual(["First sentence. ", "Second sentence."]);
-  expect(host.querySelector("[data-sentence]")).toBeNull();
-  expect(host.querySelector('[aria-label="交换原文和译文"]')).toBeNull();
-  expect(host.querySelector('[aria-label="取消同步效果"]')).toBeNull();
-  expect(host.querySelector(".translation-source")?.hasAttribute("inert")).toBe(
-    true,
+async function renderReflowView(
+  theme: ReaderTheme = defaultTheme,
+  extraBlocks: PDFBlock[] = [],
+  searchResults: SearchResult[] = [],
+  sidebarsOpen = { left: true, right: true },
+  progress?: Document["progress"],
+) {
+  await renderView(
+    theme,
+    extraBlocks,
+    searchResults,
+    sidebarsOpen,
+    progress,
+    "reflow",
   );
-  await click("原文译文");
-  expect(sources()).toHaveLength(2);
-  // Only the translation counts as the translated block for selections.
+}
+it("offers exactly four controlled modes with bilingual content only in reflow", async () => {
+  const tabs = Array.from(host.querySelectorAll('[role="tab"]'));
+  expect(tabs.map((tab) => tab.textContent)).toEqual([
+    "原文",
+    "对照",
+    "重排",
+    "译文",
+  ]);
+  expect(host.querySelector('[data-tour="parallel-mode"]')?.textContent).toBe(
+    "对照",
+  );
+  await click("重排");
+  expect(
+    host.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
+  ).toBe("重排");
+  expect(host.querySelector('[data-reflow-source="p1-b1"]')?.textContent).toBe(
+    "First sentence. Second sentence.",
+  );
   expect(host.querySelector("[data-translation-block]")?.textContent).toBe(
     "第一句。第二句。",
   );
   expect(host.querySelector('[aria-label="交换原文和译文"]')).toBeNull();
-  await click("仅译文");
-  expect(sources()).toEqual([]);
-  expect(host.querySelectorAll("[data-sentence]")).toHaveLength(2);
-  expect(adapter.setTheme).not.toHaveBeenCalledWith(
-    expect.objectContaining({ zoom: "width" }),
+  expect(
+    host.querySelector<HTMLButtonElement>('[aria-label="取消同步效果"]')!
+      .disabled,
+  ).toBe(true);
+  expect(host.querySelector(".translation-source")?.hasAttribute("inert")).toBe(
+    true,
   );
-  expect(adapter.followBlock).not.toHaveBeenCalled();
-  expect(adapter.destroy).not.toHaveBeenCalled();
+  await click("对照");
+  expect(host.querySelector("[data-reflow-block]")).toBeNull();
+  expect(host.querySelector(".translation-source")?.hasAttribute("inert")).toBe(
+    false,
+  );
+  await click("译文");
+  expect(host.querySelector("[data-reflow-source]")).toBeNull();
+  expect(host.querySelectorAll("[data-sentence]")).toHaveLength(2);
+  await click("原文");
+  expect(host.querySelector(".translation-document")).toBeNull();
 });
+
+const modeLabels = ["原文", "对照", "重排", "译文"];
+it.each(
+  modeLabels.flatMap((from) =>
+    modeLabels.filter((to) => to !== from).map((to) => [from, to]),
+  ),
+)(
+  "keeps the mounted PDF engine when switching from %s to %s",
+  async (from, to) => {
+    const source = host.querySelector(".translation-source")!.firstElementChild;
+    const facade = fixture.ready;
+    await click(from);
+    await click(to);
+    expect(fixture.mounts).toBe(1);
+    expect(host.querySelector(".translation-source")!.firstElementChild).toBe(
+      source,
+    );
+    expect(fixture.ready).toBe(facade);
+    expect(adapter.destroy).not.toHaveBeenCalled();
+  },
+);
 it("selects reflowed source text as a PDF source mark", async () => {
-  await renderView(reflowed);
+  await renderReflowView(defaultTheme);
   const sentence = host.querySelector('[data-source-sentence="1"]')!;
   const range = document.createRange();
   range.selectNodeContents(sentence);
@@ -1248,8 +1344,7 @@ it("keeps both sides of a selection spanning reflowed paragraphs", async () => {
     status: "complete",
     sentences: [{ source: second.text, target: "第三句。" }],
   });
-  await renderView(reflowed, [second]);
-  await click("原文译文");
+  await renderReflowView(defaultTheme, [second]);
   const first = host.querySelector(
     '[data-reflow-source="p1-b1"] [data-source-sentence="0"]',
   )!;
@@ -1314,7 +1409,7 @@ it("offers paragraph actions and focuses reflowed paragraphs unless disabled", a
     .spyOn(EPUBBlockOverlay.prototype, "focus")
     .mockResolvedValue(true);
   try {
-    await renderView({ ...reflowed, blockFocus: false });
+    await renderReflowView({ ...defaultTheme, blockFocus: false });
     const sentence = host.querySelector('[data-source-sentence="0"]')!;
     const press = async () => {
       await act(async () => {
@@ -1349,7 +1444,7 @@ it("offers paragraph actions and focuses reflowed paragraphs unless disabled", a
     );
     await press();
     expect(focus).not.toHaveBeenCalled();
-    await renderView(reflowed);
+    await renderReflowView(defaultTheme);
     await press();
     expect(focus).toHaveBeenCalledWith("p1-b1");
   } finally {
@@ -1403,7 +1498,7 @@ it("copies a PDF paragraph with the formulas its translation restored", async ()
   }
 });
 it("does not move reflow text when the hidden PDF reports a position", async () => {
-  await renderView(reflowed);
+  await renderReflowView(defaultTheme);
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
   const block = pane.querySelector<HTMLElement>('[data-reflow-block="p1-b1"]')!;
   pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
@@ -1418,12 +1513,12 @@ it("does not move reflow text when the hidden PDF reports a position", async () 
 it("restores the saved reflow paragraph after that paragraph arrives", async () => {
   const progress = {
     type: "pdf" as const,
-    page: 1,
+    page: 2,
     reflowPosition: { page: 2, blockId: "p2-b1" },
   };
   await act(async () => root.unmount());
   root = createRoot(host);
-  await renderView(reflowed, [], [], undefined, progress);
+  await renderReflowView(defaultTheme, [], [], undefined, progress);
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
   pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
   const rect = vi
@@ -1438,8 +1533,8 @@ it("restores the saved reflow paragraph after that paragraph arrives", async () 
       fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0 }),
     );
     expect(pane.scrollTop).toBe(0);
-    await renderView(
-      reflowed,
+    await renderReflowView(
+      defaultTheme,
       [
         {
           id: "p2-b1",
@@ -1453,14 +1548,14 @@ it("restores the saved reflow paragraph after that paragraph arrives", async () 
       undefined,
       progress,
     );
-    expect(pane.scrollTop).toBeCloseTo(1200);
+    expect(pane.scrollTop).toBeCloseTo(1300);
   } finally {
     rect.mockRestore();
   }
 });
 
 it("uses the chosen margin immediately without a PDF-derived column width", async () => {
-  await renderView({ ...reflowed, pdfTranslationMargin: 0 });
+  await renderReflowView({ ...defaultTheme, pdfTranslationMargin: 0 });
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
   expect(pane.style.getPropertyValue("--reflow-margin")).toBe("0px");
   expect(pane.hasAttribute("data-column")).toBe(false);
@@ -1468,7 +1563,7 @@ it("uses the chosen margin immediately without a PDF-derived column width", asyn
 });
 
 it("saves the visible reflow paragraph when the reader scrolls", async () => {
-  await renderView(reflowed);
+  await renderReflowView(defaultTheme);
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
   const block = pane.querySelector<HTMLElement>('[data-reflow-block="p1-b1"]')!;
   pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
@@ -1500,7 +1595,7 @@ it("returns to the latest reflow paragraph after switching modes or tabs", async
   };
   await act(async () => root.unmount());
   root = createRoot(host);
-  await renderView(reflowed, [later], [], undefined, progress);
+  await renderReflowView(defaultTheme, [later], [], undefined, progress);
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
   pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
   const node = pane.querySelector<HTMLElement>('[data-reflow-block="p1-b2"]')!;
@@ -1513,6 +1608,7 @@ it("returns to the latest reflow paragraph after switching modes or tabs", async
   expect(pane.scrollTop).toBe(900);
   expect(adapter.goTo).not.toHaveBeenCalled();
   await renderView(defaultTheme, [later], [], undefined, progress);
+  await click("原文");
   const rect = vi
     .spyOn(HTMLElement.prototype, "getBoundingClientRect")
     .mockImplementation(function (this: HTMLElement) {
@@ -1530,9 +1626,14 @@ it("returns to the latest reflow paragraph after switching modes or tabs", async
       return new DOMRect(0, 0, 600, 200);
     });
   try {
-    await renderView(reflowed, [later], [], undefined, progress);
+    await renderReflowView(defaultTheme, [later], [], undefined, progress);
     const restored = host.querySelector<HTMLElement>(".translation-document")!;
-    expect(restored.scrollTop).toBe(900);
+    await act(async () => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    });
+    expect(restored.scrollTop).toBe(1000);
   } finally {
     rect.mockRestore();
   }
@@ -1542,51 +1643,65 @@ it("returns to the latest reflow paragraph after switching modes or tabs", async
   );
 });
 
-it("restores the non-reflow translation position after reading elsewhere in reflow", async () => {
-  const later = {
-    id: "p1-b2",
-    page: 1,
-    label: "text",
-    text: "Later",
-    bounds: { x: 0.1, y: 0.7, width: 0.3, height: 0.1 },
-  };
-  const rect = vi
-    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-    .mockImplementation(function (this: HTMLElement) {
-      if (this.classList.contains("translation-document"))
-        return new DOMRect(0, 0, 600, 600);
-      const id = this.dataset.reflowBlock ?? this.dataset.translationBlock;
-      if (id)
-        return new DOMRect(
-          0,
-          (id === "p1-b1" ? 700 : 1500) -
-            (this.closest<HTMLElement>(".translation-document")?.scrollTop ??
-              0),
-          600,
-          200,
-        );
-      return new DOMRect(0, 0, 600, 200);
-    });
-  try {
-    await renderView(defaultTheme, [later]);
-    await click("仅译文");
-    await act(async () =>
-      fixture.ready!.goTo({ type: "pdf", page: 1, x: 0.1, y: 0.2 }),
-    );
-    await renderView(reflowed, [later]);
-    await act(async () =>
-      fixture.ready!.goTo({ type: "pdf", page: 1, reflowBlockId: "p1-b2" }),
-    );
-    await renderView(defaultTheme, [later]);
-    expect(
-      host.querySelector<HTMLElement>(".translation-document")!.scrollTop,
-    ).toBe(400);
-  } finally {
-    rect.mockRestore();
-  }
-});
+it.each(["原文", "对照", "译文"])(
+  "centers the latest reflow paragraph in %s even with continuous sync disabled",
+  async (destination) => {
+    const later = {
+      id: "p1-b2",
+      page: 1,
+      label: "text",
+      text: "Later",
+      bounds: { x: 0.1, y: 0.7, width: 0.3, height: 0.1 },
+    };
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.classList.contains("translation-document"))
+          return new DOMRect(0, 0, 600, 600);
+        const id = this.dataset.reflowBlock ?? this.dataset.translationBlock;
+        if (id)
+          return new DOMRect(
+            0,
+            (id === "p1-b1" ? 700 : 1500) -
+              (this.closest<HTMLElement>(".translation-document")?.scrollTop ??
+                0),
+            600,
+            200,
+          );
+        return new DOMRect(0, 0, 600, 200);
+      });
+    try {
+      await renderView(defaultTheme, [later]);
+      await click("取消同步效果");
+      await act(async () =>
+        fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.2 }),
+      );
+      await click("重排");
+      await act(async () =>
+        fixture.ready!.goTo({ type: "pdf", page: 1, reflowBlockId: "p1-b2" }),
+      );
+      await click(destination);
+      if (destination !== "译文")
+        expect(adapter.followBlock).toHaveBeenLastCalledWith({
+          blockId: "p1-b2",
+          fraction: 0.5,
+        });
+      if (destination !== "原文")
+        expect(
+          host.querySelector<HTMLElement>(".translation-document")!.scrollTop,
+        ).toBe(1300);
+      const button = host.querySelector<HTMLButtonElement>(
+        '[aria-label="开启同步效果"]',
+      )!;
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute("aria-pressed")).toBe("false");
+    } finally {
+      rect.mockRestore();
+    }
+  },
+);
 
-it("starts a first reflow session at its own first page, independently of the PDF", async () => {
+it("seeds first reflow entry from the current original paragraph and centers it", async () => {
   const later = {
     id: "p4-b1",
     page: 4,
@@ -1594,20 +1709,539 @@ it("starts a first reflow session at its own first page, independently of the PD
     text: "Later",
     bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
   };
-  const next = { ...later, id: "p2-b1", page: 2 };
-  await renderView(defaultTheme, [next, later]);
+  await renderView(defaultTheme, [later]);
   await act(async () =>
-    fixture.ready!.goTo({ type: "pdf", page: 4, x: 0.1, y: 0.2 }),
+    fixture.events!.readingAnchor?.({ blockId: later.id, fraction: 0.5 }),
   );
-  await renderView(reflowed, [next, later]);
+  await click("重排");
   expect(fixture.ready!.getLocation()).toMatchObject({
     type: "pdf",
-    page: 1,
-    reflowBlockId: "p1-b1",
+    page: 4,
+    reflowBlockId: "p4-b1",
   });
-  await act(async () => fixture.ready!.next());
+  await click("对照");
+  expect(adapter.followBlock).toHaveBeenLastCalledWith({
+    blockId: "p4-b1",
+    fraction: 0.5,
+  });
+});
+
+it("waits for the current original paragraph on first reflow entry instead of resetting to the first page", async () => {
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p4-b1", fraction: 0.25 }),
+  );
+  await click("重排");
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.reflowBlock === "p4-b1")
+        return new DOMRect(0, 1500 - pane.scrollTop, 600, 200);
+      return new DOMRect(0, 0, 600, 600);
+    });
+  try {
+    await renderView(defaultTheme, [
+      {
+        id: "p4-b1",
+        page: 4,
+        label: "text",
+        text: "Later paragraph.",
+        bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+      },
+    ]);
+    expect(pane.scrollTop).toBe(1300);
+    expect(fixture.ready!.getLocation()).toMatchObject({
+      type: "pdf",
+      page: 4,
+      reflowBlockId: "p4-b1",
+    });
+  } finally {
+    rect.mockRestore();
+  }
+});
+
+it("cancels stale fitting and scroll reporting during rapid four-mode switches", async () => {
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+  );
+  vi.useFakeTimers();
+  try {
+    await click("对照");
+    const pane = host.querySelector<HTMLElement>(".translation-document")!;
+    await act(async () =>
+      pane.dispatchEvent(new Event("scroll", { bubbles: true })),
+    );
+    events.location.mockClear();
+    await click("重排");
+    await click("对照");
+    await click("译文");
+    await click("原文");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(adapter.setTheme).toHaveBeenCalledTimes(1);
+    expect(adapter.followBlock).toHaveBeenCalledExactlyOnceWith({
+      blockId: "p1-b1",
+      fraction: 0.5,
+    });
+    expect(events.location).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        page: 1,
+        x: 0.1,
+        y: 0.35,
+        reflowPosition: { page: 1, blockId: "p1-b1" },
+      }),
+      expect.any(Number),
+    );
+    expect(
+      host.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
+    ).toBe("原文");
+    expect(fixture.mounts).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("captures an outgoing reflow scroll before its animation frame and centers that paragraph in source", async () => {
+  const later: PDFBlock = {
+    id: "p3-b1",
+    page: 3,
+    label: "text",
+    text: "Latest paragraph.",
+    bounds: { x: 0.15, y: 0.4, width: 0.5, height: 0.2 },
+  };
+  await renderView(defaultTheme, [later]);
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.1 }),
+  );
+  await click("重排");
+  const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  pane.getBoundingClientRect = () => new DOMRect(0, 0, 600, 600);
+  pane.querySelector<HTMLElement>(
+    '[data-reflow-block="p1-b1"]',
+  )!.getBoundingClientRect = () => new DOMRect(0, -400, 600, 200);
+  pane.querySelector<HTMLElement>(
+    '[data-reflow-block="p3-b1"]',
+  )!.getBoundingClientRect = () => new DOMRect(0, 250, 600, 200);
+  await act(async () => {
+    pane.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 100 }));
+    pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+    Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((button) => button.textContent === "原文")!
+      .click();
+  });
+  await act(async () => {
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  });
+  expect(adapter.followBlock).toHaveBeenLastCalledWith({
+    blockId: later.id,
+    fraction: 0.5,
+  });
   expect(events.location).toHaveBeenLastCalledWith(
-    expect.objectContaining({ page: 2, reflowBlockId: "p2-b1" }),
+    expect.objectContaining({
+      page: 3,
+      x: 0.15,
+      y: 0.5,
+      reflowPosition: { page: 3, blockId: later.id },
+    }),
     expect.any(Number),
   );
 });
+
+it("ignores a legacy reflow history on a different page from canonical progress", async () => {
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await renderView(
+    defaultTheme,
+    [
+      {
+        id: "p2-b1",
+        page: 2,
+        label: "text",
+        text: "Old reflow history.",
+        bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+      },
+    ],
+    [],
+    undefined,
+    {
+      type: "pdf",
+      page: 1,
+      x: 0.1,
+      y: 0.3,
+      reflowPosition: { page: 2, blockId: "p2-b1" },
+    },
+  );
+  await click("重排");
+  expect(fixture.ready!.getLocation()).toMatchObject({
+    page: 1,
+    reflowBlockId: "p1-b1",
+    reflowPosition: { page: 1, blockId: "p1-b1" },
+  });
+});
+
+it("keeps the sync button mounted in its portal and remembers the disabled preference", async () => {
+  const portal = document.createElement("div");
+  host.append(portal);
+  await act(async () =>
+    root.render(
+      <ControlledPDFReadingView
+        document={{ id: "doc", type: "pdf" } as Document}
+        theme={defaultTheme}
+        annotations={[]}
+        blocks={[]}
+        autoCenterHost={portal}
+        events={events}
+        onReady={() => {}}
+      />,
+    ),
+  );
+  const button = portal.querySelector<HTMLButtonElement>("button")!;
+  await act(async () => button.click());
+  expect(button.getAttribute("aria-pressed")).toBe("false");
+  await click("重排");
+  expect(portal.querySelector("button")).toBe(button);
+  expect(button.disabled).toBe(true);
+  await act(async () => button.click());
+  expect(button.getAttribute("aria-pressed")).toBe("false");
+  await click("对照");
+  expect(portal.querySelector("button")).toBe(button);
+  expect(button.disabled).toBe(false);
+  expect(button.getAttribute("aria-pressed")).toBe("false");
+});
+
+it("publishes parsed source anchors rather than replacing them with raw viewport emissions", async () => {
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+  );
+  expect(events.location).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      page: 1,
+      x: 0.1,
+      y: 0.35,
+      reflowPosition: { page: 1, blockId: "p1-b1" },
+    }),
+    expect.any(Number),
+  );
+  events.location.mockClear();
+  await act(async () =>
+    fixture.events!.location({ type: "pdf", page: 1, x: 0.7, y: 0.9 }, 0.1),
+  );
+  expect(events.location).not.toHaveBeenCalled();
+  await click("重排");
+  events.location.mockClear();
+  await act(async () => {
+    fixture.events!.location({ type: "pdf", page: 9 }, 0.9);
+    fixture.events!.readingAnchor?.({ blockId: "p9-b1", fraction: 0 });
+  });
+  expect(events.location).not.toHaveBeenCalled();
+  expect(fixture.ready!.getLocation()).toMatchObject({
+    page: 1,
+    reflowPosition: { page: 1, blockId: "p1-b1" },
+  });
+});
+
+it("restores a late parsed paragraph in native mode without reviving an older paragraph", async () => {
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p4-b1", fraction: 0.1 }),
+  );
+  await click("取消同步效果");
+  await click("重排");
+  await click("原文");
+  vi.mocked(adapter.followBlock!).mockClear();
+  await renderView(defaultTheme, [
+    {
+      id: "p4-b1",
+      page: 4,
+      label: "text",
+      text: "Late paragraph.",
+      bounds: { x: 0.1, y: 0.3, width: 0.5, height: 0.2 },
+    },
+  ]);
+  expect(adapter.followBlock).toHaveBeenLastCalledWith({
+    blockId: "p4-b1",
+    fraction: 0.5,
+  });
+  expect(events.location).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      page: 4,
+      reflowPosition: { page: 4, blockId: "p4-b1" },
+    }),
+    expect.any(Number),
+  );
+});
+
+it("keeps a newer explicit navigation when an older native navigation finishes after a mode switch", async () => {
+  const later: PDFBlock = {
+    id: "p2-b1",
+    page: 2,
+    label: "text",
+    text: "New navigation target.",
+    bounds: { x: 0.1, y: 0.3, width: 0.5, height: 0.2 },
+  };
+  await renderView(defaultTheme, [later]);
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  vi.mocked(adapter.goTo).mockReturnValueOnce(promise);
+  let first: Promise<void>;
+  await act(async () => {
+    first = fixture.ready!.goTo({ type: "pdf", page: 1 });
+  });
+  await click("重排");
+  await act(async () =>
+    fixture.ready!.goTo({ type: "pdf", page: 2, reflowBlockId: later.id }),
+  );
+  await act(async () => {
+    resolve();
+    await first!;
+  });
+  await click("对照");
+  expect(adapter.followBlock).toHaveBeenLastCalledWith({
+    blockId: later.id,
+    fraction: 0.5,
+  });
+  expect(events.location).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      page: 2,
+      reflowPosition: { page: 2, blockId: later.id },
+    }),
+    expect.any(Number),
+  );
+});
+
+it("centers the reflow paragraph after the reading pane expands to full width", async () => {
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+  );
+  const raf = globalThis.requestAnimationFrame;
+  const caf = globalThis.cancelAnimationFrame;
+  let next = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++next, callback);
+    return next;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+  let expanded = false;
+  let pane: HTMLElement | undefined;
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.reflowBlock === "p1-b1")
+        return new DOMRect(
+          0,
+          (expanded ? 1000 : 600) - (pane?.scrollTop ?? 0),
+          expanded ? 800 : 400,
+          200,
+        );
+      return new DOMRect(0, 0, expanded ? 800 : 400, 400);
+    });
+  const frame = async () =>
+    act(async () => {
+      const callbacks = [...frames.values()];
+      frames.clear();
+      callbacks.forEach((callback) => callback(performance.now()));
+    });
+  try {
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+        .find((button) => button.textContent === "重排")!
+        .click();
+    });
+    pane = host.querySelector<HTMLElement>(".translation-document")!;
+    await frame();
+    expanded = true;
+    await frame();
+    const paragraph = pane
+      .querySelector<HTMLElement>('[data-reflow-block="p1-b1"]')!
+      .getBoundingClientRect();
+    const viewport = pane.getBoundingClientRect();
+    expect(paragraph.top + paragraph.height / 2).toBeCloseTo(
+      viewport.top + viewport.height / 2,
+    );
+  } finally {
+    rect.mockRestore();
+    vi.stubGlobal("requestAnimationFrame", raf);
+    vi.stubGlobal("cancelAnimationFrame", caf);
+  }
+});
+
+it("keeps the current paragraph centered before the first frame when alternating text modes", async () => {
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      const top =
+        host.querySelector<HTMLElement>(".translation-document")?.scrollTop ??
+        0;
+      if (this.dataset.reflowBlock === "p1-b1")
+        return new DOMRect(0, 1000 - top, 600, 200);
+      if (this.dataset.translationBlock === "p1-b1")
+        return new DOMRect(0, 400 - top, 600, 100);
+      return new DOMRect(0, 0, 600, 400);
+    });
+  const raf = globalThis.requestAnimationFrame;
+  const caf = globalThis.cancelAnimationFrame;
+  try {
+    await act(async () =>
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+    );
+    await click("重排");
+    await act(async () => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    });
+    let next = 0;
+    vi.stubGlobal("requestAnimationFrame", () => ++next);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    for (const mode of ["译文", "重排", "译文", "重排"]) {
+      await act(async () => {
+        [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+          .find((button) => button.textContent === mode)!
+          .click();
+      });
+      const pane = host.querySelector<HTMLElement>(".translation-document")!;
+      const paragraph = pane
+        .querySelector<HTMLElement>(
+          mode === "重排"
+            ? '[data-reflow-block="p1-b1"]'
+            : '[data-translation-block="p1-b1"]',
+        )!
+        .getBoundingClientRect();
+      const viewport = pane.getBoundingClientRect();
+      expect(paragraph.top + paragraph.height / 2).toBeCloseTo(
+        viewport.top + viewport.height / 2,
+      );
+    }
+  } finally {
+    rect.mockRestore();
+    vi.stubGlobal("requestAnimationFrame", raf);
+    vi.stubGlobal("cancelAnimationFrame", caf);
+  }
+});
+
+it("keeps the translation paragraph centered without a late column width change after reflow", async () => {
+  const getPageWidth = adapter.getPageWidth;
+  adapter.getPageWidth = vi.fn(async () => 600);
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      const pane = host.querySelector<HTMLElement>(".translation-document");
+      const top = pane?.scrollTop ?? 0;
+      if (this.dataset.reflowBlock === "p1-b1")
+        return new DOMRect(0, 1000 - top, 600, 200);
+      if (this.dataset.translationBlock === "p1-b1")
+        return pane?.hasAttribute("data-column")
+          ? new DOMRect(0, 400 - top, 270, 100)
+          : new DOMRect(0, 700 - top, 600, 200);
+      return new DOMRect(0, 0, 600, 400);
+    });
+  try {
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await renderView();
+    await act(async () =>
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+    );
+    await click("译文");
+    await click("重排");
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+        .find((button) => button.textContent === "译文")!
+        .click();
+    });
+    const pane = host.querySelector<HTMLElement>(".translation-document")!;
+    const paragraph = pane
+      .querySelector<HTMLElement>('[data-translation-block="p1-b1"]')!
+      .getBoundingClientRect();
+    const viewport = pane.getBoundingClientRect();
+    expect(paragraph.top + paragraph.height / 2).toBeCloseTo(
+      viewport.top + viewport.height / 2,
+    );
+  } finally {
+    adapter.getPageWidth = getPageWidth;
+    rect.mockRestore();
+  }
+});
+
+it.each([
+  ["header", "2"],
+  ["footer", "2"],
+  ["number", "2"],
+  ["header_image", "2"],
+  ["footer_image", "2"],
+  ["text", "2"],
+  ["text", ""],
+  ["text", " \t\n "],
+])(
+  "saves native PDF progress with an unreadable page block (%s, %j)",
+  async (label, text) => {
+    await renderView(defaultTheme, [
+      {
+        id: "p2-decoration",
+        page: 2,
+        label,
+        text,
+        bounds: { x: 0.45, y: 0.96, width: 0.1, height: 0.02 },
+      },
+    ]);
+    const location = { type: "pdf" as const, page: 2, x: 0.1, y: 0.4 };
+    const native = vi.spyOn(adapter, "getLocation").mockReturnValue(location);
+    try {
+      await act(async () =>
+        fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+      );
+      await act(async () => fixture.events!.location(location, 0.5));
+      expect(events.location).toHaveBeenLastCalledWith(location, 0.5);
+      expect(fixture.ready!.getLocation()).toEqual(location);
+    } finally {
+      native.mockRestore();
+    }
+  },
+);
+
+it.each(["reflow", "translation"] as const)(
+  "restores %s from page coordinates when reparsing replaced the saved paragraph ID",
+  async (mode) => {
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await renderView(
+      defaultTheme,
+      [
+        {
+          id: "p2-current",
+          page: 2,
+          label: "text",
+          text: "Reparsed paragraph.",
+          bounds: { x: 0.1, y: 0.3, width: 0.5, height: 0.2 },
+        },
+      ],
+      [],
+      { left: true, right: true },
+      {
+        type: "pdf",
+        page: 2,
+        x: 0.2,
+        y: 0.4,
+        reflowPosition: { page: 2, blockId: "p2-before-reparse" },
+      },
+      mode,
+    );
+    expect(fixture.ready!.getLocation()).toMatchObject({
+      type: "pdf",
+      page: 2,
+      reflowPosition: { page: 2, blockId: "p2-current" },
+    });
+    expect(events.location).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        page: 2,
+        reflowPosition: { page: 2, blockId: "p2-current" },
+      }),
+      expect.any(Number),
+    );
+  },
+);
