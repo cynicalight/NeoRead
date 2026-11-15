@@ -47,6 +47,7 @@ import { translationFont } from "../appearance";
 import "./translation.css";
 
 import type { ReadingMode } from "./reading-mode";
+import { useReadingModeFade } from "./useReadingModeFade";
 /** Scroll settling after a pinned jump or click does not move the anchor. */
 const pinHold = 800;
 /** Only what locates the chapter; offsets would refetch on every scroll. */
@@ -99,6 +100,7 @@ export function EPUBReadingView({
   );
   const root = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLDivElement>(null);
+  const modeFade = useReadingModeFade(root, readingMode, active);
   const [sentenceEngine, setSentenceEngine] = useState<ReaderAdapter>();
   const viewportAnchor = useRef<{ id: string; top: number } | undefined>(
     undefined,
@@ -695,6 +697,7 @@ export function EPUBReadingView({
       }
       if (!reflow && mode !== "source") follow(block.id, 0.5, true);
       modeTarget.current = undefined;
+      modeFade.reveal();
     };
     modeFrame.current = requestAnimationFrame(() => {
       const run = () => {
@@ -732,7 +735,10 @@ export function EPUBReadingView({
       />
       <Tabs
         value={readingMode}
-        onValueChange={(value) => changeMode(value as ReadingMode)}
+        onValueChange={(value, details) => {
+          modeFade.prepare(details.event);
+          changeMode(value as ReadingMode);
+        }}
       >
         <TabsList>
           <TabsTrigger value="source">原文</TabsTrigger>

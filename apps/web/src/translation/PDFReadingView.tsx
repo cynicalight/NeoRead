@@ -73,6 +73,7 @@ import { useChapterTranslation } from "./chapterTranslation";
 import { searchPDFBlocks } from "./pdf-search";
 
 import type { ReadingMode } from "./reading-mode";
+import { useReadingModeFade } from "./useReadingModeFade";
 /** Scroll settling after a pinned jump or click does not move the chapter. */
 const pinHold = 800;
 const noTranslations: TranslationBlock[] = [];
@@ -175,6 +176,7 @@ export function PDFReadingView({
     );
   const pendingRestore = useRef(true);
   const progressSeeded = useRef(!!reading.current);
+  const modeFade = useReadingModeFade(root, readingMode, active);
   // The page whose chapter the book toolbar describes. A click or jump pins
   // it; afterwards scrolling moves it to the paragraph mid-view.
   const [chapterPage, setChapterPage] = useState(
@@ -789,8 +791,8 @@ export function PDFReadingView({
     const operation = explicitFocus.current.operation;
     const restore = async () => {
       if (!pendingRestore.current) return;
-      // Reflowed text keeps its place; the hidden PDF needs no zoom or sync.
       if (reflow) {
+        restoreReflow();
         return;
       }
       if (previous !== readingMode) {
@@ -823,12 +825,14 @@ export function PDFReadingView({
         const block = blocks.find((block) => block.id === anchor.blockId);
         if (block) pinPage(block.page);
         publishReading(anchor);
+        modeFade.reveal();
       } else if (
         !anchor &&
         !cancelled &&
         operation === explicitFocus.current.operation
       ) {
         pendingRestore.current = false;
+        modeFade.reveal();
       }
     };
     const apply = () =>
@@ -885,8 +889,8 @@ export function PDFReadingView({
       pane.current.scrollTop = 0;
       pendingRestore.current = false;
     }
+    modeFade.reveal();
   };
-  useLayoutEffect(restoreReflow, [blocks, doc.id, reflow, active]);
   useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
   useEffect(() => {
     const release = () => {
@@ -1118,7 +1122,10 @@ export function PDFReadingView({
       )}
       <Tabs
         value={readingMode}
-        onValueChange={(v) => changeMode(v as ReadingMode)}
+        onValueChange={(value, details) => {
+          modeFade.prepare(details.event);
+          changeMode(value as ReadingMode);
+        }}
       >
         <TabsList>
           <TabsTrigger value="source">原文</TabsTrigger>

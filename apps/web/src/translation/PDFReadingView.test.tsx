@@ -1628,6 +1628,11 @@ it("returns to the latest reflow paragraph after switching modes or tabs", async
   try {
     await renderReflowView(defaultTheme, [later], [], undefined, progress);
     const restored = host.querySelector<HTMLElement>(".translation-document")!;
+    await act(async () => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    });
     expect(restored.scrollTop).toBe(1000);
   } finally {
     rect.mockRestore();
@@ -2006,4 +2011,61 @@ it("keeps a newer explicit navigation when an older native navigation finishes a
     }),
     expect.any(Number),
   );
+});
+
+it("centers the reflow paragraph after the reading pane expands to full width", async () => {
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+  );
+  const raf = globalThis.requestAnimationFrame;
+  const caf = globalThis.cancelAnimationFrame;
+  let next = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++next, callback);
+    return next;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+  let expanded = false;
+  let pane: HTMLElement | undefined;
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.reflowBlock === "p1-b1")
+        return new DOMRect(
+          0,
+          (expanded ? 1000 : 600) - (pane?.scrollTop ?? 0),
+          expanded ? 800 : 400,
+          200,
+        );
+      return new DOMRect(0, 0, expanded ? 800 : 400, 400);
+    });
+  const frame = async () =>
+    act(async () => {
+      const callbacks = [...frames.values()];
+      frames.clear();
+      callbacks.forEach((callback) => callback(performance.now()));
+    });
+  try {
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+        .find((button) => button.textContent === "重排")!
+        .click();
+    });
+    pane = host.querySelector<HTMLElement>(".translation-document")!;
+    await frame();
+    expanded = true;
+    await frame();
+    const paragraph = pane
+      .querySelector<HTMLElement>('[data-reflow-block="p1-b1"]')!
+      .getBoundingClientRect();
+    const viewport = pane.getBoundingClientRect();
+    expect(paragraph.top + paragraph.height / 2).toBeCloseTo(
+      viewport.top + viewport.height / 2,
+    );
+  } finally {
+    rect.mockRestore();
+    vi.stubGlobal("requestAnimationFrame", raf);
+    vi.stubGlobal("cancelAnimationFrame", caf);
+  }
 });
