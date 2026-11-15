@@ -1223,7 +1223,6 @@ export function Workspace({
           )}
           <div ref={setReadingToolbar} data-tour="reading-modes" />
           <span className="toolbar-divider" />
-          <div ref={setSourceAutoCenterToolbar} />
           <IconButton
             label="添加书签"
             onClick={() => void annotate("bookmark")}
@@ -1239,7 +1238,10 @@ export function Workspace({
               <Type />
             </PopoverTrigger>
             <PopoverContent className="w-80">
-              <h3 className="text-sm font-medium">阅读外观</h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-medium">阅读外观</h3>
+                <div ref={setSourceAutoCenterToolbar} />
+              </div>
               <div className="space-y-4">
                 <AppearancePicker theme={theme} setTheme={setTheme} />
                 <ReadingTextControls

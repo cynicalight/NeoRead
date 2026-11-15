@@ -102,6 +102,7 @@ export function PDFReadingView({
   blocks: PDFBlock[];
   processing?: Processing;
   toolbarHost?: HTMLElement | null;
+  /** Where the sync toggle renders; null hides it, undefined keeps it in the toolbar. */
   autoCenterHost?: HTMLElement | null;
   pageNavigation?: ReactNode;
   sidebarsOpen?: { left: boolean; right: boolean };
@@ -1072,7 +1073,7 @@ export function PDFReadingView({
   );
   const toolbar = (
     <div className="translation-toolbar">
-      {!autoCenterHost && autoCenterButton}
+      {autoCenterHost === undefined && autoCenterButton}
       {book ? (
         <BookChapterControls
           documentId={doc.id}
