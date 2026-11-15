@@ -895,11 +895,13 @@ export function EPUBReadingView({
           selection.current = value;
           live.current.events.selection(value);
           if (value?.location.type === "epub") {
-            updateLocation(value.location);
-            pinAnchor(value.location);
-            const matches = epubBlocksAt(value.location, live.current.blocks);
-            if (matches[0] && live.current.mode === "parallel")
-              follow(matches[0].id);
+            const [block] = epubBlocksAt(value.location, live.current.blocks);
+            if (block) {
+              const location = { ...block.location, blockId: block.id };
+              updateLocation(location);
+              pinAnchor(location);
+              if (live.current.mode === "parallel") follow(block.id);
+            }
           }
         },
       }}

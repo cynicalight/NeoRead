@@ -698,3 +698,27 @@ it("ignores hidden source anchors and interactions while translation owns progre
   });
   expect(fixture.ready!.getLocation()).toEqual(current);
 });
+
+it.each(["原文", "对照"])(
+  "keeps selection ranges separate from paragraph reading progress in %s",
+  async (mode) => {
+    await click(mode);
+    const selected = {
+      text: "Second",
+      location: {
+        ...blocks[0].location,
+        blockId: blocks[0].id,
+        start: 16,
+        end: 22,
+        quote: "Second",
+      },
+    };
+    await act(async () => fixture.events!.selection(selected));
+    expect(events.selection).toHaveBeenLastCalledWith(selected);
+    expect(fixture.ready!.getSelection()).toEqual(selected);
+    expect(events.location).toHaveBeenLastCalledWith(
+      { ...blocks[0].location, blockId: blocks[0].id },
+      expect.any(Number),
+    );
+  },
+);
