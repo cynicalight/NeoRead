@@ -2168,15 +2168,24 @@ it("keeps the translation paragraph centered without a late column width change 
   }
 });
 
-it.each(["header", "footer", "number", "header_image", "footer_image", "text"])(
-  "saves native PDF progress on a page containing only %s decoration",
-  async (label) => {
+it.each([
+  ["header", "2"],
+  ["footer", "2"],
+  ["number", "2"],
+  ["header_image", "2"],
+  ["footer_image", "2"],
+  ["text", "2"],
+  ["text", ""],
+  ["text", " \t\n "],
+])(
+  "saves native PDF progress with an unreadable page block (%s, %j)",
+  async (label, text) => {
     await renderView(defaultTheme, [
       {
         id: "p2-decoration",
         page: 2,
         label,
-        text: "2",
+        text,
         bounds: { x: 0.45, y: 0.96, width: 0.1, height: 0.02 },
       },
     ]);

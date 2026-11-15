@@ -1191,7 +1191,10 @@ export function PDFReadingView({
                   if (
                     location.type === "pdf" &&
                     !state.current.blocks.some(
-                      (b) => b.page === location.page && !isPDFPageDecoration(b),
+                      (b) =>
+                        b.page === location.page &&
+                        !isPDFPageDecoration(b) &&
+                        (b.image || b.text.trim()),
                     )
                   ) {
                     reading.current = undefined;
