@@ -1510,6 +1510,41 @@ it("does not move reflow text when the hidden PDF reports a position", async () 
   expect(pane.scrollTop).toBe(0);
 });
 
+it("marks a followed chat reference in reflowed text instead of the hidden PDF", async () => {
+  await renderReflowView(defaultTheme);
+  const highlights = new Map<string, { ranges: Range[] }>();
+  vi.stubGlobal("CSS", { escape: (value: string) => value, highlights });
+  vi.stubGlobal(
+    "Highlight",
+    class {
+      ranges: Range[];
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+    },
+  );
+  vi.mocked(adapter.flashReference!).mockClear();
+  vi.useFakeTimers();
+  try {
+    fixture.ready!.flashReference!(
+      { type: "pdf", page: 1, x: 0.2, y: 0.35, quote: "Second  sentence." },
+      "",
+    );
+    expect(adapter.flashReference).not.toHaveBeenCalled();
+    const [range] = highlights.get("neoread-reference-flash")!.ranges;
+    expect(range.toString()).toBe("Second sentence.");
+    expect(
+      range.startContainer.parentElement?.closest(
+        '[data-reflow-source="p1-b1"]',
+      ),
+    ).not.toBeNull();
+    vi.advanceTimersByTime(3000);
+    expect(highlights.has("neoread-reference-flash")).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("restores the saved reflow paragraph after that paragraph arrives", async () => {
   const progress = {
     type: "pdf" as const,

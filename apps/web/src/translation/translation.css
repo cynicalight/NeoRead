@@ -76,8 +76,7 @@
   flex: 1;
   min-width: 0;
   overflow: auto;
-  padding: max(32px, var(--translation-inset, 32px))
-    var(--reading-margin, 32px);
+  padding: max(32px, var(--translation-inset, 32px)) var(--reading-margin, 32px);
   scrollbar-gutter: stable;
   background: var(--background);
   color: var(--foreground);
@@ -129,6 +128,15 @@
 .translation-document ::highlight(neoread-translation-selection) {
   background-color: rgba(59, 130, 246, 0.3);
   background-color: color-mix(in srgb, AccentColor 30%, transparent);
+}
+/* Same transient color as the PDF pane's .neoread-location-highlight. */
+.translation-document ::highlight(neoread-reference-flash) {
+  background-color: rgb(0 90 255 / 24%);
+}
+.pdf-reading[data-theme="dark"]
+  .translation-document
+  ::highlight(neoread-reference-flash) {
+  background-color: rgb(100 170 255 / 36%);
 }
 /* KaTeX defaults to 1.21em, which reads larger than the surrounding prose. */
 .translation-document .katex,

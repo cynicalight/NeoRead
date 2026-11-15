@@ -50,6 +50,7 @@ import {
 } from "./TranslationText";
 import { reflowBlockText, restoredSource } from "./reflow";
 import { reflowSourceSelection } from "./reflow-selection";
+import { flashReflowReference } from "./reflow-reference";
 import { copyText } from "../chat/clipboard";
 import { EPUBBlockOverlay } from "../readers/epub-block-focus";
 import { DeferredBlockFocus } from "../readers/deferred-block-focus";
@@ -528,8 +529,14 @@ export function PDFReadingView({
   // Keep the public adapter usable by TOC, notes and page navigation in all modes.
   const facade = useRef<ReaderAdapter | undefined>(undefined);
   const outline = useRef<TOCItem[]>([]);
-  const actions = useRef({ go, focus });
-  actions.current = { go, focus };
+  // The PDF engine is hidden while reflowed; mark the visible source text.
+  const flash = (location: DocumentLocation, text: string) => {
+    const block = location.type === "pdf" && locationBlock(location);
+    if (block && pane.current)
+      flashReflowReference(pane.current, block.id, location.quote || text);
+  };
+  const actions = useRef({ go, focus, flash });
+  actions.current = { go, focus, flash };
   useEffect(() => {
     if (!root.current || !engine) return;
     return installCitationHover(
@@ -621,6 +628,9 @@ export function PDFReadingView({
           };
         if (key === "goTo")
           return (l: DocumentLocation) => actions.current.go(l);
+        if (key === "flashReference" && state.current.reflow)
+          return (l: DocumentLocation, text: string) =>
+            actions.current.flash(l, text);
         if (key === "search")
           return async (query: string) => {
             const current = state.current;
