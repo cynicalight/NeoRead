@@ -176,7 +176,7 @@ export function PDFReadingView({
     );
   const pendingRestore = useRef(true);
   const progressSeeded = useRef(!!reading.current);
-  const modeFade = useReadingModeFade(root, readingMode, active);
+  const modeFade = useReadingModeFade(root, active);
   // The page whose chapter the book toolbar describes. A click or jump pins
   // it; afterwards scrolling moves it to the paragraph mid-view.
   const [chapterPage, setChapterPage] = useState(
@@ -1122,6 +1122,7 @@ export function PDFReadingView({
       )}
       <Tabs
         value={readingMode}
+        onPointerDownCapture={modeFade.onPointerDownCapture}
         onValueChange={(value, details) => {
           modeFade.prepare(details.event);
           changeMode(value as ReadingMode);

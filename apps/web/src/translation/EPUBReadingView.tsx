@@ -100,7 +100,7 @@ export function EPUBReadingView({
   );
   const root = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLDivElement>(null);
-  const modeFade = useReadingModeFade(root, readingMode, active);
+  const modeFade = useReadingModeFade(root, active);
   const [sentenceEngine, setSentenceEngine] = useState<ReaderAdapter>();
   const viewportAnchor = useRef<{ id: string; top: number } | undefined>(
     undefined,
@@ -735,6 +735,7 @@ export function EPUBReadingView({
       />
       <Tabs
         value={readingMode}
+        onPointerDownCapture={modeFade.onPointerDownCapture}
         onValueChange={(value, details) => {
           modeFade.prepare(details.event);
           changeMode(value as ReadingMode);
