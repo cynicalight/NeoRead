@@ -485,10 +485,17 @@ const models = scene({
 });
 
 // Import by link.
-const I: Rect = { x: 170, y: 92, w: 300, h: 214 };
-const refInput = { x: I.x + 18, y: I.y + 70, w: I.w - 36 - 72, h: 28 };
-const importSubmit = { x: I.x + I.w - 18 - 66, y: I.y + 70, w: 66, h: 28 };
-const choosePDF = { x: I.x + 18, y: I.y + 136, w: I.w - 36, h: 26 };
+const I: Rect = { x: 170, y: 86, w: 300, h: 232 };
+const choosePDF = { x: I.x + 18, y: I.y + 44, w: I.w - 36, h: 26 };
+const refInput = { x: I.x + 18, y: I.y + 80, w: I.w - 36 - 72, h: 28 };
+const importSubmit = { x: I.x + I.w - 18 - 66, y: I.y + 80, w: 66, h: 28 };
+const importFolder = { x: I.x + I.w - 18 - 132, y: I.y + 118, w: 132, h: 26 };
+const migrationButton = (i: number) => ({
+  x: I.x + 18 + i * ((I.w - 36 + 8) / 2),
+  y: I.y + 188,
+  w: (I.w - 36 - 8) / 2,
+  h: 26,
+});
 const paperURL = "https://arxiv.org/abs/1706.03762";
 
 function importDialog(
@@ -499,18 +506,9 @@ function importDialog(
   const { p, c } = f;
   dialog(f, I, o.appear, () => {
     p.text("导入论文", I.x + 18, I.y + 25, { size: 13.5, weight: 600 });
-    p.text(
-      "arXiv 编号、DOI、论文页面或 PDF 链接、完整标题",
-      I.x + 18,
-      I.y + 47,
-      {
-        size: 10.5,
-        color: c.mutedForeground,
-        max: I.w - 36,
-      },
-    );
+    button(f, choosePDF, "选择 PDF 文件", "outline", { icon: glyphs.file });
     input(f, refInput, value, {
-      placeholder: "例如 2401.01234 或 10.1145/…",
+      placeholder: "arXiv 编号、DOI、链接或标题",
       focus: o.focus,
     });
     if (o.busy) {
@@ -530,20 +528,16 @@ function importDialog(
         });
       });
     } else button(f, importSubmit, "导入", "primary");
-    p.line(I.x + 18, I.y + 118, I.x + I.w / 2 - 14, I.y + 118, c.border);
-    p.line(I.x + I.w / 2 + 14, I.y + 118, I.x + I.w - 18, I.y + 118, c.border);
-    p.text("或", I.x + I.w / 2, I.y + 118, {
+    p.text("导入到分类", I.x + 18, importFolder.y + 13, { size: 11.5 });
+    select(f, importFolder, "不放入分类");
+    p.line(I.x + 18, I.y + 158, I.x + I.w - 18, I.y + 158, c.border);
+    p.text("从文献管理软件迁移", I.x + 18, I.y + 174, {
       size: 10.5,
-      align: "center",
+      weight: 500,
       color: c.mutedForeground,
     });
-    button(f, choosePDF, "选择 PDF 文件", "outline", { icon: glyphs.file });
-    button(
-      f,
-      { ...choosePDF, y: choosePDF.y + 34 },
-      "从 Zotero 导入",
-      "outline",
-    );
+    button(f, migrationButton(0), "从 Zotero 导入", "outline");
+    button(f, migrationButton(1), "从 EndNote 导入", "outline");
   });
 }
 
@@ -1503,7 +1497,7 @@ const overview = scene({
 });
 
 // Zotero migration.
-const zoteroButton = { ...choosePDF, y: choosePDF.y + 34 };
+const zoteroButton = migrationButton(0);
 const Z: Rect = { x: 96, y: 30, w: 448, h: 340 };
 const scanButton = { x: Z.x + 18, y: Z.y + 178, w: 96, h: 28 };
 const selectAll = { x: Z.x + Z.w - 18 - 84, y: Z.y + 84, w: 84, h: 24 };

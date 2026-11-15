@@ -3953,20 +3953,6 @@ textarea.paper-title-input {
     display: none;
   }
 }
-.paper-import-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--muted-foreground);
-}
-.paper-import-divider::before,
-.paper-import-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
 .paper-fields-heading {
   display: flex;
   align-items: center;

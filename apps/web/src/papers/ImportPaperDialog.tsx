@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FileUp, Loader2 } from "lucide-react";
 import { Button } from "@neoread/ui/components/button";
 import { Input } from "@neoread/ui/components/input";
+import { Separator } from "@neoread/ui/components/separator";
 import {
   Select,
   SelectContent,
@@ -92,94 +93,107 @@ export function ImportPaperDialog({
       <DialogContent data-tour="import-dialog" className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>导入论文</DialogTitle>
-          <DialogDescription>
-            arXiv 编号、DOI、论文页面或 PDF 链接、完整标题
+          <DialogDescription className="sr-only">
+            选择 PDF、输入论文链接，或从 Zotero、EndNote 迁移
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-1.5">
-          <span className="text-sm font-medium" id="import-paper-folder-label">
-            导入到分类
-          </span>
-          <Select
-            value={folder || "none"}
-            onValueChange={(value) =>
-              setFolder(value === "none" ? "" : value || "")
-            }
+        <section className="grid gap-3">
+          <Button
+            variant="outline"
             disabled={busy}
+            onClick={() => {
+              onOpenChange(false);
+              onChooseFiles(folder);
+            }}
           >
-            <SelectTrigger
-              aria-labelledby="import-paper-folder-label"
-              className="w-full"
-            >
-              <SelectValue>
-                {smart
-                  ? `${smart.name}（智能标签）`
-                  : folder
-                    ? folder.slice(7).replaceAll("/", " / ")
-                    : "-"}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">-</SelectItem>
-              {categories.map((name) => (
-                <SelectItem key={name} value={`folder:${name}`}>
-                  {name.replaceAll("/", " / ")}
-                </SelectItem>
-              ))}
-              {smartCategories.map((item) => (
-                <SelectItem key={`smart:${item.id}`} value={`smart:${item.id}`}>
-                  {item.name}（智能标签）
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit();
-          }}
-        >
-          <Input
-            autoFocus
-            aria-label="论文标识或链接"
-            placeholder="例如 2401.01234 或 10.1145/…"
-            value={ref}
-            disabled={busy}
-            onChange={(e) => setRef(e.target.value)}
-          />
-          <Button type="submit" disabled={!ref.trim() || busy}>
-            {busy && <Loader2 className="animate-spin" />}
-            {busy ? "下载中" : "导入"}
+            <FileUp />
+            选择 PDF 文件
           </Button>
-        </form>
-        <div className="paper-import-divider">或</div>
-        <Button
-          variant="outline"
-          disabled={busy}
-          onClick={() => {
-            onOpenChange(false);
-            onChooseFiles(folder);
-          }}
-        >
-          <FileUp />
-          选择 PDF 文件
-        </Button>
-        <Button
-          variant="outline"
-          disabled={busy}
-          onClick={() => setMigration("zotero")}
-        >
-          从 Zotero 导入
-        </Button>
-        <Button
-          variant="outline"
-          disabled={busy}
-          onClick={() => setMigration("endnote")}
-        >
-          从 EndNote 导入
-        </Button>
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submit();
+            }}
+          >
+            <Input
+              autoFocus
+              aria-label="论文标识或链接"
+              title="arXiv 编号、DOI、论文页面或 PDF 链接、完整标题"
+              placeholder="arXiv 编号、DOI、链接或标题，如 2401.01234"
+              value={ref}
+              disabled={busy}
+              onChange={(e) => setRef(e.target.value)}
+            />
+            <Button type="submit" disabled={!ref.trim() || busy}>
+              {busy && <Loader2 className="animate-spin" />}
+              {busy ? "下载中" : "导入"}
+            </Button>
+          </form>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm" id="import-paper-folder-label">
+              导入到分类
+            </span>
+            <Select
+              value={folder || "none"}
+              onValueChange={(value) =>
+                setFolder(value === "none" ? "" : value || "")
+              }
+              disabled={busy}
+            >
+              <SelectTrigger
+                aria-labelledby="import-paper-folder-label"
+                className="w-52"
+              >
+                <SelectValue>
+                  {smart
+                    ? `${smart.name}（智能标签）`
+                    : folder
+                      ? folder.slice(7).replaceAll("/", " / ")
+                      : "不放入分类"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">不放入分类</SelectItem>
+                {categories.map((name) => (
+                  <SelectItem key={name} value={`folder:${name}`}>
+                    {name.replaceAll("/", " / ")}
+                  </SelectItem>
+                ))}
+                {smartCategories.map((item) => (
+                  <SelectItem
+                    key={`smart:${item.id}`}
+                    value={`smart:${item.id}`}
+                  >
+                    {item.name}（智能标签）
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </section>
+        <Separator />
+        <section className="grid gap-2">
+          <h3 className="text-xs font-medium text-muted-foreground">
+            从文献管理软件迁移
+          </h3>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => setMigration("zotero")}
+            >
+              从 Zotero 导入
+            </Button>
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => setMigration("endnote")}
+            >
+              从 EndNote 导入
+            </Button>
+          </div>
+        </section>
       </DialogContent>
     </Dialog>
   );
