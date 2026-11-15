@@ -31,7 +31,6 @@ import {
 } from "./LargePaperDialog";
 import type { Document, LibraryMode } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
-import { Input } from "@neoread/ui/components/input";
 import { TooltipProvider } from "@neoread/ui/components/tooltip";
 import {
   Dialog,
@@ -82,6 +81,7 @@ import { ProcessingUsageDialog } from "./ProcessingUsage";
 import { trashWithUndo } from "./library-actions";
 import { filterDocuments, initialFilters } from "./library";
 import { GuideHost } from "./guide/GuideHost";
+import { SearchInput } from "./SearchInput";
 const currentMode = () =>
   libraryMode(useReaderStore.getState().libraryPreferences);
 /** Whether a press landed on library space rather than a book or control. */
@@ -760,11 +760,12 @@ export function App() {
                   {filter === "tags" ? (
                     <div className="search-field">
                       <Search className="size-4" />
-                      <Input
+                      <SearchInput
                         aria-label="搜索书库"
                         placeholder="搜索标题、作者、标签…"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
+                        onClear={() => setQuery("")}
                       />
                     </div>
                   ) : filter === "trash" ? null : (
@@ -800,11 +801,12 @@ export function App() {
                         <div className="library-controls">
                           <div className="search-field">
                             <Search className="size-4" />
-                            <Input
+                            <SearchInput
                               aria-label="搜索书库"
                               placeholder="搜索标题、作者、标签…"
                               value={query}
                               onChange={(e) => setQuery(e.target.value)}
+                              onClear={() => setQuery("")}
                             />
                           </div>
                         </div>
@@ -1016,11 +1018,13 @@ export function App() {
               </DialogTitle>
               <DialogDescription>搜索书库，或打开常用操作。</DialogDescription>
             </DialogHeader>
-            <Input
+            <SearchInput
               autoFocus
+              aria-label="快速查找"
               placeholder="搜索标题、作者、标签…"
               value={commandQuery}
               onChange={(e) => setCommandQuery(e.target.value)}
+              onClear={() => setCommandQuery("")}
             />
             <div className="min-w-0 max-h-72 space-y-1 overflow-auto">
               {searchResults.map((d) => (

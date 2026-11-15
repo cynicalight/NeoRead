@@ -19,7 +19,6 @@ import workerURL from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import "pdfjs-dist/web/pdf_viewer.css";
 import { api, paperAttachmentSource } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
-import { Input } from "@neoread/ui/components/input";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +32,7 @@ import {
   useAttachments,
 } from "./attachments";
 import { toast } from "sonner";
+import { SearchInput } from "../SearchInput";
 pdfjs.GlobalWorkerOptions.workerSrc = workerURL;
 
 export default function AttachmentPreview() {
@@ -294,14 +294,19 @@ function PreviewContent() {
                 search(false, true);
               }}
             >
-              <Input
-                className="h-7 min-w-20 max-w-48 text-xs"
+              <SearchInput
+                wrapperClassName="min-w-20 max-w-48 flex-1"
+                className="h-7 text-xs"
                 aria-label="搜索附件正文"
                 placeholder="搜索附件"
                 value={query}
                 disabled={loading}
                 onChange={(event) => {
                   setQuery(event.target.value);
+                  setMatches("");
+                }}
+                onClear={() => {
+                  setQuery("");
                   setMatches("");
                 }}
               />

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Button } from "@neoread/ui/components/button";
-import { Input } from "@neoread/ui/components/input";
 import {
   bindingError,
   bindingFromEvent,
@@ -13,6 +12,7 @@ import {
   type ShortcutId,
   type Bindings,
 } from "./shortcuts";
+import { SearchInput } from "../SearchInput";
 
 export function ShortcutPanel() {
   const bindings = useBindings();
@@ -46,13 +46,18 @@ export function ShortcutPanel() {
         F1 默认打开设置中的首选书库，F2 打开另一个书库。
       </p>
       <div className="flex items-center gap-2">
-        <Input
-          className="min-w-0 flex-1"
+        <SearchInput
+          wrapperClassName="flex-1"
           aria-label="搜索快捷键"
           placeholder="搜索快捷键名称…"
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
+            setEditing(null);
+            setError("");
+          }}
+          onClear={() => {
+            setQuery("");
             setEditing(null);
             setError("");
           }}

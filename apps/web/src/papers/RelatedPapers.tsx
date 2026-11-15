@@ -3,7 +3,6 @@ import { FileText, Plus, X } from "lucide-react";
 import type { Document } from "@neoread/core";
 import { api } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
-import { Input } from "@neoread/ui/components/input";
 import {
   Popover,
   PopoverContent,
@@ -14,6 +13,7 @@ import { refreshLibrary, useReaderStore } from "../store";
 import { paperYear, shortTitle } from "./format";
 import { searchText } from "./model";
 import { usePaperUI } from "./state";
+import { SearchInput } from "../SearchInput";
 
 /** Papers matching every search term, excluding `doc` and its links. */
 export function relatedCandidates(
@@ -80,12 +80,13 @@ export function RelatedPapers({ doc }: { doc: Document }) {
             <Plus />
           </PopoverTrigger>
           <PopoverContent align="end" className="w-72 gap-1 p-2">
-            <Input
+            <SearchInput
               autoFocus
               aria-label="搜索要关联的论文"
               placeholder="标题、作者、DOI…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onClear={() => setQuery("")}
             />
             {candidates.map((d) => (
               <Button

@@ -135,6 +135,7 @@ import { pdfModeLocation, savePDFProgress } from "./pdf-progress";
 import { ReadingTextControls } from "./ReadingTextControls";
 import { translationFont } from "./appearance";
 import { AppearancePicker } from "./AppearancePicker";
+import { SearchInput } from "./SearchInput";
 function IconButton({
   label,
   children,
@@ -1344,31 +1345,15 @@ export function Workspace({
                   }}
                   className="flex shrink-0 gap-1"
                 >
-                  <div className="relative min-w-0 flex-1">
-                    <Input
-                      aria-label="搜索文档"
-                      ref={searchInput}
-                      className="pr-8"
-                      placeholder="搜索文档内容…"
-                      value={query}
-                      onChange={(e) => updateSearchQuery(e.target.value)}
-                    />
-                    {query && (
-                      <Button
-                        type="button"
-                        size="icon-xs"
-                        variant="ghost"
-                        aria-label="清空搜索"
-                        className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground"
-                        onClick={() => {
-                          updateSearchQuery("");
-                          searchInput.current?.focus();
-                        }}
-                      >
-                        <X className="size-3.5" />
-                      </Button>
-                    )}
-                  </div>
+                  <SearchInput
+                    aria-label="搜索文档"
+                    ref={searchInput}
+                    wrapperClassName="flex-1"
+                    placeholder="搜索文档内容…"
+                    value={query}
+                    onChange={(e) => updateSearchQuery(e.target.value)}
+                    onClear={() => updateSearchQuery("")}
+                  />
                   <Button
                     size="icon"
                     variant="secondary"

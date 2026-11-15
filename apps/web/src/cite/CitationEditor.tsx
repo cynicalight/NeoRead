@@ -24,6 +24,7 @@ import type { Citation, CitationItem } from "./codes";
 import type { CiteEngine } from "./engine";
 import { citationItemFor } from "./items";
 import { RunsText } from "./RunsText";
+import { SearchInput } from "../SearchInput";
 
 /** CSL locator labels, in the order Zotero offers them. */
 export const locatorLabels: Record<string, string> = {
@@ -169,7 +170,7 @@ export function CitationEditor({
         </DialogHeader>
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
+          <SearchInput
             ref={search}
             autoFocus
             className="pl-8"
@@ -178,6 +179,10 @@ export function CitationEditor({
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
+              setActive(0);
+            }}
+            onClear={() => {
+              setQuery("");
               setActive(0);
             }}
             onKeyDown={(e) => {

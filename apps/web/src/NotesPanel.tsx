@@ -22,7 +22,6 @@ import {
   type Message,
 } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
-import { Input } from "@neoread/ui/components/input";
 import { PaperNoteRichEditor } from "./PaperNoteRichEditor";
 import { MessageMarkdown } from "./chat/MessageMarkdown";
 import { ScrollArea } from "@neoread/ui/components/scroll-area";
@@ -45,6 +44,7 @@ import {
   validHighlightColor,
 } from "./annotations";
 import { useReaderStore } from "./store";
+import { SearchInput } from "./SearchInput";
 
 export { documentOrder };
 
@@ -358,12 +358,12 @@ export function NotesPanel({
         </Tabs>
         <div className="notes-search">
           <Search aria-hidden="true" />
-          <Input
-            type="search"
+          <SearchInput
             aria-label="搜索批注内容"
             placeholder="搜索批注内容"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
+            onClear={() => setSearch("")}
           />
         </div>
       </div>

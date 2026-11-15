@@ -54,7 +54,6 @@ import type {
 } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
 import { Checkbox } from "@neoread/ui/components/checkbox";
-import { Input } from "@neoread/ui/components/input";
 import { Progress } from "@neoread/ui/components/progress";
 import {
   Table,
@@ -161,6 +160,7 @@ import {
   useAttachments,
   uploadAttachments,
 } from "./attachments";
+import { SearchInput } from "../SearchInput";
 const AttachmentPreview = lazy(() => import("./AttachmentPreview"));
 
 export interface PaperLibraryProps {
@@ -815,12 +815,13 @@ export function PaperLibrary({
           <div className="flex items-center gap-2">
             <div className="search-field paper-search">
               <Search className="size-4" />
-              <Input
+              <SearchInput
                 aria-label="搜索论文"
                 placeholder="标题、作者、出处、DOI、摘要、标签…"
                 title="空格分隔的词需全部命中，不支持 AND/OR 表达式；标签组合可点击表格标签列筛选"
                 value={query}
                 onChange={(e) => ui.setQuery(e.target.value)}
+                onClear={() => ui.setQuery("")}
               />
             </div>
             <Select
