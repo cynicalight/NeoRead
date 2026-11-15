@@ -73,7 +73,6 @@ import { useChapterTranslation } from "./chapterTranslation";
 import { searchPDFBlocks } from "./pdf-search";
 
 import type { ReadingMode } from "./reading-mode";
-import { useReadingModeFade } from "./useReadingModeFade";
 /** Scroll settling after a pinned jump or click does not move the chapter. */
 const pinHold = 800;
 const noTranslations: TranslationBlock[] = [];
@@ -176,7 +175,6 @@ export function PDFReadingView({
     );
   const pendingRestore = useRef(true);
   const progressSeeded = useRef(!!reading.current);
-  const modeFade = useReadingModeFade(root, active);
   // The page whose chapter the book toolbar describes. A click or jump pins
   // it; afterwards scrolling moves it to the paragraph mid-view.
   const [chapterPage, setChapterPage] = useState(
@@ -825,14 +823,12 @@ export function PDFReadingView({
         const block = blocks.find((block) => block.id === anchor.blockId);
         if (block) pinPage(block.page);
         publishReading(anchor);
-        modeFade.reveal();
       } else if (
         !anchor &&
         !cancelled &&
         operation === explicitFocus.current.operation
       ) {
         pendingRestore.current = false;
-        modeFade.reveal();
       }
     };
     const apply = () =>
@@ -889,7 +885,6 @@ export function PDFReadingView({
       pane.current.scrollTop = 0;
       pendingRestore.current = false;
     }
-    modeFade.reveal();
   };
   useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
   useEffect(() => {
@@ -1122,11 +1117,7 @@ export function PDFReadingView({
       )}
       <Tabs
         value={readingMode}
-        onPointerDownCapture={modeFade.onPointerDownCapture}
-        onValueChange={(value, details) => {
-          modeFade.prepare(details.event);
-          changeMode(value as ReadingMode);
-        }}
+        onValueChange={(value) => changeMode(value as ReadingMode)}
       >
         <TabsList>
           <TabsTrigger value="source">原文</TabsTrigger>
