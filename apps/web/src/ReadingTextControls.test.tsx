@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { defaultTheme, type ReaderTheme } from "@neoread/core";
 import { ReadingTextControls } from "./ReadingTextControls";
+import type { ReadingMode } from "./translation/reading-mode";
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -14,7 +15,11 @@ afterEach(() => {
   host?.remove();
   root = host = undefined;
 });
-const render = (theme: Partial<ReaderTheme>) => {
+const render = (
+  theme: Partial<ReaderTheme>,
+  readingMode: ReadingMode = "parallel",
+  docType: "pdf" | "epub" = "pdf",
+) => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -23,7 +28,8 @@ const render = (theme: Partial<ReaderTheme>) => {
       <ReadingTextControls
         theme={{ ...defaultTheme, ...theme }}
         setTheme={() => {}}
-        docType="pdf"
+        docType={docType}
+        readingMode={readingMode}
       />,
     ),
   );
@@ -49,7 +55,14 @@ it.each([true, false])(
     const layout = [...node.querySelectorAll("section")].find(
       (section) => section.querySelector("h4")?.textContent === "版面",
     )!;
-    expect(labels(layout)).toEqual(["减小边距", "边距", "增大边距", "减小行距", "行距", "增大行距"]);
+    expect(labels(layout)).toEqual([
+      "减小边距",
+      "边距",
+      "增大边距",
+      "减小行距",
+      "行距",
+      "增大行距",
+    ]);
   },
 );
 
@@ -57,4 +70,11 @@ it("keeps PDF page zoom without reflow", () => {
   const node = render({ textReflow: false });
   expect(node.textContent).toContain("缩放");
   expect(labels(node)).not.toContain("原文字体");
+});
+
+it("hides the layout section for the PDF page canvas but keeps it for EPUB source", () => {
+  expect(render({}, "source").textContent).not.toContain("版面");
+  act(() => root!.unmount());
+  host!.remove();
+  expect(render({}, "source", "epub").textContent).toContain("版面");
 });

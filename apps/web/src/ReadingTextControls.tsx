@@ -30,6 +30,7 @@ import {
   localFontFamilies,
   savedLocalFontFamilies,
 } from "./local-fonts";
+import type { ReadingMode } from "./translation/reading-mode";
 
 type SetTheme = (patch: Partial<ReaderTheme>) => void;
 
@@ -40,10 +41,12 @@ export function ReadingTextControls({
   theme,
   setTheme,
   docType,
+  readingMode,
 }: {
   theme: ReaderTheme;
   setTheme: SetTheme;
   docType: "pdf" | "epub";
+  readingMode: ReadingMode;
 }) {
   const [installed, setInstalled] = useState(loadedLocalFontFamilies);
   // Show the list read on an earlier launch without querying the system again.
@@ -79,31 +82,10 @@ export function ReadingTextControls({
   // Reflowed PDF text renders its source like EPUB text, so it takes the same
   // source font settings.
   const reflowed = docType === "epub" || theme.textReflow === true;
+  // PDF source mode shows only the page canvas, which has no text layout.
+  const showLayout = docType === "epub" || readingMode !== "source";
   return (
     <div className="space-y-4">
-      <Section title="版面">
-        <StepRow
-          label="边距"
-          value={theme.readingMargin}
-          display={`${theme.readingMargin}`}
-          min={READING_MARGIN.min}
-          max={READING_MARGIN.max}
-          step={READING_MARGIN.step}
-          onValue={(readingMargin) => setTheme({ readingMargin })}
-          reset={defaultTheme.readingMargin}
-        />
-        <StepRow
-          label="行距"
-          value={theme.lineHeight}
-          display={theme.lineHeight.toFixed(1)}
-          min={1.4}
-          max={2.2}
-          step={0.2}
-          onValue={(lineHeight) => setTheme({ lineHeight })}
-          reset={defaultTheme.lineHeight}
-        />
-      </Section>
-      <Separator />
       <Section title="原文">
         {reflowed ? (
           <>
@@ -225,6 +207,33 @@ export function ReadingTextControls({
           }
         />
       </Section>
+      {showLayout && (
+        <>
+          <Separator />
+          <Section title="版面">
+            <StepRow
+              label="边距"
+              value={theme.readingMargin}
+              display={`${theme.readingMargin}`}
+              min={READING_MARGIN.min}
+              max={READING_MARGIN.max}
+              step={READING_MARGIN.step}
+              onValue={(readingMargin) => setTheme({ readingMargin })}
+              reset={defaultTheme.readingMargin}
+            />
+            <StepRow
+              label="行距"
+              value={theme.lineHeight}
+              display={theme.lineHeight.toFixed(1)}
+              min={1.4}
+              max={2.2}
+              step={0.2}
+              onValue={(lineHeight) => setTheme({ lineHeight })}
+              reset={defaultTheme.lineHeight}
+            />
+          </Section>
+        </>
+      )}
     </div>
   );
 }
