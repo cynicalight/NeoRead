@@ -119,6 +119,7 @@ export function PDFReadingView({
   const nodeBlockId = (node: HTMLElement) =>
     reflow ? node.dataset.reflowBlock : node.dataset.translationBlock;
   const mode = readingMode === "reflow" ? "parallel" : readingMode;
+  const paneMode = reflow ? "translation" : mode;
   const [syncEnabled, setSyncEnabled] = useState(true);
   const layoutRevision = processing?.layoutRevision;
   const { translations: streamed, error } = useTranslations(
@@ -304,7 +305,6 @@ export function PDFReadingView({
   useEffect(() => {
     let current = true;
     setPageWidth(undefined);
-    if (reflow) return;
     void engine
       ?.getPageWidth?.()
       .then((width) => current && setPageWidth(width))
@@ -312,7 +312,7 @@ export function PDFReadingView({
     return () => {
       current = false;
     };
-  }, [engine, reflow]);
+  }, [engine]);
   const focusWidth = useMemo(
     () => (reflow ? undefined : pdfFocusWidth(blocks, pageWidth)),
     [blocks, pageWidth, reflow],
@@ -773,13 +773,20 @@ export function PDFReadingView({
       engine?.cancelBlockFocus?.();
     };
   }, [readingMode, active]);
-  useEffect(() => {
+  // Wait for the saved paragraph before restoring reflow progress.
+  const reflowRestored = useRef(false);
+  useLayoutEffect(() => {
+    reflowRestored.current = false;
+  }, [doc.id, reflow]);
+  useLayoutEffect(() => {
     if (!engine || !active) return;
     hoverOwner.current = undefined;
     setHoveredBlock(undefined);
     engine.hoverBlock?.(null);
     const previous = previousMode.current;
     previousMode.current = readingMode;
+    const layoutChanged =
+      (previous === "reflow" ? "translation" : previous) !== paneMode;
     let cancelled = false;
     selection.current = null;
     events.selection(null);
@@ -793,7 +800,7 @@ export function PDFReadingView({
         restoreReflow();
         return;
       }
-      if (previous !== readingMode) {
+      if (layoutChanged) {
         // Use the same preference path as the 适宽 button, including clearing
         // temporary passage zoom and saving this document's zoom preference.
         events.zoom?.("width");
@@ -835,9 +842,8 @@ export function PDFReadingView({
       void restore().catch((e) => {
         if (!cancelled) toast.error(e.message);
       });
-    // Both PDF fit-width and translation positioning need the expanded panes.
     let frame = 0;
-    if (previous !== readingMode) {
+    if (layoutChanged) {
       frame = requestAnimationFrame(() => {
         frame = requestAnimationFrame(() => {
           if (!cancelled && operation === explicitFocus.current.operation)
@@ -851,11 +857,6 @@ export function PDFReadingView({
       engine.hoverBlock?.(null);
     };
   }, [readingMode, engine, active, reflow, blocks]);
-  // Wait for the saved paragraph before restoring reflow progress.
-  const reflowRestored = useRef(false);
-  useLayoutEffect(() => {
-    reflowRestored.current = false;
-  }, [doc.id, reflow]);
   const restoreReflow = () => {
     if (
       !active ||
@@ -1147,7 +1148,7 @@ export function PDFReadingView({
         </div>
       )}
       <TranslationPanes
-        mode={reflow ? "translation" : mode}
+        mode={paneMode}
         swapped={swapped}
         onSwap={() => updateReaderLayout({ swapped: !swapped })}
         sourceWidth={sourceWidth}

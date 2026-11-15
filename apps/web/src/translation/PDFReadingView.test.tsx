@@ -2069,3 +2069,101 @@ it("centers the reflow paragraph after the reading pane expands to full width", 
     vi.stubGlobal("cancelAnimationFrame", caf);
   }
 });
+
+it("keeps the current paragraph centered before the first frame when alternating text modes", async () => {
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      const top =
+        host.querySelector<HTMLElement>(".translation-document")?.scrollTop ??
+        0;
+      if (this.dataset.reflowBlock === "p1-b1")
+        return new DOMRect(0, 1000 - top, 600, 200);
+      if (this.dataset.translationBlock === "p1-b1")
+        return new DOMRect(0, 400 - top, 600, 100);
+      return new DOMRect(0, 0, 600, 400);
+    });
+  const raf = globalThis.requestAnimationFrame;
+  const caf = globalThis.cancelAnimationFrame;
+  try {
+    await act(async () =>
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+    );
+    await click("重排");
+    await act(async () => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    });
+    let next = 0;
+    vi.stubGlobal("requestAnimationFrame", () => ++next);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    for (const mode of ["译文", "重排", "译文", "重排"]) {
+      await act(async () => {
+        [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+          .find((button) => button.textContent === mode)!
+          .click();
+      });
+      const pane = host.querySelector<HTMLElement>(".translation-document")!;
+      const paragraph = pane
+        .querySelector<HTMLElement>(
+          mode === "重排"
+            ? '[data-reflow-block="p1-b1"]'
+            : '[data-translation-block="p1-b1"]',
+        )!
+        .getBoundingClientRect();
+      const viewport = pane.getBoundingClientRect();
+      expect(paragraph.top + paragraph.height / 2).toBeCloseTo(
+        viewport.top + viewport.height / 2,
+      );
+    }
+  } finally {
+    rect.mockRestore();
+    vi.stubGlobal("requestAnimationFrame", raf);
+    vi.stubGlobal("cancelAnimationFrame", caf);
+  }
+});
+
+it("keeps the translation paragraph centered without a late column width change after reflow", async () => {
+  const getPageWidth = adapter.getPageWidth;
+  adapter.getPageWidth = vi.fn(async () => 600);
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      const pane = host.querySelector<HTMLElement>(".translation-document");
+      const top = pane?.scrollTop ?? 0;
+      if (this.dataset.reflowBlock === "p1-b1")
+        return new DOMRect(0, 1000 - top, 600, 200);
+      if (this.dataset.translationBlock === "p1-b1")
+        return pane?.hasAttribute("data-column")
+          ? new DOMRect(0, 400 - top, 270, 100)
+          : new DOMRect(0, 700 - top, 600, 200);
+      return new DOMRect(0, 0, 600, 400);
+    });
+  try {
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await renderView();
+    await act(async () =>
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.5 }),
+    );
+    await click("译文");
+    await click("重排");
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+        .find((button) => button.textContent === "译文")!
+        .click();
+    });
+    const pane = host.querySelector<HTMLElement>(".translation-document")!;
+    const paragraph = pane
+      .querySelector<HTMLElement>('[data-translation-block="p1-b1"]')!
+      .getBoundingClientRect();
+    const viewport = pane.getBoundingClientRect();
+    expect(paragraph.top + paragraph.height / 2).toBeCloseTo(
+      viewport.top + viewport.height / 2,
+    );
+  } finally {
+    adapter.getPageWidth = getPageWidth;
+    rect.mockRestore();
+  }
+});
