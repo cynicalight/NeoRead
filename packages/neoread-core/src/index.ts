@@ -217,8 +217,8 @@ export interface PaperLibraryPreferences {
   sort?: PaperSort;
   /** Reverse the natural order of `sort`. */
   sortReverse?: boolean;
-  /** Paper display; cards by default, and a legacy "list" also shows as cards. */
-  layout?: "card" | "table";
+  /** Paper display; table by default, and a legacy "list" also shows as cards. */
+  layout?: "card" | "table" | "graph";
   /** Show author names under paper titles (default on). */
   showAuthors?: boolean;
   /** Size of paper cards relative to the default. */

@@ -26,6 +26,7 @@ import {
   CheckSquare,
   LayoutGrid,
   Table2,
+  Network,
   FileDown,
   FolderMinus,
   FolderPlus,
@@ -162,6 +163,7 @@ import {
 } from "./attachments";
 import { SearchInput } from "../SearchInput";
 const AttachmentPreview = lazy(() => import("./AttachmentPreview"));
+const PaperGraph = lazy(() => import("./PaperGraph"));
 
 export interface PaperLibraryProps {
   documents: Document[];
@@ -268,12 +270,13 @@ export function PaperLibrary({
   const tags = paperTags(documents);
   const layout = prefs.layout ?? "table";
   const table = layout === "table" && view !== "duplicates";
+  const graph = layout === "graph" && view !== "duplicates";
   const showAuthors = prefs.showAuthors !== false;
   const cardScale = prefs.cardScale || 1;
   const [listPane, setListPane] = useState<HTMLElement | null>(null);
   useCardZoom(
     listPane,
-    !table && view !== "duplicates" && view !== "trash",
+    !table && !graph && view !== "duplicates" && view !== "trash",
     cardScale,
     (next) => void savePaperPreferences((p) => ({ ...p, cardScale: next })),
   );
@@ -565,6 +568,8 @@ export function PaperLibrary({
         ?.focus(),
     );
   const onListKey = (e: React.KeyboardEvent) => {
+    // The graph owns its node navigation and viewport keyboard shortcuts.
+    if (graph) return;
     if (
       (e.target as Element).closest(
         "input, textarea, [role=menu], [role=dialog]",
@@ -825,7 +830,7 @@ export function PaperLibrary({
               />
             </div>
             {/* Table column headers sort the table themselves. */}
-            {!table && (
+            {!table && !graph && (
               <Select
                 value={sort}
                 onValueChange={(value) => {
@@ -851,12 +856,13 @@ export function PaperLibrary({
             )}
             <Tabs
               value={layout}
-              onValueChange={(value) =>
+              onValueChange={(value) => {
+                if (value === "graph") ui.stopPicking();
                 void savePaperPreferences((p) => ({
                   ...p,
-                  layout: value as "card" | "table",
-                }))
-              }
+                  layout: value as "card" | "table" | "graph",
+                }));
+              }}
             >
               <TabsList aria-label="显示方式">
                 <TabsTrigger value="table" aria-label="表格" title="表格">
@@ -864,6 +870,9 @@ export function PaperLibrary({
                 </TabsTrigger>
                 <TabsTrigger value="card" aria-label="卡片" title="卡片">
                   <LayoutGrid />
+                </TabsTrigger>
+                <TabsTrigger value="graph" aria-label="图谱" title="图谱">
+                  <Network />
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -873,6 +882,7 @@ export function PaperLibrary({
               aria-label={picking ? "完成" : "批量"}
               title={picking ? "完成" : "批量"}
               aria-pressed={picking}
+              hidden={graph}
               disabled={!visible.length && !picking}
               onClick={() => (picking ? ui.stopPicking() : ui.startPicking())}
             >
@@ -891,7 +901,7 @@ export function PaperLibrary({
             className="paper-list-pane"
             ref={setListPane}
             style={{ "--card-scale": cardScale } as React.CSSProperties}
-            aria-label="论文列表"
+            aria-label={graph ? "论文图谱" : "论文列表"}
             onKeyDown={onListKey}
           >
             {picking && (
@@ -1079,6 +1089,18 @@ export function PaperLibrary({
               <div className="empty-state">
                 <Loader2 className="animate-spin text-muted-foreground" />
               </div>
+            ) : graph ? (
+              <Suspense fallback={<div className="empty-state">正在加载图谱…</div>}>
+                <PaperGraph
+                  documents={visible}
+                  selectedId={selectedId}
+                  onSelect={(doc) => {
+                    useAttachments.setState({ selected: null });
+                    ui.select(doc.id);
+                  }}
+                  onOpen={openDocument}
+                />
+              </Suspense>
             ) : visible.length || table ? (
               view === "duplicates" ? (
                 <div className="paper-list" ref={listRef}>

@@ -2771,3 +2771,25 @@ it("opens the shared export dialog for the context-clicked paper", async () => {
     expect.any(AbortSignal),
   );
 });
+
+it("switches to the third graph view, leaves batch mode, and keeps paper selection separate from opening", async () => {
+  await import("./PaperGraph");
+  await act(async () => usePaperUI.getState().startPicking(["a"]));
+  const graphTab = host.querySelector<HTMLButtonElement>('[role="tab"][aria-label="图谱"]')!;
+  await act(async () => graphTab.click());
+  expect(api.saveLibraryPreferences).toHaveBeenLastCalledWith(
+    expect.objectContaining({ papers: expect.objectContaining({ layout: "graph" }) }),
+  );
+  expect(usePaperUI.getState().picking).toBe(false);
+  expect(host.querySelector('[aria-label="排序"]')).toBeNull();
+  const node = host.querySelector<HTMLButtonElement>('.paper-graph-node[aria-label="论文：Attention Is All You Need"]')!;
+  expect(node).not.toBeNull();
+  await act(async () => node.click());
+  expect(usePaperUI.getState().selectedId).toBe("a");
+  expect(open).not.toHaveBeenCalled();
+  await act(async () => node.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  expect(open).toHaveBeenCalledExactlyOnceWith(docs[0]);
+  await act(async () => host.querySelector<HTMLButtonElement>('[role="tab"][aria-label="表格"]')!.click());
+  expect(host.querySelector("table")).not.toBeNull();
+  expect(useReaderStore.getState().libraryPreferences.papers?.layout).toBe("table");
+});
