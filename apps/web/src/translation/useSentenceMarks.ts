@@ -126,6 +126,7 @@ export function useSentenceMarks(
     let enterTimer: ReturnType<typeof setTimeout> | undefined;
     let leaveTimer: ReturnType<typeof setTimeout> | undefined;
     let anchor: { x: number; y: number } | undefined;
+    let scrollPointer: { x: number; y: number } | undefined;
     let activeRanges: Range[] = [];
     let activeAnnotationTarget: ReaderAnnotationTarget | null = null;
     // Marks in the active sentence and its hover, so moving within the
@@ -169,6 +170,31 @@ export function useSentenceMarks(
       activeMarked = [];
       activeHover = undefined;
       hover.clear(true);
+    };
+    const beginScroll = () => {
+      scrollPointer ??= pointer.current;
+      interruptHover();
+    };
+    const scrollKey = (event: KeyboardEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest(
+          'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+        )
+      )
+        return;
+      switch (event.key) {
+        case "ArrowUp":
+        case "ArrowDown":
+        case "ArrowLeft":
+        case "ArrowRight":
+        case "PageUp":
+        case "PageDown":
+        case "Home":
+        case "End":
+        case " ":
+          beginScroll();
+      }
     };
     const targetCache = new Map<string, Range[]>();
     const targetRanges = (blockId: string, index: number) => {
@@ -481,6 +507,16 @@ export function useSentenceMarks(
         clearHover();
         return;
       }
+      if (scrollPointer) {
+        if (
+          Math.hypot(
+            event.clientX - scrollPointer.x,
+            event.clientY - scrollPointer.y,
+          ) <= 4
+        )
+          return;
+        scrollPointer = undefined;
+      }
       pointer.current = {
         target: event.target,
         x: event.clientX,
@@ -579,9 +615,17 @@ export function useSentenceMarks(
     host.addEventListener("pointerleave", clearHover);
     host.addEventListener("pointerdown", down, true);
     host.addEventListener("click", click, true);
+    // Dismiss on input before the compositor scrolls the text beneath a fixed
+    // layer. The scroll listener also covers inertia and programmatic scrolling.
+    host.addEventListener("wheel", beginScroll, { capture: true, passive: true });
+    host.addEventListener("touchmove", beginScroll, {
+      capture: true,
+      passive: true,
+    });
+    host.addEventListener("keydown", scrollKey, true);
     // Hover layers use viewport coordinates, so ancestor scrolling invalidates
     // them too. Capture non-bubbling scrolls above and inside the reader.
-    window.addEventListener("scroll", interruptHover, {
+    window.addEventListener("scroll", beginScroll, {
       capture: true,
       passive: true,
     });
@@ -595,7 +639,10 @@ export function useSentenceMarks(
       host.removeEventListener("pointerleave", clearHover);
       host.removeEventListener("pointerdown", down, true);
       host.removeEventListener("click", click, true);
-      window.removeEventListener("scroll", interruptHover, true);
+      host.removeEventListener("wheel", beginScroll, true);
+      host.removeEventListener("touchmove", beginScroll, true);
+      host.removeEventListener("keydown", scrollKey, true);
+      window.removeEventListener("scroll", beginScroll, true);
       repaint.current = undefined;
       latest.current.events.annotationHover?.(null);
       hover.destroy();
