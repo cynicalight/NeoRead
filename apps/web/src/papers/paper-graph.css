@@ -46,9 +46,9 @@
 .paper-graph-toolbar {
   position: absolute;
   z-index: 4;
-  inset: 12px 12px auto;
+  inset: auto 12px 12px auto;
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: flex-end;
   gap: 8px;
   pointer-events: none;
@@ -306,14 +306,14 @@
 .paper-graph-inspector {
   position: absolute;
   z-index: 3;
-  top: 58px;
+  top: 12px;
   right: 12px;
   display: none;
   flex-direction: column;
   gap: 9px;
   width: 250px;
   max-width: calc(100% - 24px);
-  max-height: calc(100% - 102px);
+  max-height: calc(100% - 76px);
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -410,7 +410,8 @@
   align-items: center;
   gap: 4px 14px;
   width: fit-content;
-  max-width: calc(100% - 24px);
+  /* Leaves the bottom-right corner to the zoom controls. */
+  max-width: calc(100% - 228px);
   font-size: 10px;
   line-height: 1.5;
   color: var(--muted-foreground);
@@ -484,8 +485,7 @@
 }
 @media (max-width: 760px) {
   .paper-graph-toolbar {
-    inset: 8px 8px auto;
-    flex-wrap: wrap;
+    inset: auto 8px 8px auto;
   }
   .paper-graph-inspector {
     right: 8px;
@@ -497,7 +497,7 @@
 }
 @media (max-width: 520px) {
   .paper-graph-caption {
-    inset-inline: 8px;
+    inset: auto 8px 56px;
     max-width: calc(100% - 16px);
   }
 }
