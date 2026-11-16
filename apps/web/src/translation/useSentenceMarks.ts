@@ -579,7 +579,12 @@ export function useSentenceMarks(
     host.addEventListener("pointerleave", clearHover);
     host.addEventListener("pointerdown", down, true);
     host.addEventListener("click", click, true);
-    host.addEventListener("scroll", interruptHover, true);
+    // Hover layers use viewport coordinates, so ancestor scrolling invalidates
+    // them too. Capture non-bubbling scrolls above and inside the reader.
+    window.addEventListener("scroll", interruptHover, {
+      capture: true,
+      passive: true,
+    });
     return () => {
       observer.disconnect();
       resize.disconnect();
@@ -590,7 +595,7 @@ export function useSentenceMarks(
       host.removeEventListener("pointerleave", clearHover);
       host.removeEventListener("pointerdown", down, true);
       host.removeEventListener("click", click, true);
-      host.removeEventListener("scroll", interruptHover, true);
+      window.removeEventListener("scroll", interruptHover, true);
       repaint.current = undefined;
       latest.current.events.annotationHover?.(null);
       hover.destroy();

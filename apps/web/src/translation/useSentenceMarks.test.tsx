@@ -468,6 +468,35 @@ it("waits for dwell, tolerates line gaps, and cancels pending work on interrupti
   expect(hover()).toBeUndefined();
 });
 
+it.each(["ancestor", "window"] as const)(
+  "clears reflow hover and pending dwell when the %s scrolls",
+  async (scroller) => {
+    await act(async () => root.render(<App reflow />));
+    const scroll = () =>
+      (scroller === "ancestor" ? host : window).dispatchEvent(
+        new Event("scroll"),
+      );
+    await pointer("[data-source-sentence]", "pointermove", 10);
+    expect(texts(hover())).toEqual(["Original sentence.", "翻译句子。"]);
+    scroll();
+    expect(hover()).toBeUndefined();
+    host.querySelector("[data-source-sentence]")!.dispatchEvent(
+      new MouseEvent("pointermove", {
+        bubbles: true,
+        clientX: 10,
+        clientY: 5,
+      }),
+    );
+    scroll();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(hover()).toBeUndefined();
+    await pointer("[data-source-sentence]", "pointermove", 10);
+    expect(texts(hover())).toEqual(["Original sentence.", "翻译句子。"]);
+  },
+);
+
 it.each(["highlight", "underline", "note"] as const)(
   "opens the %s note only over the mark and hovers the rest of its sentence",
   async (kind) => {
