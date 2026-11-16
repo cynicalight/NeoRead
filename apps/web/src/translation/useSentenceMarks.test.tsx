@@ -69,6 +69,7 @@ function App({
   linked = true,
   epub = false,
   reflow = false,
+  pdfSurface = false,
   annotations = [],
   translations = [t],
   searchQuery = "",
@@ -78,6 +79,7 @@ function App({
   epub?: boolean;
   /** Reflowed PDF text: source and translation share one paragraph. */
   reflow?: boolean;
+  pdfSurface?: boolean;
   annotations?: Annotation[];
   translations?: TranslationBlock[];
   searchQuery?: string;
@@ -98,7 +100,7 @@ function App({
   );
   if (reflow)
     return (
-      <div ref={ref}>
+      <div ref={ref} className={pdfSurface ? "pdf-reading" : undefined}>
         <section data-reflow-block="p1-b1">
           <div data-reflow-source="p1-b1">
             <span data-source-sentence="0">Original sentence.</span>
@@ -110,7 +112,7 @@ function App({
       </div>
     );
   return (
-    <div ref={ref}>
+    <div ref={ref} className={pdfSurface ? "pdf-reading" : "epub-reading"}>
       {epub ? (
         <div data-epub-block="p1-b1">
           <span data-epub-run="p1-b1">Original </span>
@@ -188,6 +190,7 @@ afterEach(async () => {
   events.annotation.mockClear();
   events.annotationHover.mockClear();
   window.getSelection()?.removeAllRanges();
+  delete (Element.prototype as Partial<Element>).animate;
 });
 const hover = () =>
   [...registry.entries()].find(([name]) => name.endsWith("-hover"))?.[1];
@@ -195,6 +198,29 @@ const texts = (ranges: Set<Range> | undefined) =>
   [...(ranges ?? [])].map((r) => r.toString());
 const search = () =>
   [...registry.entries()].find(([name]) => name.endsWith("-search"))?.[1];
+it.each([false, true])(
+  "keeps PDF hover animated and clears its layers on scroll (reflow=%s)",
+  async (reflow) => {
+    const animate = vi.fn(() => ({
+      finished: new Promise(() => {}),
+      cancel: vi.fn(),
+    }));
+    Object.defineProperty(Element.prototype, "animate", {
+      configurable: true,
+      value: animate,
+    });
+    await act(async () => root.render(<App pdfSurface reflow={reflow} />));
+    await pointer("[data-sentence]", "pointermove", 210);
+    expect(document.querySelector(".neoread-sentence-hover-layer")).not.toBeNull();
+    expect(animate).toHaveBeenCalledWith(
+      [{ opacity: "0" }, { opacity: 1 }],
+      expect.objectContaining({ duration: 160 }),
+    );
+    host.dispatchEvent(new Event("scroll"));
+    expect(document.querySelector(".neoread-sentence-hover-layer")).toBeNull();
+  },
+);
+
 it("highlights only matching words in translation and clears when search changes", async () => {
   const result: SearchResult = {
     id: "p1-b1:translation:0",

@@ -10,6 +10,7 @@ import {
   inside,
 } from "./annotation-hover";
 import { SentenceHover } from "./sentence-hover";
+import { PDFSentenceHover } from "./pdf-sentence-hover";
 import { useEffect, useId, useRef } from "react";
 import type { RefObject } from "react";
 import type {
@@ -122,7 +123,9 @@ export function useSentenceMarks(
       }
       return cache.get(key)!;
     };
-    const hover = new SentenceHover(host, `${prefix}-hover`);
+    const hover = host.classList.contains("pdf-reading")
+      ? new PDFSentenceHover(host)
+      : new SentenceHover(host, `${prefix}-hover`);
     let enterTimer: ReturnType<typeof setTimeout> | undefined;
     let leaveTimer: ReturnType<typeof setTimeout> | undefined;
     let anchor: { x: number; y: number } | undefined;
@@ -168,7 +171,8 @@ export function useSentenceMarks(
       activeAnnotationTarget = null;
       activeMarked = [];
       activeHover = undefined;
-      hover.clear();
+      if (hover instanceof PDFSentenceHover) hover.clear(true);
+      else hover.clear();
     };
     const targetCache = new Map<string, Range[]>();
     const targetRanges = (blockId: string, index: number) => {

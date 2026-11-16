@@ -350,6 +350,13 @@
   --sentence-hover-background: var(--brand-10);
 }
 
+.neoread-sentence-hover-mark {
+  background: rgb(128 128 128 / 22%);
+}
+:root[data-theme="sepia"] .neoread-sentence-hover-mark {
+  background: var(--brand-10);
+}
+
 .neoread-block-focus[data-fading] {
   animation: block-focus-fade 180ms ease-out forwards;
 }
