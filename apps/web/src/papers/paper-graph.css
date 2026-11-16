@@ -49,11 +49,10 @@
   inset: 12px 12px auto;
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   pointer-events: none;
 }
-.paper-graph-filters,
 .paper-graph-zoom {
   display: flex;
   align-items: center;
@@ -66,51 +65,6 @@
   backdrop-filter: blur(8px);
   box-shadow: 0 2px 6px color-mix(in oklab, var(--foreground) 5%, transparent);
   pointer-events: auto;
-}
-.paper-graph-filters button {
-  --kind-color: var(--graph-paper-hot);
-  gap: 6px;
-  padding-inline: 9px;
-  font-size: 11px;
-  color: var(--muted-foreground);
-}
-.paper-graph-filters button[data-kind="author"] {
-  --kind-color: var(--graph-author);
-}
-.paper-graph-filters button[data-kind="venue"] {
-  --kind-color: var(--graph-venue);
-}
-.paper-graph-filters button[data-kind="manual"] {
-  --kind-color: var(--graph-manual);
-}
-.paper-graph-filters button::before {
-  content: "";
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border: 1.5px solid var(--kind-color);
-  border-radius: 50%;
-  transition:
-    background-color 160ms ease,
-    opacity 160ms ease;
-}
-.paper-graph-filters button[data-kind="venue"]::before {
-  border-radius: 1.5px;
-  background: var(--kind-color);
-}
-.paper-graph-filters button[data-kind="manual"]::before {
-  width: 10px;
-  height: 2px;
-  border: 0;
-  border-radius: 1px;
-  background: var(--kind-color);
-}
-.paper-graph-filters button[aria-pressed="true"] {
-  color: var(--foreground);
-  background: color-mix(in oklch, var(--kind-color) 12%, transparent);
-}
-.paper-graph-filters button[aria-pressed="false"]::before {
-  opacity: 0.35;
 }
 .paper-graph-zoom output {
   min-width: 42px;
@@ -239,6 +193,10 @@
   flex-direction: row-reverse;
   padding: 3px calc(12px - var(--graph-dot-size) / 2) 3px 6px;
   transform: translate(calc(-100% + 12px), -50%);
+}
+/* Paper titles may run over author and venue dots; keep the text on top. */
+.paper-graph-node[data-kind="paper"][data-labelled] {
+  z-index: 1;
 }
 .paper-graph-node[data-kind="author"] {
   --node-color: var(--graph-author);
@@ -473,11 +431,29 @@
     var(--graph-paper-hot)
   );
 }
+.paper-graph-legend-toggles {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  pointer-events: auto;
+}
+.paper-graph-legend-toggle {
+  gap: 5px;
+  height: 22px;
+  padding-inline: 6px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.paper-graph-legend-toggle[aria-pressed="false"] {
+  color: color-mix(in oklch, var(--muted-foreground) 55%, transparent);
+}
 .paper-graph-legend-mark {
   flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  transition: opacity 160ms ease;
 }
 .paper-graph-legend-mark[data-kind="author"] {
   border: 1.5px solid var(--graph-author);
@@ -491,6 +467,9 @@
   height: 2px;
   border-radius: 1px;
   background: var(--graph-manual);
+}
+.paper-graph-legend-toggle[aria-pressed="false"] .paper-graph-legend-mark {
+  opacity: 0.35;
 }
 .paper-graph-empty {
   position: absolute;
@@ -512,21 +491,11 @@
     right: 8px;
     max-width: calc(100% - 16px);
   }
-  .paper-graph-zoom {
-    margin-left: auto;
+  .paper-graph-legend-toggle {
+    padding-inline: 4px;
   }
 }
 @media (max-width: 520px) {
-  .paper-graph-toolbar {
-    gap: 6px;
-  }
-  .paper-graph-filters button {
-    padding-inline: 7px;
-  }
-  .paper-graph-inspector {
-    top: 98px;
-    max-height: calc(100% - 138px);
-  }
   .paper-graph-caption {
     inset-inline: 8px;
     max-width: calc(100% - 16px);
@@ -536,7 +505,6 @@
   .paper-graph {
     background: Canvas;
   }
-  .paper-graph-filters,
   .paper-graph-zoom,
   .paper-graph-inspector {
     border-color: CanvasText;

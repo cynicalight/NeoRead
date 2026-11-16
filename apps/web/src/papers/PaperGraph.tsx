@@ -396,25 +396,6 @@ export function PaperGraph({
       data-exploring={exploring || !!currentNode || undefined}
     >
       <div className="paper-graph-toolbar">
-        <div className="paper-graph-filters" aria-label="图谱关系类型">
-          {(["author", "venue", "manual"] as const).map((kind) => (
-            <Button
-              key={kind}
-              data-kind={kind}
-              variant="ghost"
-              size="sm"
-              aria-pressed={filters[kind]}
-              onClick={() =>
-                setFilters((previous) => ({
-                  ...previous,
-                  [kind]: !previous[kind],
-                }))
-              }
-            >
-              {labels[kind]}
-            </Button>
-          ))}
-        </div>
         <div className="paper-graph-zoom">
           <Button
             variant="ghost"
@@ -795,28 +776,48 @@ export function PaperGraph({
           )}
         </aside>
       </div>
-      <div className="paper-graph-caption" id={hintId}>
-        <span>
+      <div className="paper-graph-caption">
+        <span id={hintId}>
           {graph.nodes.filter((node) => node.kind === "paper").length} 篇论文 ·{" "}
           {graph.edges.length} 条关系
+          <span className="sr-only">
+            。拖动节点调整关系，拖动空白平移，滚轮缩放，方向键移动聚焦节点
+          </span>
         </span>
         <span className="paper-graph-legend">
           <span className="paper-graph-legend-ramp" aria-hidden="true" />
           论文 · 关联越多越大越深
         </span>
-        {(["author", "venue", "manual"] as const).map((kind) => (
-          <span key={kind} className="paper-graph-legend">
-            <span
-              className="paper-graph-legend-mark"
+        <div
+          className="paper-graph-legend-toggles"
+          role="group"
+          aria-label="图谱关系类型"
+        >
+          {(["author", "venue", "manual"] as const).map((kind) => (
+            <Button
+              key={kind}
               data-kind={kind}
-              aria-hidden="true"
-            />
-            {labels[kind]}
-          </span>
-        ))}
-        <span className="sr-only">
-          拖动节点调整关系，拖动空白平移，滚轮缩放，方向键移动聚焦节点
-        </span>
+              variant="ghost"
+              size="xs"
+              className="paper-graph-legend-toggle"
+              aria-pressed={filters[kind]}
+              title={`${filters[kind] ? "隐藏" : "显示"}${labels[kind]}关系`}
+              onClick={() =>
+                setFilters((previous) => ({
+                  ...previous,
+                  [kind]: !previous[kind],
+                }))
+              }
+            >
+              <span
+                className="paper-graph-legend-mark"
+                data-kind={kind}
+                aria-hidden="true"
+              />
+              {labels[kind]}
+            </Button>
+          ))}
+        </div>
       </div>
     </div>
   );
