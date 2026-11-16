@@ -295,15 +295,46 @@ export async function loadLibraryPreferences() {
   });
 }
 let preferenceWrite = Promise.resolve();
+let pendingFolderMove: Promise<void> | undefined;
 /** Apply locally at once; writes are serialized so the last change wins. */
-export function updateLibraryPreferences(patch: Partial<LibraryPreferences>) {
+export function updateLibraryPreferences(
+  patch: Partial<LibraryPreferences>,
+  move?: { from: string; to: string },
+) {
   const state = useReaderStore.getState();
   const next = { ...state.libraryPreferences, ...patch };
   state.setLibraryPreferences(next);
+  // Later snapshots can contain the optimistic tree. Only persist them if its
+  // folder migration commits too.
+  const dependency = pendingFolderMove;
   preferenceWrite = preferenceWrite
     .catch(() => {})
-    .then(() => api.saveLibraryPreferences(next))
-    .then(() => {});
+    .then(async () => {
+      await dependency;
+      if (move)
+        await api.changeLibraryFolder(
+          "papers",
+          move.from,
+          move.to,
+          next.papers,
+        );
+      else await api.saveLibraryPreferences(next);
+    });
+  if (move) {
+    const migration = preferenceWrite
+      .catch(async (error) => {
+        state.setLibraryPreferences(state.libraryPreferences);
+        // A lost response may follow a successful commit.
+        const persisted = await api.libraryPreferences().catch(() => null);
+        if (persisted) state.setLibraryPreferences(persisted);
+        await refreshLibrary().catch(() => {});
+        throw error;
+      })
+      .finally(() => {
+        if (pendingFolderMove === migration) pendingFolderMove = undefined;
+      });
+    preferenceWrite = pendingFolderMove = migration;
+  }
   return preferenceWrite;
 }
 let trashRevision = 0;

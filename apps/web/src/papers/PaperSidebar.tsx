@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
   CheckCircle2,
@@ -66,6 +66,7 @@ import { useReaderStore } from "../store";
 import {
   addToCategory,
   deleteCategory,
+  dropPaperCategory,
   renameCategory,
   savePaperPreferences,
   setReadingStatus,
@@ -95,6 +96,7 @@ import {
   withinCategory,
   type BuiltinView,
   type CategoryNode,
+  type CategoryPlacement,
   type PaperView,
 } from "./model";
 import { usePaperUI } from "./state";
@@ -102,6 +104,16 @@ import { exportCitations } from "./CitationMenu";
 
 /** Drag payload for papers moved onto sidebar targets. */
 export const PAPER_DRAG_TYPE = "application/x-neoread-papers";
+
+const categoryDragType = "application/x-neoread-category";
+
+function categoryPlacement(
+  event: React.DragEvent<HTMLElement>,
+): CategoryPlacement {
+  const row = event.currentTarget.getBoundingClientRect();
+  const fraction = (event.clientY - row.top) / row.height;
+  return fraction < 0.25 ? "before" : fraction > 0.75 ? "after" : "inside";
+}
 
 const viewIcons: Record<BuiltinView, typeof Library> = {
   all: Library,
@@ -259,6 +271,8 @@ export function PaperSidebar({
   const prefs = useReaderStore((s) => s.libraryPreferences.papers) || {};
   const { view, setView, select, selectedId, setNaming, setSmartEditing } =
     usePaperUI();
+  const draggedCategory = useRef<string | null>(null);
+  const movingCategory = useRef(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const collapsedSections = prefs.collapsedSections || [];
@@ -548,7 +562,65 @@ export function PaperSidebar({
     );
     if (isPinned) return row;
     return (
-      <div key={key} className="paper-nav-node" style={indent}>
+      <div
+        key={key}
+        className="paper-nav-node"
+        style={indent}
+        draggable
+        onDragStart={(event) => {
+          if (
+            movingCategory.current ||
+            (event.target as Element).closest("input")
+          ) {
+            event.preventDefault();
+            return;
+          }
+          draggedCategory.current = name;
+          event.dataTransfer.setData(categoryDragType, name);
+          event.dataTransfer.effectAllowed = "move";
+        }}
+        onDragOver={(event) => {
+          const from = draggedCategory.current;
+          if (
+            !from ||
+            withinCategory(name, from) ||
+            !event.dataTransfer.types.includes(categoryDragType)
+          )
+            return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          event.currentTarget.dataset.placement = categoryPlacement(event);
+        }}
+        onDragLeave={(event) => {
+          if (!(
+            event.relatedTarget instanceof Node &&
+            event.currentTarget.contains(event.relatedTarget)
+          ))
+            delete event.currentTarget.dataset.placement;
+        }}
+        onDragEnd={() => {
+          draggedCategory.current = null;
+        }}
+        onDrop={(event) => {
+          delete event.currentTarget.dataset.placement;
+          const from = draggedCategory.current;
+          if (
+            !from ||
+            event.dataTransfer.getData(categoryDragType) !== from ||
+            withinCategory(name, from)
+          )
+            return;
+          event.preventDefault();
+          event.stopPropagation();
+          draggedCategory.current = null;
+          movingCategory.current = true;
+          void dropPaperCategory(from, name, categoryPlacement(event)).finally(
+            () => {
+              movingCategory.current = false;
+            },
+          );
+        }}
+      >
         {hasChildren && (
           <Button
             size="icon-xs"
