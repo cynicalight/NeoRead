@@ -130,7 +130,7 @@ it("preserves all readable relation types when the same papers are connected man
   expect(text).toContain("出处 ·");
   await click(button("作者"));
   await click(button("出处"));
-  expect(host.querySelectorAll(".paper-graph-edges path")).toHaveLength(1);
+  expect(host.querySelectorAll(".paper-graph-edge")).toHaveLength(1);
   expect(host.querySelector(".paper-graph-results")!.textContent).toContain(
     "手动关联",
   );
@@ -334,10 +334,79 @@ it("retains moved positions and zoom when background metadata refreshes without 
   await click(button("复位图谱"));
   await click(button("放大图谱"));
   const node = button("论文：First Paper");
-  await act(async () => node.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  await act(async () =>
+    node.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    ),
+  );
   const position = { left: node.style.left, top: node.style.top };
-  const camera = host.querySelector<HTMLElement>(".paper-graph-scene")!.style.transform;
-  await act(async () => root.render(<PaperGraph documents={docs.map((doc) => ({ ...doc, metadata: { ...doc.metadata, remark: "updated" } }))} selectedId={null} onSelect={select} onOpen={open} />));
+  const camera =
+    host.querySelector<HTMLElement>(".paper-graph-scene")!.style.transform;
+  await act(async () =>
+    root.render(
+      <PaperGraph
+        documents={docs.map((doc) => ({
+          ...doc,
+          metadata: { ...doc.metadata, remark: "updated" },
+        }))}
+        selectedId={null}
+        onSelect={select}
+        onOpen={open}
+      />,
+    ),
+  );
   expect({ left: node.style.left, top: node.style.top }).toEqual(position);
-  expect(host.querySelector<HTMLElement>(".paper-graph-scene")!.style.transform).toBe(camera);
+  expect(
+    host.querySelector<HTMLElement>(".paper-graph-scene")!.style.transform,
+  ).toBe(camera);
+});
+
+it("flows only along the focused node's relations, outward, and follows a drag", async () => {
+  motion.reduced = true;
+  await render();
+  const flows = () => [
+    ...host.querySelectorAll<SVGPathElement>(".paper-graph-flow"),
+  ];
+  expect(flows()).toHaveLength(0);
+  const first = button("论文：First Paper");
+  await act(async () =>
+    first.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })),
+  );
+  // Manual link, shared author and shared venue edges of First and Second.
+  expect(flows()).toHaveLength(5);
+  expect(host.querySelectorAll(".paper-graph-edge[data-active]")).toHaveLength(
+    5,
+  );
+  // Isolated paper stays dim and has no flow.
+  expect(button("论文：Isolated Paper").hasAttribute("data-dim")).toBe(true);
+  // Every edge touches First or a hub one hop away, so nothing flows back
+  // toward it. The manual edge is drawn First → Second.
+  expect(flows().some((path) => path.hasAttribute("data-reverse"))).toBe(false);
+  for (const path of flows())
+    expect(path.getAttribute("stroke")).toMatch(/^url\(#pg[\w-]+-\d+\)$/);
+  const before = flows().map((path) => path.getAttribute("d"));
+  await act(async () =>
+    first.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    ),
+  );
+  expect(flows().map((path) => path.getAttribute("d"))).not.toEqual(before);
+  await act(async () =>
+    first.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })),
+  );
+  expect(flows()).toHaveLength(0);
+  // Focusing Second, the manual edge must run against its drawn direction.
+  const second = button("论文：Second Paper");
+  await act(async () =>
+    second.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })),
+  );
+  const reversed = flows().filter((path) => path.hasAttribute("data-reverse"));
+  expect(reversed).toHaveLength(1);
+  expect(
+    host
+      .querySelector(
+        `.paper-graph-edge[stroke="${reversed[0].getAttribute("stroke")}"]`,
+      )!
+      .getAttribute("data-kind"),
+  ).toBe("manual");
 });
