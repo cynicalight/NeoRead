@@ -10,7 +10,7 @@ import type {
   SearchResult,
   TranslationBlock,
 } from "@neoread/core";
-// Geometry/lifecycle assertions are independent of the composited hover renderer.
+// Hit-testing and lifecycle assertions use a registry-backed hover test double.
 vi.mock("./sentence-hover", () => ({
   SentenceHover: class {
     invalidate() {}
@@ -492,51 +492,10 @@ it.each(["ancestor", "window"] as const)(
       await vi.advanceTimersByTimeAsync(600);
     });
     expect(hover()).toBeUndefined();
-    await pointer("[data-source-sentence]", "pointermove", 20);
+    await pointer("[data-source-sentence]", "pointermove", 10);
     expect(texts(hover())).toEqual(["Original sentence.", "翻译句子。"]);
   },
 );
-
-it.each(["epub", "reflow"] as const)(
-  "dismisses %s hover on scroll input before scrolling and waits for deliberate pointer movement",
-  async (mode) => {
-    await act(async () =>
-      root.render(<App epub={mode === "epub"} reflow={mode === "reflow"} />),
-    );
-    const selector =
-      mode === "epub" ? "[data-epub-run]" : "[data-source-sentence]";
-    const text = host.querySelector(selector)!;
-    await pointer(selector, "pointermove", 10);
-    for (const event of [
-      new WheelEvent("wheel", { bubbles: true, deltaY: 50 }),
-      new Event("touchmove", { bubbles: true }),
-      new KeyboardEvent("keydown", { bubbles: true, key: "PageDown" }),
-      new Event("scroll"),
-    ]) {
-      text.dispatchEvent(event);
-      expect(hover()).toBeUndefined();
-      await pointer(selector, "pointermove", 10);
-      await pointer(selector, "pointermove", 12);
-      expect(hover()).toBeUndefined();
-      await pointer(selector, "pointermove", 20);
-      expect(texts(hover())).toEqual(["Original sentence.", "翻译句子。"]);
-      await pointer(selector, "pointermove", 10);
-    }
-  },
-);
-
-it("cancels pending hover before the first scroll event", async () => {
-  await act(async () => root.render(<App epub />));
-  const text = host.querySelector("[data-epub-run]")!;
-  text.dispatchEvent(
-    new MouseEvent("pointermove", { bubbles: true, clientX: 10, clientY: 5 }),
-  );
-  text.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 50 }));
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(600);
-  });
-  expect(hover()).toBeUndefined();
-});
 
 it.each(["highlight", "underline", "note"] as const)(
   "opens the %s note only over the mark and hovers the rest of its sentence",

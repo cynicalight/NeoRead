@@ -341,11 +341,13 @@
   outline-color: var(--brand-10);
 }
 
-.neoread-sentence-hover-mark {
-  background: rgb(128 128 128 / 22%);
+.epub-reading,
+.pdf-reading {
+  --sentence-hover-background: rgb(128 128 128 / 22%);
 }
-:root[data-theme="sepia"] .neoread-sentence-hover-mark {
-  background: var(--brand-10);
+.epub-reading[data-theme="sepia"],
+.pdf-reading[data-theme="sepia"] {
+  --sentence-hover-background: var(--brand-10);
 }
 
 .neoread-block-focus[data-fading] {
