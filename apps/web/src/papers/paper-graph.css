@@ -1,0 +1,536 @@
+/* Relationship graph. Hues encode node kind; within papers, connectivity moves
+   the colour from cool cyan to violet and grows the dot. Edges blend the
+   colours of their two ends. Motion only runs on the focused neighbourhood. */
+.paper-graph {
+  --graph-paper-cool: oklch(0.7 0.1 220);
+  --graph-paper-hot: oklch(0.5 0.21 290);
+  --graph-author: oklch(0.72 0.14 68);
+  --graph-venue: oklch(0.63 0.12 165);
+  --graph-manual: oklch(0.6 0.19 350);
+  --graph-edge-opacity: 0.42;
+  --graph-halo: 18%;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  background:
+    radial-gradient(
+      ellipse 70% 60% at 50% 45%,
+      color-mix(in oklch, var(--graph-paper-cool) 7%, transparent),
+      transparent 72%
+    ),
+    var(--background);
+}
+.dark .paper-graph {
+  --graph-paper-cool: oklch(0.8 0.09 215);
+  --graph-paper-hot: oklch(0.7 0.17 295);
+  --graph-author: oklch(0.8 0.13 72);
+  --graph-venue: oklch(0.76 0.11 168);
+  --graph-manual: oklch(0.74 0.16 352);
+  --graph-edge-opacity: 0.38;
+  --graph-halo: 24%;
+}
+:root[data-theme="sepia"] .paper-graph {
+  --graph-paper-cool: oklch(0.64 0.08 215);
+  --graph-paper-hot: oklch(0.48 0.17 300);
+  --graph-author: oklch(0.66 0.14 55);
+  --graph-venue: oklch(0.58 0.1 160);
+}
+.paper-graph-toolbar {
+  position: absolute;
+  z-index: 4;
+  inset: auto 12px 12px auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.paper-graph-zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--background) 92%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 6px color-mix(in oklab, var(--foreground) 5%, transparent);
+  pointer-events: auto;
+}
+.paper-graph-zoom output {
+  min-width: 42px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.paper-graph-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 340px;
+  min-width: 0;
+}
+.paper-graph-viewport {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 340px;
+  overflow: hidden;
+  /* This is a two-dimensional drawing surface, not a page-scrolling area. */
+  touch-action: none;
+  cursor: grab;
+}
+.paper-graph-viewport[data-panning],
+.paper-graph-viewport[data-panning] .paper-graph-node {
+  cursor: grabbing;
+}
+.paper-graph-scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.paper-graph-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+/* Stroke colour comes from each edge's own gradient attribute. */
+.paper-graph-edges .paper-graph-edge {
+  fill: none;
+  stroke-opacity: var(--graph-edge-opacity);
+  stroke-width: 1;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  transition:
+    stroke-opacity 180ms ease,
+    stroke-width 180ms ease;
+}
+.paper-graph-edges .paper-graph-edge[data-kind="venue"] {
+  stroke-dasharray: 3 4;
+}
+.paper-graph-edges .paper-graph-edge[data-kind="manual"] {
+  stroke-opacity: calc(var(--graph-edge-opacity) + 0.22);
+  stroke-width: 1.5;
+}
+.paper-graph-edges .paper-graph-edge[data-dim] {
+  stroke-opacity: 0.07;
+}
+.paper-graph-edges .paper-graph-edge[data-active] {
+  stroke-opacity: 0.32;
+  stroke-width: 1.4;
+}
+/* Light travels outward from the focused node along its relations. The
+   pattern repeats every 18 units, so one cycle shifts it by exactly that. */
+.paper-graph-edges .paper-graph-flow {
+  fill: none;
+  stroke-width: 2.8;
+  stroke-linecap: round;
+  stroke-dasharray: 6 12;
+  stroke-opacity: 0.95;
+  vector-effect: non-scaling-stroke;
+  animation: paper-graph-flow 1.1s linear infinite;
+}
+.paper-graph-edges .paper-graph-flow[data-reverse] {
+  animation-direction: reverse;
+}
+@keyframes paper-graph-flow {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+/* Without motion the focused relations are shown as solid, strong lines. */
+:root[data-reduced-motion="true"] .paper-graph-flow {
+  display: none;
+}
+:root[data-reduced-motion="true"] .paper-graph-edge[data-active] {
+  stroke-opacity: 0.85;
+  stroke-width: 1.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .paper-graph-flow {
+    display: none;
+  }
+  .paper-graph-edges .paper-graph-edge[data-active] {
+    stroke-opacity: 0.85;
+    stroke-width: 1.6;
+  }
+}
+.paper-graph-node {
+  --node-color: var(--graph-paper-cool);
+  --graph-dot-size: var(--node-size, 8px);
+  transition: none;
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  min-width: 24px;
+  width: auto;
+  max-width: 190px;
+  height: 30px;
+  padding: 3px 6px 3px calc(12px - var(--graph-dot-size) / 2);
+  transform: translate(-12px, -50%);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.paper-graph-node[data-labelled="left"] {
+  flex-direction: row-reverse;
+  padding: 3px calc(12px - var(--graph-dot-size) / 2) 3px 6px;
+  transform: translate(calc(-100% + 12px), -50%);
+}
+/* Paper titles may run over author and venue dots; keep the text on top. */
+.paper-graph-node[data-kind="paper"][data-labelled] {
+  z-index: 1;
+}
+.paper-graph-node[data-kind="author"] {
+  --node-color: var(--graph-author);
+}
+.paper-graph-node[data-kind="venue"] {
+  --node-color: var(--graph-venue);
+}
+.paper-graph-node[data-dragging] {
+  cursor: grabbing;
+  z-index: 3;
+}
+.paper-graph-node[data-selected],
+.paper-graph-node:focus-visible,
+.paper-graph-node[data-dragging],
+.paper-graph-node[data-focus] {
+  color: var(--foreground);
+  background: transparent;
+  opacity: 1;
+  z-index: 2;
+}
+@media (hover: hover) and (pointer: fine) {
+  .paper-graph-node:hover {
+    color: var(--foreground);
+    background: transparent;
+    opacity: 1;
+    z-index: 2;
+  }
+}
+.paper-graph-node:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 3px;
+  z-index: 3;
+}
+.paper-graph-dot {
+  flex: none;
+  width: var(--graph-dot-size);
+  height: var(--graph-dot-size);
+  border-radius: 50%;
+  /* A lit top-left keeps larger nodes from reading as flat discs. */
+  background: radial-gradient(
+    circle at 34% 30%,
+    color-mix(in oklch, var(--node-color) 55%, white) 0,
+    var(--node-color) 65%
+  );
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--node-color) 35%, transparent);
+  transition:
+    transform 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    box-shadow 160ms ease;
+}
+.paper-graph-node[data-kind="author"] .paper-graph-dot {
+  border: 2px solid var(--node-color);
+  background: var(--background);
+  box-shadow: none;
+}
+.paper-graph-node[data-kind="venue"] .paper-graph-dot {
+  border-radius: 2px;
+  background: var(--node-color);
+  box-shadow: none;
+}
+.paper-graph-node:is(
+    [data-selected],
+    :focus-visible,
+    [data-dragging],
+    [data-focus]
+  )
+  .paper-graph-dot {
+  transform: scale(1.18);
+  box-shadow:
+    0 0 0 4px
+      color-mix(in oklch, var(--node-color) var(--graph-halo), transparent),
+    0 0 14px 2px color-mix(in oklch, var(--node-color) 38%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .paper-graph-node:hover .paper-graph-dot {
+    transform: scale(1.18);
+    box-shadow:
+      0 0 0 4px
+        color-mix(in oklch, var(--node-color) var(--graph-halo), transparent),
+      0 0 14px 2px color-mix(in oklch, var(--node-color) 38%, transparent);
+  }
+}
+:root[data-reduced-motion="true"] .paper-graph-dot {
+  transition: none;
+}
+.paper-graph-node-label {
+  overflow: hidden;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  /* A background-coloured halo keeps titles legible where edges cross. */
+  text-shadow:
+    0 0 2px var(--background),
+    0 0 4px var(--background),
+    0 0 6px var(--background);
+}
+.paper-graph-node:not([data-labelled]) .paper-graph-node-label {
+  display: none;
+}
+.paper-graph-node[data-kind="paper"] .paper-graph-node-label {
+  font-weight: 500;
+}
+.paper-graph-node[data-dim] {
+  opacity: 0.16;
+}
+.paper-graph-inspector {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  right: 12px;
+  display: none;
+  flex-direction: column;
+  gap: 9px;
+  width: 250px;
+  max-width: calc(100% - 24px);
+  max-height: calc(100% - 76px);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  box-shadow: 0 4px 16px color-mix(in oklab, var(--foreground) 8%, transparent);
+}
+.paper-graph[data-exploring] .paper-graph-inspector {
+  display: flex;
+}
+.paper-graph-inspector > label {
+  font-size: 12px;
+  font-weight: 500;
+}
+.paper-graph-inspector h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 5px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.paper-graph-inspector h3 span {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.paper-graph-current {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding-block: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.paper-graph-current > span {
+  flex: 1;
+  min-width: 0;
+}
+.paper-graph-current > button {
+  flex: none;
+}
+.paper-graph-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.paper-graph-results li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.paper-graph-result {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  height: auto;
+  min-height: 40px;
+  min-width: 0;
+  padding: 8px;
+  white-space: normal;
+  text-align: left;
+}
+.paper-graph-result > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.paper-graph-result small {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.paper-graph-result[aria-pressed="true"] {
+  background: var(--muted);
+}
+.paper-graph-caption {
+  position: absolute;
+  z-index: 2;
+  inset: auto 12px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  width: fit-content;
+  /* Leaves the bottom-right corner to the zoom controls. */
+  max-width: calc(100% - 228px);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.paper-graph-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.paper-graph-legend-ramp {
+  width: 34px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--graph-paper-cool),
+    var(--graph-paper-hot)
+  );
+}
+.paper-graph-legend-toggles {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  pointer-events: auto;
+}
+.paper-graph-legend-toggle {
+  gap: 5px;
+  height: 22px;
+  padding-inline: 6px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.paper-graph-legend-toggle[aria-pressed="false"] {
+  color: color-mix(in oklch, var(--muted-foreground) 55%, transparent);
+}
+.paper-graph-legend-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transition: opacity 160ms ease;
+}
+.paper-graph-legend-mark[data-kind="author"] {
+  border: 1.5px solid var(--graph-author);
+}
+.paper-graph-legend-mark[data-kind="venue"] {
+  border-radius: 1.5px;
+  background: var(--graph-venue);
+}
+.paper-graph-legend-mark[data-kind="manual"] {
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--graph-manual);
+}
+.paper-graph-legend-toggle[aria-pressed="false"] .paper-graph-legend-mark {
+  opacity: 0.35;
+}
+.paper-graph-empty {
+  position: absolute;
+  inset: 45% 10% auto;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.paper-graph-no-results {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+@media (max-width: 760px) {
+  .paper-graph-toolbar {
+    inset: auto 8px 8px auto;
+  }
+  .paper-graph-inspector {
+    right: 8px;
+    max-width: calc(100% - 16px);
+  }
+  .paper-graph-legend-toggle {
+    padding-inline: 4px;
+  }
+}
+@media (max-width: 520px) {
+  .paper-graph-caption {
+    inset: auto 8px 56px;
+    max-width: calc(100% - 16px);
+  }
+}
+@media (forced-colors: active) {
+  .paper-graph {
+    background: Canvas;
+  }
+  .paper-graph-zoom,
+  .paper-graph-inspector {
+    border-color: CanvasText;
+    box-shadow: none;
+  }
+  .paper-graph-dot {
+    background: ButtonText;
+    box-shadow: none;
+  }
+  .paper-graph-node[data-kind="author"] .paper-graph-dot {
+    background: Canvas;
+    border-color: ButtonText;
+  }
+  .paper-graph-node:is([data-selected], :focus-visible, [data-dragging]) {
+    color: Highlight;
+  }
+  .paper-graph-node:focus-visible {
+    outline-color: Highlight;
+  }
+  .paper-graph-edges .paper-graph-edge {
+    stroke: CanvasText;
+  }
+  .paper-graph-edges .paper-graph-edge[data-active] {
+    stroke: Highlight;
+  }
+  .paper-graph-flow {
+    display: none;
+  }
+}

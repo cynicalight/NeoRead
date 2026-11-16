@@ -1079,6 +1079,7 @@ it("shows optional metadata columns and sorts publication dates without inventin
             date: "2024-02-29",
             doi: "10.1000/example",
             arxiv: "2402.12345",
+            remark: "<b>核对实验</b>\n保留原始数据",
           },
           percentage: 0.42,
           size: 1048576,
@@ -1099,6 +1100,7 @@ it("shows optional metadata columns and sorts publication dates without inventin
             "arxiv",
             "size",
             "opened",
+            "remark",
           ],
           columnWidths: { published: 144 },
         },
@@ -1130,6 +1132,13 @@ it("shows optional metadata columns and sorts publication dates without inventin
   expect(
     row("Missing date").querySelector('[data-column="opened"]')?.textContent,
   ).toBe("未打开");
+  const remark = full.querySelector('[data-column="remark"]')!;
+  expect(remark.textContent).toBe("<b>核对实验</b>\n保留原始数据");
+  expect(remark.querySelector("b")).toBeNull();
+  expect(remark.querySelector("span")?.title).toBe(remark.textContent);
+  expect(
+    row("Missing date").querySelector('[data-column="remark"]')?.textContent,
+  ).toBe("—");
   expect(
     host.querySelector('th[data-column="published"]')?.getAttribute("style"),
   ).toContain("144px");
@@ -2761,4 +2770,26 @@ it("opens the shared export dialog for the context-clicked paper", async () => {
     docs[1].id,
     expect.any(AbortSignal),
   );
+});
+
+it("switches to the third graph view, leaves batch mode, and keeps paper selection separate from opening", async () => {
+  await import("./PaperGraph");
+  await act(async () => usePaperUI.getState().startPicking(["a"]));
+  const graphTab = host.querySelector<HTMLButtonElement>('[role="tab"][aria-label="图谱"]')!;
+  await act(async () => graphTab.click());
+  expect(api.saveLibraryPreferences).toHaveBeenLastCalledWith(
+    expect.objectContaining({ papers: expect.objectContaining({ layout: "graph" }) }),
+  );
+  expect(usePaperUI.getState().picking).toBe(false);
+  expect(host.querySelector('[aria-label="排序"]')).toBeNull();
+  const node = host.querySelector<HTMLButtonElement>('.paper-graph-node[aria-label="论文：Attention Is All You Need"]')!;
+  expect(node).not.toBeNull();
+  await act(async () => node.click());
+  expect(usePaperUI.getState().selectedId).toBe("a");
+  expect(open).not.toHaveBeenCalled();
+  await act(async () => node.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  expect(open).toHaveBeenCalledExactlyOnceWith(docs[0]);
+  await act(async () => host.querySelector<HTMLButtonElement>('[role="tab"][aria-label="表格"]')!.click());
+  expect(host.querySelector("table")).not.toBeNull();
+  expect(useReaderStore.getState().libraryPreferences.papers?.layout).toBe("table");
 });

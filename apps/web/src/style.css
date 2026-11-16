@@ -3577,6 +3577,31 @@ body[data-resizing] * {
 .book-library-body {
   position: relative;
 }
+/* Batch selection floats over the bottom-right of the list, below detail
+   sheets; the list keeps room so its last row is never covered. */
+.library-batch-fab {
+  position: absolute;
+  z-index: 15;
+  right: 20px;
+  bottom: 20px;
+  border-radius: 999px;
+  box-shadow:
+    0 8px 24px -8px rgb(0 0 0 / 0.28),
+    0 1px 3px rgb(0 0 0 / 0.08);
+}
+.library-batch-fab[aria-pressed="false"] {
+  background: var(--background);
+}
+:root:not([data-reduced-motion="true"]) .library-batch-fab {
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+:root:not([data-reduced-motion="true"]) .library-batch-fab:active {
+  transform: scale(0.95);
+}
+.paper-list-pane:has(+ .library-batch-fab),
+.book-list-pane:has(+ .library-batch-fab) {
+  padding-bottom: 76px;
+}
 .detail-sheet {
   position: absolute;
   inset: 8px 8px 8px auto;

@@ -15,8 +15,6 @@ import {
   Command,
   X,
   Tags,
-  CheckSquare,
-  Check,
   CirclePlus,
   Info,
   Trash2,
@@ -60,6 +58,7 @@ import { useCardZoom } from "./useCardZoom";
 import { PaperLibrary } from "./papers/PaperLibrary";
 import { PaperSidebar } from "./papers/PaperSidebar";
 import { LibrarySidebarResizer } from "./LibrarySidebarResizer";
+import { LibraryBatchButton } from "./LibraryBatchButton";
 import { usePaperUI } from "./papers/state";
 import { ImportPaperDialog } from "./papers/ImportPaperDialog";
 import { LibraryModeSwitcher, libraryModes } from "./LibraryModeSwitcher";
@@ -778,17 +777,6 @@ export function App() {
                         onViewChange={setLibraryView}
                         count={filtered.length}
                       />
-                      <Button
-                        size="icon"
-                        variant={editingLibrary ? "secondary" : "outline"}
-                        aria-label={editingLibrary ? "完成" : "批量"}
-                        title={editingLibrary ? "完成" : "批量"}
-                        aria-pressed={editingLibrary}
-                        disabled={!filtered.length && !editingLibrary}
-                        onClick={() => setEditingLibrary(!editingLibrary)}
-                      >
-                        {editingLibrary ? <Check /> : <CheckSquare />}
-                      </Button>
                     </div>
                   )}
                 </header>
@@ -922,6 +910,13 @@ export function App() {
                       )}
                     </div>
                   </div>
+                  {filter !== "tags" && filter !== "trash" && (
+                    <LibraryBatchButton
+                      active={editingLibrary}
+                      disabled={!filtered.length && !editingLibrary}
+                      onToggle={() => setEditingLibrary(!editingLibrary)}
+                    />
+                  )}
                   <DetailSheet
                     open={!!detail}
                     onClose={() => setDetailId(null)}
