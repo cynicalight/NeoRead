@@ -12,7 +12,6 @@ import {
   FileText,
   Bot,
   CircleCheck,
-  CircleHelp,
   Highlighter,
   Library,
   LoaderCircle,
@@ -523,14 +522,8 @@ export function Settings({
                           ? "文本推理可用，图片理解未通过检测。"
                           : apiModel
                             ? "检测未通过，请检查 API 地址、Key、模型名称、网络或额度。"
-                            : "检测未通过，请检查终端中的 Agent、API 配置、网络或额度。")}
+                            : "检测未通过，请检查模型连接、网络或额度。")}
                     </p>
-                    {!capability?.text && !apiModel && (
-                      <p>
-                        支持 CLI 当前使用的订阅登录或 API Key
-                        配置；以实际调用结果为准。
-                      </p>
-                    )}
                   </TooltipContent>
                 </Tooltip>
               )}
@@ -1443,10 +1436,6 @@ export function Settings({
                   </div>
                 </div>
               )}
-              <p className="mt-4 flex gap-2 text-xs leading-5 text-muted-foreground">
-                <CircleHelp className="mt-0.5 size-4 shrink-0" />
-                NeoRead 调用已安装的 CLI，不读取账号凭据，保护您的隐私。
-              </p>
             </section>
             {config && (
               <WebSearchSettings
