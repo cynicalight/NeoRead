@@ -275,3 +275,25 @@ it("returns text-node fragments so sentence hover never selects PDF line breaks"
     expect(range.endContainer).toBe(range.startContainer);
   }
 });
+
+it.each([false, true])("matches PDF ligatures with ligature anchors=%s, preserving sentence boundaries and DOM offsets", (ligatureAnchors) => {
+  const sentences = [
+    "[KMH + 20] then conducted a much more rigorous study of the scaling behavior of log loss and confirmed smooth scaling trends.",
+    "In this work, we empirically test whether scaling continues to improve performance by extrapolating the previously identified phenomena another two orders of magnitude.",
+    "We train a 175 billion parameter autoregressive language model, which we call GPT-3, and measure its transfer learning abilities.",
+  ];
+  const raw = sentences.map((s) => s.replaceAll("fi", "ﬁ"));
+  const anchors = ligatureAnchors ? raw : sentences;
+  currentBlock = { ...block, text: ["Before.", ...anchors].join(" ") };
+  const span = page.querySelector("span")!;
+  page.querySelector(".textLayer")!.replaceChildren(span);
+  span.textContent = ["Before.", ...raw].join(" ");
+  let sourceOffset = "Before.".length;
+  for (const [i, source] of anchors.entries()) {
+    const ranges = nav.sentenceRanges([
+      { blockId: block.id, sources: [source], sourceOffset },
+    ]);
+    expect(ranges.map((r) => r.toString()).join("")).toBe(raw[i]);
+    sourceOffset += source.replace(/\s/g, "").length;
+  }
+});

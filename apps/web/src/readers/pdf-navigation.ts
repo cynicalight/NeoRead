@@ -492,6 +492,9 @@ export class PDFReadingNavigation {
   ): Range[] {
     const page = node.getBoundingClientRect();
     if (!page.width) return [];
+    // Expand Latin ligatures only; keep mathematical letters distinct.
+    const expandLigatures = (value: string) =>
+      value.replace(/[\ufb00-\ufb06]/g, (c) => c.normalize("NFKC"));
     const nodes: Array<{ node: Text; offset: number; group: number }> = [],
       chars: string[] = [];
     const walker = document.createTreeWalker(
@@ -527,19 +530,23 @@ export class PDFReadingNavigation {
       for (let i = 0; i < (text.textContent?.length ?? 0); i++) {
         const c = text.textContent![i];
         if (/[\s\u00ad]/.test(c)) continue;
-        chars.push(c.toLowerCase());
-        nodes.push({ node: text as Text, offset: i, group });
+        for (const char of expandLigatures(c.toLowerCase())) {
+          chars.push(char);
+          nodes.push({ node: text as Text, offset: i, group });
+        }
       }
     }
     const joined = chars.join(""),
       ranges: Range[] = [];
     const normalize = (value: string) =>
-      value.toLowerCase().replace(/[\s\u00ad]/g, "");
+      expandLigatures(value.toLowerCase().replace(/[\s\u00ad]/g, ""));
     for (const { start: i, end: cursor } of sentenceTextRanges(
       joined,
       normalize(block.text),
       sources.map(normalize),
-      startOffset,
+      expandLigatures(
+        block.text.toLowerCase().replace(/[\s\u00ad]/g, "").slice(0, startOffset),
+      ).length,
     )) {
       // PDF DOM order can interleave columns. Never let a Range bridge text
       // nodes that were excluded from this paragraph during matching.
