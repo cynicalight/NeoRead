@@ -22,8 +22,6 @@ import {
   Paperclip,
   ArrowDown,
   ArrowUp,
-  Check,
-  CheckSquare,
   LayoutGrid,
   Table2,
   Network,
@@ -161,6 +159,7 @@ import {
   useAttachments,
   uploadAttachments,
 } from "./attachments";
+import { LibraryBatchButton } from "../LibraryBatchButton";
 import { SearchInput } from "../SearchInput";
 const AttachmentPreview = lazy(() => import("./AttachmentPreview"));
 const PaperGraph = lazy(() => import("./PaperGraph"));
@@ -876,18 +875,6 @@ export function PaperLibrary({
                 </TabsTrigger>
               </TabsList>
             </Tabs>
-            <Button
-              size="icon-sm"
-              variant={picking ? "secondary" : "outline"}
-              aria-label={picking ? "完成" : "批量"}
-              title={picking ? "完成" : "批量"}
-              aria-pressed={picking}
-              hidden={graph}
-              disabled={!visible.length && !picking}
-              onClick={() => (picking ? ui.stopPicking() : ui.startPicking())}
-            >
-              {picking ? <Check /> : <CheckSquare />}
-            </Button>
           </div>
         )}
       </header>
@@ -1090,7 +1077,9 @@ export function PaperLibrary({
                 <Loader2 className="animate-spin text-muted-foreground" />
               </div>
             ) : graph ? (
-              <Suspense fallback={<div className="empty-state">正在加载图谱…</div>}>
+              <Suspense
+                fallback={<div className="empty-state">正在加载图谱…</div>}
+              >
                 <PaperGraph
                   documents={visible}
                   selectedId={selectedId}
@@ -1266,6 +1255,13 @@ export function PaperLibrary({
               emptyState
             )}
           </section>
+          {!graph && (
+            <LibraryBatchButton
+              active={picking}
+              disabled={!visible.length && !picking}
+              onToggle={() => (picking ? ui.stopPicking() : ui.startPicking())}
+            />
+          )}
           <DetailSheet
             open={!!selected && !picking}
             onClose={() => ui.select(null)}
@@ -1718,7 +1714,9 @@ function PaperRow({
       case "notes":
         return <span className="paper-row-meta">{counts}</span>;
       case "remark":
-        return <span title={doc.metadata.remark}>{doc.metadata.remark || "—"}</span>;
+        return (
+          <span title={doc.metadata.remark}>{doc.metadata.remark || "—"}</span>
+        );
       case "status":
         return status;
     }
