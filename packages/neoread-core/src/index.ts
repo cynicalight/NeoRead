@@ -174,7 +174,8 @@ export type PaperColumn =
   | "added"
   | "opened"
   | "notes"
-  | "status";
+  | "status"
+  | "remark";
 export interface JournalRankBadge {
   key: string;
   name: string;

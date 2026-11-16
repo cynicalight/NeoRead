@@ -88,6 +88,7 @@ export const columnLabels: Record<PaperColumn, string> = {
   opened: "上次打开",
   notes: "批注",
   status: "状态",
+  remark: "备注",
 };
 export const defaultColumnWidths: Record<PaperColumn, number> = {
   authors: 160,
@@ -103,6 +104,7 @@ export const defaultColumnWidths: Record<PaperColumn, number> = {
   opened: 112,
   notes: 96,
   status: 72,
+  remark: 240,
 };
 
 export const defaultColumns: PaperColumn[] = [
@@ -110,6 +112,7 @@ export const defaultColumns: PaperColumn[] = [
   "year",
   "venue",
   "status",
+  "remark",
 ];
 /** The sort a column header applies. */
 export const columnSort: Partial<Record<PaperColumn | "title", PaperSort>> = {

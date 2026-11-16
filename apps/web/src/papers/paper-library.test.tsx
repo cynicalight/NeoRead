@@ -1079,6 +1079,7 @@ it("shows optional metadata columns and sorts publication dates without inventin
             date: "2024-02-29",
             doi: "10.1000/example",
             arxiv: "2402.12345",
+            remark: "<b>核对实验</b>\n保留原始数据",
           },
           percentage: 0.42,
           size: 1048576,
@@ -1099,6 +1100,7 @@ it("shows optional metadata columns and sorts publication dates without inventin
             "arxiv",
             "size",
             "opened",
+            "remark",
           ],
           columnWidths: { published: 144 },
         },
@@ -1130,6 +1132,13 @@ it("shows optional metadata columns and sorts publication dates without inventin
   expect(
     row("Missing date").querySelector('[data-column="opened"]')?.textContent,
   ).toBe("未打开");
+  const remark = full.querySelector('[data-column="remark"]')!;
+  expect(remark.textContent).toBe("<b>核对实验</b>\n保留原始数据");
+  expect(remark.querySelector("b")).toBeNull();
+  expect(remark.querySelector("span")?.title).toBe(remark.textContent);
+  expect(
+    row("Missing date").querySelector('[data-column="remark"]')?.textContent,
+  ).toBe("—");
   expect(
     host.querySelector('th[data-column="published"]')?.getAttribute("style"),
   ).toContain("144px");

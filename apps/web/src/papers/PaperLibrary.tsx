@@ -1695,6 +1695,8 @@ function PaperRow({
         return wasOpened(doc) ? relativeTime(doc.lastOpenedAt) : "未打开";
       case "notes":
         return <span className="paper-row-meta">{counts}</span>;
+      case "remark":
+        return <span title={doc.metadata.remark}>{doc.metadata.remark || "—"}</span>;
       case "status":
         return status;
     }

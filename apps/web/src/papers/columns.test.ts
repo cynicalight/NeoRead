@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
-import { columnOrder, moveColumn, visibleColumns } from "./columns";
+import type { PaperLibraryPreferences } from "@neoread/core";
+import { columnOrder, moveColumn, showColumn, visibleColumns } from "./columns";
 
 it("keeps existing visible order and normalizes saved hidden columns", () => {
   const prefs = { columns: ["year", "authors"] as const };
@@ -55,4 +56,39 @@ it("restores a hidden title in its saved position and shows it by default for ol
     "title",
     "year",
   ]);
+});
+
+it("shows remarks by default and restores their saved position and width after hiding", () => {
+  expect(visibleColumns({})).toContain("remark");
+  const legacy: PaperLibraryPreferences = {
+    columns: ["year", "notes"],
+    columnOrder: ["notes", "title", "year", "authors"],
+  };
+  expect(visibleColumns(legacy)).toEqual(["notes", "title", "year"]);
+  expect(columnOrder(legacy).slice(0, 4)).toEqual(legacy.columnOrder);
+  expect(columnOrder(legacy).at(-1)).toBe("remark");
+
+  const shown = showColumn(legacy, "remark", true);
+  const reordered = {
+    ...shown,
+    columnOrder: moveColumn(columnOrder(shown), "remark", "notes", "before"),
+    columnWidths: { remark: 320, year: 80 },
+  };
+  const hidden = showColumn(reordered, "remark", false);
+  // Preferences cross a JSON boundary when they are saved and loaded.
+  const saved: PaperLibraryPreferences = JSON.parse(JSON.stringify(hidden));
+  expect(visibleColumns(saved)).toEqual(["notes", "title", "year"]);
+  const restored = showColumn(saved, "remark", true);
+  expect(visibleColumns(restored)).toEqual(["remark", "notes", "title", "year"]);
+  expect(restored.columnWidths).toEqual({ remark: 320, year: 80 });
+  expect(legacy.columns).toEqual(["year", "notes"]);
+});
+
+it("continues to discard unknown saved columns while accepting remarks", () => {
+  const saved: PaperLibraryPreferences = JSON.parse(
+    '{"columns":["unknown","remark","notes"],"columnOrder":["unknown","remark","title","notes"]}',
+  );
+  expect(columnOrder(saved)).not.toContain("unknown");
+  expect(visibleColumns(saved)).toEqual(["remark", "title", "notes"]);
+  expect(showColumn(saved, "remark", false).columns).toEqual(["notes"]);
 });

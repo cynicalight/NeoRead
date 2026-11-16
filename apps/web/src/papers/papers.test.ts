@@ -599,6 +599,6 @@ it("keeps tags immediately after the title when toggling other default or option
 
 it("restores the tag column to its default position after hiding and showing it", () => {
   const hidden = showColumn({}, "tags", false);
-  expect(hidden.columns).toEqual(["year", "venue", "status"]);
+  expect(hidden.columns).toEqual(["year", "venue", "status", "remark"]);
   expect(showColumn(hidden, "tags", true).columns).toEqual(defaultColumns);
 });
