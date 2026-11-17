@@ -4501,7 +4501,11 @@ textarea.citation-preview {
 .paper-note-editor-message {
   margin: 0;
 }
+/* Column flex lets the ProseMirror surface fill the box, so clicks below
+   the last line still land in the editor; % min-heights don't chain. */
 .paper-note-rich {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -4515,7 +4519,7 @@ textarea.citation-preview {
   display: none;
 }
 .paper-note-rich .ProseMirror {
-  min-height: 100%;
+  flex: 1 0 auto;
   padding: 20px 24px;
   outline: none;
   overflow-wrap: anywhere;
@@ -4524,7 +4528,9 @@ textarea.citation-preview {
 }
 .paper-note-rich > div,
 .paper-note-rich .milkdown {
-  min-height: 100%;
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
 }
 .paper-note-rich:focus-within {
   border-color: var(--ring);
