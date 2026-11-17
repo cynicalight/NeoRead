@@ -42,6 +42,44 @@ import { pdfObjectColors } from "./pdf-dark-mode";
 import { defaultTheme } from "@neoread/core";
 pdfjs.GlobalWorkerOptions.workerSrc = workerURL;
 
+/**
+ * Selection rects clipped to their text-layer span. PDF.js sizes each span to
+ * the PDF font's em box, while text rects use the taller content area of the
+ * fallback font (1.15-1.4 em), which made highlights overflow the glyphs.
+ */
+function textLayerRects(range: Range, page: Element) {
+  const spans = Array.from(
+    page.querySelectorAll(".textLayer span:not(.markedContent)"),
+  )
+    .filter((span) => range.intersectsNode(span))
+    .map((span) => span.getBoundingClientRect());
+  return Array.from(range.getClientRects()).map((r) => {
+    let box: DOMRect | undefined,
+      best = 0;
+    for (const span of spans) {
+      const overlap =
+        Math.max(
+          0,
+          Math.min(r.right, span.right) - Math.max(r.left, span.left),
+        ) *
+        Math.max(
+          0,
+          Math.min(r.bottom, span.bottom) - Math.max(r.top, span.top),
+        );
+      if (overlap > best) [box, best] = [span, overlap];
+    }
+    if (!box) return r;
+    const left = Math.max(r.left, box.left),
+      top = Math.max(r.top, box.top);
+    return new DOMRect(
+      left,
+      top,
+      Math.min(r.right, box.right) - left,
+      Math.min(r.bottom, box.bottom) - top,
+    );
+  });
+}
+
 export class PDFReaderAdapter implements ReaderAdapter {
   private pdf?: pdfjs.PDFDocumentProxy;
   private task?: pdfjs.PDFDocumentLoadingTask;
@@ -516,7 +554,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
     )
       return this.clearState();
     const bounds = page.getBoundingClientRect();
-    const rects = Array.from(range.getClientRects())
+    const rects = textLayerRects(range, page)
       .filter((r) => r.width > 0 && r.height > 0)
       .map((r) => ({
         x: (r.x - bounds.x) / bounds.width,

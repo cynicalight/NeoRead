@@ -139,3 +139,24 @@ it("preserves the selection for toolbar actions but clears it when clicking anot
   expect(window.getSelection()!.rangeCount).toBe(0);
   toolbar.remove();
 });
+it("stores highlight rects at the text-layer span's em box, not the taller font content area", () => {
+  const page = host.querySelector(".page")!;
+  page.innerHTML = '<div class="textLayer"><span>Selected passage</span></div>';
+  const span = page.querySelector(".textLayer span")!;
+  // PDF.js sizes the span to the 20px em box; the fallback font's text rect is 1.4 em.
+  vi.spyOn(span, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(60, 100, 180, 20),
+  );
+  const range = document.createRange();
+  range.selectNodeContents(span.firstChild!);
+  Object.assign(range, {
+    getClientRects: () => [new DOMRect(60, 96, 180, 28)],
+  });
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  page.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  const location = adapter.getSelection()?.location;
+  expect(location?.type === "pdf" && location.rects).toEqual([
+    { x: 40 / 600, y: 60 / 800, width: 180 / 600, height: 20 / 800 },
+  ]);
+});
