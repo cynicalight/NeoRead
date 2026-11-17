@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Button } from "@neoread/ui/components/button";
+import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
 import { Textarea } from "@neoread/ui/components/textarea";
 import { reportDiagnostic } from "./diagnostics";
 import { diagnosticError } from "../../../packages/neoread-core/src/diagnostics";
@@ -18,6 +18,7 @@ export function PaperNoteRichEditor({
   disabled,
   onChange,
   onBlur,
+  leading,
   actions,
   ariaLabel = "编辑论文笔记",
   placeholder = "使用 Markdown 记录要点、疑问和启发…",
@@ -29,6 +30,8 @@ export function PaperNoteRichEditor({
   disabled: boolean;
   onChange: (body: string) => void;
   onBlur?: () => void;
+  /** Start-side toolbar slot; when set the mode tabs sit centered. */
+  leading?: ReactNode;
   actions?: ReactNode;
   ariaLabel?: string;
   placeholder?: string;
@@ -152,35 +155,32 @@ export function PaperNoteRichEditor({
   }, [showSource]);
   return (
     <div className={`paper-note-workspace ${className}`}>
-      <div className="paper-note-toolbar">
-        <div
-          className="flex gap-1"
-          role="group"
-          aria-label={`${ariaLabel}模式`}
-        >
-          <Button
-            variant={source ? "ghost" : "secondary"}
-            size="xs"
-            aria-pressed={!source}
-            onClick={() => {
-              focusRequested.current = autoFocus;
-              setSource(false);
-            }}
-          >
-            编辑
-          </Button>
-          <Button
-            variant={source ? "secondary" : "ghost"}
-            size="xs"
-            aria-pressed={source}
-            onClick={() => {
+      <div
+        className="paper-note-toolbar"
+        data-centered={leading ? "" : undefined}
+      >
+        {leading && <div className="paper-note-leading">{leading}</div>}
+        <Tabs
+          value={source ? "source" : "rich"}
+          onValueChange={(value) => {
+            if (value === "source") {
               setMathEdit(null);
               setSource(true);
-            }}
-          >
-            源码
-          </Button>
-        </div>
+            } else {
+              focusRequested.current = autoFocus;
+              setSource(false);
+            }
+          }}
+        >
+          <TabsList aria-label={`${ariaLabel}模式`}>
+            <TabsTrigger value="rich" className="px-2.5 text-xs">
+              编辑
+            </TabsTrigger>
+            <TabsTrigger value="source" className="px-2.5 text-xs">
+              源码
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
         {actions && <div className="paper-note-actions">{actions}</div>}
       </div>
       {(reason || (!source && loading && !disabled)) && (

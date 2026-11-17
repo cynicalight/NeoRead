@@ -30,7 +30,7 @@ const recovered = async () =>
   act(async () => {
     await vi.waitFor(() =>
       expect(
-        host.querySelector('button[aria-pressed="true"]')?.textContent,
+        host.querySelector('button[aria-selected="true"]')?.textContent,
       ).toBe("源码"),
     );
   });

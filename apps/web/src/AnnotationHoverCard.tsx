@@ -260,60 +260,58 @@ export function AnnotationHoverCard({
         >
           <PopoverTitle className="sr-only">{title}</PopoverTitle>
           {editor ? (
-            <>
-              <div
-                onKeyDownCapture={(event) => {
-                  if (
-                    (event.target as Element).closest("[data-note-math-editor]")
-                  )
-                    return;
-                  if (
-                    event.key === "Enter" &&
-                    (event.metaKey || event.ctrlKey) &&
-                    !event.nativeEvent.isComposing
-                  ) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    if (canSave) editor.onSave();
-                  }
-                }}
-              >
-                <PaperNoteRichEditor
-                  body={editor.value}
-                  disabled={editor.saving}
-                  ariaLabel={title}
-                  placeholder={
-                    editor.kind === "question" ? "想弄清楚什么？" : "批注内容…"
-                  }
-                  autoFocus
-                  className="annotation-markdown-editor"
-                  diagnosticScope="annotation_note"
-                  onChange={editor.onChange}
-                />
-              </div>
-              <div className="flex items-center gap-1">
-                {grip}
-                <div className="ml-auto flex gap-1">
-                  {editor.kind === "question" && !editor.editing && (
+            <div
+              onKeyDownCapture={(event) => {
+                if (
+                  (event.target as Element).closest("[data-note-math-editor]")
+                )
+                  return;
+                if (
+                  event.key === "Enter" &&
+                  (event.metaKey || event.ctrlKey) &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (canSave) editor.onSave();
+                }
+              }}
+            >
+              <PaperNoteRichEditor
+                body={editor.value}
+                disabled={editor.saving}
+                ariaLabel={title}
+                placeholder={
+                  editor.kind === "question" ? "想弄清楚什么？" : "批注内容…"
+                }
+                autoFocus
+                className="annotation-markdown-editor"
+                diagnosticScope="annotation_note"
+                onChange={editor.onChange}
+                leading={grip}
+                actions={
+                  <>
+                    {editor.kind === "question" && !editor.editing && (
+                      <CardButton
+                        label="保存并让 AI 回答"
+                        disabled={!canSave || !editor.canAnswer}
+                        onClick={editor.onSaveAndAnswer}
+                      >
+                        <Sparkles className="size-3.5" />
+                      </CardButton>
+                    )}
                     <CardButton
-                      label="保存并让 AI 回答"
-                      disabled={!canSave || !editor.canAnswer}
-                      onClick={editor.onSaveAndAnswer}
+                      label="保存"
+                      variant="default"
+                      disabled={!canSave}
+                      onClick={editor.onSave}
                     >
-                      <Sparkles className="size-3.5" />
+                      <Check className="size-3.5" />
                     </CardButton>
-                  )}
-                  <CardButton
-                    label="保存"
-                    variant="default"
-                    disabled={!canSave}
-                    onClick={editor.onSave}
-                  >
-                    <Check className="size-3.5" />
-                  </CardButton>
-                </div>
-              </div>
-            </>
+                  </>
+                }
+              />
+            </div>
           ) : (
             shown &&
             notes.map((annotation, index) => (

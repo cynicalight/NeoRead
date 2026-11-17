@@ -39,7 +39,7 @@ it("retains an editable source draft when the rich editor chunk fails to load", 
     expect(source.value).toBe("原始 draft $x_{1}$");
     expect(source.disabled).toBe(false);
     expect(change).not.toHaveBeenCalled();
-    expect(host.querySelector('button[aria-pressed="true"]')?.textContent).toBe(
+    expect(host.querySelector('button[aria-selected="true"]')?.textContent).toBe(
       "源码",
     );
     await act(async () => {

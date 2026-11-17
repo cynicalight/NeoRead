@@ -4481,6 +4481,19 @@ textarea.citation-preview {
   flex-wrap: wrap;
   gap: 8px;
 }
+/* Leading slot, centered mode tabs, trailing actions. */
+.paper-note-toolbar[data-centered] {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+}
+.paper-note-leading {
+  display: flex;
+  align-items: center;
+  justify-self: start;
+}
+.paper-note-toolbar[data-centered] > .paper-note-actions {
+  justify-self: end;
+}
 .paper-note-editor-message {
   color: var(--muted-foreground);
   font-size: 11px;

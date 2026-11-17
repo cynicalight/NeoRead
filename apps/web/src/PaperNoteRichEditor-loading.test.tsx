@@ -43,7 +43,7 @@ it("keeps the source caret when typing during chunk loading, then allows explici
       )!.set!.call(source, "loading 时输入中文 English");
       source.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(host.querySelector('button[aria-pressed="true"]')?.textContent).toBe(
+    expect(host.querySelector('button[aria-selected="true"]')?.textContent).toBe(
       "源码",
     );
     await act(async () => {
