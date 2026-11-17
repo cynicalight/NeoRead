@@ -2635,6 +2635,7 @@
                                                   "$ref": "#/components/schemas/DocumentLocation",
                                                 },
                                               "sourceId": { "type": "string" },
+                                              "blockId": { "type": "string" },
                                               "pageImage":
                                                 {
                                                   "$ref": "#/components/schemas/PageImageEvidence",
@@ -5669,6 +5670,7 @@
                                                   "$ref": "#/components/schemas/DocumentLocation",
                                                 },
                                               "sourceId": { "type": "string" },
+                                              "blockId": { "type": "string" },
                                               "pageImage":
                                                 {
                                                   "$ref": "#/components/schemas/PageImageEvidence",
@@ -6665,6 +6667,7 @@
                                   "$ref": "#/components/schemas/DocumentLocation",
                                 },
                               "sourceId": { "type": "string" },
+                              "blockId": { "type": "string" },
                               "pageImage":
                                 {
                                   "$ref": "#/components/schemas/PageImageEvidence",

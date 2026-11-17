@@ -309,6 +309,7 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 			restored.ConnectionKey = key
 			a.conversation = &restored
 			a.Evidence = append([]documentEvidence(nil), cp.Evidence...)
+			a.Searched = cp.Searched
 			a.Traces = append([]documentToolTrace(nil), cp.Traces...)
 			a.turnRead = cp.TurnRead
 			a.calls = len(cp.Traces)
@@ -436,6 +437,7 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 				cp.Revision = a.corpus.Revision
 				cp.Conversation = *a.conversation
 				cp.Evidence = a.Evidence
+				cp.Searched = a.Searched
 				cp.Traces = a.Traces
 				cp.TurnRead = a.turnRead
 				a.mu.Unlock()

@@ -21,6 +21,7 @@ type documentConversation struct {
 	PassageCount    int                     `json:"passageCount"`
 	SourceOffset    int                     `json:"sourceOffset"`
 	ReadBlocks      []string                `json:"readBlocks,omitempty"`
+	SearchedBlocks  []string                `json:"searchedBlocks,omitempty"`
 	ReadPages       []documentPageImage     `json:"readPages,omitempty"`
 	OverviewVersion string                  `json:"overviewVersion,omitempty"`
 	Messages        []toolCompletionMessage `json:"messages,omitempty"`
@@ -69,6 +70,7 @@ func (a *documentAgent) beginConversation(ctx context.Context, in AIInput, key s
 	if c.Revision != "" && c.Revision != a.corpus.Revision {
 		c.SourceOffset += c.PassageCount
 		c.ReadBlocks = nil
+		c.SearchedBlocks = nil
 		c.ReadPages = nil
 		c.SeenSources = map[string]bool{}
 	}
@@ -84,6 +86,18 @@ func (a *documentAgent) beginConversation(ctx context.Context, in AIInput, key s
 	for i, p := range a.corpus.Passages {
 		if seen[p.ID] {
 			a.Evidence = append(a.Evidence, a.passageEvidence(i))
+		}
+	}
+	searched := map[string]bool{}
+	for _, block := range c.SearchedBlocks {
+		searched[block] = true
+	}
+	a.Searched = map[string]documentEvidence{}
+	for i, p := range a.corpus.Passages {
+		if searched[p.ID] {
+			ev := a.passageEvidence(i)
+			ev.SourceID = ""
+			a.Searched[p.ID] = ev
 		}
 	}
 	a.turnRead = map[string]bool{}
@@ -189,6 +203,12 @@ func (a *documentAgent) commitConversation(ctx context.Context, tx *sql.Tx, mess
 	c.LastMessageID = messageID
 	c.ReadBlocks = nil
 	c.ReadPages = nil
+	c.SearchedBlocks = nil
+	for _, p := range a.corpus.Passages {
+		if ev, ok := a.Searched[p.ID]; ok && ev.Revision == a.corpus.Revision {
+			c.SearchedBlocks = append(c.SearchedBlocks, p.ID)
+		}
+	}
 	for _, e := range a.Evidence {
 		if e.Revision == a.corpus.Revision {
 			if e.PageImage != nil {

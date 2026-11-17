@@ -2,6 +2,8 @@ import { createContext } from "react";
 import type { Link, PhrasingContent, Root, Text } from "mdast";
 import { SKIP, visit } from "unist-util-visit";
 
+// Navigation keys are saved citation keys: server-issued S labels, or the raw
+// blockId of a search_document passage cited directly.
 export const ChatCitationNavigation = createContext<
   | {
       sourceIds: string[];
@@ -12,9 +14,14 @@ export const ChatCitationNavigation = createContext<
 >(undefined);
 
 // Keep paired native forms aligned with document_citations.go.
-const sourceList = String.raw`S[1-9][0-9]*(?:[ \t]*[,，、;；][ \t]*S[1-9][0-9]*)*`;
+// Block IDs (corpus revision prefix may start with a digit) come first so
+// "S1-x" is read as one key rather than "S1".
+const sourceKey = String.raw`[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)+|S[1-9][0-9]*`;
+const sourceList = String.raw`(?:${sourceKey})(?:[ \t]*[,，、;；][ \t]*(?:${sourceKey}))*`;
 const nativeCitation = String.raw`\[${sourceList}\]|【${sourceList}】|［${sourceList}］|（${sourceList}）|\(${sourceList}\)`;
 const citation = new RegExp(`${nativeCitation}|[^]*(?:|)`, "g");
+const sourceKeys = new RegExp(sourceKey, "g");
+const sourceKeyOnly = new RegExp(`^(?:${sourceKey})$`);
 const sourceID = /^S[1-9][0-9]*$/;
 const text = (value: string): Text => ({ type: "text", value });
 
@@ -84,16 +91,24 @@ export function remarkChatCitations({
         }
         const complete = native || raw.endsWith("");
         const ids = native
-          ? (raw.match(/S[1-9][0-9]*/g) ?? [])
+          ? (raw.slice(1, -1).match(sourceKeys) ?? [])
           : markerParts.slice(1);
         if (!complete) {
           parts.push(text(generating ? "" : "[引用未完成]"));
         } else if (
           (!native && kind !== "cite" && kind !== "filecite") ||
           !ids.length ||
-          !ids.every((id) => sourceID.test(id))
+          !ids.every((id) => sourceKeyOnly.test(id))
         ) {
           parts.push(text("[引用不可用]"));
+        } else if (
+          native &&
+          !ids.some((id) => known.has(id)) &&
+          !ids.every((id) => sourceID.test(id))
+        ) {
+          // Bracketed prose such as "(well-known)" is not a citation unless a
+          // saved key confirms it.
+          parts.push(text(raw));
         } else {
           for (const id of ids) {
             const label = `[${id}]`;
@@ -101,7 +116,7 @@ export function remarkChatCitations({
               known.has(id)
                 ? ({
                     type: "link",
-                    url: `#neoread-evidence?source=${id}`,
+                    url: `#neoread-evidence?${new URLSearchParams({ source: id })}`,
                     children: [text(label)],
                   } satisfies Link)
                 : text(label),

@@ -21,6 +21,22 @@ it("uses exact saved locations for selected passages and bounds long previews", 
   expect(cards[0].location).toEqual(location);
   expect(cards[0].preview.length).toBeLessThanOrEqual(161);
 });
+it("uses the S label, else the raw search blockId, as the citation key", () => {
+  const location: DocumentLocation = { type: "pdf", page: 4 };
+  const cards = referenceCards(
+    {
+      references: [
+        { sourceId: "S1", blockId: "c41151675761-181", text: "a", location },
+        { blockId: "c41151675761-182", text: "b", location },
+      ],
+    },
+    [],
+  );
+  expect(cards.map((card) => card.sourceId)).toEqual([
+    "S1",
+    "c41151675761-182",
+  ]);
+});
 it("splits legacy context into compact entries without inventing historical locations", () => {
   const cards = referenceCards(
     { context: "First statement. ".repeat(50) + "\n\nA second paragraph." },

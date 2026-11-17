@@ -6,6 +6,7 @@ import type {
 } from "@neoread/core";
 
 export interface ReferenceCard {
+  /** Saved citation key: the S label, or the raw blockId of a direct search citation. */
   sourceId?: string;
   id: string;
   text: string;
@@ -45,7 +46,7 @@ export function referenceCards(
         `${ref.sourceId ? `[${ref.sourceId}] · ` : ""}${referenceLabel(ref.location, toc)}${ref.kind === "section" ? "" : " · 重点句"}`,
         ref.location,
       ),
-      sourceId: ref.sourceId,
+      sourceId: ref.sourceId ?? ref.blockId,
     }));
   // Older conversations stored only the raw context. Keep excerpts searchable;
   // never assign today's reading position to historical text.

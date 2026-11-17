@@ -9,19 +9,20 @@ import (
 
 // piCheckpoint 只写本地运行记录，不作为回答或已接受的对话发布。
 type piCheckpoint struct {
-	RunID               string               `json:"runId"`
-	Binding             string               `json:"binding"`
-	Model               string               `json:"model"`
-	DocumentFingerprint string               `json:"documentFingerprint"`
-	TurnRead            map[string]bool      `json:"turnRead,omitempty"`
-	Revision            string               `json:"revision,omitempty"`
-	Entries             json.RawMessage      `json:"entries"`
-	Conversation        documentConversation `json:"conversation"`
-	Evidence            []documentEvidence   `json:"evidence,omitempty"`
-	Traces              []documentToolTrace  `json:"traces,omitempty"`
-	Tools               []ToolActivity       `json:"tools,omitempty"`
-	WebSources          []WebSource          `json:"webSources,omitempty"`
-	CanContinue         bool                 `json:"canContinue"`
+	RunID               string                      `json:"runId"`
+	Binding             string                      `json:"binding"`
+	Model               string                      `json:"model"`
+	DocumentFingerprint string                      `json:"documentFingerprint"`
+	TurnRead            map[string]bool             `json:"turnRead,omitempty"`
+	Revision            string                      `json:"revision,omitempty"`
+	Entries             json.RawMessage             `json:"entries"`
+	Conversation        documentConversation        `json:"conversation"`
+	Evidence            []documentEvidence          `json:"evidence,omitempty"`
+	Searched            map[string]documentEvidence `json:"searchedEvidence,omitempty"`
+	Traces              []documentToolTrace         `json:"traces,omitempty"`
+	Tools               []ToolActivity              `json:"tools,omitempty"`
+	WebSources          []WebSource                 `json:"webSources,omitempty"`
+	CanContinue         bool                        `json:"canContinue"`
 }
 type chatRunInput struct {
 	QuestionKey string   `json:"questionKey"`

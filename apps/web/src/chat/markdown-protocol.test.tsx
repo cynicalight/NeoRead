@@ -212,3 +212,38 @@ it.each(["[S84]另一句话[S109]", "[S84]\n\n[S109]", "[S84][S999][S109]"])(
     if (content.includes("S999")) expect(host.textContent).toContain("[S999]");
   },
 );
+
+it("links direct blockId citations only once their search evidence is saved", async () => {
+  const content =
+    "结论 citec41151675761-182 和 [0a1b2c3d4e5f-7]，未知 citec41151675761-999 与 [c41151675761-998]，散文 (well-known) [2020-2021]。";
+  await render(content, true);
+  expect(host.querySelectorAll("button.chat-source-jump")).toHaveLength(0);
+  expect(host.textContent).toContain(
+    "结论 [c41151675761-182] 和 [0a1b2c3d4e5f-7]",
+  );
+  const navigate = vi.fn();
+  await act(async () =>
+    root.render(
+      <ChatCitationNavigation.Provider
+        value={{
+          sourceIds: ["c41151675761-182", "0a1b2c3d4e5f-7"],
+          navigate,
+        }}
+      >
+        <MessageMarkdown content={content} />
+      </ChatCitationNavigation.Provider>,
+    ),
+  );
+  const links = host.querySelectorAll<HTMLButtonElement>(
+    "button.chat-source-jump",
+  );
+  expect([...links].map((link) => link.getAttribute("aria-label"))).toEqual([
+    "跳转到原文段落 c41151675761-182",
+    "跳转到原文段落 0a1b2c3d4e5f-7",
+  ]);
+  links[1].click();
+  expect(navigate).toHaveBeenCalledExactlyOnceWith("0a1b2c3d4e5f-7");
+  expect(host.textContent).toContain(
+    "未知 [c41151675761-999] 与 [c41151675761-998]，散文 (well-known) [2020-2021]。",
+  );
+});
