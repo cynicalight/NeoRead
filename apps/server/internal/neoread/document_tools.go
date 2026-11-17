@@ -54,6 +54,7 @@ type documentAgent struct {
 	checkpoints           []string
 	continuous            bool
 	turnRead              map[string]bool
+	historicalEvidence    map[string]documentEvidence
 	mu                    sync.Mutex
 	server                *Server
 	corpus                *documentCorpus
@@ -100,6 +101,7 @@ func (a *documentAgent) resetAttempt(provider string) {
 	a.Traces = nil
 	a.Evidence = nil
 	a.Searched = nil
+	a.historicalEvidence = nil
 	a.bytes = 0
 	a.calls = 0
 	a.fatal = nil
@@ -398,6 +400,9 @@ func (a *documentAgent) references(text string) (json.RawMessage, error) {
 			}
 		}
 		if !found {
+			evidence, found = a.historicalEvidence[source]
+		}
+		if !found {
 			block := source
 			if documentSourceIDPattern.MatchString(source) {
 				block = aliases[source]
@@ -407,6 +412,9 @@ func (a *documentAgent) references(text string) (json.RawMessage, error) {
 			}
 			if ev, ok := a.Searched[block]; ok && ev.Revision == a.corpus.Revision {
 				evidence, found = ev, true
+			}
+			if !found {
+				evidence, found = a.historicalEvidence[block]
 			}
 			if !found {
 				for _, ev := range a.Evidence {
@@ -449,7 +457,7 @@ func (a *documentAgent) readingCoverage() any {
 			}
 		}
 	}
-	return map[string]any{"totalPassages": len(a.corpus.Passages), "readPassages": read, "viewedPages": readImages, "availableEvidencePassages": len(a.Evidence) - images, "allExtractedPassagesRead": read == len(a.corpus.Passages), "stopReason": a.readingStop, "overviewAvailable": a.overview != nil, "overviewCoverage": a.overviewCoverage(), "contextWindowTokens": a.contextTokens, "contextSource": a.contextSource, "estimatedEvidenceTokens": a.evidenceTokens}
+	return map[string]any{"totalPassages": len(a.corpus.Passages), "readPassages": read, "viewedPages": readImages, "availableEvidencePassages": len(a.Evidence) - images, "historicalCitationKeys": len(a.historicalEvidence), "allExtractedPassagesRead": read == len(a.corpus.Passages), "stopReason": a.readingStop, "overviewAvailable": a.overview != nil, "overviewCoverage": a.overviewCoverage(), "contextWindowTokens": a.contextTokens, "contextSource": a.contextSource, "estimatedEvidenceTokens": a.evidenceTokens}
 }
 
 func (a *documentAgent) toolCoverage() any {
