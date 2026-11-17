@@ -16,10 +16,15 @@ export const ChatCitationNavigation = createContext<
 // Keep paired native forms aligned with document_citations.go.
 // Block IDs (corpus revision prefix may start with a digit) come first so
 // "S1-x" is read as one key rather than "S1".
-const sourceKey = String.raw`[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)+|S[1-9][0-9]*`;
+const blockKey = String.raw`[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)+`;
+const sourceKey = String.raw`${blockKey}|S[1-9][0-9]*`;
 const sourceList = String.raw`(?:${sourceKey})(?:[ \t]*[,，、;；][ \t]*(?:${sourceKey}))*`;
 const nativeCitation = String.raw`\[${sourceList}\]|【${sourceList}】|［${sourceList}］|（${sourceList}）|\(${sourceList}\)`;
-const citation = new RegExp(`${nativeCitation}|[^]*(?:|)`, "g");
+const describedCitation = String.raw`\[([^\[\]\r\n]*?)\bblockId(?:[ \t]+|[ \t]*[:：=][ \t]*)(${blockKey})[ \t]*\]`;
+const citation = new RegExp(
+  `${describedCitation}|${nativeCitation}|[^]*(?:|)`,
+  "g",
+);
 const sourceKeys = new RegExp(sourceKey, "g");
 const sourceKeyOnly = new RegExp(`^(?:${sourceKey})$`);
 const sourceID = /^S[1-9][0-9]*$/;
@@ -77,6 +82,11 @@ export function remarkChatCitations({
         parts.push(text(node.value.slice(start, match.index)));
         const raw = match[0];
         start = match.index + raw.length;
+        const describedBlock = match[2];
+        if (describedBlock && match[1].includes("blockId")) {
+          parts.push(text(raw));
+          continue;
+        }
         const native = !raw.startsWith("");
         const markerParts = raw.replace(/^|$/g, "").split("");
         const kind = markerParts[0];
@@ -90,9 +100,11 @@ export function remarkChatCitations({
           continue;
         }
         const complete = native || raw.endsWith("");
-        const ids = native
-          ? (raw.slice(1, -1).match(sourceKeys) ?? [])
-          : markerParts.slice(1);
+        const ids = describedBlock
+          ? [describedBlock]
+          : native
+            ? (raw.slice(1, -1).match(sourceKeys) ?? [])
+            : markerParts.slice(1);
         if (!complete) {
           parts.push(text(generating ? "" : "[引用未完成]"));
         } else if (

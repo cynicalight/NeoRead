@@ -18,6 +18,7 @@ var documentCitationIDPattern = regexp.MustCompile(documentCitationKey)
 var documentSourceIDPattern = regexp.MustCompile(`^S[1-9][0-9]*$`)
 var documentBlockIDPattern = regexp.MustCompile(`^` + documentBlockID + `$`)
 var documentCitationAliasPattern = regexp.MustCompile(`\[(S[1-9][0-9]*)\][ \t]+(` + documentBlockID + `)(?:$|[^A-Za-z0-9_-])`)
+var documentDescribedCitationPattern = regexp.MustCompile(`\[([^\[\]\r\n]*?)\bblockId(?:[ \t]+|[ \t]*[:：=][ \t]*)(` + documentBlockID + `)[ \t]*\]`)
 
 // Only an immediately adjacent exact block ID declares a source alias. Conflicting
 // declarations are ambiguous and must never create a guessed navigation target.
@@ -45,6 +46,13 @@ func documentCitationSources(text string) ([]string, error) {
 	// hide a source label that the original validator would have checked.
 	for _, marker := range documentNativeCitationPattern.FindAllString(text, -1) {
 		sources = append(sources, documentCitationIDPattern.FindAllString(marker, -1)...)
+	}
+	// Descriptive markers name their target explicitly; their S label is not
+	// an independently issued source ID. Multiple blockId fields are ambiguous.
+	for _, match := range documentDescribedCitationPattern.FindAllStringSubmatch(text, -1) {
+		if !strings.Contains(match[1], "blockId") {
+			sources = append(sources, match[2])
+		}
 	}
 	for _, marker := range documentCitationPattern.FindAllString(text, -1) {
 		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(marker, ""), ""), "")

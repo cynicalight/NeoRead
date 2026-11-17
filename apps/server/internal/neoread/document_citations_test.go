@@ -254,3 +254,48 @@ func TestLegacySourceWithoutBlockIDStillValidates(t *testing.T) {
 		t.Fatal("legacy S reference rejected", out.Code, out.Body.String())
 	}
 }
+
+func TestDescribedBlockCitationSavesValidatedSearchTarget(t *testing.T) {
+	s, a := originalDocumentFixture(t)
+	if _, err := a.call(t.Context(), "search_document", json.RawMessage(`{"query":"COBALT-19"}`)); err != nil {
+		t.Fatal(err)
+	}
+	var source documentEvidence
+	for _, ev := range a.Searched {
+		source = ev
+	}
+	answer := "方法学问题 [S10 对应的摘要原文，blockId " + source.BlockID + "]。"
+	if err := s.saveDocumentAgentAnswer(t.Context(), a, answer, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	history, err := s.Store.chatHistory("doc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := history[len(history)-1]
+	var refs []documentEvidence
+	if err := json.Unmarshal(message.References, &refs); err != nil || len(refs) != 1 || refs[0].BlockID != source.BlockID || refs[0].SourceID != "" {
+		t.Fatalf("described citation lost its explicit block target: %s %v", message.References, err)
+	}
+	if out := request(t, s, "GET", "/api/documents/doc/messages/"+message.ID+"/sources/"+source.BlockID, nil); out.Code != 200 {
+		t.Fatal("described citation cannot navigate", out.Code, out.Body.String())
+	}
+}
+
+func TestDescribedCitationsDoNotFallBackToDecorativeSourceLabels(t *testing.T) {
+	block := "5085806ae514-10"
+	ev := documentEvidence{SourceID: "S10", BlockID: block, Text: "original", Revision: "revision"}
+	a := &documentAgent{corpus: &documentCorpus{Revision: ev.Revision}, Evidence: []documentEvidence{ev}, Searched: map[string]documentEvidence{block: ev}}
+	for _, marker := range []string{"[S10 对应的摘要原文，blockId " + block + "]", "[摘要原文，blockId: " + block + "]", "[blockId=" + block + "]"} {
+		refs, err := a.references(marker)
+		var parsed []documentEvidence
+		if err != nil || json.Unmarshal(refs, &parsed) != nil || len(parsed) != 1 || parsed[0].BlockID != block || parsed[0].SourceID != "" {
+			t.Fatalf("explicit block target was not preserved: %q %s %v", marker, refs, err)
+		}
+	}
+	for _, marker := range []string{"[S10 对应的摘要原文，blockId unknown-999]", "[S10 blockId " + block + "，blockId other-11]", "[S10 对应的摘要原文]", "[S10 blockId " + block} {
+		if refs, err := a.references(marker); err != nil || string(refs) != "[]" {
+			t.Fatalf("unresolved marker fell back to S10: %q %s %v", marker, refs, err)
+		}
+	}
+}

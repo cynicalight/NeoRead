@@ -247,3 +247,59 @@ it("links direct blockId citations only once their search evidence is saved", as
     "未知 [c41151675761-999] 与 [c41151675761-998]，散文 (well-known) [2020-2021]。",
   );
 });
+
+it.each([
+  "[S10 对应的摘要原文，blockId 5085806ae514-10]",
+  "[摘要原文，blockId: 5085806ae514-10]",
+  "[blockId=5085806ae514-10]",
+])(
+  "renders an explanatory blockId citation as one validated arrow: %s",
+  async (marker) => {
+    const block = "5085806ae514-10";
+    const navigate = vi.fn();
+    await act(async () =>
+      root.render(
+        <ChatCitationNavigation.Provider
+          value={{ sourceIds: [block], navigate }}
+        >
+          <MessageMarkdown
+            content={`方法学问题 ${marker}。代码：\`${marker}\``}
+          />
+        </ChatCitationNavigation.Provider>,
+      ),
+    );
+    const links = host.querySelectorAll<HTMLButtonElement>(
+      "button.chat-source-jump",
+    );
+    expect(links).toHaveLength(1);
+    expect(host.textContent).toBe(`方法学问题 。代码：${marker}`);
+    links[0].click();
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(block);
+    expect(host.querySelector("code")?.textContent).toBe(marker);
+  },
+);
+
+it.each([
+  "[S10 对应的摘要原文，blockId 5085806ae514-999]",
+  "[S10 blockId 5085806ae514-10，blockId 5085806ae514-11]",
+  "[S10 对应的摘要原文]",
+  "[S10 blockId 5085806ae514-10",
+])(
+  "preserves an unresolved or ambiguous explanatory citation: %s",
+  async (marker) => {
+    await act(async () =>
+      root.render(
+        <ChatCitationNavigation.Provider
+          value={{
+            sourceIds: ["S10", "5085806ae514-10", "5085806ae514-11"],
+            navigate: vi.fn(),
+          }}
+        >
+          <MessageMarkdown content={marker} />
+        </ChatCitationNavigation.Provider>,
+      ),
+    );
+    expect(host.querySelectorAll("button.chat-source-jump")).toHaveLength(0);
+    expect(host.textContent).toBe(marker);
+  },
+);
