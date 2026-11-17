@@ -55,7 +55,10 @@ vi.mock("./translation/PDFReadingView", () => ({
   },
 }));
 vi.mock("./translation/EPUBReadingView", () => ({
-  EPUBReadingView: () => null,
+  EPUBReadingView: (props: ComponentProps<typeof PDFReadingView>) => {
+    panels.reader = props;
+    return null;
+  },
 }));
 vi.mock("./chat/AssistantPanel", () => ({ AssistantPanel: () => null }));
 vi.mock("./ModelSelector", () => ({ ModelSelector: () => null }));
@@ -103,11 +106,12 @@ const processing: Processing = {
   updatedAt: "",
 };
 let root: Root, host: HTMLDivElement;
-const render = (tick: number, theme = defaultTheme) =>
+const render = (tick: number, theme = defaultTheme, document = doc) =>
   root.render(
     <TooltipProvider>
       <Workspace
-        document={doc}
+        key={document.id}
+        document={document}
         theme={theme}
         processing={{ ...processing, updatedAt: String(tick) }}
         onBack={() => {}}
@@ -128,6 +132,37 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+});
+
+it.each([
+  ["pdf", "parallel"],
+  ["pdf", "reflow"],
+  ["pdf", "translation"],
+  ["epub", "parallel"],
+  ["epub", "reflow"],
+  ["epub", "translation"],
+] as const)("restores each %s document's %s mode after reopening", async (type, mode) => {
+  const first = { ...doc, type };
+  const second = { ...first, id: "other-doc" };
+  await act(async () => render(0, defaultTheme, first));
+  expect(panels.reader!.readingMode).toBe("source");
+  await act(async () => panels.reader!.onReadingModeChange(mode));
+  await act(async () => root.render(null));
+  await act(async () => render(1, useReaderStore.getState().theme, second));
+  expect(panels.reader!.readingMode).toBe("source");
+  await act(async () => panels.reader!.onReadingModeChange("reflow"));
+  const saved = JSON.parse(JSON.stringify(useReaderStore.getState().theme));
+  await act(async () => root.render(null));
+  useReaderStore.setState({ theme: saved });
+  await act(async () => render(2, saved, first));
+  expect(panels.reader!.readingMode).toBe(mode);
+  expect(panels.reader!.theme.textReflow).toBe(mode === "reflow");
+  await act(async () => panels.reader!.onReadingModeChange("source"));
+  await act(async () => root.render(null));
+  await act(async () => render(3, useReaderStore.getState().theme, first));
+  expect(panels.reader!.readingMode).toBe("source");
+  await act(async () => render(4, useReaderStore.getState().theme, second));
+  expect(panels.reader!.readingMode).toBe("reflow");
 });
 
 it("saves one latest PDF paragraph across mode switches despite an old global reflow preference", async () => {

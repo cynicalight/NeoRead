@@ -184,7 +184,18 @@ export function Workspace({
   onSettings: () => void;
 }) {
   const { aiConfig, setAIConfig, aiModelSaving } = useReaderStore();
-  const [readingMode, setReadingMode] = useState<ReadingMode>("source");
+  const readingMode = useReaderStore(
+    (state) => state.theme.documentReadingModes?.[doc.id] ?? "source",
+  );
+  const setReadingMode = (mode: ReadingMode) => {
+    const state = useReaderStore.getState();
+    state.setTheme({
+      documentReadingModes: {
+        ...state.theme.documentReadingModes,
+        [doc.id]: mode,
+      },
+    });
+  };
   const {
     theme: documentTheme,
     setTheme,

@@ -427,6 +427,11 @@ export interface ReaderTheme {
   zoom: number | "width";
   /** Explicit zoom preferences for individual PDFs; global zoom is the fallback. */
   documentZooms?: Record<string, number | "width">;
+  /** Last reading mode for each PDF or EPUB, restored when reopened. */
+  documentReadingModes?: Record<
+    string,
+    "source" | "parallel" | "reflow" | "translation"
+  >;
   /** Translated text size in rem; smaller than the source by default. */
   translationFontSize?: number;
   /** AI conversation text scale; 1 keeps the existing size. */
