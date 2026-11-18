@@ -80,14 +80,14 @@ export function ImagePreview({
       }}
     >
       <DialogContent className="image-preview-dialog">
-        <DialogHeader className="flex-row items-center pe-8">
-          <DialogTitle className="min-w-0 flex-1 truncate" title={title}>
+        <DialogHeader className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center">
+          <DialogTitle className="min-w-0 truncate" title={title}>
             {title}
           </DialogTitle>
           <DialogDescription className="sr-only">
             附件原图，可放大查看细节
           </DialogDescription>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex items-center justify-self-center gap-1 max-[400px]:col-span-3 max-[400px]:row-start-2">
             <Button
               variant="ghost"
               size="icon-sm"
@@ -109,17 +109,18 @@ export function ImagePreview({
             >
               <Plus />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="固定为浮动图片"
-              title="固定为浮动图片"
-              disabled={!aspectRatio || error}
-              onClick={() => setPinned(true)}
-            >
-              <Pin />
-            </Button>
           </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="col-start-3 row-start-1 me-8 justify-self-end"
+            aria-label="固定为浮动图片"
+            title="固定为浮动图片"
+            disabled={!aspectRatio || error}
+            onClick={() => setPinned(true)}
+          >
+            <Pin />
+          </Button>
         </DialogHeader>
         {rendering && (
           <span className="image-preview-loading" role="status">
