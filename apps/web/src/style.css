@@ -2511,14 +2511,7 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-[data-slot="dialog-content"] .image-preview-pin {
-  position: absolute;
-  top: 8px;
-  right: 44px;
-}
-.image-preview-dialog [data-slot="dialog-header"] {
-  padding-right: 64px;
+  padding-top: 8px;
 }
 .floating-image {
   position: fixed;
@@ -2567,12 +2560,6 @@ kbd {
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
-}
-.image-preview-controls {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
 }
 .image-preview-loading {
   text-align: center;

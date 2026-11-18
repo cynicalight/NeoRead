@@ -80,22 +80,46 @@ export function ImagePreview({
       }}
     >
       <DialogContent className="image-preview-dialog">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="image-preview-pin"
-          aria-label="固定为浮动图片"
-          title="固定为浮动图片"
-          disabled={!aspectRatio || error}
-          onClick={() => setPinned(true)}
-        >
-          <Pin />
-        </Button>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+        <DialogHeader className="flex-row items-center pe-8">
+          <DialogTitle className="min-w-0 flex-1 truncate" title={title}>
+            {title}
+          </DialogTitle>
           <DialogDescription className="sr-only">
             附件原图，可放大查看细节
           </DialogDescription>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="缩小图片"
+              disabled={zoom <= 0.5}
+              onClick={() => setZoom(Math.max(0.5, zoom - 0.25))}
+            >
+              <Minus />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setZoom(1)}>
+              适应窗口
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="放大图片"
+              disabled={zoom >= 4}
+              onClick={() => setZoom(Math.min(4, zoom + 0.25))}
+            >
+              <Plus />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="固定为浮动图片"
+              title="固定为浮动图片"
+              disabled={!aspectRatio || error}
+              onClick={() => setPinned(true)}
+            >
+              <Pin />
+            </Button>
+          </div>
         </DialogHeader>
         {rendering && (
           <span className="image-preview-loading" role="status">
@@ -117,29 +141,6 @@ export function ImagePreview({
               onError={() => setError(true)}
             />
           )}
-        </div>
-        <div className="image-preview-controls">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="缩小图片"
-            disabled={zoom <= 0.5}
-            onClick={() => setZoom(Math.max(0.5, zoom - 0.25))}
-          >
-            <Minus />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setZoom(1)}>
-            适应窗口
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="放大图片"
-            disabled={zoom >= 4}
-            onClick={() => setZoom(Math.min(4, zoom + 0.25))}
-          >
-            <Plus />
-          </Button>
         </div>
       </DialogContent>
     </Dialog>

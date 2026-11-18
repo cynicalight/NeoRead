@@ -28,19 +28,22 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("places centered zoom controls below the image without pixel dimensions", async () => {
+it("zooms and resets the image using the header controls", async () => {
   const dialog = document.querySelector('[role="dialog"]')!;
-  const scroll = dialog.querySelector(".image-preview-scroll")!;
-  const controls = dialog.querySelector(".image-preview-controls")!;
-  expect(
-    scroll.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-
-  const image = scroll.querySelector("img")!;
-  Object.defineProperties(image, {
-    naturalWidth: { value: 640 },
-    naturalHeight: { value: 480 },
-  });
-  await act(async () => image.dispatchEvent(new Event("load")));
-  expect(dialog.textContent).not.toContain("640 × 480");
+  const header = dialog.querySelector('[data-slot="dialog-header"]')!;
+  const image = dialog.querySelector("img")!;
+  const click = (button: HTMLButtonElement) => act(async () => button.click());
+  await click(
+    header.querySelector<HTMLButtonElement>('[aria-label="放大图片"]')!,
+  );
+  expect(image.style.width).toBe("125%");
+  const fit = [...header.querySelectorAll("button")].find(
+    (b) => b.textContent === "适应窗口",
+  )!;
+  await click(fit);
+  expect(image.style.width).toBe("100%");
+  await click(
+    header.querySelector<HTMLButtonElement>('[aria-label="缩小图片"]')!,
+  );
+  expect(image.style.width).toBe("75%");
 });
