@@ -4173,7 +4173,6 @@ textarea.citation-preview {
   justify-content: center;
   flex-shrink: 0;
   gap: 4px;
-  padding-inline: 24px;
 }
 .link-preview-scale {
   min-width: 3.5em;
@@ -4192,7 +4191,7 @@ textarea.citation-preview {
 }
 .link-preview-status {
   position: absolute;
-  bottom: 48px;
+  bottom: 18px;
   left: 18px;
   max-width: calc(100% - 36px);
   padding: 3px 6px;

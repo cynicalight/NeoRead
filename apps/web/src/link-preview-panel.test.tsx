@@ -110,6 +110,24 @@ it("dismisses an unpinned preview after leaving and resets pinned state with the
   expect(document.querySelector(".link-preview-window")).toBeNull();
 });
 
+it("keeps zoom and fit above the image after pinning a PDF link", async () => {
+  await show(preview);
+  await click("固定预览");
+  const header = button("移动预览窗口").parentElement!;
+  expect(header.contains(button("缩小预览内容"))).toBe(true);
+  expect(header.contains(button("放大预览内容"))).toBe(true);
+  await click("放大预览内容");
+  await act(async () =>
+    header.querySelector<HTMLButtonElement>('[title="适应窗口"]')!.click(),
+  );
+  expect(header.textContent).toContain("100%");
+  expect(
+    header.compareDocumentPosition(
+      document.querySelector(".link-preview-viewport")!,
+    ) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
 it("requests sharper pixels on zoom and ignores stale results after closing", async () => {
   let resolve!: (value: string) => void;
   const renderImage = vi.fn(
