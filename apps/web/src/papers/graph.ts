@@ -152,7 +152,7 @@ export function createPaperSimulation(graph: PaperGraphData): PaperSimulation {
     .stop()
     .alphaDecay(0.05)
     .velocityDecay(0.4)
-    .force("charge", forceManyBody<ForceNode>().strength(-420))
+    .force("charge", forceManyBody<ForceNode>().strength(-260))
     .force(
       "link",
       forceLink<ForceNode, ForceLink>(links)
