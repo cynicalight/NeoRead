@@ -28,6 +28,8 @@ import {
 /** Adds or edits a note/question inside the annotation card. */
 export interface AnnotationNoteEditor {
   anchor: SelectionAnchor;
+  /** Document whose attachments receive pasted images. */
+  documentId: string;
   kind: "note" | "question";
   /** Whether an existing annotation is being edited. */
   editing: boolean;
@@ -183,9 +185,12 @@ export function AnnotationHoverCard({
     </CardButton>
   );
 
+  const [uploading, setUploading] = useState(false);
+  // Saving closes the card; wait until pasted images are in the Markdown.
   const canSave =
     !!editor &&
     !editor.saving &&
+    !uploading &&
     (editor.kind === "question"
       ? !!editor.value.trim()
       : !!editor.value.trim() || !!editor.initial.trim());
@@ -278,6 +283,7 @@ export function AnnotationHoverCard({
               }}
             >
               <PaperNoteRichEditor
+                documentId={editor.documentId}
                 body={editor.value}
                 disabled={editor.saving}
                 ariaLabel={title}
@@ -288,6 +294,7 @@ export function AnnotationHoverCard({
                 className="annotation-markdown-editor"
                 diagnosticScope="annotation_note"
                 onChange={editor.onChange}
+                onUploadingChange={setUploading}
                 leading={grip}
                 actions={
                   <>
@@ -323,6 +330,7 @@ export function AnnotationHoverCard({
                   content={annotation.note}
                   animated={false}
                   literalHtml
+                  noteImages
                 />
                 <div className="mt-1 flex items-center gap-1">
                   {index === 0 && grip}

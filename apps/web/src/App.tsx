@@ -40,6 +40,7 @@ import {
 import { toast } from "sonner";
 import { Toaster } from "@neoread/ui/components/sonner";
 import { CiteHost } from "./cite/CiteHost";
+import { NoteImagePreviewHost } from "./NoteImage";
 import {
   useReaderStore,
   refreshLibrary,
@@ -1066,6 +1067,7 @@ export function App() {
           }}
         />
         {!window.neoreadDesktop?.setCitationVisible && <CiteHost />}
+        <NoteImagePreviewHost />
         <Toaster
           richColors
           position="bottom-right"

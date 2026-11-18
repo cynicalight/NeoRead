@@ -4621,6 +4621,38 @@ textarea.paper-note-editor-input {
   background: var(--muted);
   border-radius: 6px;
 }
+.note-image-node {
+  color: var(--muted-foreground);
+}
+.note-image,
+.note-image-node:has(img) {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  vertical-align: bottom;
+}
+.note-image {
+  cursor: zoom-in;
+  border-radius: 6px;
+}
+.note-image:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.note-image img,
+.note-image-node img {
+  display: block;
+  max-width: 100%;
+  max-height: 24rem;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.note-image-node.ProseMirror-selectednode img {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
 :root:not([data-reduced-motion="true"]) {
   .paper-note-rich,
   .paper-note-editor-input {

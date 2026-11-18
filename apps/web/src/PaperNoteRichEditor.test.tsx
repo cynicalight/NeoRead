@@ -20,6 +20,7 @@ it("retains an editable source draft when the rich editor chunk fails to load", 
     await act(async () =>
       root.render(
         <PaperNoteRichEditor
+          documentId="doc"
           body="原始 draft $x_{1}$"
           disabled={false}
           onChange={change}

@@ -19,6 +19,7 @@ const render = async (body = "private note text") =>
   act(async () => {
     root.render(
       <PaperNoteRichEditor
+        documentId="doc"
         body={body}
         disabled={false}
         onChange={() => {}}

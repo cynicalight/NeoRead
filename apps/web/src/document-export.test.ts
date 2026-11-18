@@ -4,7 +4,7 @@ import { api } from "@neoread/api";
 import { saveExportBlob } from "./download";
 import { paper } from "./papers/fixtures";
 import {
-  annotationMarkdown,
+  selectedNotesMarkdown,
   exportOriginal,
   exportMarkdownFile,
   originalMarkdown,
@@ -106,7 +106,7 @@ it("includes question answers but excludes unrelated chat, bookmarks and other a
     note: "question",
     answerId: "answer",
   } as Annotation;
-  const result = annotationMarkdown(
+  const result = selectedNotesMarkdown(
     doc,
     [question, { ...question, id: "h", kind: "highlight", quote: "excluded" }],
     [

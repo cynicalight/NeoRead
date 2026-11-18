@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Minus, Pin, Plus } from "lucide-react";
-import { blockImageURL } from "@neoread/api";
 import type { ImageAttachment } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
 import {
@@ -23,27 +22,30 @@ export function imageLabel(image: ImageAttachment) {
   return `第 ${image.page} 页 · ${kind}`;
 }
 export function ImagePreview({
-  documentId,
-  image,
+  title,
+  alt,
+  src,
+  render,
   onClose,
-  renderImage,
 }: {
-  documentId: string;
-  image: ImageAttachment;
+  title: string;
+  alt: string;
+  src: string;
+  /** Replaces `src` with a sharper rendering when it resolves. */
+  render?: (signal: AbortSignal) => Promise<Blob>;
   onClose: () => void;
-  renderImage?: (id: string, signal: AbortSignal) => Promise<Blob>;
 }) {
   const [zoom, setZoom] = useState(1);
   const [pinned, setPinned] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<number>();
   const [error, setError] = useState(false);
   const [highResolution, setHighResolution] = useState<string>();
-  const [rendering, setRendering] = useState(!!renderImage);
+  const [rendering, setRendering] = useState(!!render);
   useEffect(() => {
-    if (!renderImage) return;
+    if (!render) return;
     const controller = new AbortController();
     let url: string | undefined;
-    void renderImage(image.id, controller.signal)
+    void render(controller.signal)
       .then((blob) => {
         if (controller.signal.aborted) return;
         url = URL.createObjectURL(blob);
@@ -58,13 +60,12 @@ export function ImagePreview({
       controller.abort();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [image.id, renderImage]);
-  const src = highResolution || blockImageURL(documentId, image.id);
-  const alt = image.caption || imageLabel(image);
+  }, [render]);
+  const shown = highResolution || src;
   if (pinned && aspectRatio) {
     return (
       <FloatingImage
-        src={src}
+        src={shown}
         alt={alt}
         aspectRatio={aspectRatio}
         onClose={onClose}
@@ -91,7 +92,7 @@ export function ImagePreview({
           <Pin />
         </Button>
         <DialogHeader>
-          <DialogTitle>{imageLabel(image)}</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">
             附件原图，可放大查看细节
           </DialogDescription>
@@ -107,7 +108,7 @@ export function ImagePreview({
           ) : (
             <img
               style={{ width: `${zoom * 100}%`, maxWidth: "none" }}
-              src={src}
+              src={shown}
               alt={alt}
               onLoad={(event) => {
                 const img = event.currentTarget;

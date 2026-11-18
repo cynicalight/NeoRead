@@ -452,6 +452,13 @@ export function Workspace({
   const [quotes, setQuotes] = useState<ReaderSelection[]>([]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [previewImage, setPreviewImage] = useState<ImageAttachment>();
+  const renderPreviewImage = useMemo(
+    () =>
+      previewImage && renderBlockImage
+        ? (signal: AbortSignal) => renderBlockImage(previewImage.id, signal)
+        : undefined,
+    [previewImage, renderBlockImage],
+  );
   const composeInput = useRef<HTMLTextAreaElement>(null);
   const composerDrafts = useRef(
     new Map<
@@ -1838,6 +1845,7 @@ export function Workspace({
           active && noteAnchor
             ? {
                 anchor: noteAnchor,
+                documentId: doc.id,
                 kind: noteKind,
                 editing: !!editingAnnotation,
                 initial: editingAnnotation?.note ?? "",
@@ -1875,9 +1883,10 @@ export function Workspace({
       {active && previewImage && (
         <ImagePreview
           key={previewImage.id}
-          documentId={doc.id}
-          image={previewImage}
-          renderImage={renderBlockImage}
+          title={imageLabel(previewImage)}
+          alt={previewImage.caption || imageLabel(previewImage)}
+          src={blockImageURL(doc.id, previewImage.id)}
+          render={renderPreviewImage}
           onClose={() => setPreviewImage(undefined)}
         />
       )}

@@ -4,10 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ImagePreview } from "./ImagePreview";
 
-vi.mock("@neoread/api", () => ({
-  blockImageURL: () => "/image.png",
-}));
-
 let root: Root, host: HTMLDivElement;
 beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -17,8 +13,9 @@ beforeEach(async () => {
   await act(async () =>
     root.render(
       <ImagePreview
-        documentId="doc"
-        image={{ id: "image", page: 3, label: "figure" }}
+        title="第 3 页 · 图表"
+        alt="第 3 页 · 图表"
+        src="/image.png"
         onClose={() => {}}
       />,
     ),

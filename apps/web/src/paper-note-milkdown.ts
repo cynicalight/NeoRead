@@ -18,7 +18,7 @@ import { gfm, extendListItemSchemaForTask } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { EditorState, Selection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
-import { $node, $remark } from "@milkdown/kit/utils";
+import { $view } from "@milkdown/kit/utils";
 import { Slice } from "@milkdown/kit/prose/model";
 import { visit } from "unist-util-visit";
 import {
@@ -26,6 +26,13 @@ import {
   normalizeMathLists,
   type MathEditRequest,
 } from "./paper-note-math";
+import { isNoteImagePath } from "@neoread/api";
+import {
+  acquireNoteImage,
+  pastedNoteImages,
+  type NoteImageRequest,
+  type NoteInsertionPoint,
+} from "./note-images";
 import type { Root, RootContent } from "mdast";
 
 const isLineBreak = (value: string) => /^<br\s*\/?\s*>$/i.test(value.trim());
@@ -82,6 +89,68 @@ const inertImage = imageSchema.extendSchema((previous) => (ctx) => ({
     `[图片：${node.attrs.alt || "未加载"}]`,
   ],
 }));
+// Only library-managed images load, through the authenticated cache. The
+// Markdown keeps `assets/…`; object URLs exist only in this view's DOM.
+const noteImageView = (onOpen?: (request: NoteImageRequest) => void) =>
+  $view(inertImage.node, () => (initial) => {
+    let node = initial;
+    let release: (() => void) | undefined;
+    const dom = document.createElement("span");
+    dom.className = "note-image-node";
+    const render = () => {
+      release?.();
+      release = undefined;
+      const { src, alt, title } = node.attrs as Record<string, string>;
+      dom.dataset.noteImage = src;
+      dom.dataset.alt = alt;
+      if (title) dom.title = title;
+      else dom.removeAttribute("title");
+      dom.textContent = `[图片：${alt || "未加载"}]`;
+      if (!isNoteImagePath(src)) return;
+      const image = acquireNoteImage(src);
+      const current = image.release;
+      release = current;
+      image.url.then(
+        (url) => {
+          if (release !== current) return;
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = alt;
+          img.draggable = false;
+          if (!title && onOpen) dom.title = "双击查看大图";
+          dom.replaceChildren(img);
+        },
+        () => {
+          if (release === current)
+            dom.textContent = `[图片加载失败：${alt || "未加载"}]`;
+        },
+      );
+    };
+    render();
+    dom.ondblclick = (event) => {
+      const { src, alt } = node.attrs as Record<string, string>;
+      if (!onOpen || !isNoteImagePath(src)) return;
+      event.preventDefault();
+      onOpen({ path: src, alt });
+    };
+    return {
+      dom,
+      update(next) {
+        if (next.type !== node.type) return false;
+        const changed = (["src", "alt", "title"] as const).some(
+          (key) => next.attrs[key] !== node.attrs[key],
+        );
+        node = next;
+        if (changed) render();
+        return true;
+      },
+      ignoreMutation: () => true,
+      destroy() {
+        release?.();
+        release = undefined;
+      },
+    };
+  });
 const taskCheckbox = extendListItemSchemaForTask.extendSchema(
   (previous) => (ctx) => ({
     ...previous(ctx),
@@ -152,13 +221,20 @@ export async function createPaperNoteEditor(
   {
     ariaLabel = "编辑论文笔记",
     onEditMath,
+    onOpenImage,
+    onPasteImages,
   }: {
     ariaLabel?: string;
     onEditMath?: (request: MathEditRequest) => void;
+    onOpenImage?: (request: NoteImageRequest) => void;
+    /** Receives pasted image files and where their Markdown belongs. */
+    onPasteImages?: (files: File[], point: NoteInsertionPoint) => void;
   } = {},
 ) {
   let ready = false;
   let currentMarkdown = "";
+  // Pending paste positions follow every later edit until their upload lands.
+  const points = new Set<{ pos: number }>();
   const editor = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, host);
@@ -172,16 +248,46 @@ export async function createPaperNoteEditor(
           spellcheck: "false",
         },
         handlePaste(view, event) {
-          const text = event.clipboardData?.getData("text/plain");
           if (
-            !text ||
-            event.clipboardData?.getData("text/html") ||
             view.state.selection.$from.parent.type.spec.code ||
             view.state.selection.$from
               .marks()
               .some((mark) => mark.type.spec.code)
           )
             return false;
+          const files = onPasteImages
+            ? pastedNoteImages(event.clipboardData)
+            : [];
+          if (files.length) {
+            const { from, to } = view.state.selection;
+            const selected =
+              from === to ? null : view.state.doc.slice(from, to);
+            const point = { pos: from };
+            points.add(point);
+            onPasteImages!(files, {
+              insert(markdown) {
+                if (!points.delete(point) || view.isDestroyed) return false;
+                const { doc } = view.state;
+                let pos = Math.min(point.pos, doc.content.size);
+                const $pos = doc.resolve(pos);
+                if ($pos.parent.type.spec.code) pos = $pos.after();
+                const slice = Slice.maxOpen(
+                  ctx.get(parserCtx)(markdown).content,
+                );
+                const end = Math.min(pos + (to - from), doc.content.size);
+                const replaceTo =
+                  selected && doc.slice(pos, end).eq(selected) ? end : pos;
+                view.dispatch(
+                  view.state.tr.replaceRange(pos, replaceTo, slice),
+                );
+                return true;
+              },
+              release: () => points.delete(point),
+            });
+            return true;
+          }
+          const text = event.clipboardData?.getData("text/plain");
+          if (!text || event.clipboardData?.getData("text/html")) return false;
           const tree = ctx.get(remarkCtx).parse(text);
           let hasMath = false;
           visit(tree, ["math", "inlineMath"], () => {
@@ -227,7 +333,11 @@ export async function createPaperNoteEditor(
         },
         dispatchTransaction(this: EditorView, transaction) {
           const previous = this.state.doc;
-          if (transaction.docChanged) normalizeMathLists(transaction);
+          if (transaction.docChanged) {
+            normalizeMathLists(transaction);
+            for (const point of points)
+              point.pos = transaction.mapping.map(point.pos, -1);
+          }
           const next = this.state.apply(transaction);
           this.updateState(next);
           // Selection, mount, and mode switches must never rewrite raw Markdown.
@@ -245,6 +355,7 @@ export async function createPaperNoteEditor(
     .use(
       [
         ...paperNoteMath(onEditMath),
+        noteImageView(onOpenImage),
         inertLink,
         inertImage,
         taskCheckbox,

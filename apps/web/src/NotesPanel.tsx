@@ -112,8 +112,13 @@ function NoteCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(a.note);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const closeState = useRef({ editing, saving, changed: false });
-  closeState.current = { editing, saving, changed: draft !== a.note };
+  closeState.current = {
+    editing,
+    saving,
+    changed: draft !== a.note || uploading,
+  };
   useEffect(
     () =>
       registerTabCloseGuard(a.documentId, () =>
@@ -196,6 +201,7 @@ function NoteCard({
           }}
         >
           <PaperNoteRichEditor
+            documentId={a.documentId}
             body={draft}
             disabled={saving}
             ariaLabel={question ? "问题" : "批注"}
@@ -204,6 +210,7 @@ function NoteCard({
             className="annotation-markdown-editor"
             diagnosticScope="annotation_note"
             onChange={setDraft}
+            onUploadingChange={setUploading}
           />
           <div className="grid grid-cols-2 gap-1">
             <Button
@@ -216,7 +223,7 @@ function NoteCard({
             </Button>
             <Button
               size="xs"
-              disabled={saving || (question && !draft.trim())}
+              disabled={saving || uploading || (question && !draft.trim())}
               onClick={() => {
                 setSaving(true);
                 void onSave(draft)
@@ -231,7 +238,12 @@ function NoteCard({
         </div>
       ) : (
         a.note && (
-          <MessageMarkdown content={a.note} animated={false} literalHtml />
+          <MessageMarkdown
+            content={a.note}
+            animated={false}
+            literalHtml
+            noteImages
+          />
         )
       )}
       {question && !editing && (
