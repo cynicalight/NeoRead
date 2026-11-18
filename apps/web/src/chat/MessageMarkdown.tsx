@@ -22,6 +22,7 @@ import {
 import type { Components } from "react-markdown";
 import type { Root } from "mdast";
 import { visit } from "unist-util-visit";
+import remarkCjkFriendly from "remark-cjk-friendly";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { ErrorBoundary } from "../ErrorBoundary";
@@ -38,7 +39,7 @@ import { ChatCitationNavigation, remarkChatCitations } from "./citations";
 
 const Code = lazy(() => import("./CodeBlock"));
 const MathFormula = lazy(() => import("./MathFormula"));
-const plugins = [remarkGfm, remarkMath, remarkLatex];
+const plugins = [remarkCjkFriendly, remarkGfm, remarkMath, remarkLatex];
 // Source-mode annotations can contain unsupported HTML. Keep it visible as
 // escaped text without enabling raw HTML rendering or changing stored Markdown.
 function remarkLiteralHtml() {
