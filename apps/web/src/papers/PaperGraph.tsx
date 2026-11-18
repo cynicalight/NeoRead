@@ -13,6 +13,13 @@ import {
 import type { PaperGraphNode, PaperGraphRelation } from "./graph";
 import "./paper-graph.css";
 import { reducedMotion, subscribeMotion } from "../motion";
+import { displayTitleTranslation } from "../library";
+
+function labelWidth(label: string) {
+  let width = 0;
+  for (const char of label) width += char.charCodeAt(0) > 255 ? 11 : 6;
+  return width;
+}
 
 const labels: Record<PaperGraphRelation | "paper", string> = {
   paper: "论文",
@@ -24,11 +31,13 @@ const labels: Record<PaperGraphRelation | "paper", string> = {
 export function PaperGraph({
   documents,
   selectedId,
+  showBilingualTitles,
   onSelect,
   onOpen,
 }: {
   documents: Document[];
   selectedId: string | null;
+  showBilingualTitles: boolean;
   onSelect: (doc: Document) => void;
   onOpen: (doc: Document) => void;
 }) {
@@ -58,6 +67,15 @@ export function PaperGraph({
     () => new Map(graph.nodes.map((node) => [node.id, node])),
     [graph],
   );
+  const translations = useMemo(() => {
+    const result = new Map<string, string>();
+    if (showBilingualTitles)
+      for (const node of graph.nodes) {
+        const title = node.document && displayTitleTranslation(node.document);
+        if (title) result.set(node.id, title);
+      }
+    return result;
+  }, [graph, showBilingualTitles]);
   const current =
     hub === ""
       ? null
@@ -68,9 +86,15 @@ export function PaperGraph({
           : null;
   const terms = graphText(query).split(" ").filter(Boolean);
   const matches = terms.length
-    ? graph.nodes.filter((node) =>
-        terms.every((term) => graphText(node.label).includes(term)),
-      )
+    ? graph.nodes.filter((node) => {
+        const title = graphText(node.label);
+        const translation = graphText(
+          node.document?.metadata.translatedTitle ?? "",
+        );
+        return terms.every(
+          (term) => title.includes(term) || translation.includes(term),
+        );
+      })
     : [];
   const focusId = hovered ?? focused ?? current;
   const visibleLabels = useMemo(() => {
@@ -109,13 +133,11 @@ export function PaperGraph({
       graph.adjacency.get(node.id)!.size;
     for (const node of [...graph.nodes].sort((a, b) => rank(b) - rank(a))) {
       const { x, y } = layout.positions.get(node.id)!;
+      const translated = translations.get(node.id);
+      const height = translated ? 40 : 30;
       const width = Math.min(
         180,
-        28 +
-          [...node.label].reduce(
-            (sum, char) => sum + (char.charCodeAt(0) > 255 ? 11 : 6),
-            0,
-          ),
+        28 + Math.max(labelWidth(node.label), labelWidth(translated ?? "")),
       );
       // Paper titles may pass over author and venue dots, whose own labels
       // then yield; they never cover another label or paper.
@@ -125,8 +147,8 @@ export function PaperGraph({
           placed.has(owner) ||
           byId.get(owner)?.kind === "paper");
       const sides = [
-        ["right", cells(x - 12, y - 15, width, 30)],
-        ["left", cells(x + 12 - width, y - 15, width, 30)],
+        ["right", cells(x - 12, y - height / 2, width, height)],
+        ["left", cells(x + 12 - width, y - height / 2, width, height)],
       ] as const;
       const side =
         node.id === focusId
@@ -145,7 +167,7 @@ export function PaperGraph({
       }
     }
     return placed;
-  }, [graph, layout, focusId, layoutRevision]);
+  }, [graph, layout, focusId, layoutRevision, translations]);
   // Hop distance from the focused node: hubs are one hop, papers sharing a
   // hub are two. Edges flow outward along increasing distance.
   const distance = new Map<string, number>();
@@ -598,6 +620,7 @@ export function PaperGraph({
             {graph.nodes.map((node) => {
               const point = layout.positions.get(node.id)!;
               const visual = nodeVisual(node);
+              const translated = translations.get(node.id);
               return (
                 <Button
                   key={node.id}
@@ -621,8 +644,9 @@ export function PaperGraph({
                       "--node-color": visual.color,
                     } as CSSProperties
                   }
-                  title={node.label}
-                  aria-label={`${labels[node.kind]}：${node.label}`}
+                  title={translated ? `${node.label}\n${translated}` : node.label}
+                  aria-label={`${labels[node.kind]}：${node.label}${translated ? `，译名：${translated}` : ""}`}
+                  data-bilingual={!!translated || undefined}
                   aria-pressed={current === node.id}
                   data-labelled={visibleLabels.get(node.id)}
                   data-focus={focusId === node.id || undefined}
@@ -683,7 +707,14 @@ export function PaperGraph({
                   }}
                 >
                   <span className="paper-graph-dot" aria-hidden="true" />
-                  <span className="paper-graph-node-label">{node.label}</span>
+                  <span className="paper-graph-node-label">
+                    <span className="truncate">{node.label}</span>
+                    {translated && (
+                      <span className="paper-graph-node-translation truncate">
+                        {translated}
+                      </span>
+                    )}
+                  </span>
                 </Button>
               );
             })}
@@ -704,6 +735,11 @@ export function PaperGraph({
             <div className="paper-graph-current">
               <span>
                 {labels[currentNode.kind]} · {currentNode.label}
+                {translations.has(currentNode.id) && (
+                  <span className="paper-graph-inspector-translation">
+                    {translations.get(currentNode.id)}
+                  </span>
+                )}
               </span>
               <Button
                 variant="ghost"
@@ -737,6 +773,11 @@ export function PaperGraph({
                   aria-pressed={current === node.id}
                 >
                   <span>{node.label}</span>
+                  {translations.has(node.id) && (
+                    <span className="paper-graph-inspector-translation">
+                      {translations.get(node.id)}
+                    </span>
+                  )}
                   <small>
                     {related.has(node.id) && !terms.length
                       ? [...related.get(node.id)!].join("；")

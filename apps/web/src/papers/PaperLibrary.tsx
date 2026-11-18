@@ -1088,6 +1088,7 @@ export function PaperLibrary({
                 <PaperGraph
                   documents={visible}
                   selectedId={selectedId}
+                  showBilingualTitles={showBilingualTitles}
                   onSelect={(doc) => {
                     useAttachments.setState({ selected: null });
                     ui.select(doc.id);

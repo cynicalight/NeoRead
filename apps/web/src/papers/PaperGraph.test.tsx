@@ -28,7 +28,7 @@ const docs = [
     id: "b",
     title: "Second Paper",
     author: "Ada Lovelace",
-    metadata: { venue: "ICML" },
+    metadata: { venue: "ICML", translatedTitle: "第二篇论文" },
     related: ["a"],
   }),
   paper({ id: "c", title: "Isolated Paper" }),
@@ -51,6 +51,7 @@ async function render(selectedId: string | null = null) {
       <PaperGraph
         documents={docs}
         selectedId={selectedId}
+        showBilingualTitles={false}
         onSelect={select}
         onOpen={open}
       />,
@@ -166,6 +167,11 @@ it("searches hubs and papers, centers a result, and gives a meaningful no-result
   await search("Second");
   await click(host.querySelector<HTMLButtonElement>(".paper-graph-result")!);
   expect(select).toHaveBeenLastCalledWith(docs[1]);
+  await search("第二篇");
+  expect(host.querySelectorAll(".paper-graph-results li")).toHaveLength(1);
+  expect(host.querySelector(".paper-graph-results")?.textContent).toContain(
+    "Second Paper",
+  );
 });
 
 it("zooms and resets imperatively, ignores secondary drag pointers, and cleans up its observer", async () => {
@@ -325,7 +331,7 @@ it("moves nodes with the keyboard without autonomous animation when reduced moti
   expect(select).not.toHaveBeenCalled();
 });
 
-it("retains moved positions and zoom when background metadata refreshes without changing relationships", async () => {
+it("retains moved positions and zoom when metadata and title display change without changing relationships", async () => {
   motion.reduced = true;
   await render();
   const viewport = host.querySelector<HTMLDivElement>(".paper-graph-viewport")!;
@@ -350,6 +356,7 @@ it("retains moved positions and zoom when background metadata refreshes without 
           metadata: { ...doc.metadata, remark: "updated" },
         }))}
         selectedId={null}
+        showBilingualTitles
         onSelect={select}
         onOpen={open}
       />,
