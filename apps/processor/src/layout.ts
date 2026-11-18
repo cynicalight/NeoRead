@@ -105,8 +105,8 @@ export function decodeRegions(
   return kept.sort((a, b) => a.order - b.order);
 }
 // Each span belongs to at most one region. Unmatched spans are retained separately.
-export function assignText(regions: Region[], spans: TextSpan[]) {
-  const texts: TextSpan[][] = regions.map(() => []);
+function partitionText(regions: Region[], spans: TextSpan[]) {
+  const groups: TextSpan[][] = regions.map(() => []);
   const unmatched: TextSpan[] = [];
   for (const span of spans) {
     let best = -1,
@@ -121,17 +121,20 @@ export function assignText(regions: Region[], spans: TextSpan[]) {
       }
     });
     if (best < 0) unmatched.push(span);
-    else texts[best].push(span);
+    else groups[best].push(span);
   }
+  return { groups, unmatched };
+}
+
+export function assignText(regions: Region[], spans: TextSpan[]) {
+  const { groups, unmatched } = partitionText(regions, spans);
   return {
-    texts: texts.map((t, i) =>
-      preformatted.has(regions[i].label) ? joinLines(t) : joinSpans(t),
+    texts: groups.map((group, i) =>
+      regions[i].label === "algorithm" ? joinLines(group) : joinSpans(group),
     ),
     unmatched: joinSpans(unmatched),
   };
 }
-// Algorithms keep their lines and indentation; everything else reads as prose.
-const preformatted = new Set(["algorithm"]);
 const sameLine = (a: TextSpan, b: TextSpan) =>
   Math.abs(a.bounds.y - b.bounds.y) <
   Math.min(a.bounds.height, b.bounds.height) * 0.45;
@@ -195,8 +198,10 @@ function readingLines(spans: TextSpan[]): TextSpan[][] {
     .map((line) => line.sort((a, b) => a.bounds.x - b.bounds.x));
 }
 function joinSpans(spans: TextSpan[]) {
-  return readingLines(spans)
-    .flat()
+  return spanText(readingLines(spans).flat());
+}
+function spanText(spans: TextSpan[]) {
+  return spans
     .map((s) => s.text)
     .join(" ")
     .replace(/\s+/g, " ")
@@ -249,10 +254,7 @@ function union(boxes: Box[]): Box {
 }
 // Inline symbols remain in their paragraph. Group panels only when a nearby
 // numbered caption provides evidence that they belong to one figure.
-export function readingRegions(
-  raw: Region[],
-  spans: TextSpan[],
-): ReadingRegion[] {
+export function readingRegions(raw: Region[], spans: TextSpan[]) {
   const regions = raw.filter((r) => r.label !== "inline_formula");
   const assigned = assignText(regions, spans);
   const entries: ReadingRegion[] = regions.map((r, i) => ({
@@ -309,7 +311,7 @@ export function readingRegions(
     if (caption) groups.set(caption, [...(groups.get(caption) ?? []), asset]);
   }
   const consumed = new Set<ReadingRegion>();
-  const merged: ReadingRegion[] = [];
+  const merged: (Region & { members: number[] })[] = [];
   for (const [caption, assets] of groups) {
     let bounds = union([caption.bounds, ...assets.map((a) => a.bounds)]);
     const parts = entries.filter(
@@ -322,19 +324,36 @@ export function readingRegions(
     const members = [...assets, ...parts];
     bounds = union(members.map((r) => r.bounds));
     members.forEach((r) => consumed.add(r));
-    const text = assignText([{ ...assets[0], bounds }], spans).texts[0];
     merged.push({
       ...assets[0],
       bounds,
-      text,
       order: Math.min(...members.map((r) => r.order)),
       confidence: Math.min(...assets.map((r) => r.confidence)),
       members: members.map((r) => r.order),
     });
   }
-  return orderPageBlocks(
+  const composed = orderPageBlocks(
     [...entries.filter((r) => !consumed.has(r)), ...merged].sort(
       (a, b) => a.order - b.order,
     ),
   );
+  const final = partitionText(composed, spans);
+  const blocks = composed.flatMap((region, i): ReadingRegion[] => {
+    const group = final.groups[i];
+    // Assign spans before splitting so competing regions cannot claim a row twice.
+    if (region.label === "content") {
+      const lines = readingLines(group);
+      if (lines.length > 1)
+        return lines.map((line) => ({
+          ...region,
+          bounds: union(line.map((span) => span.bounds)),
+          text: spanText(line),
+        }));
+      return [{ ...region, text: lines[0] ? spanText(lines[0]) : "" }];
+    }
+    const text =
+      region.label === "algorithm" ? joinLines(group) : joinSpans(group);
+    return [{ ...region, text }];
+  });
+  return { blocks, unmatched: joinSpans(final.unmatched) };
 }
