@@ -250,6 +250,8 @@ export interface LibraryPreferences {
   /** Library opened at startup; defaults to papers. */
   primaryMode?: LibraryMode;
   mode?: LibraryMode;
+  /** Show saved title translations in both libraries (default off). */
+  showBilingualTitles?: boolean;
   papers?: PaperLibraryPreferences;
   books?: {
     /** Width of the book detail panel in CSS pixels. */

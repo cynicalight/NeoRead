@@ -1,4 +1,13 @@
 import type { Document, TagBoard } from "@neoread/core";
+
+export function displayTitleTranslation(doc: Document) {
+  const translation = doc.metadata.translatedTitle?.trim();
+  if (!translation) return;
+  const normalize = (title: string) =>
+    title.trim().replace(/\s+/g, " ").toLowerCase();
+  if (normalize(translation) !== normalize(doc.title)) return translation;
+}
+
 export interface LibraryFilters {
   format: string;
   reading: string;
@@ -38,7 +47,7 @@ export function filterDocuments(
               ? d.percentage >= 1
               : d.percentage > 0 && d.percentage < 1)) &&
         filters.tags.every((tag) => tags.includes(tag.toLowerCase())) &&
-        `${d.title} ${d.author} ${d.tags.join(" ")}`
+        `${d.title} ${d.author} ${d.tags.join(" ")} ${d.metadata.translatedTitle ?? ""}`
           .toLocaleLowerCase()
           .includes(text)
       );

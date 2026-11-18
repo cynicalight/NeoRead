@@ -1959,6 +1959,31 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.book-grid[data-bilingual-titles]:not(.book-list) .book-meta,
+.book-list .book-meta:has(.library-title-translation) {
+  align-items: start;
+}
+.book-grid[data-bilingual-titles]:not(.book-list) .book-title {
+  min-height: calc(1.5em + 12px * 1.4);
+  align-content: start;
+}
+.library-title-translation,
+.detail-title-translation {
+  color: var(--muted-foreground);
+  font-weight: 400;
+  line-height: 1.4;
+}
+.library-title-translation {
+  font-size: 12px;
+}
+.detail-title-translation {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.paper-grid[data-bilingual-titles] .paper-card-titles {
+  min-height: calc(13px * 1.45 + 12px * 1.4);
+  min-width: 0;
+}
 .book-cover-frame {
   position: relative;
   min-width: 0;

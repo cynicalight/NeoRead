@@ -1794,6 +1794,38 @@ it("hides and restores the title without losing order or width", async () => {
   ).toContain("Attention Is All You Need");
 });
 
+it("shows the paper translation in the title column and on cards, not in other columns", async () => {
+  const translatedTitle = "注意力就是你所需要的一切";
+  await act(async () =>
+    useReaderStore.setState({
+      documents: [
+        { ...docs[0], metadata: { ...docs[0].metadata, translatedTitle } },
+        docs[1],
+      ],
+      libraryPreferences: { mode: "papers", showBilingualTitles: true },
+    }),
+  );
+  const cell = host.querySelector(
+    'tr[data-paper-id="a"] td[data-column="title"]',
+  );
+  expect(cell?.textContent).toContain(docs[0].title);
+  expect(cell?.textContent).toContain(translatedTitle);
+
+  await act(async () =>
+    savePaperPreferences((prefs) => showColumn(prefs, "title", false)),
+  );
+  expect(host.querySelector('tr[data-paper-id="a"]')?.textContent).not.toContain(
+    translatedTitle,
+  );
+
+  await act(async () =>
+    savePaperPreferences((prefs) => ({ ...prefs, layout: "card" })),
+  );
+  const card = host.querySelector('article[data-paper-id="a"]');
+  expect(card?.textContent).toContain(translatedTitle);
+  expect(card?.querySelector(".cover-title")?.textContent).toBe(docs[0].title);
+});
+
 it("stops the final metadata boundary when there is no spare space", async () => {
   await act(async () =>
     useReaderStore.setState({

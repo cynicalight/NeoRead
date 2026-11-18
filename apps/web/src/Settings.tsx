@@ -845,6 +845,30 @@ export function Settings({
             </section>
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-3 text-sm">
+                <div>
+                  <label id="bilingual-titles-label" htmlFor="bilingual-titles">
+                    双语标题
+                  </label>
+                  <p
+                    id="bilingual-titles-description"
+                    className="text-xs text-muted-foreground"
+                  >
+                    在原标题下显示已有译名，不会自动翻译。
+                  </p>
+                </div>
+                <Switch
+                  id="bilingual-titles"
+                  aria-labelledby="bilingual-titles-label"
+                  aria-describedby="bilingual-titles-description"
+                  checked={libraryPreferences.showBilingualTitles === true}
+                  onCheckedChange={(checked) =>
+                    void updateLibraryPreferences({
+                      showBilingualTitles: checked,
+                    }).catch((error) => toast.error((error as Error).message))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3 text-sm">
                 <span id="authors-label">显示作者名称</span>
                 <Switch
                   aria-labelledby="authors-label"
