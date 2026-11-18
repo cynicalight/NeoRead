@@ -222,12 +222,10 @@ export function PaperGraph({
   const nodes = useRef(new Map<string, HTMLButtonElement>());
   const edges = useRef(new Map<string, SVGPathElement>());
   const flows = useRef(new Map<string, SVGPathElement>());
-  const gradients = useRef(new Map<string, SVGLinearGradientElement>());
   const animation = useRef(0);
   const suppressClick = useRef<string | null>(null);
   const inputId = useId();
   const hintId = useId();
-  const gradientPrefix = `pg${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   function paint() {
     const { x, y, scale } = view.current;
     if (scene.current)
@@ -249,13 +247,6 @@ export function PaperGraph({
       const d = `M${a.x},${a.y} L${b.x},${b.y}`;
       edges.current.get(edge.id)?.setAttribute("d", d);
       flows.current.get(edge.id)?.setAttribute("d", d);
-      const gradient = gradients.current.get(edge.id);
-      if (gradient) {
-        gradient.setAttribute("x1", String(a.x));
-        gradient.setAttribute("y1", String(a.y));
-        gradient.setAttribute("x2", String(b.x));
-        gradient.setAttribute("y2", String(b.y));
-      }
     }
   }
   function animateLayout() {
@@ -385,27 +376,18 @@ export function PaperGraph({
     paint();
     choose(node);
   }
-  // Size and colour scale within each kind, so one prolific venue does not
-  // shrink every paper. Square root keeps small differences visible.
+  // Scale each kind independently; square root keeps small differences visible.
   const maxDegree = { paper: 1, author: 1, venue: 1 };
   for (const node of graph.nodes)
     maxDegree[node.kind] = Math.max(
       maxDegree[node.kind],
       graph.adjacency.get(node.id)!.size,
     );
-  const nodeVisual = (node: PaperGraphNode) => {
+  const nodeSize = (node: PaperGraphNode) => {
     const strength = Math.sqrt(
       graph.adjacency.get(node.id)!.size / maxDegree[node.kind],
     );
-    if (node.kind !== "paper")
-      return {
-        size: 6 + strength * 7,
-        color: `var(--graph-${node.kind})`,
-      };
-    return {
-      size: 7 + strength * 11,
-      color: `color-mix(in oklch, var(--graph-paper-hot) ${Math.round(strength * 100)}%, var(--graph-paper-cool))`,
-    };
+    return node.kind === "paper" ? 7 + strength * 11 : 6 + strength * 7;
   };
   const list = terms.length
     ? matches
@@ -533,47 +515,7 @@ export function PaperGraph({
               height={layout.height}
               aria-hidden="true"
             >
-              <defs>
-                {graph.edges.map((edge, index) => {
-                  const a = layout.positions.get(edge.source)!,
-                    b = layout.positions.get(edge.target)!;
-                  return (
-                    <linearGradient
-                      key={edge.id}
-                      id={`${gradientPrefix}-${index}`}
-                      ref={(element) => {
-                        if (element) gradients.current.set(edge.id, element);
-                        else gradients.current.delete(edge.id);
-                      }}
-                      gradientUnits="userSpaceOnUse"
-                      x1={a.x}
-                      y1={a.y}
-                      x2={b.x}
-                      y2={b.y}
-                    >
-                      <stop
-                        offset="0"
-                        style={{
-                          stopColor: nodeVisual(byId.get(edge.source)!).color,
-                        }}
-                      />
-                      {edge.kind === "manual" && (
-                        <stop
-                          offset="0.5"
-                          style={{ stopColor: "var(--graph-manual)" }}
-                        />
-                      )}
-                      <stop
-                        offset="1"
-                        style={{
-                          stopColor: nodeVisual(byId.get(edge.target)!).color,
-                        }}
-                      />
-                    </linearGradient>
-                  );
-                })}
-              </defs>
-              {graph.edges.map((edge, index) => {
+              {graph.edges.map((edge) => {
                 const a = layout.positions.get(edge.source)!,
                   b = layout.positions.get(edge.target)!;
                 const active =
@@ -583,7 +525,6 @@ export function PaperGraph({
                 const near =
                   distance.has(edge.source) && distance.has(edge.target);
                 const line = `M${a.x},${a.y} L${b.x},${b.y}`;
-                const stroke = `url(#${gradientPrefix}-${index})`;
                 return (
                   <Fragment key={edge.id}>
                     <path
@@ -592,7 +533,6 @@ export function PaperGraph({
                         if (element) edges.current.set(edge.id, element);
                         else edges.current.delete(edge.id);
                       }}
-                      stroke={stroke}
                       data-kind={edge.kind}
                       data-dim={!active || undefined}
                       data-active={near || undefined}
@@ -605,7 +545,7 @@ export function PaperGraph({
                           if (element) flows.current.set(edge.id, element);
                           else flows.current.delete(edge.id);
                         }}
-                        stroke={stroke}
+                        data-kind={edge.kind}
                         data-reverse={
                           distance.get(edge.target)! <
                             distance.get(edge.source)! || undefined
@@ -619,7 +559,6 @@ export function PaperGraph({
             </svg>
             {graph.nodes.map((node) => {
               const point = layout.positions.get(node.id)!;
-              const visual = nodeVisual(node);
               const translated = translations.get(node.id);
               return (
                 <Button
@@ -640,8 +579,7 @@ export function PaperGraph({
                     {
                       left: point.x,
                       top: point.y,
-                      "--node-size": `${visual.size}px`,
-                      "--node-color": visual.color,
+                      "--node-size": `${nodeSize(node)}px`,
                     } as CSSProperties
                   }
                   title={translated ? `${node.label}\n${translated}` : node.label}
@@ -826,8 +764,12 @@ export function PaperGraph({
           </span>
         </span>
         <span className="paper-graph-legend">
-          <span className="paper-graph-legend-ramp" aria-hidden="true" />
-          论文 · 关联越多越大越深
+          <span
+            className="paper-graph-legend-mark"
+            data-kind="paper"
+            aria-hidden="true"
+          />
+          论文 · 关联越多越大
         </span>
         <div
           className="paper-graph-legend-toggles"

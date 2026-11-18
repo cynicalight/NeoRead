@@ -389,8 +389,6 @@ it("flows only along the focused node's relations, outward, and follows a drag",
   // Every edge touches First or a hub one hop away, so nothing flows back
   // toward it. The manual edge is drawn First → Second.
   expect(flows().some((path) => path.hasAttribute("data-reverse"))).toBe(false);
-  for (const path of flows())
-    expect(path.getAttribute("stroke")).toMatch(/^url\(#pg[\w-]+-\d+\)$/);
   const before = flows().map((path) => path.getAttribute("d"));
   await act(async () =>
     first.dispatchEvent(
@@ -409,11 +407,5 @@ it("flows only along the focused node's relations, outward, and follows a drag",
   );
   const reversed = flows().filter((path) => path.hasAttribute("data-reverse"));
   expect(reversed).toHaveLength(1);
-  expect(
-    host
-      .querySelector(
-        `.paper-graph-edge[stroke="${reversed[0].getAttribute("stroke")}"]`,
-      )!
-      .getAttribute("data-kind"),
-  ).toBe("manual");
+  expect(reversed[0].getAttribute("data-kind")).toBe("manual");
 });
