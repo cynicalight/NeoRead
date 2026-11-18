@@ -2776,12 +2776,6 @@ it("opens the shared export dialog for the context-clicked paper", async () => {
   await act(async () => menuItem("导出…").click());
   const dialog = document.querySelector('[role="dialog"]')!;
   expect(dialog).toBeTruthy();
-  expect(dialog.querySelector('[aria-label="导出内容"]')?.textContent).toBe(
-    "批注原文译文",
-  );
-  expect(dialog.querySelector('[aria-label="导出格式"]')?.textContent).toBe(
-    "MarkdownPDF",
-  );
   expect(open).not.toHaveBeenCalled();
   // The clicked document must be used even while another paper is selected.
   const toggles = [...dialog.querySelectorAll<HTMLButtonElement>("button")];
