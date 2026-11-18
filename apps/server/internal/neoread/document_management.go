@@ -71,6 +71,7 @@ func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request) {
 	// IDs are content hashes: serialize cleanup with reimporting the same file.
 	s.importMu.Lock()
 	defer s.importMu.Unlock()
+	defer s.Store.drainAttachmentCleanup()
 	if status, message := s.purgeDocument(r.Context(), r.PathValue("id")); message != "" {
 		fail(w, status, message)
 		return
@@ -113,10 +114,6 @@ func (s *Server) purgeDocument(ctx context.Context, id string) (int, string) {
 			return 408, "等待后台任务停止超时，请重试"
 		}
 	}
-	attachments, err := s.Store.paperAttachments(id)
-	if err != nil {
-		return 500, "无法读取附件，文档已保留"
-	}
 	tx, err := s.Store.DB.Begin()
 	if err != nil {
 		return 500, "无法删除文档"
@@ -136,9 +133,6 @@ func (s *Server) purgeDocument(ctx context.Context, id string) (int, string) {
 		return 500, "删除失败，文档已保留"
 	}
 	// Only library-owned copies are removed; the imported source is untouched.
-	for _, a := range attachments {
-		s.Store.cleanupAttachmentFile(a.Hash)
-	}
 	for _, path := range []string{s.Store.File(d), filepath.Join(s.Store.Root, "cache", id)} {
 		if err = os.RemoveAll(path); err != nil {
 			log.Printf("document %s deleted; cleanup failed: %v", id, err)

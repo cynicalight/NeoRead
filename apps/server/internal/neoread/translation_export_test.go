@@ -3,6 +3,9 @@ package neoread
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
+	"image"
+	"image/png"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -133,6 +136,9 @@ func unzipExport(t *testing.T, data []byte) map[string]string {
 	}
 	files := map[string]string{}
 	for _, entry := range z.File {
+		if _, exists := files[entry.Name]; exists {
+			t.Fatalf("duplicate ZIP entry %q", entry.Name)
+		}
 		r, err := entry.Open()
 		if err != nil {
 			t.Fatal(err)
@@ -242,6 +248,7 @@ func TestTranslationArchiveRejectsEscapingImages(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("private contents"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	s := &Server{}
 	if err := os.Symlink(outside, filepath.Join(root, "escape.png")); err != nil {
 		t.Skip(err)
 	}
@@ -250,8 +257,101 @@ func TestTranslationArchiveRejectsEscapingImages(t *testing.T) {
 			t.Fatal("inline export escaped document root", source)
 		}
 		var out bytes.Buffer
-		if err := writeTranslationArchive(&out, root, "text", []translationExportAsset{{source, "assets/image.png"}}); err == nil || bytes.Contains(out.Bytes(), []byte("private contents")) {
+		if err := s.writeMarkdownArchive(&out, root, []markdownExportDocument{{"translation.md", "text"}}, []translationExportAsset{{source, "assets/image.png"}}, ""); err == nil || bytes.Contains(out.Bytes(), []byte("private contents")) {
 			t.Fatal("escaped document root", source, err)
+		}
+	}
+}
+
+func uploadedArchiveImage(t *testing.T, s *Server, size int) (string, string) {
+	t.Helper()
+	var pngBytes bytes.Buffer
+	if err := png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, size, size))); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, s, "POST", "/api/documents/doc/note-images", bytes.NewReader(pngBytes.Bytes()))
+	if w.Code != 200 && w.Code != 201 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var result struct{ Path string }
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || !strings.HasPrefix(result.Path, "assets/") {
+		t.Fatal(w.Body.String(), err)
+	}
+	return result.Path, pngBytes.String()
+}
+
+func TestMarkdownArchiveCombinesOnlyReferencedAssets(t *testing.T) {
+	s, _, m := translationFixture(t)
+	local, imageBytes := uploadedArchiveImage(t, s, 3)
+	unselected, _ := uploadedArchiveImage(t, s, 4)
+	imageBlock := m.Blocks[0]
+	imageBlock.ID, imageBlock.Label, imageBlock.Text = "p1-b3", "chart", ""
+	imageBlock.Image = "assets/" + imageBlock.ID + ".png"
+	m.Blocks = append(m.Blocks, imageBlock)
+	if err := os.WriteFile(filepath.Join(s.analysisDir("doc"), "manifest.json"), []byte(jsonText(m)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.analysisDir("doc"), imageBlock.Image), []byte("original image bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	saveExportTranslation(t, s, m.Blocks[0], "正文译文")
+	missing := "assets/" + strings.Repeat("b", 64) + ".jpg"
+	notes := "## 论文笔记\n\n![note](" + local + ")\n\n" +
+		"## 批注\n\n![repeat][image]\n\n[image]: <" + local + ">\n\n" +
+		"![external](https://example.com/" + missing + ")\n\n" +
+		"[link, not an image](" + missing + ")\n\n" +
+		"`![code](" + missing + ")`\n\n" +
+		"```markdown\n![fenced](" + missing + ")\n```"
+	const route = "/api/documents/doc/translations/export?format=zip"
+	for _, selection := range []struct {
+		name    string
+		sources []string
+		noteDoc string
+		count   int
+	}{
+		{"notes only", []string{}, "notes.md", 2},
+		{"original and notes", []string{"original"}, "original.md", 3},
+		{"translated and notes", nil, "translation.md", 3},
+		{"all selected", []string{"original", "translation"}, "translation.md", 4},
+	} {
+		t.Run(selection.name, func(t *testing.T) {
+			body := map[string]any{"notesMarkdown": notes}
+			if selection.sources != nil {
+				body["sources"] = selection.sources
+			}
+			w := request(t, s, "POST", route, strings.NewReader(jsonText(body)))
+			if w.Code != 200 || w.Header().Get("Content-Type") != "application/zip" {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			files := unzipExport(t, w.Body.Bytes())
+			if len(files) != selection.count || files[local] != imageBytes || files[unselected] != "" ||
+				!strings.HasSuffix(files[selection.noteDoc], notes+"\n") {
+				t.Fatal("incorrect archive entries or note text", files)
+			}
+			for _, doc := range []string{"original.md", "translation.md"} {
+				if markdown, exists := files[doc]; exists && (!strings.Contains(markdown, "](assets/image-0001.png)") || files["assets/image-0001.png"] != "original image bytes") {
+					t.Fatal("source image not shared by selected documents", doc, markdown)
+				}
+			}
+		})
+	}
+}
+
+func TestMarkdownArchiveRejectsMissingImagesWithoutSendingPartialZip(t *testing.T) {
+	s, _, _ := translationFixture(t)
+	body := jsonText(map[string]any{
+		"notesMarkdown": "![missing](assets/" + strings.Repeat("a", 64) + ".png)",
+		"sources":       []string{},
+	})
+	const route = "/api/documents/doc/translations/export?format=zip"
+	w := request(t, s, "POST", route, strings.NewReader(body))
+	if w.Code != 500 || w.Header().Get("Content-Disposition") != "" || w.Header().Get("Content-Type") == "application/zip" {
+		t.Fatal(w.Code, w.Header(), w.Body.String())
+	}
+	for _, invalid := range []string{`{"sources":[]}`, `{"sources":["unknown"]}`} {
+		w := request(t, s, "POST", route, strings.NewReader(invalid))
+		if w.Code != 400 {
+			t.Fatal(w.Code, w.Body.String())
 		}
 	}
 }

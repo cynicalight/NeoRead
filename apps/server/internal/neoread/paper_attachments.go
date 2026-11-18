@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"log"
 	"mime"
 	"net/http"
 	"net/url"
@@ -214,16 +213,12 @@ func (s *Server) addPaperAttachment(w http.ResponseWriter, r *http.Request) {
 	if !s.attachmentDocument(w, documentID) {
 		return
 	}
-	path := filepath.Join(s.Store.Root, "attachments", a.Hash)
-	if _, err = os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		err = os.Rename(temp.Name(), path)
-	}
-	if err != nil {
+	defer s.Store.cleanupAttachmentFile(a.Hash)
+	if err = s.Store.publishAttachmentBlob(temp.Name(), a.Hash, a.Size); err != nil {
 		fail(w, 500, "无法保存附件文件")
 		return
 	}
 	s.insertPaperAttachment(w, r, a)
-	s.Store.cleanupAttachmentFile(a.Hash)
 }
 
 func (s *Server) updatePaperAttachment(w http.ResponseWriter, r *http.Request) {
@@ -279,23 +274,10 @@ func (s *Server) deletePaperAttachment(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "无法移除附件")
 		return
 	}
-	s.Store.cleanupAttachmentFile(a.Hash)
+	if a.Kind == "file" {
+		s.Store.cleanupAttachmentFile(a.Hash)
+	}
 	w.WriteHeader(204)
-}
-
-// Only remove bytes after the last owner disappears (including trashed papers).
-// Callers hold importMu so a new owner cannot race this cleanup.
-func (s *Store) cleanupAttachmentFile(hash string) {
-	if len(hash) != 64 || strings.ContainsAny(hash, "/\\") {
-		return
-	}
-	var count int
-	if err := s.DB.QueryRow("SELECT count(*) FROM paper_attachments WHERE kind='file' AND sha256=?", hash).Scan(&count); err != nil || count != 0 {
-		return
-	}
-	if err := os.Remove(filepath.Join(s.Root, "attachments", hash)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Printf("attachment cleanup failed: %v", err)
-	}
 }
 
 func (s *Server) downloadPaperAttachment(w http.ResponseWriter, r *http.Request) {
@@ -305,26 +287,18 @@ func (s *Server) downloadPaperAttachment(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	a, err := scanAttachment(s.Store.DB.QueryRow("SELECT "+attachmentColumns+" FROM paper_attachments WHERE document_id=? AND id=? AND kind='file'", r.PathValue("id"), r.PathValue("attachment")))
-	if err != nil || len(a.Hash) != 64 || strings.ContainsAny(a.Hash, "/\\") {
+	if err != nil {
 		s.importMu.Unlock()
 		fail(w, 404, "附件不存在")
 		return
 	}
-	f, err := os.Open(filepath.Join(s.Store.Root, "attachments", a.Hash))
+	f, err := s.Store.openAttachmentBlob(a.Hash)
 	s.importMu.Unlock()
 	if err != nil {
 		fail(w, 404, "附件文件缺失，请重新添加")
 		return
 	}
-	defer func() {
-		_ = f.Close()
-		// Windows may have refused deletion while this (or another download's)
-		// handle was open. Retry after closing, serialized with new ownership.
-		// The final download to finish can remove the now-unreferenced bytes.
-		s.importMu.Lock()
-		defer s.importMu.Unlock()
-		s.Store.cleanupAttachmentFile(a.Hash)
-	}()
+	defer s.closeAttachmentBlob(f)
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() {
 		fail(w, 500, "无法读取附件文件")

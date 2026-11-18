@@ -1,7 +1,6 @@
 package neoread
 
 import (
-	"archive/zip"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -20,6 +19,24 @@ type translationExportAsset struct {
 	name   string
 }
 
+type exportSourceAssets struct {
+	names map[string]string
+	files []translationExportAsset
+}
+
+func (a *exportSourceAssets) add(source string) string {
+	if name, exists := a.names[source]; exists {
+		return name
+	}
+	if a.names == nil {
+		a.names = make(map[string]string)
+	}
+	name := fmt.Sprintf("assets/image-%04d%s", len(a.files)+1, strings.ToLower(filepath.Ext(source)))
+	a.names[source] = name
+	a.files = append(a.files, translationExportAsset{source, name})
+	return name
+}
+
 // Only metadata and image labels are escaped. Translation targets already
 // contain Markdown, including math and tables, and must remain intact.
 func exportMarkdownLabel(text string) string {
@@ -27,7 +44,7 @@ func exportMarkdownLabel(text string) string {
 	return strings.NewReplacer("\\", "\\\\", "`", "\\`", "*", "\\*", "_", "\\_", "[", "\\[", "]", "\\]", "<", "&lt;", ">", "&gt;", "#", "\\#", "!", "\\!").Replace(text)
 }
 
-func translationExportMarkdown(title string, source translationInput, items []TranslationBlock, images bool) (string, []translationExportAsset, error) {
+func translationExportMarkdown(title string, source translationInput, items []TranslationBlock, assets *exportSourceAssets) (string, error) {
 	translations := map[string]TranslationBlock{}
 	complete := 0
 	for _, item := range items {
@@ -37,24 +54,12 @@ func translationExportMarkdown(title string, source translationInput, items []Tr
 		}
 	}
 	if complete == 0 {
-		return "", nil, errors.New("还没有可导出的已完成译文")
+		return "", errors.New("还没有可导出的已完成译文")
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "# %s\n\n> 已完成 %d / %d 个翻译单元。导出内容为当前已保存的译文。\n\n", exportMarkdownLabel(title), complete, len(items))
-	assets := []translationExportAsset{}
-	assetNames := map[string]string{}
 	writeImage := func(source, label string) {
-		if !images {
-			fmt.Fprintf(&out, "> 图片未包含：%s\n\n", exportMarkdownLabel(label))
-			return
-		}
-		name, ok := assetNames[source]
-		if !ok {
-			name = fmt.Sprintf("assets/image-%04d%s", len(assets)+1, strings.ToLower(filepath.Ext(source)))
-			assetNames[source] = name
-			assets = append(assets, translationExportAsset{source, name})
-		}
-		fmt.Fprintf(&out, "![%s](%s)\n\n", exportMarkdownLabel(label), name)
+		fmt.Fprintf(&out, "![%s](%s)\n\n", exportMarkdownLabel(label), assets.add(source))
 	}
 	writeBlock := func(b PDFBlock) {
 		t, requested := translations[b.ID]
@@ -138,12 +143,13 @@ func translationExportMarkdown(title string, source translationInput, items []Tr
 			writeBlock(PDFBlock{ID: b.ID, Label: b.Label, Text: b.Text, Image: b.Image})
 		}
 	}
-	return out.String(), assets, nil
+	return out.String(), nil
 }
 
 func (s *Server) exportTranslation(w http.ResponseWriter, r *http.Request) {
 	var extra struct {
-		NotesMarkdown string `json:"notesMarkdown"`
+		NotesMarkdown string   `json:"notesMarkdown"`
+		Sources       []string `json:"sources"`
 	}
 	if r.Method == http.MethodPost {
 		// Long notes and chat histories can exceed the normal API body limit.
@@ -167,23 +173,51 @@ func (s *Server) exportTranslation(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "文档不存在")
 		return
 	}
-	source, err := s.readTranslationSource(d.ID)
-	if err != nil {
-		fail(w, 409, "正文尚未解析完成，暂时无法导出")
+	notes := strings.TrimSpace(extra.NotesMarkdown)
+	translated, original := extra.Sources == nil, false
+	if extra.Sources != nil && format != "zip" {
+		fail(w, 400, "合并导出仅支持 ZIP")
 		return
 	}
-	items, err := s.visibleTranslations(d.ID, source)
-	if err != nil {
-		fail(w, 500, "无法读取译文")
+	for _, selection := range extra.Sources {
+		switch selection {
+		case "translation":
+			translated = true
+		case "original":
+			original = true
+		default:
+			fail(w, 400, "不支持的导出内容")
+			return
+		}
+	}
+	if !translated && !original && notes == "" {
+		fail(w, 400, "没有可导出的内容")
 		return
 	}
-	markdown, assets, err := translationExportMarkdown(d.Title, source, items, true)
-	if err != nil {
-		fail(w, 409, err.Error())
-		return
+	var source translationInput
+	if translated || original {
+		source, err = s.readTranslationSource(d.ID)
+		if err != nil {
+			fail(w, 409, "正文尚未解析完成，暂时无法导出")
+			return
+		}
 	}
-	if notes := strings.TrimSpace(extra.NotesMarkdown); notes != "" {
-		markdown += "---\n\n" + notes + "\n"
+	var markdown string
+	var assets exportSourceAssets
+	if translated {
+		items, err := s.visibleTranslations(d.ID, source)
+		if err != nil {
+			fail(w, 500, "无法读取译文")
+			return
+		}
+		markdown, err = translationExportMarkdown(d.Title, source, items, &assets)
+		if err != nil {
+			fail(w, 409, err.Error())
+			return
+		}
+		if notes != "" {
+			markdown += "---\n\n" + notes + "\n"
+		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	rootPath := filepath.Join(s.Store.Root, "cache", d.ID)
@@ -191,7 +225,7 @@ func (s *Server) exportTranslation(w http.ResponseWriter, r *http.Request) {
 		rootPath = s.analysisDir(d.ID)
 	}
 	if format == "markdown" {
-		markdown, err = inlineTranslationImages(rootPath, markdown, assets)
+		markdown, err = inlineTranslationImages(rootPath, markdown, assets.files)
 		if err != nil {
 			fail(w, 500, "无法读取导出图片，请重试")
 			return
@@ -201,23 +235,47 @@ func (s *Server) exportTranslation(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, markdown)
 		return
 	}
+	docs := make([]markdownExportDocument, 0, 2)
+	if original {
+		originalMarkdown, hasContent := originalArchiveMarkdown(d.Title, source, &assets)
+		if !hasContent {
+			fail(w, 409, "正文尚未解析，暂时无法导出 Markdown")
+			return
+		}
+		if !translated && notes != "" {
+			originalMarkdown += "---\n\n" + notes + "\n"
+		}
+		docs = append(docs, markdownExportDocument{"original.md", originalMarkdown})
+	}
+	if translated {
+		docs = append(docs, markdownExportDocument{"translation.md", markdown})
+	}
+	if !original && !translated {
+		docs = append(docs, markdownExportDocument{"notes.md", notes + "\n"})
+	}
+	filename := "notes.zip"
+	if translated {
+		filename = "translation.zip"
+	} else if original {
+		filename = "original.zip"
+	}
 	// Build on disk before sending any bytes: missing images must not produce a
 	// successful but incomplete download, and large books need bounded memory.
-	file, err := os.CreateTemp("", "neoread-translation-*.zip")
+	file, err := os.CreateTemp("", "neoread-markdown-*.zip")
 	if err != nil {
 		fail(w, 500, "无法创建导出文件")
 		return
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
-	err = writeTranslationArchive(file, rootPath, markdown, assets)
+	err = s.writeMarkdownArchive(file, rootPath, docs, assets.files, notes)
 	if err != nil {
-		fail(w, 500, "无法打包译文图片，请重试")
+		fail(w, 500, "无法打包导出图片，请重试")
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="translation.zip"`)
-	http.ServeContent(w, r, "translation.zip", time.Time{}, file)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	http.ServeContent(w, r, filename, time.Time{}, file)
 }
 
 // Inline assets keep a standalone Markdown file portable and let PDF export
@@ -266,35 +324,4 @@ func readTranslationExportImage(root *os.Root, source string) ([]byte, string, e
 		}
 	}
 	return data, mimeType, nil
-}
-
-func writeTranslationArchive(file io.Writer, rootPath, markdown string, assets []translationExportAsset) error {
-	root, err := os.OpenRoot(rootPath)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	z := zip.NewWriter(file)
-	defer z.Close()
-	entry, err := z.Create("translation.md")
-	if err != nil {
-		return err
-	}
-	if _, err = io.WriteString(entry, markdown); err != nil {
-		return err
-	}
-	for _, asset := range assets {
-		data, _, err := readTranslationExportImage(root, asset.source)
-		if err != nil {
-			return err
-		}
-		entry, err = z.Create(asset.name)
-		if err != nil {
-			return err
-		}
-		if _, err = entry.Write(data); err != nil {
-			return err
-		}
-	}
-	return z.Close()
 }

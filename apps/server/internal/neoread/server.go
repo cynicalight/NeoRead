@@ -168,6 +168,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/documents/{id}/attachments/{attachment}", s.deletePaperAttachment)
 	mux.HandleFunc("GET /api/documents/{id}/attachments/{attachment}/file", s.downloadPaperAttachment)
 	mux.HandleFunc("PUT /api/documents/{id}/note", s.saveDocumentNote)
+	mux.HandleFunc("POST /api/documents/{id}/note-images", s.uploadNoteImage)
+	mux.HandleFunc("GET /api/note-images/{name}", s.downloadNoteImage)
 	mux.HandleFunc("POST /api/documents/{id}/metadata/lookup", s.lookupMetadata)
 	mux.HandleFunc("GET /api/processing", s.processingList)
 	mux.HandleFunc("POST /api/translate-selection", s.translateSelection)

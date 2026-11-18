@@ -155,6 +155,7 @@ func (s *Server) emptyTrash(w http.ResponseWriter, r *http.Request) {
 	}
 	s.importMu.Lock()
 	defer s.importMu.Unlock()
+	defer s.Store.drainAttachmentCleanup()
 	docs, err := s.Store.TrashedDocuments(library)
 	if err != nil {
 		fail(w, 500, "无法读取回收站")

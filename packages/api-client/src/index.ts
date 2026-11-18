@@ -194,7 +194,66 @@ export type PaperRefreshProgress =
 export type ChapterTranslationStatus =
   paths["/api/documents/{id}/translations/chapter-status"]["post"]["responses"]["200"]["content"]["application/json"];
 
+async function fetchMarkdownExport(
+  id: string,
+  format: "markdown" | "zip",
+  signal?: AbortSignal,
+  selection?: {
+    notesMarkdown: string;
+    sources?: ("original" | "translation")[];
+  },
+): Promise<Blob> {
+  const response = await diagnosticFetch(
+    `/api/documents/${encodeURIComponent(id)}/translations/export?format=${format}`,
+    {
+      method: selection ? "POST" : "GET",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        ...(selection && { "Content-Type": "application/json" }),
+      },
+      body: selection && JSON.stringify(selection),
+      signal,
+    },
+  );
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new RequestError(data.error || `导出失败 (${response.status})`);
+  }
+  return response.blob();
+}
+
+export function isNoteImagePath(path: string): boolean {
+  return /^assets\/[0-9a-f]{64}\.(png|jpg|gif|webp)$/.test(path);
+}
+
 export const api = {
+  uploadNoteImage: (id: string, file: Blob) =>
+    request<{ path: string }>(
+      `/api/documents/${encodeURIComponent(id)}/note-images`,
+      {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      },
+    ),
+  noteImage: async (path: string, signal?: AbortSignal): Promise<Blob> => {
+    if (!isNoteImagePath(path)) throw new Error("不是书库图片");
+    const response = await diagnosticFetch(
+      `/api/note-images/${path.slice("assets/".length)}`,
+      {
+        headers: { Authorization: `Bearer ${sessionToken}` },
+        signal,
+      },
+    );
+    if (!response.ok)
+      throw new RequestError(
+        `读取图片失败 (${response.status})`,
+        undefined,
+        undefined,
+        response.status,
+      );
+    return response.blob();
+  },
   paperRefreshStatus: () =>
     request<PaperRefreshProgress>("/api/diagnostics/paper-refresh"),
   startPaperRefresh: () =>
@@ -426,30 +485,24 @@ export const api = {
       `/api/documents/${id}/translations`,
       { signal },
     ),
-  exportTranslation: async (
+  exportTranslation: (
     id: string,
     format: "markdown" | "zip",
     signal?: AbortSignal,
     notesMarkdown = "",
-  ): Promise<Blob> => {
-    const response = await diagnosticFetch(
-      `/api/documents/${encodeURIComponent(id)}/translations/export?format=${format}`,
-      {
-        method: notesMarkdown ? "POST" : "GET",
-        headers: {
-          Authorization: `Bearer ${sessionToken}`,
-          ...(notesMarkdown && { "Content-Type": "application/json" }),
-        },
-        ...(notesMarkdown && { body: JSON.stringify({ notesMarkdown }) }),
-        signal,
-      },
-    );
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new RequestError(data.error || `导出失败 (${response.status})`);
-    }
-    return response.blob();
-  },
+  ) =>
+    fetchMarkdownExport(
+      id,
+      format,
+      signal,
+      notesMarkdown ? { notesMarkdown } : undefined,
+    ),
+  exportMarkdownArchive: (
+    id: string,
+    sources: ("original" | "translation")[],
+    notesMarkdown: string,
+    signal?: AbortSignal,
+  ) => fetchMarkdownExport(id, "zip", signal, { sources, notesMarkdown }),
   translate: (id: string, blockId = "", force = false) =>
     request<{ queued: boolean }>(`/api/documents/${id}/translations`, {
       method: "POST",
