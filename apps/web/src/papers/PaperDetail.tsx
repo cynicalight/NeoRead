@@ -45,6 +45,7 @@ import {
   DropdownMenuTrigger,
 } from "@neoread/ui/components/dropdown-menu";
 import { useReaderStore } from "../store";
+import { displayTitleTranslation } from "../library";
 import {
   lookupPaper,
   openLink,
@@ -93,6 +94,7 @@ const fieldLabels: Partial<Record<PaperMetadataField, string>> = {
   url: "链接",
   affiliation: "单位",
   shortTitle: "短标题",
+  translatedTitle: "译名",
   remark: "备注",
   abstract: "摘要",
 };
@@ -111,6 +113,7 @@ const placeholders: Partial<Record<PaperMetadataField, string>> = {
   arxiv: "2401.01234",
   url: "https://",
   remark: "备注",
+  translatedTitle: "添加译名",
 };
 
 function saveField(doc: Document, key: PaperMetadataField, value: unknown) {
@@ -175,6 +178,12 @@ export function PaperDetail({
 }) {
   const all = useReaderStore((s) => s.documents);
   const prefs = useReaderStore((s) => s.libraryPreferences.papers) || {};
+  const showBilingualTitles = useReaderStore(
+    (s) => s.libraryPreferences.showBilingualTitles === true,
+  );
+  const translated = showBilingualTitles
+    ? displayTitleTranslation(doc)
+    : undefined;
   const papers = all.filter((d) => d.library === "papers");
   const categories = paperCategories(prefs, papers);
   const [abstractOpen, setAbstractOpen] = useState(false);
@@ -237,6 +246,7 @@ export function PaperDetail({
             }
           }}
         />
+        {translated && <p className="detail-title-translation">{translated}</p>}
         {m.suggestedTitle && m.suggestedTitle !== doc.title && (
           <Badge
             variant="secondary"
@@ -380,6 +390,7 @@ export function PaperDetail({
           </Button>
         </div>
         <dl className="paper-fields">
+          <FieldRow doc={doc} name="translatedTitle" />
           <dt>类型</dt>
           <dd>
             <Select

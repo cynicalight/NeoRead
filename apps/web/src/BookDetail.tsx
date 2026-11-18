@@ -14,13 +14,14 @@ import { togglePinned } from "./papers/model";
 import { Field, TagChips } from "./papers/PaperDetail";
 import { relativeTime, wasOpened } from "./papers/format";
 import { CategoryDialog } from "./papers/CategoryDialog";
-import { libraryTags } from "./library";
+import { displayTitleTranslation, libraryTags } from "./library";
 import { toast } from "sonner";
 import { BookCoverImage } from "./book-cover";
 import { BookMenuItems, type BookMenuActions } from "./BookMenu";
 import { updateLibraryPreferences, useReaderStore } from "./store";
 
 const bookFields: [PaperMetadataField, string, string?][] = [
+  ["translatedTitle", "译名", "添加译名"],
   ["publisher", "出版社"],
   ["date", "出版日期", "2024 或 2024-05-17"],
   ["isbn", "ISBN"],
@@ -59,6 +60,12 @@ export function BookDetail({
   const pinned = useReaderStore(
     (s) => !!s.libraryPreferences.papers?.pinned?.includes(pinKey),
   );
+  const showBilingualTitles = useReaderStore(
+    (s) => s.libraryPreferences.showBilingualTitles === true,
+  );
+  const translated = showBilingualTitles
+    ? displayTitleTranslation(doc)
+    : undefined;
   const m = doc.metadata;
   const percent = Math.round(doc.percentage * 100);
   return (
@@ -108,6 +115,7 @@ export function BookDetail({
             }
           }}
         />
+        {translated && <p className="detail-title-translation">{translated}</p>}
         <Button className="paper-detail-open" onClick={() => open(doc)}>
           <BookOpen />
           {percent > 1 ? `继续阅读 · ${percent}%` : "开始阅读"}

@@ -13,6 +13,13 @@ import {
 import type { PaperGraphNode, PaperGraphRelation } from "./graph";
 import "./paper-graph.css";
 import { reducedMotion, subscribeMotion } from "../motion";
+import { displayTitleTranslation } from "../library";
+
+function labelWidth(label: string) {
+  let width = 0;
+  for (const char of label) width += char.charCodeAt(0) > 255 ? 11 : 6;
+  return width;
+}
 
 const labels: Record<PaperGraphRelation | "paper", string> = {
   paper: "论文",
@@ -24,11 +31,13 @@ const labels: Record<PaperGraphRelation | "paper", string> = {
 export function PaperGraph({
   documents,
   selectedId,
+  showBilingualTitles,
   onSelect,
   onOpen,
 }: {
   documents: Document[];
   selectedId: string | null;
+  showBilingualTitles: boolean;
   onSelect: (doc: Document) => void;
   onOpen: (doc: Document) => void;
 }) {
@@ -58,6 +67,15 @@ export function PaperGraph({
     () => new Map(graph.nodes.map((node) => [node.id, node])),
     [graph],
   );
+  const translations = useMemo(() => {
+    const result = new Map<string, string>();
+    if (showBilingualTitles)
+      for (const node of graph.nodes) {
+        const title = node.document && displayTitleTranslation(node.document);
+        if (title) result.set(node.id, title);
+      }
+    return result;
+  }, [graph, showBilingualTitles]);
   const current =
     hub === ""
       ? null
@@ -68,9 +86,15 @@ export function PaperGraph({
           : null;
   const terms = graphText(query).split(" ").filter(Boolean);
   const matches = terms.length
-    ? graph.nodes.filter((node) =>
-        terms.every((term) => graphText(node.label).includes(term)),
-      )
+    ? graph.nodes.filter((node) => {
+        const title = graphText(node.label);
+        const translation = graphText(
+          node.document?.metadata.translatedTitle ?? "",
+        );
+        return terms.every(
+          (term) => title.includes(term) || translation.includes(term),
+        );
+      })
     : [];
   const focusId = hovered ?? focused ?? current;
   const visibleLabels = useMemo(() => {
@@ -109,13 +133,11 @@ export function PaperGraph({
       graph.adjacency.get(node.id)!.size;
     for (const node of [...graph.nodes].sort((a, b) => rank(b) - rank(a))) {
       const { x, y } = layout.positions.get(node.id)!;
+      const translated = translations.get(node.id);
+      const height = translated ? 40 : 30;
       const width = Math.min(
         180,
-        28 +
-          [...node.label].reduce(
-            (sum, char) => sum + (char.charCodeAt(0) > 255 ? 11 : 6),
-            0,
-          ),
+        28 + Math.max(labelWidth(node.label), labelWidth(translated ?? "")),
       );
       // Paper titles may pass over author and venue dots, whose own labels
       // then yield; they never cover another label or paper.
@@ -125,8 +147,8 @@ export function PaperGraph({
           placed.has(owner) ||
           byId.get(owner)?.kind === "paper");
       const sides = [
-        ["right", cells(x - 12, y - 15, width, 30)],
-        ["left", cells(x + 12 - width, y - 15, width, 30)],
+        ["right", cells(x - 12, y - height / 2, width, height)],
+        ["left", cells(x + 12 - width, y - height / 2, width, height)],
       ] as const;
       const side =
         node.id === focusId
@@ -145,7 +167,7 @@ export function PaperGraph({
       }
     }
     return placed;
-  }, [graph, layout, focusId, layoutRevision]);
+  }, [graph, layout, focusId, layoutRevision, translations]);
   // Hop distance from the focused node: hubs are one hop, papers sharing a
   // hub are two. Edges flow outward along increasing distance.
   const distance = new Map<string, number>();
@@ -200,12 +222,10 @@ export function PaperGraph({
   const nodes = useRef(new Map<string, HTMLButtonElement>());
   const edges = useRef(new Map<string, SVGPathElement>());
   const flows = useRef(new Map<string, SVGPathElement>());
-  const gradients = useRef(new Map<string, SVGLinearGradientElement>());
   const animation = useRef(0);
   const suppressClick = useRef<string | null>(null);
   const inputId = useId();
   const hintId = useId();
-  const gradientPrefix = `pg${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   function paint() {
     const { x, y, scale } = view.current;
     if (scene.current)
@@ -227,13 +247,6 @@ export function PaperGraph({
       const d = `M${a.x},${a.y} L${b.x},${b.y}`;
       edges.current.get(edge.id)?.setAttribute("d", d);
       flows.current.get(edge.id)?.setAttribute("d", d);
-      const gradient = gradients.current.get(edge.id);
-      if (gradient) {
-        gradient.setAttribute("x1", String(a.x));
-        gradient.setAttribute("y1", String(a.y));
-        gradient.setAttribute("x2", String(b.x));
-        gradient.setAttribute("y2", String(b.y));
-      }
     }
   }
   function animateLayout() {
@@ -363,27 +376,18 @@ export function PaperGraph({
     paint();
     choose(node);
   }
-  // Size and colour scale within each kind, so one prolific venue does not
-  // shrink every paper. Square root keeps small differences visible.
+  // Scale each kind independently; square root keeps small differences visible.
   const maxDegree = { paper: 1, author: 1, venue: 1 };
   for (const node of graph.nodes)
     maxDegree[node.kind] = Math.max(
       maxDegree[node.kind],
       graph.adjacency.get(node.id)!.size,
     );
-  const nodeVisual = (node: PaperGraphNode) => {
+  const nodeSize = (node: PaperGraphNode) => {
     const strength = Math.sqrt(
       graph.adjacency.get(node.id)!.size / maxDegree[node.kind],
     );
-    if (node.kind !== "paper")
-      return {
-        size: 6 + strength * 7,
-        color: `var(--graph-${node.kind})`,
-      };
-    return {
-      size: 7 + strength * 11,
-      color: `color-mix(in oklch, var(--graph-paper-hot) ${Math.round(strength * 100)}%, var(--graph-paper-cool))`,
-    };
+    return node.kind === "paper" ? 7 + strength * 11 : 6 + strength * 7;
   };
   const list = terms.length
     ? matches
@@ -511,47 +515,7 @@ export function PaperGraph({
               height={layout.height}
               aria-hidden="true"
             >
-              <defs>
-                {graph.edges.map((edge, index) => {
-                  const a = layout.positions.get(edge.source)!,
-                    b = layout.positions.get(edge.target)!;
-                  return (
-                    <linearGradient
-                      key={edge.id}
-                      id={`${gradientPrefix}-${index}`}
-                      ref={(element) => {
-                        if (element) gradients.current.set(edge.id, element);
-                        else gradients.current.delete(edge.id);
-                      }}
-                      gradientUnits="userSpaceOnUse"
-                      x1={a.x}
-                      y1={a.y}
-                      x2={b.x}
-                      y2={b.y}
-                    >
-                      <stop
-                        offset="0"
-                        style={{
-                          stopColor: nodeVisual(byId.get(edge.source)!).color,
-                        }}
-                      />
-                      {edge.kind === "manual" && (
-                        <stop
-                          offset="0.5"
-                          style={{ stopColor: "var(--graph-manual)" }}
-                        />
-                      )}
-                      <stop
-                        offset="1"
-                        style={{
-                          stopColor: nodeVisual(byId.get(edge.target)!).color,
-                        }}
-                      />
-                    </linearGradient>
-                  );
-                })}
-              </defs>
-              {graph.edges.map((edge, index) => {
+              {graph.edges.map((edge) => {
                 const a = layout.positions.get(edge.source)!,
                   b = layout.positions.get(edge.target)!;
                 const active =
@@ -561,7 +525,6 @@ export function PaperGraph({
                 const near =
                   distance.has(edge.source) && distance.has(edge.target);
                 const line = `M${a.x},${a.y} L${b.x},${b.y}`;
-                const stroke = `url(#${gradientPrefix}-${index})`;
                 return (
                   <Fragment key={edge.id}>
                     <path
@@ -570,7 +533,6 @@ export function PaperGraph({
                         if (element) edges.current.set(edge.id, element);
                         else edges.current.delete(edge.id);
                       }}
-                      stroke={stroke}
                       data-kind={edge.kind}
                       data-dim={!active || undefined}
                       data-active={near || undefined}
@@ -583,7 +545,7 @@ export function PaperGraph({
                           if (element) flows.current.set(edge.id, element);
                           else flows.current.delete(edge.id);
                         }}
-                        stroke={stroke}
+                        data-kind={edge.kind}
                         data-reverse={
                           distance.get(edge.target)! <
                             distance.get(edge.source)! || undefined
@@ -597,7 +559,7 @@ export function PaperGraph({
             </svg>
             {graph.nodes.map((node) => {
               const point = layout.positions.get(node.id)!;
-              const visual = nodeVisual(node);
+              const translated = translations.get(node.id);
               return (
                 <Button
                   key={node.id}
@@ -617,12 +579,12 @@ export function PaperGraph({
                     {
                       left: point.x,
                       top: point.y,
-                      "--node-size": `${visual.size}px`,
-                      "--node-color": visual.color,
+                      "--node-size": `${nodeSize(node)}px`,
                     } as CSSProperties
                   }
-                  title={node.label}
-                  aria-label={`${labels[node.kind]}：${node.label}`}
+                  title={translated ? `${node.label}\n${translated}` : node.label}
+                  aria-label={`${labels[node.kind]}：${node.label}${translated ? `，译名：${translated}` : ""}`}
+                  data-bilingual={!!translated || undefined}
                   aria-pressed={current === node.id}
                   data-labelled={visibleLabels.get(node.id)}
                   data-focus={focusId === node.id || undefined}
@@ -683,7 +645,14 @@ export function PaperGraph({
                   }}
                 >
                   <span className="paper-graph-dot" aria-hidden="true" />
-                  <span className="paper-graph-node-label">{node.label}</span>
+                  <span className="paper-graph-node-label">
+                    <span className="truncate">{node.label}</span>
+                    {translated && (
+                      <span className="paper-graph-node-translation truncate">
+                        {translated}
+                      </span>
+                    )}
+                  </span>
                 </Button>
               );
             })}
@@ -704,6 +673,11 @@ export function PaperGraph({
             <div className="paper-graph-current">
               <span>
                 {labels[currentNode.kind]} · {currentNode.label}
+                {translations.has(currentNode.id) && (
+                  <span className="paper-graph-inspector-translation">
+                    {translations.get(currentNode.id)}
+                  </span>
+                )}
               </span>
               <Button
                 variant="ghost"
@@ -737,6 +711,11 @@ export function PaperGraph({
                   aria-pressed={current === node.id}
                 >
                   <span>{node.label}</span>
+                  {translations.has(node.id) && (
+                    <span className="paper-graph-inspector-translation">
+                      {translations.get(node.id)}
+                    </span>
+                  )}
                   <small>
                     {related.has(node.id) && !terms.length
                       ? [...related.get(node.id)!].join("；")
@@ -785,8 +764,12 @@ export function PaperGraph({
           </span>
         </span>
         <span className="paper-graph-legend">
-          <span className="paper-graph-legend-ramp" aria-hidden="true" />
-          论文 · 关联越多越大越深
+          <span
+            className="paper-graph-legend-mark"
+            data-kind="paper"
+            aria-hidden="true"
+          />
+          论文 · 关联越多越大
         </span>
         <div
           className="paper-graph-legend-toggles"

@@ -1794,6 +1794,38 @@ it("hides and restores the title without losing order or width", async () => {
   ).toContain("Attention Is All You Need");
 });
 
+it("shows the paper translation in the title column and on cards, not in other columns", async () => {
+  const translatedTitle = "注意力就是你所需要的一切";
+  await act(async () =>
+    useReaderStore.setState({
+      documents: [
+        { ...docs[0], metadata: { ...docs[0].metadata, translatedTitle } },
+        docs[1],
+      ],
+      libraryPreferences: { mode: "papers", showBilingualTitles: true },
+    }),
+  );
+  const cell = host.querySelector(
+    'tr[data-paper-id="a"] td[data-column="title"]',
+  );
+  expect(cell?.textContent).toContain(docs[0].title);
+  expect(cell?.textContent).toContain(translatedTitle);
+
+  await act(async () =>
+    savePaperPreferences((prefs) => showColumn(prefs, "title", false)),
+  );
+  expect(host.querySelector('tr[data-paper-id="a"]')?.textContent).not.toContain(
+    translatedTitle,
+  );
+
+  await act(async () =>
+    savePaperPreferences((prefs) => ({ ...prefs, layout: "card" })),
+  );
+  const card = host.querySelector('article[data-paper-id="a"]');
+  expect(card?.textContent).toContain(translatedTitle);
+  expect(card?.querySelector(".cover-title")?.textContent).toBe(docs[0].title);
+});
+
 it("stops the final metadata boundary when there is no spare space", async () => {
   await act(async () =>
     useReaderStore.setState({
@@ -2792,4 +2824,47 @@ it("switches to the third graph view, leaves batch mode, and keeps paper selecti
   await act(async () => host.querySelector<HTMLButtonElement>('[role="tab"][aria-label="表格"]')!.click());
   expect(host.querySelector("table")).not.toBeNull();
   expect(useReaderStore.getState().libraryPreferences.papers?.layout).toBe("table");
+});
+
+it("updates paper node and inspector titles when bilingual display changes in graph view", async () => {
+  // Load the same lazy graph chunk used by the library before changing its view.
+  await import("./PaperGraph");
+  const translatedTitle = "注意力就是你所需要的一切";
+  await act(async () =>
+    useReaderStore.setState({
+      documents: [
+        { ...docs[0], metadata: { ...docs[0].metadata, translatedTitle } },
+        docs[1],
+      ],
+      libraryPreferences: { mode: "papers", papers: { layout: "graph" } },
+    }),
+  );
+  const node = host.querySelector<HTMLButtonElement>(
+    '.paper-graph-node[aria-label="论文：Attention Is All You Need"]',
+  )!;
+  const inspector = host.querySelector('[aria-label="图谱文字视图"]')!;
+  expect(node.textContent).not.toContain(translatedTitle);
+  expect(inspector.textContent).not.toContain(translatedTitle);
+
+  await act(async () =>
+    useReaderStore.setState(({ libraryPreferences }) => ({
+      libraryPreferences: { ...libraryPreferences, showBilingualTitles: true },
+    })),
+  );
+  expect(node.textContent).toContain(docs[0].title);
+  expect(node.textContent).toContain(translatedTitle);
+  expect(inspector.textContent).toContain(translatedTitle);
+  await act(async () => node.click());
+  expect(inspector.querySelector(".paper-graph-current")?.textContent).toContain(
+    translatedTitle,
+  );
+
+  await act(async () =>
+    useReaderStore.setState(({ libraryPreferences }) => ({
+      libraryPreferences: { ...libraryPreferences, showBilingualTitles: false },
+    })),
+  );
+  expect(node.textContent).toBe(docs[0].title);
+  expect(inspector.textContent).not.toContain(translatedTitle);
+  expect(usePaperUI.getState().selectedId).toBe(docs[0].id);
 });

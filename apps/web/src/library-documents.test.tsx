@@ -136,6 +136,33 @@ it("applies the existing author preference to books immediately", async () => {
   });
   expect(host.querySelector(".cover-author")?.textContent).toBe("Book Author");
 });
+
+it("shows a book translation only when enabled and distinct from the title", async () => {
+  await act(async () =>
+    useReaderStore.setState({
+      documents: [
+        { ...docs[0], metadata: { translatedTitle: "  阿尔法  " } },
+        { ...docs[1], metadata: { translatedTitle: " beta " } },
+      ],
+      libraryPreferences: { mode: "books" },
+    }),
+  );
+  expect(host.textContent).not.toContain("阿尔法");
+  await act(async () =>
+    useReaderStore.setState({
+      libraryPreferences: { mode: "books", showBilingualTitles: true },
+    }),
+  );
+  expect(
+    [...host.querySelectorAll(".book-title")].map((title) => title.textContent),
+  ).toEqual(["Alpha阿尔法", "Beta"]);
+  await act(async () =>
+    useReaderStore.setState({
+      libraryPreferences: { mode: "books", showBilingualTitles: false },
+    }),
+  );
+  expect(host.textContent).not.toContain("阿尔法");
+});
 const button = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>("button")].find(
     (b) =>

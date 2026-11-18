@@ -90,6 +90,7 @@ import { CoverProcessing } from "../ProcessingStatus";
 import { useCardZoom } from "../useCardZoom";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
 import { trashWithUndo } from "../library-actions";
+import { displayTitleTranslation } from "../library";
 import { toast } from "sonner";
 import {
   addToCategory,
@@ -271,6 +272,9 @@ export function PaperLibrary({
   const table = layout === "table" && view !== "duplicates";
   const graph = layout === "graph" && view !== "duplicates";
   const showAuthors = prefs.showAuthors !== false;
+  const showBilingualTitles = useReaderStore(
+    (state) => state.libraryPreferences.showBilingualTitles === true,
+  );
   const cardScale = prefs.cardScale || 1;
   const [listPane, setListPane] = useState<HTMLElement | null>(null);
   useCardZoom(
@@ -682,6 +686,7 @@ export function PaperLibrary({
         columns={tableColumns}
         card={card}
         showAuthors={showAuthors}
+        showBilingualTitles={showBilingualTitles}
         fillTableSpace={fillTableSpace}
         expanded={expandedAttachments.has(doc.id)}
         onToggleAttachments={() => toggleAttachments(doc.id)}
@@ -1083,6 +1088,7 @@ export function PaperLibrary({
                 <PaperGraph
                   documents={visible}
                   selectedId={selectedId}
+                  showBilingualTitles={showBilingualTitles}
                   onSelect={(doc) => {
                     useAttachments.setState({ selected: null });
                     ui.select(doc.id);
@@ -1247,7 +1253,12 @@ export function PaperLibrary({
                   </Table>
                 </div>
               ) : (
-                <div className="paper-grid" ref={listRef} role="list">
+                <div
+                  className="paper-grid"
+                  data-bilingual-titles={showBilingualTitles || undefined}
+                  ref={listRef}
+                  role="list"
+                >
                   {visible.map((doc) => renderRow(doc, undefined, true))}
                 </div>
               )
@@ -1504,6 +1515,7 @@ function PaperRow({
   columns,
   card,
   showAuthors,
+  showBilingualTitles,
   fillTableSpace,
   dragIds,
   onActivate,
@@ -1528,6 +1540,7 @@ function PaperRow({
   /** Render as a cover card in the paper grid. */
   card: boolean;
   showAuthors: boolean;
+  showBilingualTitles: boolean;
   fillTableSpace: boolean;
   dragIds: () => string[];
   onActivate: (e: React.MouseEvent | React.KeyboardEvent) => void;
@@ -1603,6 +1616,15 @@ function PaperRow({
         {doc.title}
       </span>
       {disclosure}
+    </p>
+  );
+  const translated =
+    showBilingualTitles && (!columns || columns.includes("title"))
+      ? displayTitleTranslation(doc)
+      : undefined;
+  const translationLine = translated && (
+    <p className="library-title-translation truncate" title={translated}>
+      {translated}
     </p>
   );
   const dropHint = drop.armed && (
@@ -1739,7 +1761,7 @@ function PaperRow({
         data-picked={picked || undefined}
         tabIndex={0}
         draggable
-        aria-label={doc.title}
+        aria-label={translated ? `${doc.title}，译名：${translated}` : doc.title}
         onDragStart={(e) => {
           const ids = dragIds();
           e.dataTransfer.setData(PAPER_DRAG_TYPE, JSON.stringify(ids));
@@ -1810,6 +1832,7 @@ function PaperRow({
                       {title}
                       <PaperProcessing job={job} />
                     </div>
+                    {translationLine}
                     {authorLine}
                     <JournalRankBadges
                       id={doc.id}
@@ -1880,7 +1903,10 @@ function PaperRow({
                 </div>
               )}
             </div>
-            {title}
+            <div className="paper-card-titles">
+              {title}
+              {translationLine}
+            </div>
             {authorLine}
             <div
               className="book-progress"
@@ -1903,6 +1929,7 @@ function PaperRow({
             {check}
             <div className="paper-row-main">
               {title}
+              {translationLine}
               <PaperByline doc={doc} showAuthors={showAuthors} />
               <JournalRankBadges
                 id={doc.id}

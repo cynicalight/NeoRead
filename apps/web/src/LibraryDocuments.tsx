@@ -26,6 +26,16 @@ import { BookCoverImage } from "./book-cover";
 import { BookMenuItems } from "./BookMenu";
 import { useClickIntent } from "./DetailSheet";
 import { useReaderStore } from "./store";
+import { displayTitleTranslation } from "./library";
+
+function BookTitleTranslation({ doc }: { doc: Document }) {
+  const translated = displayTitleTranslation(doc);
+  return translated ? (
+    <span className="library-title-translation" title={translated}>
+      {translated}
+    </span>
+  ) : null;
+}
 
 export function LibraryDocuments({
   documents,
@@ -64,6 +74,9 @@ export function LibraryDocuments({
 }) {
   const showAuthors = useReaderStore(
     (state) => state.libraryPreferences.papers?.showAuthors !== false,
+  );
+  const showBilingualTitles = useReaderStore(
+    (state) => state.libraryPreferences.showBilingualTitles === true,
   );
   const overviewJobs = useOverviewJobs();
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -197,7 +210,10 @@ export function LibraryDocuments({
           )}
         </div>
       )}
-      <div className={`book-grid ${libraryView === "list" ? "book-list" : ""}`}>
+      <div
+        className={`book-grid ${libraryView === "list" ? "book-list" : ""}`}
+        data-bilingual-titles={showBilingualTitles || undefined}
+      >
         {documents.map((doc, i) => (
           <ContextMenu key={doc.id}>
             <ContextMenuTrigger
@@ -361,6 +377,7 @@ export function LibraryDocuments({
                   onClick={onActivate ? undefined : () => openDocument(doc)}
                 >
                   <span>{doc.title}</span>
+                  {showBilingualTitles && <BookTitleTranslation doc={doc} />}
                 </Button>
                 <Button
                   size="icon-xs"
