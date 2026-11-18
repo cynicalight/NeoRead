@@ -76,7 +76,7 @@ it("keeps inline symbols in prose and groups panels under their shared numbered 
     100,
     100,
   );
-  const blocks = readingRegions(r, [
+  const { blocks } = readingRegions(r, [
     {
       text: "Figure 1: comparison",
       bounds: { x: 0.1, y: 0.34, width: 0.7, height: 0.05 },
@@ -100,7 +100,7 @@ it("does not merge neighboring figures with different captions", () => {
     100,
     100,
   );
-  const blocks = readingRegions(r, [
+  const { blocks } = readingRegions(r, [
     {
       text: "Figure 1: left",
       bounds: { x: 0.06, y: 0.24, width: 0.3, height: 0.05 },
@@ -125,7 +125,7 @@ it("does not absorb an adjacent uncaptioned chart into a narrow caption", () => 
     100,
     100,
   );
-  const blocks = readingRegions(r, [
+  const { blocks } = readingRegions(r, [
     {
       text: "Figure 11: first chart",
       bounds: { x: 0.52, y: 0.23, width: 0.18, height: 0.01 },
@@ -144,7 +144,7 @@ it("expands a grouped crop to include full subfigure captions", () => {
     100,
     100,
   );
-  const blocks = readingRegions(r, [
+  const { blocks } = readingRegions(r, [
     {
       text: "(a) wide subcaption",
       bounds: { x: 0.11, y: 0.22, width: 0.29, height: 0.02 },
@@ -191,7 +191,7 @@ it("keeps the lines and indentation of algorithm blocks", () => {
 
 it("keeps algorithm regions as standalone image assets with searchable text", () => {
   const regions = decodeRegions([1, 0.886, 10, 10, 90, 70, 0], 100, 100);
-  const blocks = readingRegions(regions, [
+  const { blocks } = readingRegions(regions, [
     {
       text: "Algorithm 1: Read phase",
       bounds: { x: 0.12, y: 0.12, width: 0.5, height: 0.03 },
@@ -213,7 +213,7 @@ it("keeps a table caption above the table as a separate paragraph at its origina
     100,
     100,
   );
-  const blocks = readingRegions(raw, [
+  const { blocks } = readingRegions(raw, [
     {
       text: "Table 5: Results",
       bounds: { x: 0.1, y: 0.11, width: 0.6, height: 0.08 },
@@ -253,5 +253,33 @@ it("keeps subscripts after their character instead of the line end", () => {
   ]);
   expect(result.texts[0]).toBe(
     "keys of dimension d k , and values of dimension d v . We compute the dot products",
+  );
+});
+
+it("keeps each detected contents row and its page number in a separate reading block", () => {
+  const regions = decodeRegions(
+    [4, 0.9, 10, 10, 90, 50, 0, 22, 0.9, 10, 52, 90, 90, 1],
+    100,
+    100,
+  );
+  const span = (text: string, x: number, y: number, width: number) => ({
+    text,
+    bounds: { x, y, width, height: 0.02 },
+  });
+  const { blocks } = readingRegions(regions, [
+    span("12", 0.85, 0.22, 0.02),
+    span("System calls", 0.14, 0.22, 0.2),
+    span("Introduction", 0.1, 0.14, 0.2),
+    span("iv", 0.85, 0.14, 0.02),
+    span("Ordinary prose", 0.1, 0.56, 0.3),
+    span("still wraps.", 0.1, 0.59, 0.2),
+  ]);
+  expect(blocks.map((b) => b.text)).toEqual([
+    "Introduction iv",
+    "System calls 12",
+    "Ordinary prose still wraps.",
+  ]);
+  expect(blocks[0].bounds.y + blocks[0].bounds.height).toBeLessThan(
+    blocks[1].bounds.y,
   );
 });

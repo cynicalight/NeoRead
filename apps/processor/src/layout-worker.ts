@@ -6,7 +6,7 @@ import { resolve, join, dirname } from "node:path";
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
 import { detectRegions } from "./detect";
-import { assignText, readingRegions, isAsset, type Region } from "./layout";
+import { readingRegions, isAsset, type Region } from "./layout";
 import { extractTextSpans } from "./text";
 import { digest, model, resolveModel } from "./model";
 import { renderPage } from "./render-page";
@@ -112,13 +112,11 @@ try {
     const regions = await detectRegions(session, canvas);
     stage("page_text", number);
     const spans = await extractTextSpans(page, scale);
-    const composed = readingRegions(regions, spans);
-    const assigned = assignText(composed, spans);
+    const { blocks: composed, unmatched } = readingRegions(regions, spans);
     const pageBlocks: Block[] = composed.map((region, i) => ({
       ...region,
       id: `p${number}-b${i + 1}`,
       page: number,
-      text: assigned.texts[i],
     }));
     stage("page_output", number);
     for (const block of pageBlocks) {
@@ -155,10 +153,8 @@ try {
           `<!-- block:${block.id} -->\n${block.label === "doc_title" ? "# " : block.label === "paragraph_title" ? "## " : ""}${block.text}`,
         );
     }
-    if (assigned.unmatched) {
-      sections.push(
-        `<!-- unmatched-text page:${number} -->\n${assigned.unmatched}`,
-      );
+    if (unmatched) {
+      sections.push(`<!-- unmatched-text page:${number} -->\n${unmatched}`);
       warnings.push(`第 ${number} 页有未归入版面块的文字，已保留。`);
     }
     if (values.debug) {
