@@ -21,6 +21,7 @@ type documentConversation struct {
 	PassageCount    int                     `json:"passageCount"`
 	SourceOffset    int                     `json:"sourceOffset"`
 	ReadBlocks      []string                `json:"readBlocks,omitempty"`
+	SearchedBlocks  []string                `json:"searchedBlocks,omitempty"`
 	ReadPages       []documentPageImage     `json:"readPages,omitempty"`
 	OverviewVersion string                  `json:"overviewVersion,omitempty"`
 	Messages        []toolCompletionMessage `json:"messages,omitempty"`
@@ -69,6 +70,7 @@ func (a *documentAgent) beginConversation(ctx context.Context, in AIInput, key s
 	if c.Revision != "" && c.Revision != a.corpus.Revision {
 		c.SourceOffset += c.PassageCount
 		c.ReadBlocks = nil
+		c.SearchedBlocks = nil
 		c.ReadPages = nil
 		c.SeenSources = map[string]bool{}
 	}
@@ -84,6 +86,18 @@ func (a *documentAgent) beginConversation(ctx context.Context, in AIInput, key s
 	for i, p := range a.corpus.Passages {
 		if seen[p.ID] {
 			a.Evidence = append(a.Evidence, a.passageEvidence(i))
+		}
+	}
+	searched := map[string]bool{}
+	for _, block := range c.SearchedBlocks {
+		searched[block] = true
+	}
+	a.Searched = map[string]documentEvidence{}
+	for i, p := range a.corpus.Passages {
+		if searched[p.ID] {
+			ev := a.passageEvidence(i)
+			ev.SourceID = ""
+			a.Searched[p.ID] = ev
 		}
 	}
 	a.turnRead = map[string]bool{}
@@ -108,7 +122,86 @@ func (a *documentAgent) beginConversation(ctx context.Context, in AIInput, key s
 		}
 	}
 	missing := conversationHistory(history[start:])
+	a.restoreHistoricalEvidence(history)
 	return missing, nil
+}
+
+// Citation provenance belongs to the visible chat, not to a model's private
+// continuation. Revalidate saved sources without counting them as new reads.
+func (a *documentAgent) restoreHistoricalEvidence(history []Message) {
+	a.historicalEvidence = nil
+	var conflicts map[string]bool
+	add := func(ev documentEvidence) {
+		for _, key := range [...]string{ev.SourceID, ev.BlockID} {
+			if key == "" || conflicts[key] {
+				continue
+			}
+			if previous, ok := a.historicalEvidence[key]; ok && (previous.BlockID != ev.BlockID || previous.Hash != ev.Hash) {
+				if conflicts == nil {
+					conflicts = make(map[string]bool)
+				}
+				conflicts[key] = true
+				delete(a.historicalEvidence, key)
+				continue
+			}
+			if a.historicalEvidence == nil {
+				a.historicalEvidence = make(map[string]documentEvidence)
+			}
+			a.historicalEvidence[key] = ev
+		}
+	}
+	var blocks map[string][]documentEvidence
+	for _, message := range history {
+		if message.Role != "assistant" || message.DocumentID != a.corpus.DocumentID || message.SessionID != a.sessionID {
+			continue
+		}
+		var refs []documentEvidence
+		if json.Unmarshal(message.References, &refs) != nil {
+			continue
+		}
+		for _, ref := range refs {
+			if ref.Revision != a.corpus.Revision || ref.Hash == "" {
+				continue
+			}
+			if !documentSourceIDPattern.MatchString(ref.SourceID) {
+				ref.SourceID = ""
+			}
+			if ref.PageImage != nil {
+				if ref.PageImage.Revision == a.corpus.Revision && ref.PageImage.Hash == ref.Hash && ref.PageImage.Page > 0 {
+					ev := pageEvidence(*ref.PageImage)
+					ev.SourceID = ref.SourceID
+					add(ev)
+				}
+			} else if ref.BlockID == "" {
+				// Legacy saved S references use the same validation contract as
+				// the navigation endpoint; never infer a missing block ID.
+				if ref.SourceID != "" && len(ref.Location) > 2 && ref.Hash == sourceKey(ref.Text) {
+					add(ref)
+				}
+			} else {
+				if blocks == nil {
+					blocks = make(map[string][]documentEvidence)
+				}
+				blocks[ref.BlockID] = append(blocks[ref.BlockID], ref)
+			}
+		}
+	}
+	if len(blocks) == 0 {
+		return
+	}
+	for _, passage := range a.corpus.Passages {
+		refs := blocks[passage.ID]
+		if len(refs) == 0 {
+			continue
+		}
+		hash := sourceKey(passage.Text)
+		for _, ref := range refs {
+			if ref.Text == passage.Text && ref.Hash == hash {
+				ref.Location, ref.Precision = passage.Location, passage.Precision
+				add(ref)
+			}
+		}
+	}
 }
 func conversationHistory(messages []Message) []toolCompletionMessage {
 	out := []toolCompletionMessage{}
@@ -189,6 +282,12 @@ func (a *documentAgent) commitConversation(ctx context.Context, tx *sql.Tx, mess
 	c.LastMessageID = messageID
 	c.ReadBlocks = nil
 	c.ReadPages = nil
+	c.SearchedBlocks = nil
+	for _, p := range a.corpus.Passages {
+		if ev, ok := a.Searched[p.ID]; ok && ev.Revision == a.corpus.Revision {
+			c.SearchedBlocks = append(c.SearchedBlocks, p.ID)
+		}
+	}
 	for _, e := range a.Evidence {
 		if e.Revision == a.corpus.Revision {
 			if e.PageImage != nil {

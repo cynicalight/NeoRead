@@ -194,3 +194,122 @@ func TestConversationContextDeltaAndRevision(t *testing.T) {
 		t.Fatal("source update silently reused old context/IDs")
 	}
 }
+
+func TestConversationCitationsSurviveModelAndProviderChanges(t *testing.T) {
+	for _, provider := range []string{"api", "claude"} {
+		t.Run(provider, func(t *testing.T) {
+			s, first := originalDocumentFixture(t)
+			first.provider = "api"
+			input := AIInput{Chat: &chatInput{Question: "explain", Agent: first}}
+			if _, err := first.beginConversation(t.Context(), input, "first-model"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := first.call(t.Context(), "read_passage", json.RawMessage(`{"full":true}`)); err != nil {
+				t.Fatal(err)
+			}
+			source := first.Evidence[0]
+			answer := "Original explanation [" + source.SourceID + "]"
+			if err := s.saveDocumentAgentAnswer(t.Context(), first, answer, "api"); err != nil {
+				t.Fatal(err)
+			}
+			history, err := s.Store.chatHistory("doc")
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := &documentAgent{server: s, corpus: first.corpus, ctx: t.Context(), provider: provider}
+			input.Chat.Agent, input.Chat.History = next, history
+			missed, err := next.beginConversation(t.Context(), input, "second-model")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(missed) != 1 || len(next.conversation.PiEntries) != 0 {
+				t.Fatal("model-specific continuation was reused or visible history lost", missed)
+			}
+			if err := s.saveDocumentAgentAnswer(t.Context(), next, "Follow-up ["+source.SourceID+"]", provider); err != nil {
+				t.Fatal(err)
+			}
+			history, err = s.Store.chatHistory("doc")
+			if err != nil {
+				t.Fatal(err)
+			}
+			message := history[len(history)-1]
+			var refs []documentEvidence
+			if err := json.Unmarshal(message.References, &refs); err != nil || len(refs) != 1 || refs[0].SourceID != source.SourceID || refs[0].BlockID != source.BlockID {
+				t.Fatalf("model switch lost the saved source: %s %v", message.References, err)
+			}
+			if out := request(t, s, "GET", "/api/documents/doc/messages/"+message.ID+"/sources/"+source.SourceID, nil); out.Code != 200 {
+				t.Fatal("follow-up citation cannot navigate", out.Code, out.Body.String())
+			}
+			if len(next.Evidence) != 0 || len(next.turnRead) != 0 {
+				t.Fatal("historical citations were counted as a new original-text read")
+			}
+		})
+	}
+}
+
+func TestHistoricalCitationsValidateChatScopeAndOriginalContent(t *testing.T) {
+	for _, scenario := range []string{"valid", "legacy", "old revision", "different document", "different session", "user message", "unknown block", "altered text", "wrong hash"} {
+		t.Run(scenario, func(t *testing.T) {
+			_, a := originalDocumentFixture(t)
+			a.provider, a.sessionID = "claude", "current-session"
+			ev := a.passageEvidence(0)
+			message := Message{ID: "previous-answer", Role: "assistant", DocumentID: "doc", SessionID: a.sessionID}
+			switch scenario {
+			case "legacy":
+				ev.BlockID = ""
+			case "old revision":
+				ev.Revision = "old"
+			case "different document":
+				message.DocumentID = "another-document"
+			case "different session":
+				message.SessionID = "another-session"
+			case "user message":
+				message.Role = "user"
+			case "unknown block":
+				ev.BlockID = "unreturned-999"
+			case "altered text":
+				ev.Text = "not the original"
+				ev.Hash = sourceKey(ev.Text)
+			case "wrong hash":
+				ev.Hash = "wrong"
+			}
+			message.References = json.RawMessage(jsonText([]documentEvidence{ev}))
+			input := AIInput{Chat: &chatInput{Agent: a, History: []Message{message}}}
+			if _, err := a.beginConversation(t.Context(), input, "new-model"); err != nil {
+				t.Fatal(err)
+			}
+			refs, err := a.references("Answer [" + ev.SourceID + "]")
+			var parsed []documentEvidence
+			if err != nil || json.Unmarshal(refs, &parsed) != nil {
+				t.Fatal(string(refs), err)
+			}
+			want := 0
+			if scenario == "valid" || scenario == "legacy" {
+				want = 1
+			}
+			if len(parsed) != want {
+				t.Fatalf("unsafe or lost historical citation: %s", refs)
+			}
+			coverage := a.readingCoverage().(map[string]any)
+			if coverage["readPassages"] != 0 || len(a.Evidence) != 0 {
+				t.Fatal("historical citation inflated reading coverage", coverage)
+			}
+		})
+	}
+}
+
+func TestHistoricalSourceLabelConflictsDoNotGuessTargets(t *testing.T) {
+	_, a := originalDocumentFixture(t)
+	first, second := a.passageEvidence(0), a.passageEvidence(1)
+	second.SourceID = first.SourceID
+	message := Message{Role: "assistant", DocumentID: "doc", References: json.RawMessage(jsonText([]documentEvidence{first, second}))}
+	a.restoreHistoricalEvidence([]Message{message})
+	if refs, err := a.references("[" + first.SourceID + "]"); err != nil || string(refs) != "[]" {
+		t.Fatalf("ambiguous historical label acquired a target: %s %v", refs, err)
+	}
+	refs, err := a.references("[" + first.BlockID + "][" + second.BlockID + "]")
+	var parsed []documentEvidence
+	if err != nil || json.Unmarshal(refs, &parsed) != nil || len(parsed) != 2 {
+		t.Fatalf("unambiguous block citations were lost: %s %v", refs, err)
+	}
+}

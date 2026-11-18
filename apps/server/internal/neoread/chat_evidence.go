@@ -72,8 +72,8 @@ func (s *Server) validateChatEvidence(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "原文已更新")
 		return
 	}
-	var revision, current string
-	e = s.Store.DB.QueryRowContext(r.Context(), "SELECT revision,fingerprint FROM document_corpora WHERE document_id=?", d.ID).Scan(&revision, &current)
+	var revision, current, corpusBody string
+	e = s.Store.DB.QueryRowContext(r.Context(), "SELECT revision,fingerprint,body FROM document_corpora WHERE document_id=?", d.ID).Scan(&revision, &current, &corpusBody)
 	var body string
 	if e != nil || current != fingerprint {
 		fail(w, 409, "原文版本已更新，历史引用位置需要重新确认")
@@ -88,6 +88,7 @@ func (s *Server) validateChatEvidence(w http.ResponseWriter, r *http.Request) {
 		References []struct {
 			PageImage *documentPageImage `json:"pageImage"`
 			SourceID  string             `json:"sourceId"`
+			BlockID   string             `json:"blockId"`
 			Revision  string             `json:"corpusRevision"`
 			Hash      string             `json:"contentHash"`
 			Text      string             `json:"text"`
@@ -97,17 +98,32 @@ func (s *Server) validateChatEvidence(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "引用不存在")
 		return
 	}
+	var corpus documentCorpus
+	if json.Unmarshal([]byte(corpusBody), &corpus) != nil {
+		fail(w, 409, "引用来源版本已失效")
+		return
+	}
 	valid := false
+	key := r.PathValue("source")
 	for _, ref := range message.References {
-		if ref.SourceID == r.PathValue("source") && ref.Revision == revision {
-			if ref.PageImage != nil {
-				_, image, err := s.cachedPageImage(d.ID, revision, ref.PageImage.Page)
-				valid = err == nil && image.Hash == ref.Hash && ref.PageImage.Revision == revision
-			} else {
-				valid = ref.Hash == sourceKey(ref.Text)
-			}
-			break
+		if (ref.SourceID != key && (ref.BlockID == "" || ref.BlockID != key)) || ref.Revision != revision {
+			continue
 		}
+		if ref.PageImage != nil {
+			_, image, err := s.cachedPageImage(d.ID, revision, ref.PageImage.Page)
+			valid = err == nil && image.Hash == ref.Hash && ref.PageImage.Revision == revision
+		} else if ref.BlockID != "" {
+			for _, passage := range corpus.Passages {
+				if passage.ID == ref.BlockID {
+					valid = passage.Text == ref.Text && sourceKey(passage.Text) == ref.Hash
+					break
+				}
+			}
+		} else {
+			// Pre-blockId S references keep their historical validation contract.
+			valid = ref.Hash == sourceKey(ref.Text)
+		}
+		break
 	}
 	if !valid {
 		fail(w, 409, "引用不存在或来源版本已失效")

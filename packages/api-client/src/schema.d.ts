@@ -2321,6 +2321,7 @@ export interface paths {
                             kind?: "selection" | "section";
                             location: components["schemas"]["DocumentLocation"];
                             sourceId?: string;
+                            blockId?: string;
                             pageImage?: components["schemas"]["PageImageEvidence"];
                             corpusRevision?: string;
                             contentHash?: string;
@@ -4966,6 +4967,7 @@ export interface paths {
                             kind?: "selection" | "section";
                             location: components["schemas"]["DocumentLocation"];
                             sourceId?: string;
+                            blockId?: string;
                             pageImage?: components["schemas"]["PageImageEvidence"];
                             corpusRevision?: string;
                             contentHash?: string;
@@ -5449,6 +5451,7 @@ export interface components {
                 kind?: "selection" | "section";
                 location: components["schemas"]["DocumentLocation"];
                 sourceId?: string;
+                blockId?: string;
                 pageImage?: components["schemas"]["PageImageEvidence"];
                 corpusRevision?: string;
                 contentHash?: string;

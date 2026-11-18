@@ -637,8 +637,10 @@ export interface SourceReference {
     corpusRevision: string;
     contentHash: string;
   };
-  /** Server-issued evidence from a completed document reading attempt. */
+  /** Validated source label from a completed document answer. */
   sourceId?: string;
+  /** Original paragraph returned by document search or reading. */
+  blockId?: string;
   corpusRevision?: string;
   contentHash?: string;
   precision?: "page" | "block" | "paragraph";
