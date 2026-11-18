@@ -85,6 +85,7 @@ type GenerationService struct {
 	primary                 string
 	connections             map[string]generationConnection
 	usageSink               func(UsageCall) error
+	recheck                 func(provider string, err error)
 }
 
 func (s *Server) generationService(config AIConfig) *GenerationService {
@@ -97,8 +98,9 @@ func (s *Server) taskGenerationService(config AIConfig, task modelTask) *Generat
 		g.translationInstructions = *config.TranslationPrompt
 	}
 	for p := range piProviders {
-		g.connections[p] = generationConnection{piProviderAdapter{s, p, config, task}, capable(config, p, false), capable(config, p, true), true}
+		g.connections[p] = generationConnection{piProviderAdapter{s, p, config, task}, piReady(config, p, false), piReady(config, p, true), true}
 	}
+	g.recheck = s.recheckAfterFailure
 	g.connections["api"] = generationConnection{s.apiAgentAdapter(config, task), apiCapable(config, task, false), apiCapable(config, task, true), true}
 	g.connections["text-api"] = generationConnection{piFallbackAdapter{s.Store.Root, config.TextAPI}, capable(config, "text-api", false), false, true}
 	g.connections["image-api"] = generationConnection{piFallbackAdapter{s.Store.Root, config.ImageAPI}, capable(config, "image-api", false), capable(config, "image-api", true), true}
@@ -206,6 +208,9 @@ func (g *GenerationService) attempt(ctx context.Context, provider string, in AII
 		return runAttempt(ctx, g.connections[provider].Adapter, in, send)
 	})
 
+	if err != nil && g.recheck != nil {
+		g.recheck(provider, err)
+	}
 	if err != nil && in.Chat != nil {
 		status := "failed"
 		if ctx.Err() != nil {

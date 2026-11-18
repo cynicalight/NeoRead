@@ -551,7 +551,8 @@ export function Settings({
     !errors[`${name}:text`] &&
     !errors[`${name}:${kind}`] &&
     !!config?.capabilities[name]?.[kind];
-  // Why an agent card cannot be selected, or "" once it passed every check.
+  // Why an agent card cannot be selected. Built-in agents only need a
+  // connection; their check result is informational.
   const agentBlocker = (name: string) => {
     const installed = providers.find((p) => p.id === name)?.installed;
     if (name === "api") {
@@ -561,10 +562,8 @@ export function Settings({
       if (apiModelsError) return "无法获取模型列表，请检查 API 配置";
       return "没有通过文本推理检测的模型";
     }
-    if (loading || (testing.has(name) && !config?.capabilities[name]))
-      return "正在检测，请稍候";
+    if (loading) return "正在检测，请稍候";
     if (!installed) return "请先连接";
-    if (!providerReady(name, "text")) return "文本推理未通过检测";
     return "";
   };
   // Read by the first-run tour to point at an agent that works.

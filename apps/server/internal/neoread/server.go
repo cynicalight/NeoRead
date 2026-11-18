@@ -79,6 +79,8 @@ type Server struct {
 	journalRankMu          sync.Mutex
 	journalRankLast        time.Time
 	journalRankRequests    singleflight.Group
+	capabilityRecheckMu    sync.Mutex
+	capabilityRechecks     map[string]capabilityRecheck
 }
 
 func NewServer(s *Store, token, web string) *Server { return &Server{Store: s, Token: token, Web: web} }

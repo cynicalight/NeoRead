@@ -142,6 +142,10 @@ func (s *Server) readAIConfig() AIConfig {
 	}
 	for k, v := range c.Capabilities {
 		v.Fingerprint = stored.Fingerprints[k]
+		if _, native := piProviders[k]; native && v.Fingerprint == legacyPiPrint(c, k) {
+			// Earlier results also covered the selected model; keep them.
+			v.Fingerprint = configPrint(c, k)
+		}
 		if v.ToolSchemaVersion != documentToolSchemaVersion {
 			v.Tools = ""
 			v.ToolError = ""
@@ -198,11 +202,28 @@ func configPrint(c AIConfig, p string) string {
 		// Checked per model, never as a whole.
 		return ""
 	} else {
-		value = []string{p, piConnectionIdentity(c.piConnections[p]), c.Models[p], c.VisionModels[p]}
+		// A built-in agent's result belongs to its login, not the selected
+		// model: switching models must not invalidate it.
+		value = []string{p, piConnectionIdentity(c.piConnections[p])}
 	}
 	b, _ := json.Marshal(value)
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
+}
+func legacyPiPrint(c AIConfig, p string) string {
+	b, _ := json.Marshal([]string{p, piConnectionIdentity(c.piConnections[p]), c.Models[p], c.VisionModels[p]})
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+// Checks inform the Settings status. A connected built-in agent serves
+// requests regardless; failed answers trigger a new check instead.
+func piConnected(c AIConfig, p string) bool {
+	_, ok := c.piConnections[p]
+	return ok
+}
+func piReady(c AIConfig, p string, vision bool) bool {
+	return piConnected(c, p) || capable(c, p, vision)
 }
 func capable(c AIConfig, p string, vision bool) bool {
 	if p == "api" {
@@ -464,6 +485,30 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "无效的检测能力")
 		return
 	}
+	cap, err := s.probeCapability(r.Context(), p, mode, textTimeout, visionTimeout)
+	if r.Context().Err() != nil {
+		return
+	}
+	switch {
+	case errors.Is(err, errProbeNeedsText):
+		fail(w, 409, "请先完成文本检测")
+	case errors.Is(err, errProbeStale):
+		fail(w, 409, "配置已改变，请重新检测")
+	case err != nil:
+		fail(w, 500, "无法保存测试结果")
+	default:
+		respond(w, 200, cap)
+	}
+}
+
+var (
+	errProbeNeedsText = errors.New("text check required")
+	errProbeStale     = errors.New("configuration changed during check")
+)
+
+// probeCapability runs the text check and then, unless mode limits it, the
+// vision check. The result is saved only if the connection is unchanged.
+func (s *Server) probeCapability(ctx context.Context, p, mode string, textTimeout, visionTimeout time.Duration) (Capability, error) {
 	c := s.aiConfig()
 	fingerprint := configPrint(c, p)
 	cap := Capability{CheckedAt: now(), Fingerprint: fingerprint}
@@ -476,14 +521,13 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	if mode == "vision" {
 		if !capable(c, p, false) {
-			fail(w, 409, "请先完成文本检测")
-			return
+			return cap, errProbeNeedsText
 		}
 		cap.Text = true
 	} else {
 		// A completed, nonempty model response establishes text availability.
 		// Formatting and CLI subscription-login metadata are not capability gates.
-		answer, firstOutput, err := s.probeConnection(r.Context(), c, p, AIInput{Prompt: "Reply with exactly NEOREAD_OK. Do not use any tools."}, textTimeout)
+		answer, firstOutput, err := s.probeConnection(ctx, c, p, AIInput{Prompt: "Reply with exactly NEOREAD_OK. Do not use any tools."}, textTimeout)
 		cap.TextFirstOutputMs = firstOutput
 		if err != nil {
 			cap.Error = err.Error()
@@ -500,7 +544,7 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 		if probeErr != nil {
 			cap.Error = "无法生成图片测试"
 		} else {
-			answer, firstOutput, err := s.probeConnection(r.Context(), c, p, AIInput{Prompt: visionPrompt, Image: data}, visionTimeout)
+			answer, firstOutput, err := s.probeConnection(ctx, c, p, AIInput{Prompt: visionPrompt, Image: data}, visionTimeout)
 			cap.VisionFirstOutputMs = firstOutput
 			if err != nil {
 				cap.Error = "文字可用；识图测试失败：" + err.Error()
@@ -511,25 +555,23 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if r.Context().Err() != nil {
-		return
+	if err := ctx.Err(); err != nil {
+		return cap, err
 	}
 	s.configMu.Lock()
 	latest := s.readAIConfig()
 	if configPrint(latest, p) != fingerprint || latest.Capabilities[p].CheckedAt != c.Capabilities[p].CheckedAt {
 		s.configMu.Unlock()
-		fail(w, 409, "配置已改变，请重新检测")
-		return
+		return cap, errProbeStale
 	}
 	latest.Capabilities[p] = cap
 	err := s.writeAIConfig(latest)
 	s.configMu.Unlock()
 	if err != nil {
-		fail(w, 500, "无法保存测试结果")
-		return
+		return cap, err
 	}
-	respond(w, 200, cap)
 	s.wakeProcessing()
+	return cap, nil
 }
 
 // Connection probes exercise the saved model and reasoning settings;

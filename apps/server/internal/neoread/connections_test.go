@@ -34,13 +34,58 @@ func TestConnectionSecretsAndFingerprint(t *testing.T) {
 	if bytes.Contains(pub, []byte("private-value")) || !bytes.Contains(pub, []byte(`"hasKey":true`)) {
 		t.Fatal("secret exposed or marker missing")
 	}
+	// A built-in agent's result follows its login, not the selected model.
 	saved.Models["codex"] = "model-b"
+	if !capable(saved, "codex", true) {
+		t.Fatal("switching models dropped the connection's check")
+	}
+	saved.piConnections = map[string]APIConnection{"codex": {URL: "https://example.com", pi: &piConnection{"openai", "other-login"}}}
 	if capable(saved, "codex", true) {
-		t.Fatal("stale model capability trusted")
+		t.Fatal("check from another login trusted")
 	}
 	info, e := os.Stat(filepath.Join(store.Root, "ai-connections.json"))
 	if e != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatal("config permissions", e)
+	}
+}
+
+func TestModelBoundChecksSurviveUpgrade(t *testing.T) {
+	store, e := OpenStore(t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer store.DB.Close()
+	s := NewServer(store, "test", "")
+	c := AIConfig{Primary: "claude", Models: map[string]string{"claude": "sonnet"}, Capabilities: map[string]Capability{}}
+	c.Capabilities["claude"] = Capability{Text: true, Vision: true, Fingerprint: legacyPiPrint(c, "claude")}
+	if e = s.writeAIConfig(c); e != nil {
+		t.Fatal(e)
+	}
+	if !capable(s.aiConfig(), "claude", true) {
+		t.Fatal("check saved with the selected model was dropped on upgrade")
+	}
+}
+
+func TestConnectedBuiltInAgentServesWithoutCheck(t *testing.T) {
+	store, e := OpenStore(t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer store.DB.Close()
+	s := NewServer(store, "test", "")
+	c := AIConfig{Primary: "claude", Models: map[string]string{}, Capabilities: map[string]Capability{
+		"claude": {Text: false, Error: "earlier failure"},
+	}}
+	if s.generationService(c).ValidateInput(AIInput{Prompt: "q"}, true) == nil {
+		t.Fatal("disconnected agent admitted")
+	}
+	c.piConnections = map[string]APIConnection{"claude": {URL: "https://api.anthropic.com/v1", pi: &piConnection{"anthropic", "auth"}}}
+	g := s.generationService(c)
+	if err := g.ValidateInput(AIInput{Prompt: "q", Image: []byte{1}}, true); err != nil {
+		t.Fatalf("connected agent blocked by its check result: %v", err)
+	}
+	if !primaryCapable(c, taskTranslation) {
+		t.Fatal("background translation blocked by check result")
 	}
 }
 

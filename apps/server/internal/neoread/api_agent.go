@@ -57,13 +57,14 @@ func apiCapable(c AIConfig, task modelTask, vision bool) bool {
 	return false
 }
 
-// primaryCapable reports whether the primary agent passed the text check
-// for a task. Only the API agent picks models by its own per-model checks.
+// primaryCapable reports whether the primary agent can serve a task. Only the
+// API agent picks models by its own per-model checks; built-in agents only
+// need a connection.
 func primaryCapable(c AIConfig, task modelTask) bool {
 	if c.Primary == "api" {
 		return apiCapable(c, task, false)
 	}
-	return capable(c, c.Primary, false)
+	return piReady(c, c.Primary, false)
 }
 
 func (s *Server) apiAgentAdapter(c AIConfig, task modelTask) piAPIAdapter {
