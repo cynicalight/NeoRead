@@ -26,7 +26,8 @@
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
-  -webkit-app-region: no-drag;
+  /* Empty strip space remains a native titlebar hit target. */
+  -webkit-app-region: drag;
 }
 .document-tabs-scroll::-webkit-scrollbar {
   display: none;
@@ -57,6 +58,7 @@
 /* Tabs share the strip and shrink together, as in Chrome; past their
    minimum width the strip scrolls instead. */
 .document-tab {
+  -webkit-app-region: no-drag;
   container: document-tab / inline-size;
   position: relative;
   display: flex;
