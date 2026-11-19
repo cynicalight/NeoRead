@@ -34,7 +34,7 @@ vi.mock("./document-export", async (original) => ({
 }));
 const doc = paper({ id: "doc", title: "论文" });
 const imagePath = `assets/${"a".repeat(64)}.png`;
-const archiveFormat = "Markdown + 图片 (.zip)";
+const archiveFormat = "含图ZIP";
 const annotations: Annotation[] = (
   ["note", "underline", "highlight", "question"] as const
 ).map((kind, i) => ({

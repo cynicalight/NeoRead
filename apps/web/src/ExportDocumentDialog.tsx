@@ -41,7 +41,7 @@ const targetLabels = {
 const formatLabels = {
   markdown: "Markdown",
   pdf: "PDF",
-  zip: "Markdown + 图片 (.zip)",
+  zip: "含图ZIP",
 } satisfies Record<ExportFormat | "zip", string>;
 type DialogFormat = keyof typeof formatLabels;
 const isSource = (target: ExportTarget): target is "original" | "translation" =>
