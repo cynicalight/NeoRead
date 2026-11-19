@@ -322,6 +322,42 @@ it("paints saved colors, opens annotation targets on hit, and removes highlights
     "Same words",
   );
 });
+it("shares one highlight per mark style and leaves marks alone on input", async () => {
+  await open();
+  const mark = (id: string, start: number) =>
+    ({
+      id,
+      kind: "highlight",
+      color: "#e6b94c",
+      quote: "x",
+      location: {
+        type: "epub",
+        href: "a.xhtml",
+        blockId: "a",
+        start,
+        end: start + 4,
+      },
+    }) as Annotation;
+  await reader.highlight([mark("one", 0), mark("two", 12)]);
+  // Same-colored marks share a highlight, so the stylesheet holds one rule.
+  expect(registry.size).toBe(1);
+  expect([...registry.values()][0].size).toBe(2);
+  const stylesheet = document.head.innerHTML;
+  const set = vi.spyOn(registry, "set");
+  // Every pointer, wheel and key input clears focus; without focus this
+  // must not repaint, which restyled the whole document each time.
+  await reader.focusEPUBLocations([]);
+  expect(set).not.toHaveBeenCalled();
+  expect(document.head.innerHTML).toBe(stylesheet);
+  await reader.focusEPUBLocations([
+    { type: "epub", href: "a.xhtml", blockId: "a", start: 0, end: 4 },
+  ]);
+  expect(set).toHaveBeenCalledTimes(1);
+  expect(registry.size).toBe(2);
+  await reader.focusEPUBLocations([]);
+  expect(registry.size).toBe(1);
+  set.mockRestore();
+});
 it("does not paint a translated annotation on its stored source range", async () => {
   await open();
   await reader.highlight([

@@ -37,6 +37,7 @@ import { EPUBBlockOverlay, epubBlockRect } from "./epub-block-focus";
 import "./epub-web.css";
 
 let sequence = 0;
+const focusRule = "background-color: #3b82f666; color: inherit";
 type Chapter = {
   info: EPUBChapter;
   weight: number;
@@ -59,7 +60,12 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   private noted: { range: Range; color: string }[] = [];
   private noteLayer = document.createElement("div");
   private focus: EPUBLocation[] = [];
-  private names: string[] = [];
+  /**
+   * One CSS highlight per mark style, named once. Per-annotation names made
+   * every repaint rewrite the stylesheet and restyle the whole document, at a
+   * cost that grew with both the DOM and the number of annotations.
+   */
+  private names = new Map<string, string>();
   private prefix = `epub-web-${++sequence}`;
   private style = document.createElement("style");
   private abort = new AbortController();
@@ -960,71 +966,54 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   private paint() {
     this.marks = [];
     this.noted = [];
-    for (const name of this.names) globalThis.CSS?.highlights?.delete(name);
-    this.names = [];
-    this.style.textContent = "";
-    const rules: string[] = [],
+    const groups = new Map<string, Range[]>(),
       unresolved: string[] = [];
-    const add = (ranges: Range[], color: string, underline = false) => {
-      if (
-        typeof Highlight === "undefined" ||
-        !globalThis.CSS?.highlights ||
-        !ranges.length
-      )
-        return;
-      const name = `${this.prefix}-${this.names.length}`;
-      CSS.highlights.set(name, new Highlight(...ranges));
-      this.names.push(name);
-      const tint = /^#[a-f\d]{6}$/i.test(color) ? color : "#facc15";
-      rules.push(
-        `::highlight(${name}) { ${underline ? `text-decoration: underline ${tint} 2px` : `background-color: ${tint}66; color: inherit`} }`,
-      );
-    };
     for (const annotation of this.annotations) {
       if (annotation.location.type !== "epub" || annotation.kind === "bookmark")
         continue;
       if (annotation.location.translation) continue;
-      const locations = [
-        {
-          ...annotation.location,
-          quote: annotation.location.quote || annotation.quote,
-        },
-      ];
+      const location = {
+        ...annotation.location,
+        quote: annotation.location.quote || annotation.quote,
+      };
+      if (!this.chapter(location.href)?.loaded) continue;
+      const slices = resolveEPUBLocation(location, this.blocks);
+      if (
+        !slices.length &&
+        (!location.endBlockId ||
+          this.blocks.some((b) => b.id === location.endBlockId))
+      )
+        unresolved.push(annotation.id);
       const ranges: Range[] = [];
-      for (const location of locations) {
-        if (!this.chapter(location.href)?.loaded) continue;
-        const slices = resolveEPUBLocation(location, this.blocks);
-        if (
-          !slices.length &&
-          (!location.endBlockId ||
-            this.blocks.some((b) => b.id === location.endBlockId))
-        )
-          unresolved.push(annotation.id);
-        for (const slice of slices) {
-          const range = blockRange(this.container, slice);
-          if (range) {
-            ranges.push(range);
-            this.marks.push({ annotation, range });
-          }
+      for (const slice of slices) {
+        const range = blockRange(this.container, slice);
+        if (range) {
+          ranges.push(range);
+          this.marks.push({ annotation, range });
         }
       }
-      add(ranges, annotation.color, annotation.kind === "underline");
-      if (annotation.note?.trim() && ranges.length)
+      if (!ranges.length) continue;
+      const tint = /^#[a-f\d]{6}$/i.test(annotation.color)
+        ? annotation.color
+        : "#facc15";
+      const rule =
+        annotation.kind === "underline"
+          ? `text-decoration: underline ${tint} 2px`
+          : `background-color: ${tint}66; color: inherit`;
+      const group = groups.get(rule);
+      if (group) group.push(...ranges);
+      else groups.set(rule, ranges);
+      if (annotation.note?.trim())
         this.noted.push({
           range: ranges[ranges.length - 1]!,
           color: annotation.color,
         });
     }
-    add(
-      this.focus.flatMap((location) =>
-        resolveEPUBLocation(location, this.blocks).flatMap((slice) => {
-          const range = blockRange(this.container, slice);
-          return range ? [range] : [];
-        }),
-      ),
-      "#3b82f6",
-    );
-    this.style.textContent = rules.join("\n");
+    for (const [rule, name] of this.names)
+      if (rule !== focusRule && !groups.has(rule))
+        globalThis.CSS?.highlights?.delete(name);
+    for (const [rule, ranges] of groups) this.setHighlight(rule, ranges);
+    this.paintFocus();
     this.placeNotes();
     const key = [...new Set(unresolved)].sort().join(",");
     if (key && key !== this.unresolved)
@@ -1033,9 +1022,51 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       );
     this.unresolved = key;
   }
+  /** Focused passages draw over annotations without repainting them. */
+  private paintFocus() {
+    this.setHighlight(
+      focusRule,
+      this.focus.flatMap((location) =>
+        resolveEPUBLocation(location, this.blocks).flatMap((slice) => {
+          const range = blockRange(this.container, slice);
+          return range ? [range] : [];
+        }),
+      ),
+      1,
+    );
+  }
+  private setHighlight(rule: string, ranges: Range[], priority = 0) {
+    if (typeof Highlight === "undefined" || !globalThis.CSS?.highlights)
+      return;
+    let name = this.names.get(rule);
+    if (!name) {
+      name = `${this.prefix}-${this.names.size}`;
+      this.names.set(rule, name);
+      // The stylesheet changes only when a new mark style first appears.
+      this.style.textContent = Array.from(
+        this.names,
+        ([body, id]) => `::highlight(${id}) { ${body} }`,
+      ).join("\n");
+    }
+    if (!ranges.length) {
+      CSS.highlights.delete(name);
+      return;
+    }
+    const highlight = new Highlight(...ranges);
+    highlight.priority = priority;
+    CSS.highlights.set(name, highlight);
+  }
   /** Marks the end of each annotation that has a note. */
   private placeNotes() {
     const layer = this.noteLayer;
+    // Measuring would force a layout on every repaint; skip it without notes.
+    if (!this.noted.length) {
+      if (layer.parentElement) {
+        layer.replaceChildren();
+        layer.remove();
+      }
+      return;
+    }
     const view = this.container.getBoundingClientRect();
     const markers = this.noted.flatMap(({ range, color }) => {
       const rect = Array.from(range.getClientRects?.() ?? [])
@@ -1060,12 +1091,14 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     if (layer.parentElement !== this.container) this.container.append(layer);
   }
   async focusEPUBLocations(locations: EPUBLocation[]) {
+    // Every pointer, wheel and key input clears focus; most have none to clear.
+    if (!locations.length && !this.focus.length) return;
     this.focus = locations;
     for (const location of locations) {
       const chapter = this.chapter(location.href);
       if (chapter) await this.load(chapter);
     }
-    if (!this.disposed) this.paint();
+    if (!this.disposed) this.paintFocus();
   }
   hoverBlock(blockId: string | null) {
     this.blockOverlay.setLinkedBlock(blockId);
@@ -1162,7 +1195,8 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     this.observer?.disconnect();
     this.resize?.disconnect();
     cancelAnimationFrame(this.frame);
-    for (const name of this.names) globalThis.CSS?.highlights?.delete(name);
+    for (const name of this.names.values())
+      globalThis.CSS?.highlights?.delete(name);
     this.style.remove();
     this.clearSelection();
     this.container.replaceChildren();
