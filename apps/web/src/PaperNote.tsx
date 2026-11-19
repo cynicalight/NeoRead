@@ -11,7 +11,6 @@ import { Button } from "@neoread/ui/components/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -169,7 +168,6 @@ export function PaperNote({
       <DialogContent className="paper-note-dialog" finalFocus={expandButton}>
         <DialogHeader>
           <DialogTitle>论文笔记</DialogTitle>
-          <DialogDescription>Markdown 笔记</DialogDescription>
         </DialogHeader>
         {expanded && active && (
           <PaperNoteRichEditor
@@ -180,6 +178,7 @@ export function PaperNote({
             onChange={note.edit}
             onBlur={save}
             actions={excerpt}
+            toolbarPlacement="bottom"
           />
         )}
         {feedback}
