@@ -1,6 +1,9 @@
 ﻿import { useEffect, useState } from "react";
 import { reportDiagnostic } from "../diagnostics";
 export type CustomPrompt = { id: string; description: string; prompt: string };
+export const maxPromptBytes = 16000;
+export const promptBytes = (prompt: string) =>
+  new TextEncoder().encode(prompt).length;
 const key = "neoread.custom-prompts";
 const changed = "neoread-custom-prompts-changed";
 export function readPrompts(): CustomPrompt[] {

@@ -108,3 +108,21 @@ it("does not overwrite invalid storage while reading", () => {
   expect(readPrompts()).toEqual([]);
   expect(localStorage.getItem("neoread.custom-prompts")).toBe("invalid-json");
 });
+
+it.each([
+  ["a".repeat(16000), false],
+  ["a".repeat(16001), true],
+  ["汉".repeat(5333), false],
+  ["汉".repeat(5334), true],
+  ["😀".repeat(4000), false],
+  ["😀".repeat(4001), true],
+])("validates UTF-8 bytes before saving (case %#)", async (prompt, invalid) => {
+  await render();
+  await click("添加");
+  await type("input", "长度检查");
+  await type("textarea", prompt);
+  expect(button("保存").disabled).toBe(invalid);
+  expect(document.querySelector("textarea")?.getAttribute("aria-invalid")).toBe(
+    String(invalid),
+  );
+});

@@ -9,7 +9,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@neoread/ui/components/dialog";
-import { savePrompts, useCustomPrompts } from "./chat/custom-prompts";
+import {
+  maxPromptBytes,
+  promptBytes,
+  savePrompts,
+  useCustomPrompts,
+} from "./chat/custom-prompts";
 
 export function CustomPromptSettings() {
   const id = useId();
@@ -18,6 +23,7 @@ export function CustomPromptSettings() {
   const [editing, setEditing] = useState<string>();
   const [description, setDescription] = useState("");
   const [prompt, setPrompt] = useState("");
+  const tooLong = promptBytes(prompt.trim()) > maxPromptBytes;
   function reset() {
     setEditing(undefined);
     setDescription("");
@@ -84,7 +90,7 @@ export function CustomPromptSettings() {
             className="space-y-3"
             onSubmit={(event) => {
               event.preventDefault();
-              if (!description.trim() || !prompt.trim()) return;
+              if (!description.trim() || !prompt.trim() || tooLong) return;
               const next = {
                 id: editing ?? crypto.randomUUID(),
                 description: description.trim(),
@@ -121,10 +127,23 @@ export function CustomPromptSettings() {
                 id={`${id}-prompt`}
                 className="max-h-[min(20rem,40dvh)] overflow-y-auto"
                 rows={6}
-                maxLength={20000}
+                maxLength={maxPromptBytes}
+                aria-invalid={tooLong}
+                aria-describedby={tooLong ? `${id}-prompt-error` : undefined}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
               />
+              {tooLong && (
+                <p
+                  id={`${id}-prompt-error`}
+                  role="alert"
+                  className="text-sm text-destructive"
+                >
+                  提示词最多 16,000 UTF-8 字节，当前为{" "}
+                  {promptBytes(prompt.trim()).toLocaleString()}{" "}
+                  字节。请缩短后保存。
+                </p>
+              )}
             </div>
             <div className="flex justify-end gap-2">
               <Button
@@ -136,7 +155,7 @@ export function CustomPromptSettings() {
               </Button>
               <Button
                 type="submit"
-                disabled={!description.trim() || !prompt.trim()}
+                disabled={!description.trim() || !prompt.trim() || tooLong}
               >
                 保存
               </Button>
