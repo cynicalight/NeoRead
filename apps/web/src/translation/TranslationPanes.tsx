@@ -2,7 +2,7 @@ import {
   useId,
   useLayoutEffect,
   useRef,
-  useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { ArrowLeftRight, ArrowUpDown, Columns2, Rows2 } from "lucide-react";
@@ -39,7 +39,27 @@ export function TranslationPanes({
   const sourcePanel = usePanelRef();
   const rememberedWidth = useRef(sourceWidth);
   rememberedWidth.current = sourceWidth;
-  const [dividerAt, setDividerAt] = useState(50);
+  // Written directly on layout changes: a React render per drag frame is wasted.
+  const controls = useRef<HTMLDivElement>(null);
+  const dividerAt = useRef(50);
+  const panes = useRef<HTMLDivElement>(null);
+  // While dragging, offscreen translation sections skip relayout (translation.css).
+  // Not `data-resizing`: `body[data-resizing] *` makes that attribute restyle
+  // every descendant wherever it changes.
+  const markResizing = () => {
+    const node = panes.current;
+    if (!node || node.hasAttribute("data-divider-drag")) return;
+    node.setAttribute("data-divider-drag", "");
+    const end = () => {
+      node.removeAttribute("data-divider-drag");
+      window.removeEventListener("pointerup", end, true);
+      window.removeEventListener("pointercancel", end, true);
+      window.removeEventListener("blur", end);
+    };
+    window.addEventListener("pointerup", end, true);
+    window.addEventListener("pointercancel", end, true);
+    window.addEventListener("blur", end);
+  };
   const stacked = useReaderStore(
     (state) => readerLayout(state.theme.readerLayout).stacked,
   );
@@ -89,6 +109,7 @@ export function TranslationPanes({
 
   return (
     <div
+      ref={panes}
       className="translation-panes"
       data-mode={mode}
       data-stacked={stacked || undefined}
@@ -99,9 +120,12 @@ export function TranslationPanes({
         disabled={!parallel}
         onPointerDownCapture={(event) => {
           if (
+            event.button === 0 &&
             (event.target as Element).closest('[data-slot="resizable-handle"]')
-          )
+          ) {
             onResizeStart?.();
+            markResizing();
+          }
         }}
         onKeyDownCapture={(event) => {
           if (
@@ -110,7 +134,12 @@ export function TranslationPanes({
             onResizeStart?.();
         }}
         onLayoutChange={(layout) => {
-          if (parallel) setDividerAt(layout[`${id}-left`]);
+          if (!parallel) return;
+          dividerAt.current = layout[`${id}-left`];
+          controls.current?.style.setProperty(
+            "--divider-at",
+            `${dividerAt.current}%`,
+          );
         }}
         onLayoutChanged={(layout, { isUserInteraction }) => {
           if (parallel && isUserInteraction) {
@@ -125,8 +154,9 @@ export function TranslationPanes({
           does not consume pointer events intended for these buttons. */}
       {parallel && (
         <div
+          ref={controls}
           className="translation-pane-controls"
-          style={stacked ? { top: `${dividerAt}%` } : { left: `${dividerAt}%` }}
+          style={{ "--divider-at": `${dividerAt.current}%` } as CSSProperties}
         >
           <Button
             variant="outline"

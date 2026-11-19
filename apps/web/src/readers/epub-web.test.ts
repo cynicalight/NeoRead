@@ -79,6 +79,7 @@ const html = (blocks: EPUBReadingBlock[]) =>
     .join("");
 let reader: EPUBReaderAdapter;
 let host: HTMLDivElement;
+let hostWidth: number;
 let events: {
   location: ReturnType<typeof vi.fn<(...args: unknown[]) => void>>;
   selection: ReturnType<typeof vi.fn<(...args: unknown[]) => void>>;
@@ -148,7 +149,11 @@ beforeEach(() => {
     get: () => 600,
     configurable: true,
   });
-  Object.defineProperty(host, "clientWidth", { value: 800 });
+  hostWidth = 800;
+  Object.defineProperty(host, "clientWidth", {
+    get: () => hostWidth,
+    configurable: true,
+  });
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
     function (this: Element) {
       return geometry(this);
@@ -579,6 +584,49 @@ it.each(["font", "width"])(
     expect(host.scrollTop).toBe(905);
   },
 );
+
+it("defers reading reports until a width resize settles", async () => {
+  let resize: ResizeObserverCallback | undefined;
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  await open();
+  host.dispatchEvent(new Event("wheel"));
+  host.dispatchEvent(new Event("scroll"));
+  await vi.waitFor(() => expect(events.epubReadingAnchor).toHaveBeenCalled());
+  vi.mocked(events.location).mockClear();
+  vi.mocked(events.epubReadingAnchor!).mockClear();
+  vi.useFakeTimers({
+    toFake: [
+      "setTimeout",
+      "clearTimeout",
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+    ],
+  });
+  try {
+    // Each divider-drag frame changes the width and scrolls to keep the anchor.
+    for (const width of [760, 720, 680]) {
+      hostWidth = width;
+      resize!([], {} as ResizeObserver);
+      host.dispatchEvent(new Event("scroll"));
+      vi.advanceTimersByTime(40);
+    }
+    expect(events.location).not.toHaveBeenCalled();
+    expect(events.epubReadingAnchor).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(200);
+    expect(events.epubReadingAnchor).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 it("supports a selection spanning adjacent chapters and restores its exact range", async () => {
   await open();
