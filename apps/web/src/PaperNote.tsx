@@ -143,9 +143,10 @@ export function PaperNote({
             disabled={unavailable}
             onChange={note.edit}
             onBlur={save}
+            besideTabs={excerpt}
             actions={
               <>
-                {excerpt}
+                {feedback}
                 <DialogTrigger
                   render={
                     <Button
@@ -159,11 +160,21 @@ export function PaperNote({
                 >
                   <Maximize2 />
                 </DialogTrigger>
+                <Button
+                  size="icon-sm"
+                  className="rounded-full"
+                  aria-label="保存"
+                  title="保存"
+                  disabled={unavailable}
+                  onClick={save}
+                >
+                  <Check className="size-3.5" />
+                </Button>
               </>
             }
+            toolbarPlacement="bottom"
           />
         )}
-        {!expanded && feedback}
       </div>
       <DialogContent className="paper-note-dialog" finalFocus={expandButton}>
         <DialogHeader>

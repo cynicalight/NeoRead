@@ -4073,9 +4073,6 @@ textarea.citation-preview {
   gap: 2px;
   margin-left: auto;
 }
-.paper-note .paper-note-rich .ProseMirror {
-  padding: 12px 14px;
-}
 .notes-filter.notes-filter {
   width: 100%;
   margin-bottom: 12px;
@@ -4496,11 +4493,14 @@ textarea.citation-preview {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
-.paper-note-dialog .paper-note-rich .ProseMirror,
-.paper-note-dialog textarea.paper-note-editor-input {
+:is(.paper-note, .paper-note-dialog) .paper-note-rich .ProseMirror,
+:is(.paper-note, .paper-note-dialog) textarea.paper-note-editor-input {
   padding: 10px 14px;
 }
-.paper-note-dialog .paper-note-rich .ProseMirror > :first-child {
+:is(.paper-note, .paper-note-dialog)
+  .paper-note-rich
+  .ProseMirror
+  > :first-child {
   margin-top: 0;
 }
 .paper-note-actions > .paper-note-status {
