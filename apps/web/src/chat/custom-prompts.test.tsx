@@ -2,9 +2,19 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { CustomPromptSettings } from "../CustomPromptSettings";
-import { CustomPrompts } from "./CustomPrompts";
-import { readPrompts } from "./custom-prompts";
+import type { CustomPrompt } from "@neoread/api";
+import { reportDiagnostic } from "../diagnostics";
+let CustomPromptSettings: typeof import("../CustomPromptSettings").CustomPromptSettings;
+let CustomPrompts: typeof import("./CustomPrompts").CustomPrompts;
+const transport = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn() }));
+vi.mock("@neoread/api", () => ({
+  api: {
+    customPromptPreferences: transport.read,
+    saveCustomPromptPreferences: transport.write,
+  },
+}));
+let saved: CustomPrompt[] | undefined;
+const readPrompts = () => saved ?? [];
 
 vi.mock("../diagnostics", () => ({ reportDiagnostic: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -39,7 +49,19 @@ async function render(disabled = false) {
     ),
   );
 }
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  saved = undefined;
+  transport.read.mockImplementation(async () =>
+    saved === undefined ? {} : { prompts: structuredClone(saved) },
+  );
+  transport.write.mockImplementation(async (prompts: CustomPrompt[]) => {
+    saved = structuredClone(prompts);
+    return { prompts: saved };
+  });
+  ({ CustomPromptSettings } = await import("../CustomPromptSettings"));
+  ({ CustomPrompts } = await import("./CustomPrompts"));
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
   send.mockClear();
@@ -93,9 +115,9 @@ it("retains the saved item and edit draft when persistence fails", async () => {
   await click("保存");
   await click("编辑");
   await type("input", "新描述");
-  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-    throw new Error("quota");
-  });
+  transport.write.mockRejectedValue(
+    new Error("private prompt must not enter logs"),
+  );
   await click("保存");
   expect(button("原描述")).toBeDefined();
   expect(button("新描述")).toBeUndefined();
@@ -103,10 +125,195 @@ it("retains the saved item and edit draft when persistence fails", async () => {
   expect(readPrompts()[0].description).toBe("原描述");
 });
 
-it("does not overwrite invalid storage while reading", () => {
+it("does not overwrite invalid storage while reading", async () => {
   localStorage.setItem("neoread.custom-prompts", "invalid-json");
+  await render();
   expect(readPrompts()).toEqual([]);
   expect(localStorage.getItem("neoread.custom-prompts")).toBe("invalid-json");
+  expect(transport.write).not.toHaveBeenCalled();
+  expect(button("添加").disabled).toBe(true);
+  expect(reportDiagnostic).toHaveBeenCalledWith(
+    expect.objectContaining({
+      event: "chat.prompts.load_failed",
+      detail: "reason=legacy_json_invalid",
+    }),
+  );
+});
+
+const legacy = [
+  { id: "legacy", description: "旧功能", prompt: "private_prompt_marker" },
+];
+
+it("migrates legacy data only after persistence succeeds", async () => {
+  localStorage.setItem("neoread.custom-prompts", JSON.stringify(legacy));
+  await render();
+  expect(saved).toEqual(legacy);
+  expect(localStorage.getItem("neoread.custom-prompts")).toBeNull();
+  expect(button("旧功能")).toBeDefined();
+  // A fresh renderer at a different origin has no access to the old localStorage.
+  await act(async () => root.render(null));
+  localStorage.clear();
+  vi.resetModules();
+  ({ CustomPromptSettings } = await import("../CustomPromptSettings"));
+  ({ CustomPrompts } = await import("./CustomPrompts"));
+  await render();
+  await click("旧功能");
+  expect(send).toHaveBeenCalledWith("private_prompt_marker");
+});
+
+it("keeps the legacy copy and editable draft after a migration write fails", async () => {
+  localStorage.setItem("neoread.custom-prompts", JSON.stringify(legacy));
+  transport.write.mockRejectedValue(new Error("private_prompt_marker"));
+  await render();
+  expect(localStorage.getItem("neoread.custom-prompts")).toBe(
+    JSON.stringify(legacy),
+  );
+  expect(button("旧功能")).toBeDefined();
+  expect(reportDiagnostic).toHaveBeenCalledWith(
+    expect.objectContaining({
+      event: "chat.prompts.save_failed",
+      detail: "reason=server_write_failed",
+    }),
+  );
+  expect(JSON.stringify(vi.mocked(reportDiagnostic).mock.calls)).not.toContain(
+    "private_prompt_marker",
+  );
+  await click("编辑");
+  await type("input", "新功能");
+  await click("保存");
+  expect(document.querySelector("input")?.value).toBe("新功能");
+});
+
+it("blocks writes after a failed server read, then recovers on retry", async () => {
+  localStorage.setItem("neoread.custom-prompts", JSON.stringify(legacy));
+  transport.read.mockRejectedValueOnce(new Error("private_prompt_marker"));
+  await render();
+  expect(button("添加").disabled).toBe(true);
+  expect(transport.write).not.toHaveBeenCalled();
+  expect(localStorage.getItem("neoread.custom-prompts")).not.toBeNull();
+  expect(reportDiagnostic).toHaveBeenCalledWith(
+    expect.objectContaining({ detail: "reason=server_read_failed" }),
+  );
+  await click("重试");
+  expect(saved).toEqual(legacy);
+  expect(button("添加").disabled).toBe(false);
+});
+
+it.each([
+  { prompts: [] },
+  {
+    prompts: [
+      { id: "server", description: "数据库配置", prompt: "保留数据库配置" },
+    ],
+  },
+])(
+  "prefers the database over a stale legacy copy (case %#)",
+  async ({ prompts }) => {
+    saved = prompts;
+    localStorage.setItem("neoread.custom-prompts", JSON.stringify(legacy));
+    await render();
+    expect(saved).toEqual(prompts);
+    expect(button("旧功能")).toBeUndefined();
+    expect(transport.write).not.toHaveBeenCalled();
+  },
+);
+
+it("diagnoses legacy storage read errors without leaking their text", async () => {
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+    throw new Error("private_prompt_marker");
+  });
+  await render();
+  expect(reportDiagnostic).toHaveBeenCalledWith(
+    expect.objectContaining({ detail: "reason=legacy_storage_read_failed" }),
+  );
+  expect(JSON.stringify(vi.mocked(reportDiagnostic).mock.calls)).not.toContain(
+    "private_prompt_marker",
+  );
+  expect(transport.write).not.toHaveBeenCalled();
+});
+
+it.each([
+  null,
+  { unexpected: "private_prompt_marker" },
+  { prompts: "private_prompt_marker" },
+  { prompts: [{ id: "p", prompt: "private_prompt_marker" }] },
+])(
+  "rejects malformed server data without replacing it (case %#)",
+  async (value) => {
+    transport.read.mockResolvedValue(value);
+    await render();
+    expect(button("添加").disabled).toBe(true);
+    expect(transport.write).not.toHaveBeenCalled();
+    expect(reportDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: "reason=server_data_invalid" }),
+    );
+  },
+);
+
+it("diagnoses malformed legacy data and keeps it intact", async () => {
+  const raw = JSON.stringify([{ prompt: "private_prompt_marker" }]);
+  localStorage.setItem("neoread.custom-prompts", raw);
+  await render();
+  expect(reportDiagnostic).toHaveBeenCalledWith(
+    expect.objectContaining({ detail: "reason=legacy_data_invalid" }),
+  );
+  expect(localStorage.getItem("neoread.custom-prompts")).toBe(raw);
+  expect(transport.write).not.toHaveBeenCalled();
+});
+
+it("treats cleanup failure as saved and ignores the leftover copy on reload", async () => {
+  localStorage.setItem("neoread.custom-prompts", JSON.stringify(legacy));
+  vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+    throw new Error("private_prompt_marker");
+  });
+  await render();
+  expect(saved).toEqual(legacy);
+  expect(button("添加").disabled).toBe(false);
+  expect(reportDiagnostic).toHaveBeenCalledWith(
+    expect.objectContaining({ event: "chat.prompts.migration_cleanup_failed" }),
+  );
+});
+
+it("waits for persistence before updating suggestions and prevents duplicate saves", async () => {
+  await render();
+  expect(transport.read).toHaveBeenCalledTimes(1);
+  await click("添加");
+  await type("input", "等待保存");
+  await type("textarea", "保存后才出现");
+  let finish!: () => void;
+  transport.write.mockImplementationOnce(
+    (prompts: CustomPrompt[]) =>
+      new Promise((resolve) => {
+        finish = () => {
+          saved = structuredClone(prompts);
+          resolve({ prompts: saved });
+        };
+      }),
+  );
+  await click("保存");
+  expect(button("保存").disabled).toBe(true);
+  expect(document.querySelector("textarea")?.disabled).toBe(true);
+  expect(button("等待保存")).toBeUndefined();
+  await click("保存");
+  expect(transport.write).toHaveBeenCalledTimes(1);
+  await act(async () => finish());
+  expect(button("等待保存")).toBeDefined();
+});
+
+it("does not erase an oversized legacy prompt and lets the user shorten it", async () => {
+  const oversized = [{ ...legacy[0], prompt: "汉".repeat(5334) }];
+  const raw = JSON.stringify(oversized);
+  localStorage.setItem("neoread.custom-prompts", raw);
+  await render();
+  expect(transport.write).not.toHaveBeenCalled();
+  expect(localStorage.getItem("neoread.custom-prompts")).toBe(raw);
+  expect(button("旧功能").disabled).toBe(true);
+  await click("编辑");
+  expect(button("保存").disabled).toBe(true);
+  await type("textarea", "缩短后的提示词");
+  await click("保存");
+  expect(saved?.[0].prompt).toBe("缩短后的提示词");
+  expect(localStorage.getItem("neoread.custom-prompts")).toBeNull();
 });
 
 it.each([

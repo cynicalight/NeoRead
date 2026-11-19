@@ -135,6 +135,8 @@ ZIP 包含：
 
 ## API 适配诊断
 
+常用 prompt 存在书库数据库的 `preferences:chat-prompts`，不随桌面服务端口变化。前端 `chat.prompts.load_failed` 区分服务端读取失败、服务端数据格式无效、旧浏览器存储读取失败、旧 JSON 解析失败及旧数据格式无效；失败时保留原始数据，不开放空列表写回。`chat.prompts.save_failed` 区分内容校验失败与服务端写入失败。旧配置仅在数据库写入成功后清理，清理失败记录 `chat.prompts.migration_cleanup_failed`，数据库中的已保存列表（包括空列表）始终优先。事件仅含受控原因，不记录描述、提示词、原始异常或存储正文。
+
 API 厂商规则、实际强度映射、上游错误分类和请求关联字段见 [API 厂商适配与错误诊断](api-provider-compatibility.md)。新增 API 错误事件只记录安全的结构化证据，不保存厂商可能回显正文的原始错误 message。
 
 ## PDF 本地解析诊断

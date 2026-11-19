@@ -126,7 +126,7 @@ func paperLimit(kind string, size int64, path string) string {
 // "guide" records the finished onboarding and the last release notes shown.
 // "fonts" caches installed font family names read by the renderer, so the
 // font pickers need not query the system again after a restart.
-var preferenceKeys = map[string]bool{"library": true, "guide": true, "shortcuts": true, "fonts": true}
+var preferenceKeys = map[string]bool{"library": true, "guide": true, "shortcuts": true, "fonts": true, "chat-prompts": true}
 
 func (s *Server) preferences(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
@@ -175,6 +175,13 @@ func (s *Server) savePreferences(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	limit := 64 << 10
+	if key == "chat-prompts" {
+		if msg := validChatPromptPreferences(v); msg != "" {
+			fail(w, 400, msg)
+			return
+		}
+		limit = 1 << 20
+	}
 	if key == "fonts" {
 		if msg := validFontPreferences(v); msg != "" {
 			fail(w, 400, msg)

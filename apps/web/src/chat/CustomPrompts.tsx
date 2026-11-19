@@ -1,6 +1,10 @@
 import { Button } from "@neoread/ui/components/button";
 import { ArrowLeft, MessageSquare } from "lucide-react";
-import { useCustomPrompts } from "./custom-prompts";
+import {
+  maxPromptBytes,
+  promptBytes,
+  useCustomPrompts,
+} from "./custom-prompts";
 export function CustomPrompts({
   disabled,
   onSend,
@@ -8,7 +12,7 @@ export function CustomPrompts({
   disabled: boolean;
   onSend: (prompt: string) => void;
 }) {
-  const prompts = useCustomPrompts();
+  const { prompts, loading, saving } = useCustomPrompts();
   return (
     <>
       {prompts.map((p) => (
@@ -16,8 +20,17 @@ export function CustomPrompts({
           key={p.id}
           variant="outline"
           className="suggestion"
-          disabled={disabled}
-          title={p.description}
+          disabled={
+            disabled ||
+            loading ||
+            saving ||
+            promptBytes(p.prompt) > maxPromptBytes
+          }
+          title={
+            promptBytes(p.prompt) > maxPromptBytes
+              ? "提示词超过 16,000 UTF-8 字节，请在设置中缩短后使用。"
+              : p.description
+          }
           onClick={() => onSend(p.prompt)}
         >
           <MessageSquare />

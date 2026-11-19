@@ -11,6 +11,7 @@ import {
 } from "@neoread/ui/components/dialog";
 import {
   maxPromptBytes,
+  loadPrompts,
   promptBytes,
   savePrompts,
   useCustomPrompts,
@@ -18,7 +19,8 @@ import {
 
 export function CustomPromptSettings() {
   const id = useId();
-  const prompts = useCustomPrompts();
+  const { prompts, loaded, loading, saving, error } = useCustomPrompts();
+  const busy = !loaded || loading || saving;
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<string>();
   const [description, setDescription] = useState("");
@@ -29,7 +31,10 @@ export function CustomPromptSettings() {
     setDescription("");
     setPrompt("");
   }
-  const failed = () => toast.error("无法保存常用 prompt，请检查本机存储空间");
+  const failed = () =>
+    toast.error(
+      "无法保存常用 prompt，请检查连接或存储空间；最多 50 条，每条提示词不超过 16,000 UTF-8 字节。",
+    );
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -37,6 +42,7 @@ export function CustomPromptSettings() {
         <Button
           size="sm"
           variant="outline"
+          disabled={busy || prompts.length >= 50}
           onClick={() => {
             reset();
             setOpen(true);
@@ -45,6 +51,22 @@ export function CustomPromptSettings() {
           添加
         </Button>
       </div>
+      {error && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 text-sm text-destructive"
+        >
+          <span className="min-w-0 flex-1">{error}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={loading || saving}
+            onClick={() => void loadPrompts()}
+          >
+            重试
+          </Button>
+        </div>
+      )}
       <div className="space-y-2">
         {prompts.map((p) => (
           <div key={p.id} className="flex items-center gap-2">
@@ -55,6 +77,7 @@ export function CustomPromptSettings() {
               variant="ghost"
               size="sm"
               aria-label={`编辑 ${p.description}`}
+              disabled={busy}
               onClick={() => {
                 setEditing(p.id);
                 setDescription(p.description);
@@ -68,8 +91,9 @@ export function CustomPromptSettings() {
               variant="ghost"
               size="sm"
               aria-label={`删除 ${p.description}`}
-              onClick={() => {
-                if (savePrompts(prompts.filter((x) => x.id !== p.id))) {
+              disabled={busy}
+              onClick={async () => {
+                if (await savePrompts(prompts.filter((x) => x.id !== p.id))) {
                   if (editing === p.id) reset();
                 } else failed();
               }}
@@ -88,16 +112,17 @@ export function CustomPromptSettings() {
           </DialogHeader>
           <form
             className="space-y-3"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
-              if (!description.trim() || !prompt.trim() || tooLong) return;
+              if (busy || !description.trim() || !prompt.trim() || tooLong)
+                return;
               const next = {
                 id: editing ?? crypto.randomUUID(),
                 description: description.trim(),
                 prompt: prompt.trim(),
               };
               if (
-                savePrompts(
+                await savePrompts(
                   editing
                     ? prompts.map((p) => (p.id === editing ? next : p))
                     : [...prompts, next],
@@ -115,6 +140,7 @@ export function CustomPromptSettings() {
               <Input
                 id={`${id}-description`}
                 maxLength={80}
+                disabled={saving}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
@@ -127,6 +153,7 @@ export function CustomPromptSettings() {
                 id={`${id}-prompt`}
                 className="max-h-[min(20rem,40dvh)] overflow-y-auto"
                 rows={6}
+                disabled={saving}
                 maxLength={maxPromptBytes}
                 aria-invalid={tooLong}
                 aria-describedby={tooLong ? `${id}-prompt-error` : undefined}
@@ -155,7 +182,9 @@ export function CustomPromptSettings() {
               </Button>
               <Button
                 type="submit"
-                disabled={!description.trim() || !prompt.trim() || tooLong}
+                disabled={
+                  busy || !description.trim() || !prompt.trim() || tooLong
+                }
               >
                 保存
               </Button>

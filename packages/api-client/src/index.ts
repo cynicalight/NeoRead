@@ -53,6 +53,7 @@ import type {
   JournalRankResult,
 } from "@neoread/core";
 let sessionToken = "";
+export type CustomPrompt = { id: string; description: string; prompt: string };
 export function configureAPI(token: string) {
   sessionToken = token;
 }
@@ -941,6 +942,13 @@ export const api = {
     ),
   fontPreferences: () =>
     request<{ families?: string[] }>("/api/preferences/fonts"),
+  customPromptPreferences: () =>
+    request<{ prompts?: CustomPrompt[] }>("/api/preferences/chat-prompts"),
+  saveCustomPromptPreferences: (prompts: CustomPrompt[]) =>
+    request<{ prompts: CustomPrompt[] }>("/api/preferences/chat-prompts", {
+      method: "PUT",
+      body: JSON.stringify({ prompts }),
+    }),
   saveFontPreferences: (preferences: { families: string[] }) =>
     request<{ families: string[] }>("/api/preferences/fonts", {
       method: "PUT",
