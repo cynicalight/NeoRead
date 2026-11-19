@@ -363,6 +363,35 @@ it("shares one highlight per mark style and leaves marks alone on input", async 
   expect(registry.size).toBe(1);
   set.mockRestore();
 });
+it("keeps a saved mark in the focus color when focus changes", async () => {
+  await open();
+  await reader.highlight([
+    {
+      id: "blue",
+      kind: "highlight",
+      color: "#3b82f6",
+      quote: "x",
+      location: {
+        type: "epub",
+        href: "a.xhtml",
+        blockId: "a",
+        start: 0,
+        end: 4,
+      },
+    } as Annotation,
+  ]);
+  const marks = () =>
+    [...registry.values()].flatMap((h) => [...h].map((r) => r.toString()));
+  const saved = marks();
+  expect(saved).toHaveLength(1);
+  // Same style string as focus; the two must not share a registration.
+  await reader.focusEPUBLocations([
+    { type: "epub", href: "a.xhtml", blockId: "a", start: 12, end: 22 },
+  ]);
+  expect(registry.size).toBe(2);
+  await reader.focusEPUBLocations([]);
+  expect(marks()).toEqual(saved);
+});
 it("does not paint a translated annotation on its stored source range", async () => {
   await open();
   await reader.highlight([

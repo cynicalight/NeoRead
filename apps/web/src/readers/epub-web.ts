@@ -1026,8 +1026,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
         });
     }
     for (const [rule, name] of this.names)
-      if (rule !== focusRule && !groups.has(rule))
-        globalThis.CSS?.highlights?.delete(name);
+      if (!groups.has(rule)) globalThis.CSS?.highlights?.delete(name);
     for (const [rule, ranges] of groups) this.setHighlight(rule, ranges);
     this.paintFocus();
     this.placeNotes();
@@ -1040,37 +1039,43 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   }
   /** Focused passages draw over annotations without repainting them. */
   private paintFocus() {
-    this.setHighlight(
-      focusRule,
-      this.focus.flatMap((location) =>
-        resolveEPUBLocation(location, this.blocks).flatMap((slice) => {
-          const range = blockRange(this.container, slice);
-          return range ? [range] : [];
-        }),
-      ),
-      1,
+    if (typeof Highlight === "undefined" || !globalThis.CSS?.highlights) return;
+    // Its own name: a saved mark may use the same style string.
+    const name = `${this.prefix}-focus`;
+    if (!this.style.textContent) this.writeHighlightStyles();
+    const ranges = this.focus.flatMap((location) =>
+      resolveEPUBLocation(location, this.blocks).flatMap((slice) => {
+        const range = blockRange(this.container, slice);
+        return range ? [range] : [];
+      }),
     );
-  }
-  private setHighlight(rule: string, ranges: Range[], priority = 0) {
-    if (typeof Highlight === "undefined" || !globalThis.CSS?.highlights)
-      return;
-    let name = this.names.get(rule);
-    if (!name) {
-      name = `${this.prefix}-${this.names.size}`;
-      this.names.set(rule, name);
-      // The stylesheet changes only when a new mark style first appears.
-      this.style.textContent = Array.from(
-        this.names,
-        ([body, id]) => `::highlight(${id}) { ${body} }`,
-      ).join("\n");
-    }
     if (!ranges.length) {
       CSS.highlights.delete(name);
       return;
     }
     const highlight = new Highlight(...ranges);
-    highlight.priority = priority;
+    highlight.priority = 1;
     CSS.highlights.set(name, highlight);
+  }
+  private setHighlight(rule: string, ranges: Range[]) {
+    if (typeof Highlight === "undefined" || !globalThis.CSS?.highlights) return;
+    let name = this.names.get(rule);
+    if (!name) {
+      name = `${this.prefix}-${this.names.size}`;
+      this.names.set(rule, name);
+      // The stylesheet changes only when a new mark style first appears.
+      this.writeHighlightStyles();
+    }
+    CSS.highlights.set(name, new Highlight(...ranges));
+  }
+  private writeHighlightStyles() {
+    this.style.textContent = [
+      `::highlight(${this.prefix}-focus) { ${focusRule} }`,
+      ...Array.from(
+        this.names,
+        ([body, id]) => `::highlight(${id}) { ${body} }`,
+      ),
+    ].join("\n");
   }
   /** Marks the end of each annotation that has a note. */
   private placeNotes() {
@@ -1212,7 +1217,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     this.resize?.disconnect();
     cancelAnimationFrame(this.frame);
     clearTimeout(this.widthSettle);
-    for (const name of this.names.values())
+    for (const name of [...this.names.values(), `${this.prefix}-focus`])
       globalThis.CSS?.highlights?.delete(name);
     this.style.remove();
     this.clearSelection();
