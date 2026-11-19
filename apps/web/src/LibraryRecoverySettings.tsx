@@ -19,8 +19,17 @@ import { LibraryLocationSettings } from "./LibraryLocationSettings";
 /** The recovery settings work without mounting App or making library API requests. */
 export function LibraryRecoverySettings() {
   const [warning, setWarning] = useState(
-    "无法访问已设置的书库，请重新连接存储设备或导入已有书库。",
+    "无法访问已设置的书库，请重新连接存储设备、导入已有书库，或新建书库。",
   );
+  const [resetError, setResetError] = useState("");
+  const resetLibrary = async () => {
+    setResetError("");
+    try {
+      await window.neoreadDesktop?.resetLibrary?.();
+    } catch (error) {
+      setResetError((error as Error).message);
+    }
+  };
   useEffect(() => {
     const preference = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () =>
@@ -63,13 +72,30 @@ export function LibraryRecoverySettings() {
                 <p className="break-all text-xs leading-5 text-muted-foreground">
                   {warning}
                 </p>
-                <Button
-                  variant="outline"
-                  className="mt-3"
-                  onClick={() => void window.neoreadDesktop?.restart?.()}
-                >
-                  重新连接后重试
-                </Button>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => void window.neoreadDesktop?.restart?.()}
+                  >
+                    重新连接后重试
+                  </Button>
+                  {window.neoreadDesktop?.resetLibrary && (
+                    <Button
+                      variant="outline"
+                      onClick={() => void resetLibrary()}
+                    >
+                      新建书库
+                    </Button>
+                  )}
+                </div>
+                <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                  原书库已删除或无法恢复时，可新建书库继续使用；原书库找回后仍可导入。
+                </p>
+                {resetError && (
+                  <p role="alert" className="mt-2 text-xs text-destructive">
+                    {resetError}
+                  </p>
+                )}
               </div>
               <LibraryLocationSettings open recovery />
             </TabsContent>

@@ -18,8 +18,10 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { readFile, realpath, lstat } from "node:fs/promises";
 import {
+  hasLibraryDatabase,
   libraryDirectory,
   migrateLibrary,
+  resetLibraryDirectory,
   stopLibraryServer,
   saveLibraryDirectory,
   validateLibraryDirectory,
@@ -1059,6 +1061,41 @@ app
           restartRequested = true;
           app.quit();
         });
+      } finally {
+        choosingLibrary = false;
+      }
+    });
+    // Recovery only: a saved location that is gone for good must not block startup.
+    ipcMain.handle("neoread:reset-library", async (event) => {
+      settingsSender(event);
+      if (!libraryWarning || choosingLibrary || closing || restartRequested)
+        return false;
+      choosingLibrary = true;
+      try {
+        const userData = app.getPath("userData");
+        const destination = join(userData, "library");
+        await assertSafeLibraryPath(destination, installationDirectory());
+        const existing = await hasLibraryDatabase(destination);
+        const confirmed = await dialog.showMessageBox(window!, {
+          type: "question",
+          message: existing
+            ? "改用默认位置的书库并重启？"
+            : "新建空书库并重启？",
+          detail: `${existing ? "将打开默认位置已有的书库" : "将在默认位置新建空书库"}：${destination}\n原书库位置不再自动连接。原书库恢复后（例如重新连接存储设备），可通过“导入书库”重新打开。`,
+          buttons: [existing ? "打开并重启" : "新建并重启", "取消"],
+          defaultId: 1,
+          cancelId: 1,
+        });
+        if (confirmed.response !== 0 || closing || quitting) return false;
+        await resetLibraryDirectory(userData);
+        diagnostics?.logs.record("desktop", {
+          level: "info",
+          event: "library.reset_to_default",
+          detail: existing ? "existing" : "new",
+        });
+        restartRequested = true;
+        app.quit();
+        return true;
       } finally {
         choosingLibrary = false;
       }

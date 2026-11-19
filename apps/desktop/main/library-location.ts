@@ -111,6 +111,21 @@ export async function saveLibraryDirectory(
   }
 }
 
+/** Return to the default library under userData; the saved location is forgotten. */
+export async function resetLibraryDirectory(userData: string) {
+  await rm(join(userData, "library-location.json"), { force: true });
+  return join(userData, "library");
+}
+
+export async function hasLibraryDatabase(directory: string) {
+  try {
+    return (await stat(await existingDatabase(directory))).isFile();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 export async function validateLibraryDirectory(
   directory: string,
   binary: string,
