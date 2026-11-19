@@ -803,13 +803,6 @@ kbd {
 .notes-header .notes-filter.notes-filter {
   margin-bottom: 0;
 }
-.notes-header .notes-search {
-  padding: 0;
-}
-.notes-header .notes-search > svg {
-  top: 8px;
-  left: 10px;
-}
 /* Keep both filter and search controls fixed over scrolling annotations. */
 .assistant-sidebar .notes-header + [data-slot="scroll-area"] {
   margin-top: -92px;
@@ -1680,21 +1673,18 @@ kbd {
   min-height: 0;
   flex: 1;
 }
-.notes-search {
-  position: relative;
-  padding: 12px 15px 8px;
-}
-.notes-search > svg {
+/* SearchInput with `icon`: shared by the annotation and document searches. */
+.search-input[data-icon] > svg {
   position: absolute;
   z-index: 1;
-  top: 20px;
-  left: 25px;
+  top: 8px;
+  left: 10px;
   width: 16px;
   height: 16px;
   color: var(--muted-foreground);
   pointer-events: none;
 }
-.notes-search input {
+.search-input[data-icon] input {
   padding-left: 34px;
   font-size: 12px;
 }

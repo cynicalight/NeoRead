@@ -1360,27 +1360,19 @@ export function Workspace({
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    void search();
+                    if (!searching) void search();
                   }}
-                  className="flex shrink-0 gap-1"
+                  className="shrink-0"
                 >
                   <SearchInput
+                    icon
                     aria-label="搜索文档"
                     ref={searchInput}
-                    wrapperClassName="flex-1"
-                    placeholder="搜索文档内容…"
+                    placeholder="搜索文档内容"
                     value={query}
                     onChange={(e) => updateSearchQuery(e.target.value)}
                     onClear={() => updateSearchQuery("")}
                   />
-                  <Button
-                    size="icon"
-                    variant="secondary"
-                    disabled={searching}
-                    aria-label="搜索"
-                  >
-                    <Search />
-                  </Button>
                 </form>
                 <ScrollArea className="min-h-0 flex-1">
                   <div className="pb-12">

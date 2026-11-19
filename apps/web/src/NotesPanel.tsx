@@ -8,7 +8,6 @@ import {
   Download,
   Loader2,
   Pencil,
-  Search,
   Sparkles,
   StickyNote,
   Trash2,
@@ -358,16 +357,14 @@ export function NotesPanel({
             ))}
           </TabsList>
         </Tabs>
-        <div className="notes-search">
-          <Search aria-hidden="true" />
-          <SearchInput
-            aria-label="搜索批注内容"
-            placeholder="搜索批注内容"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onClear={() => setSearch("")}
-          />
-        </div>
+        <SearchInput
+          icon
+          aria-label="搜索批注内容"
+          placeholder="搜索批注内容"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          onClear={() => setSearch("")}
+        />
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="notes-list">

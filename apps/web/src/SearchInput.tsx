@@ -1,5 +1,5 @@
 import { useRef, type ComponentProps, type Ref } from "react";
-import { X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Button } from "@neoread/ui/components/button";
 import { Input } from "@neoread/ui/components/input";
 import { cn } from "@neoread/ui/lib/utils";
@@ -10,6 +10,8 @@ type SearchInputProps = Omit<ComponentProps<typeof Input>, "value" | "ref"> & {
   onClear: () => void;
   ref?: Ref<HTMLInputElement>;
   wrapperClassName?: string;
+  /** Sidebar style: a leading search icon and compact text. */
+  icon?: boolean;
 };
 
 /**
@@ -22,6 +24,7 @@ export function SearchInput({
   ref,
   className,
   wrapperClassName,
+  icon = false,
   onFocus,
   onMouseDown,
   onMouseUp,
@@ -32,7 +35,11 @@ export function SearchInput({
   // A click that focuses the field would collapse the selection on mouseup.
   const focusingClick = useRef(false);
   return (
-    <div className={cn("search-input relative min-w-0", wrapperClassName)}>
+    <div
+      className={cn("search-input relative min-w-0", wrapperClassName)}
+      data-icon={icon ? "" : undefined}
+    >
+      {icon && <Search aria-hidden="true" />}
       <Input
         {...props}
         ref={(node) => {
