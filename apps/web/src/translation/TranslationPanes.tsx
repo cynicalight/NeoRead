@@ -42,6 +42,24 @@ export function TranslationPanes({
   // Written directly on layout changes: a React render per drag frame is wasted.
   const controls = useRef<HTMLDivElement>(null);
   const dividerAt = useRef(50);
+  const panes = useRef<HTMLDivElement>(null);
+  // While dragging, offscreen translation sections skip relayout (translation.css).
+  // Not `data-resizing`: `body[data-resizing] *` makes that attribute restyle
+  // every descendant wherever it changes.
+  const markResizing = () => {
+    const node = panes.current;
+    if (!node || node.hasAttribute("data-divider-drag")) return;
+    node.setAttribute("data-divider-drag", "");
+    const end = () => {
+      node.removeAttribute("data-divider-drag");
+      window.removeEventListener("pointerup", end, true);
+      window.removeEventListener("pointercancel", end, true);
+      window.removeEventListener("blur", end);
+    };
+    window.addEventListener("pointerup", end, true);
+    window.addEventListener("pointercancel", end, true);
+    window.addEventListener("blur", end);
+  };
   const stacked = useReaderStore(
     (state) => readerLayout(state.theme.readerLayout).stacked,
   );
@@ -91,6 +109,7 @@ export function TranslationPanes({
 
   return (
     <div
+      ref={panes}
       className="translation-panes"
       data-mode={mode}
       data-stacked={stacked || undefined}
@@ -101,9 +120,12 @@ export function TranslationPanes({
         disabled={!parallel}
         onPointerDownCapture={(event) => {
           if (
+            event.button === 0 &&
             (event.target as Element).closest('[data-slot="resizable-handle"]')
-          )
+          ) {
             onResizeStart?.();
+            markResizing();
+          }
         }}
         onKeyDownCapture={(event) => {
           if (
