@@ -24,6 +24,7 @@ import {
   saveLibraryDirectory,
   validateLibraryDirectory,
 } from "./library-location";
+import { assertSafeLibraryPath } from "./library-path-safety";
 import { startLibraryRecoveryServer } from "./library-recovery-server";
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
@@ -171,6 +172,14 @@ function bundledBinary(name: "neoread-server" | "neoread") {
 }
 function serverBinary() {
   return bundledBinary("neoread-server");
+}
+/** Packaged resources and executables belong to the installation, never the library. */
+function installationDirectory(): string | undefined {
+  if (!app.isPackaged) return undefined;
+  return resolve(
+    process.execPath,
+    process.platform === "darwin" ? "../../.." : "..",
+  );
 }
 const commandLineHost = () => ({
   platform: process.platform,
@@ -1030,6 +1039,7 @@ app
         });
         if (selected.canceled || !selected.filePaths[0]) return false;
         const destination = await realpath(selected.filePaths[0]);
+        await assertSafeLibraryPath(destination, installationDirectory());
         const current = activeLibrary
           ? await realpath(activeLibrary).catch(() => undefined)
           : undefined;
@@ -1068,6 +1078,7 @@ app
           await realpath(selected.filePaths[0]),
           "NeoRead Library",
         );
+        await assertSafeLibraryPath(destination, installationDirectory());
         // The server's SQLite DSN treats ? as the start of query parameters.
         if (destination.includes("?"))
           throw new Error("书库路径不能包含 ?，请选择其他位置。");

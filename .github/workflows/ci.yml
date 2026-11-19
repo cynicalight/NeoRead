@@ -63,7 +63,7 @@ jobs:
     # The command-line installer edits the user PATH through PowerShell and the
     # registry; only a Windows runner exercises that path.
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -77,6 +77,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Test the Windows PATH installer
         run: pnpm exec vitest run apps/desktop/main/command-line.windows.test.ts
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+      - name: Test library migration and Windows directory junctions
+        working-directory: apps/server
+        run: go test ./internal/neoread -run '^TestInstallLibrary' -count=1
+      - run: pnpm build:server
+      - name: Exercise installer library migration on Windows
+        shell: pwsh
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}\NSIS"
+          if (-not (Test-Path "$nsis\makensis.exe")) {
+            choco install nsis -y --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          $env:Path = "$nsis;$env:Path"
+          node scripts/check-library-installer.mjs
 
   windows-attachments:
     runs-on: windows-2022

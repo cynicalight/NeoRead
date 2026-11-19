@@ -152,9 +152,7 @@ func TestCopyLibraryRejectsLinksAndCleansPartialCopy(t *testing.T) {
 		t.Skip(err)
 	}
 	target := filepath.Join(t.TempDir(), "target")
-	if err := CopyLibrary(source, target); err == nil {
-		t.Fatal("followed symlink")
-	}
+	assertInstallerFailure(t, CopyLibrary(source, target), "copy", "unsafe_location")
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Fatalf("left partial target: %v", err)
 	}
@@ -166,14 +164,14 @@ func TestCopyLibraryRejectsMissingOrInvalidDatabase(t *testing.T) {
 	for _, data := range []string{"", "not sqlite"} {
 		source := t.TempDir()
 		target := filepath.Join(t.TempDir(), "target")
+		stage := "preflight"
 		if data != "" {
+			stage = "verify"
 			if err := os.WriteFile(filepath.Join(source, "neoread.sqlite"), []byte(data), 0600); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if err := CopyLibrary(source, target); err == nil {
-			t.Fatal("accepted invalid library")
-		}
+		assertInstallerFailure(t, CopyLibrary(source, target), stage, "invalid_library")
 		if _, err := os.Stat(target); !os.IsNotExist(err) {
 			t.Fatalf("left target: %v", err)
 		}

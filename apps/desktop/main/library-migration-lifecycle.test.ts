@@ -311,6 +311,9 @@ beforeEach(async ({ task }) => {
         },
       }),
       {
+        execPath: task.name.startsWith("macOS:")
+          ? "/applications/NeoRead.app/Contents/MacOS/NeoRead"
+          : "/applications/NeoRead/NeoRead.exe",
         resourcesPath: "/resources",
         on: vi.fn(),
       },
@@ -549,6 +552,33 @@ it("waits for Reader migration before choosing or opening the library", async ()
 });
 
 const importLibrary = () => handlers.get("neoread:import-library")!(event());
+
+it.each([
+  ["import", "/applications/NeoRead", importLibrary],
+  ["import", "/applications", importLibrary],
+  ["import", "/applications/NeoRead/old-library", importLibrary],
+  ["move", "/applications/NeoRead", move],
+  ["macOS: move", "/applications/NeoRead.app", move],
+])(
+  "%s rejects an unsafe destination selected at %s",
+  async (_, selected, choose) => {
+    showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: [selected],
+    });
+    // Fail without waiting for a close/flush if the guard is ever removed.
+    showMessageBox.mockResolvedValueOnce({ response: 1 });
+    await expect(choose()).rejects.toThrow("安装目录");
+    expect(validate).not.toHaveBeenCalled();
+    expect(showMessageBox).not.toHaveBeenCalled();
+    expect(window.webContents.send).not.toHaveBeenCalledWith("neoread:flush");
+    expect(stop).not.toHaveBeenCalled();
+    expect(migrate).not.toHaveBeenCalled();
+    expect(saveLocation).not.toHaveBeenCalled();
+    expect(app.relaunch).not.toHaveBeenCalled();
+  },
+);
+
 it("validates an imported library before shutdown and saves only after flush", async () => {
   const result = importLibrary();
   await vi.waitFor(() =>
@@ -610,9 +640,10 @@ it("recovery: restart retries without replacing the saved library", () => {
 
 it("can select a replacement when the active library directory has disappeared", async () => {
   const { realpath } = await import("node:fs/promises");
-  vi.mocked(realpath)
-    .mockResolvedValueOnce("/destination")
-    .mockRejectedValueOnce(new Error("ENOENT"));
+  vi.mocked(realpath).mockImplementation(async (directory) => {
+    if (directory === "/old/library") throw new Error("ENOENT");
+    return String(directory);
+  });
   showMessageBox.mockResolvedValueOnce({ response: 1 });
   expect(await importLibrary()).toBe(false);
   expect(validate).toHaveBeenCalledWith("/destination", expect.any(String));
