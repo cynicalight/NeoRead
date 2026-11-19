@@ -33,7 +33,9 @@ export async function exportTranslatedPDF(
     signal.throwIfAborted();
     const [blob, engine] = await Promise.all([
       exportOperation("snapshot", () =>
-        api.exportTranslation(doc.id, "markdown", signal),
+        api.exportTranslation(doc.id, "markdown", signal, {
+          annotations: true,
+        }),
       ),
       exportOperation("module_load", () => import("./markdown-pdf")),
     ]);

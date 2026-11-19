@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -8,6 +9,9 @@ import { remarkLatex } from "./chat/remark-latex";
 // A self-contained print document: no app theme, reader zoom, scripts or remote assets.
 const embeddedImage =
   /^data:image\/(?:png|jpeg|gif|webp|avif|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/;
+// The translation export writes marks on translated text as fragment links.
+const translationMark =
+  /^#neoread-mark-(\d+)-(highlight|underline|note|question)-([0-9a-f]{6})$/;
 export function markdownPrintHTML(markdown: string, title = "导出"): string {
   const body = renderToStaticMarkup(
     <ReactMarkdown
@@ -19,6 +23,28 @@ export function markdownPrintHTML(markdown: string, title = "导出"): string {
           : ""
       }
       components={{
+        a: ({ node: _node, ...props }) => {
+          const mark =
+            typeof props.href === "string" && translationMark.exec(props.href);
+          if (!mark) return <a {...props} />;
+          // An empty mark link only carries the note number.
+          const text = props.children;
+          const empty =
+            text == null || (Array.isArray(text) && text.length === 0);
+          return (
+            <>
+              {!empty && (
+                <mark
+                  className={mark[2] === "underline" ? "underline" : undefined}
+                  style={{ "--mark": `#${mark[3]}` } as CSSProperties}
+                >
+                  {text}
+                </mark>
+              )}
+              {mark[1] !== "0" && <sup>{mark[1]}</sup>}
+            </>
+          );
+        },
         img: ({ alt, src }) =>
           typeof src === "string" && embeddedImage.test(src) ? (
             <img src={src} alt={alt || ""} />
@@ -63,7 +89,10 @@ p { margin: .65em 0; orphans: 3; widows: 3; }
 blockquote { margin-left: 0; padding-left: 1em; border-left: 2px solid #ccc; color: #555; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 code { font-family: ui-monospace, monospace; font-size: .95em; }
-pre:has(math) { white-space: normal; }
+a { color: inherit; } math[display="block"] { margin: 1em 0; }
+mark { color: inherit; background: color-mix(in srgb, var(--mark) 35%, transparent); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+mark.underline { background: none; text-decoration: underline 2px var(--mark); text-underline-offset: .2em; }
+sup { font-size: .7em; line-height: 0; color: #555; }
 table { border-collapse: collapse; width: 100%; table-layout: fixed; }
 th,td { border: 1px solid #ccc; padding: .4em; vertical-align: top; }
 thead { display: table-header-group; } tr { break-inside: avoid; }

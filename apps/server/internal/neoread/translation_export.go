@@ -44,7 +44,8 @@ func exportMarkdownLabel(text string) string {
 	return strings.NewReplacer("\\", "\\\\", "`", "\\`", "*", "\\*", "_", "\\_", "[", "\\[", "]", "\\]", "<", "&lt;", ">", "&gt;", "#", "\\#", "!", "\\!").Replace(text)
 }
 
-func translationExportMarkdown(title string, source translationInput, items []TranslationBlock, assets *exportSourceAssets) (string, error) {
+// marks is nil when annotations are not requested.
+func translationExportMarkdown(title string, source translationInput, items []TranslationBlock, assets *exportSourceAssets, marks *translationExportMarks) (string, error) {
 	translations := map[string]TranslationBlock{}
 	complete := 0
 	for _, item := range items {
@@ -63,8 +64,11 @@ func translationExportMarkdown(title string, source translationInput, items []Tr
 	}
 	writeBlock := func(b PDFBlock) {
 		t, requested := translations[b.ID]
+		var notes []*translationExportNote
+		defer func() { writeTranslationExportNotes(&out, notes) }()
 		if isFormula(b) && t.Status == "complete" && t.FormulaMarkdown != "" {
 			out.WriteString(strings.TrimSpace(t.FormulaMarkdown) + "\n\n")
+			notes = marks.block(b.ID, t, nil, false)
 			return
 		}
 		if b.Image != "" {
@@ -94,6 +98,7 @@ func translationExportMarkdown(title string, source translationInput, items []Tr
 				parts = append(parts, strings.TrimSpace(sentence.Target))
 			}
 			// Preserve sentence boundaries, especially Markdown lists and tables.
+			notes = marks.block(b.ID, t, parts, b.Label != "algorithm")
 			text = strings.Join(parts, "\n")
 		} else if b.Image != "" {
 			return
@@ -143,6 +148,10 @@ func translationExportMarkdown(title string, source translationInput, items []Tr
 			writeBlock(PDFBlock{ID: b.ID, Label: b.Label, Text: b.Text, Image: b.Image})
 		}
 	}
+	if notes := marks.unplaced(); len(notes) > 0 {
+		out.WriteString("## 未定位的译文批注\n\n")
+		writeTranslationExportNotes(&out, notes)
+	}
 	return out.String(), nil
 }
 
@@ -166,6 +175,12 @@ func (s *Server) exportTranslation(w http.ResponseWriter, r *http.Request) {
 	}
 	if format != "markdown" && format != "zip" {
 		fail(w, 400, "不支持的导出格式")
+		return
+	}
+	// Translated marks are rendered by the print document only.
+	annotated := r.URL.Query().Get("annotations") == "1"
+	if annotated && (format != "markdown" || r.Method != http.MethodGet) {
+		fail(w, 400, "仅单独导出译文时可包含译文批注")
 		return
 	}
 	d, err := s.Store.Document(r.PathValue("id"))
@@ -210,7 +225,14 @@ func (s *Server) exportTranslation(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "无法读取译文")
 			return
 		}
-		markdown, err = translationExportMarkdown(d.Title, source, items, &assets)
+		var marks *translationExportMarks
+		if annotated {
+			if marks, err = s.translationExportMarks(d.ID); err != nil {
+				fail(w, 500, "无法读取译文批注")
+				return
+			}
+		}
+		markdown, err = translationExportMarkdown(d.Title, source, items, &assets, marks)
 		if err != nil {
 			fail(w, 409, err.Error())
 			return
