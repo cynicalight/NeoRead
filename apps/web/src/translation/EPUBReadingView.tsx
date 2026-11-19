@@ -45,6 +45,10 @@ import { DeferredBlockFocus } from "../readers/deferred-block-focus";
 import { defaultTheme } from "@neoread/core";
 import { translationFont } from "../appearance";
 import "./translation.css";
+import {
+  TranslationBlockActions,
+  translationBlockAction,
+} from "./translation-block-actions";
 
 import type { ReadingMode } from "./reading-mode";
 /** Scroll settling after a pinned jump or click does not move the anchor. */
@@ -179,6 +183,27 @@ export function EPUBReadingView({
   const [hoveredBlock, setHoveredBlock] = useState<string>();
   const [focusedBlock, setFocusedBlock] = useState<string>();
   const hoverOwner = useRef<"source" | "translation" | undefined>(undefined);
+  const blockActions = useRef<
+    TranslationBlockActions<EPUBReadingBlock> | undefined
+  >(undefined);
+  useEffect(() => {
+    if (reflow) return;
+    const value = new TranslationBlockActions<EPUBReadingBlock>(
+      (block, action) =>
+        translationBlockAction(
+          block,
+          action,
+          live.current.translations.find((t) => t.blockId === block.id),
+          (b, a, translation) =>
+            live.current.events.epubBlockAction?.(b, a, translation),
+        ),
+    );
+    blockActions.current = value;
+    return () => {
+      blockActions.current = undefined;
+      value.destroy();
+    };
+  }, [reflow, doc.id]);
   const pressedBlock = useRef<{ id: string; x: number; y: number }>(undefined);
   // An explicit block focus owns both panes until its motion settles.
   const focusMotion = useRef({ operation: 0, moving: false });
@@ -326,6 +351,12 @@ export function EPUBReadingView({
       live.current.mode === "parallel" && origin === "translation"
         ? (blockId ?? null)
         : null,
+    );
+    // Source hovers show the source toolbar; only translated paragraphs get this one.
+    blockActions.current?.hover(
+      pane.current,
+      origin === "translation" ? blockId : undefined,
+      live.current.blocks,
     );
   };
   const centerTranslation = (id: string, cancelled: () => boolean) => {
@@ -593,6 +624,8 @@ export function EPUBReadingView({
   };
   const scroll = () => {
     live.current.events.annotationHover?.(null);
+    // Like the source toolbar, scrolling removes it until the pointer moves.
+    blockActions.current?.hide();
     cancelAnimationFrame(scrollFrame.current);
     scrollFrame.current = requestAnimationFrame(() => {
       if (
@@ -985,7 +1018,9 @@ export function EPUBReadingView({
                   : undefined,
               lineHeight: theme.lineHeight,
             }}
-            onPointerDown={() => {
+            onPointerDown={(event) => {
+              if (!(event.target as Element).closest(".block-actions"))
+                blockActions.current?.hide();
               live.current.events.annotationHover?.(null);
               input("translation");
               dragging.current = true;

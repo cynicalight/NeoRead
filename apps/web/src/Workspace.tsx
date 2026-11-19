@@ -983,7 +983,19 @@ export function Workspace({
       if (serial === sendSerial.current) setSending(false);
     }
   };
-  const blockAction = (block: PDFBlock, action: PDFBlockAction) => {
+  // Requests from the translation pane quote the translation after its source.
+  const explainBlock = (source: ReaderSelection, translation?: ReaderSelection) =>
+    void send(
+      translation
+        ? "请解释这段原文的含义，引用依次为原文及其译文；区分原文结论与你的补充说明。"
+        : "请解释这段原文的含义，区分原文结论与你的补充说明。",
+      translation ? [source, translation] : [source],
+    );
+  const blockAction = (
+    block: PDFBlock,
+    action: PDFBlockAction,
+    translation?: ReaderSelection,
+  ) => {
     if (action === "copy") {
       if (block.image)
         void copyImage(
@@ -995,7 +1007,7 @@ export function Workspace({
     }
     if (!block.image) {
       if (action === "explain")
-        void send("请解释这段原文的含义，区分原文结论与你的补充说明。", [
+        explainBlock(
           {
             text: block.text,
             location: {
@@ -1005,7 +1017,8 @@ export function Workspace({
               rects: [block.bounds],
             },
           },
-        ]);
+          translation,
+        );
       return;
     }
     const image: ImageAttachment = {
@@ -1047,7 +1060,11 @@ export function Workspace({
   };
   // EPUB paragraphs offer the PDF block actions; image blocks are served as
   // PNG under the same block image path.
-  const epubBlockAction = (block: EPUBReadingBlock, action: PDFBlockAction) => {
+  const epubBlockAction = (
+    block: EPUBReadingBlock,
+    action: PDFBlockAction,
+    translation?: ReaderSelection,
+  ) => {
     if (action === "copy") {
       if (block.image)
         void copyImage(blockImageURL(doc.id, block.id), block.text.trim());
@@ -1056,12 +1073,13 @@ export function Workspace({
     }
     if (!block.image) {
       if (action === "explain")
-        void send("请解释这段原文的含义，区分原文结论与你的补充说明。", [
+        explainBlock(
           {
             text: block.text,
             location: { ...block.location, quote: block.text },
           },
-        ]);
+          translation,
+        );
       return;
     }
     const image: ImageAttachment = {

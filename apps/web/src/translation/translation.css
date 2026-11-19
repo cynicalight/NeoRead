@@ -97,6 +97,13 @@
     outline-color 180ms ease-out,
     box-shadow 180ms ease-out;
 }
+/* The shared paragraph toolbar; positioned by .block-actions on the section. */
+.translation-block-actions {
+  display: contents;
+}
+.translation-block-actions .block-actions {
+  user-select: none;
+}
 /* Stacked source text keeps the same line width as the translation below. */
 .epub-reading .translation-panes[data-stacked] .epub-web-reader {
   scrollbar-gutter: stable;

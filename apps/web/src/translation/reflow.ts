@@ -86,23 +86,26 @@ export function restoredSource(text: string, translation?: TranslationBlock) {
     .trim();
 }
 
+/** A paragraph's complete translation as one string; empty until complete. */
+export function translatedText(translation?: TranslationBlock) {
+  return translation?.status === "complete"
+    ? translation.sentences
+        .map((s) => s.target)
+        .reduce(
+          (all, next) => all + (all && needsSpace(all, next) ? " " : "") + next,
+          "",
+        )
+        .trim()
+    : "";
+}
+
 /**
  * A reflowed paragraph as copied: its repaired source, a blank line, then its
  * translation.
  */
 export function reflowBlockText(text: string, translation?: TranslationBlock) {
   const source = restoredSource(text, translation);
-  const target =
-    translation?.status === "complete"
-      ? translation.sentences
-          .map((s) => s.target)
-          .reduce(
-            (all, next) =>
-              all + (all && needsSpace(all, next) ? " " : "") + next,
-            "",
-          )
-          .trim()
-      : "";
+  const target = translatedText(translation);
   return target ? `${source}\n\n${target}` : source;
 }
 

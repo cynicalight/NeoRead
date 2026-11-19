@@ -72,6 +72,10 @@ import { BookChapterControls } from "./BookChapterControls";
 import { chapterRange, chapterTitle, headingPages } from "./chapters";
 import { useChapterTranslation } from "./chapterTranslation";
 import { searchPDFBlocks } from "./pdf-search";
+import {
+  TranslationBlockActions,
+  translationBlockAction,
+} from "./translation-block-actions";
 
 import type { ReadingMode } from "./reading-mode";
 /** Scroll settling after a pinned jump or click does not move the chapter. */
@@ -148,6 +152,9 @@ export function PDFReadingView({
     };
   }, [deferredFocus]);
   const hoverOwner = useRef<"source" | "translation" | undefined>(undefined);
+  const blockActions = useRef<TranslationBlockActions<PDFBlock> | undefined>(
+    undefined,
+  );
   const hover = (origin: "source" | "translation", blockId?: string) => {
     if (reflow) return;
     if (!blockId && hoverOwner.current !== origin) return;
@@ -157,6 +164,12 @@ export function PDFReadingView({
       mode === "parallel" && origin === "translation"
         ? (blockId ?? null)
         : null,
+    );
+    // Source hovers show the source toolbar; only translated paragraphs get this one.
+    blockActions.current?.hover(
+      pane.current,
+      origin === "translation" ? blockId : undefined,
+      state.current.blocks,
     );
   };
   const previousMode = useRef<ReadingMode>(readingMode);
@@ -595,6 +608,23 @@ export function PDFReadingView({
       queueMicrotask(() => value.destroy());
     };
   }, [reflow, doc.id]);
+  useEffect(() => {
+    if (reflow) return;
+    const value = new TranslationBlockActions<PDFBlock>((block, action) =>
+      translationBlockAction(
+        block,
+        action,
+        state.current.translations.find((t) => t.blockId === block.id),
+        (b, a, translation) =>
+          state.current.events.blockAction?.(b, a, translation),
+      ),
+    );
+    blockActions.current = value;
+    return () => {
+      blockActions.current = undefined;
+      value.destroy();
+    };
+  }, [reflow, doc.id]);
   const visitCitation = async (blockId: string, label: string) => {
     try {
       if (label.startsWith("figure:")) {
@@ -772,6 +802,7 @@ export function PDFReadingView({
     if (!engine || !active) return;
     hoverOwner.current = undefined;
     setHoveredBlock(undefined);
+    blockActions.current?.hide();
     engine.hoverBlock?.(null);
     const previous = previousMode.current;
     previousMode.current = readingMode;
@@ -1268,6 +1299,8 @@ export function PDFReadingView({
               onPointerLeave={() => hover("translation")}
               onWheelCapture={() => input("translation")}
               onPointerDownCapture={(event) => {
+                // The paragraph toolbar handles its own presses.
+                if ((event.target as Element).closest(".block-actions")) return;
                 const section = (event.target as Element).closest<HTMLElement>(
                   blockSelector,
                 );
