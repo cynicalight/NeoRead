@@ -32,6 +32,7 @@ export function PaperNoteRichEditor({
   onBlur,
   leading,
   actions,
+  besideTabs,
   toolbarPlacement = "top",
   ariaLabel = "编辑论文笔记",
   placeholder = "使用 Markdown 记录要点、疑问和启发…",
@@ -55,6 +56,8 @@ export function PaperNoteRichEditor({
   /** Start-side toolbar slot; when set the mode tabs sit centered. */
   leading?: ReactNode;
   actions?: ReactNode;
+  /** Controls placed right after the mode tabs, before the end-side actions. */
+  besideTabs?: ReactNode;
   /** Compact editors keep their controls below the input. */
   toolbarPlacement?: "top" | "bottom";
   ariaLabel?: string;
@@ -293,6 +296,7 @@ export function PaperNoteRichEditor({
           </TabsTrigger>
         </TabsList>
       </Tabs>
+      {besideTabs}
       {actions && <div className="paper-note-actions">{actions}</div>}
     </div>
   );

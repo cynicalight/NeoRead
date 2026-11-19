@@ -5,7 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { ListPlus, Maximize2 } from "lucide-react";
+import { Check, ListPlus, Maximize2 } from "lucide-react";
 import { neoreadLink, type Annotation } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
 import {
@@ -177,11 +177,27 @@ export function PaperNote({
             disabled={unavailable}
             onChange={note.edit}
             onBlur={save}
-            actions={excerpt}
+            besideTabs={excerpt}
+            actions={
+              <>
+                {feedback}
+                <Button
+                  size="icon-sm"
+                  className="rounded-full"
+                  aria-label="保存并收起"
+                  title="保存并收起"
+                  onClick={() => {
+                    save();
+                    setExpanded(false);
+                  }}
+                >
+                  <Check className="size-3.5" />
+                </Button>
+              </>
+            }
             toolbarPlacement="bottom"
           />
         )}
-        {feedback}
       </DialogContent>
     </Dialog>
   );

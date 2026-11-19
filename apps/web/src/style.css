@@ -4493,8 +4493,18 @@ textarea.citation-preview {
   width: min(1100px, calc(100vw - 2rem));
   max-width: none;
   height: min(780px, calc(100dvh - 2rem));
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
+}
+.paper-note-dialog .paper-note-rich .ProseMirror,
+.paper-note-dialog textarea.paper-note-editor-input {
+  padding: 10px 14px;
+}
+.paper-note-dialog .paper-note-rich .ProseMirror > :first-child {
+  margin-top: 0;
+}
+.paper-note-actions > .paper-note-status {
+  margin-right: 8px;
 }
 .paper-note-workspace {
   display: flex;
