@@ -14,33 +14,53 @@ import { restoredSource, translatedText } from "./reflow";
 type Block = PDFBlock | EPUBReadingBlock;
 
 /**
- * One toolbar for the whole translation pane, moved into the hovered
- * paragraph. As the paragraph's child it keeps the pointer inside the
- * paragraph while it travels to the buttons, and paragraph clicks ignore it.
+ * Translation-pane hover, kept out of React state so a hover never re-renders
+ * the paragraph list. It marks the hovered paragraph with data-hovered and
+ * moves one shared toolbar into it. As the paragraph's child the toolbar keeps
+ * the pointer inside the paragraph while it travels to the buttons, and
+ * paragraph clicks ignore it.
  */
-export class TranslationBlockActions<B extends Block> {
+export class TranslationHover<B extends Block> {
   private host = document.createElement("div");
   private root = createRoot(this.host);
   private block?: B;
+  private id?: string;
+  private marked?: HTMLElement;
 
   constructor(private onAction: (block: B, action: PDFBlockAction) => void) {
     this.host.className = "translation-block-actions";
   }
 
-  /** Moves into the paragraph of `blockId`, or hides without one. */
-  hover(
+  /** Marks the paragraph of `blockId`; `actions` also shows the toolbar in it. */
+  set(
     pane: HTMLElement | null | undefined,
     blockId: string | undefined,
     blocks: readonly B[],
+    actions: boolean,
   ) {
-    const paragraph = blockId
-      ? pane?.querySelector<HTMLElement>(
-          `section[data-translation-block=${JSON.stringify(blockId)}]`,
-        )
-      : undefined;
-    const block = paragraph && blocks.find((b) => b.id === blockId);
-    if (!paragraph || !block) {
-      this.hide();
+    // Pointer moves repeat the same paragraph; skip the lookup for them.
+    const paragraph =
+      blockId && blockId === this.id && this.marked?.isConnected
+        ? this.marked
+        : blockId
+          ? (pane?.querySelector<HTMLElement>(
+              `section[data-translation-block=${JSON.stringify(blockId)}]`,
+            ) ?? undefined)
+          : undefined;
+    this.id = blockId;
+    if (paragraph !== this.marked) {
+      this.marked?.removeAttribute("data-hovered");
+      paragraph?.setAttribute("data-hovered", "true");
+      this.marked = paragraph;
+    }
+    if (!actions || !paragraph) {
+      this.hideActions();
+      return;
+    }
+    if (this.host.parentElement === paragraph) return;
+    const block = blocks.find((b) => b.id === blockId);
+    if (!block) {
+      this.hideActions();
       return;
     }
     if (this.block !== block) {
@@ -49,15 +69,20 @@ export class TranslationBlockActions<B extends Block> {
         createElement(BlockActions<B>, { block, onAction: this.onAction }),
       );
     }
-    if (this.host.parentElement !== paragraph) paragraph.append(this.host);
+    paragraph.append(this.host);
   }
 
-  hide() {
+  clear() {
+    this.set(undefined, undefined, [], false);
+  }
+
+  /** Hides the toolbar but keeps the hovered paragraph marked. */
+  hideActions() {
     this.host.remove();
   }
 
   destroy() {
-    this.host.remove();
+    this.clear();
     // Unmounting during a React commit warns; the root is ours alone.
     queueMicrotask(() => this.root.unmount());
   }

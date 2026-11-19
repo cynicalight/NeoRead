@@ -1,12 +1,18 @@
 import { figureTarget } from "../readers/figure-references";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
 import {
+  memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { useTranslations } from "./useTranslations";
@@ -73,9 +79,10 @@ import { chapterRange, chapterTitle, headingPages } from "./chapters";
 import { useChapterTranslation } from "./chapterTranslation";
 import { searchPDFBlocks } from "./pdf-search";
 import {
-  TranslationBlockActions,
+  TranslationHover,
   translationBlockAction,
 } from "./translation-block-actions";
+import { useStableHandlers } from "./useStableHandlers";
 
 import type { ReadingMode } from "./reading-mode";
 /** Scroll settling after a pinned jump or click does not move the chapter. */
@@ -140,7 +147,6 @@ export function PDFReadingView({
     blockLayout.layoutRevision === layoutRevision ? streamed : noTranslations;
   const [popup, setPopup] = useState<{ block: PDFBlock; rect: DOMRect }>();
   const [engine, setEngine] = useState<ReaderAdapter>();
-  const [hoveredBlock, setHoveredBlock] = useState<string>();
   const [focusedBlock, setFocusedBlock] = useState<string>();
   const deferredFocus = useMemo(() => new DeferredBlockFocus(), []);
   useEffect(() => {
@@ -152,24 +158,25 @@ export function PDFReadingView({
     };
   }, [deferredFocus]);
   const hoverOwner = useRef<"source" | "translation" | undefined>(undefined);
-  const blockActions = useRef<TranslationBlockActions<PDFBlock> | undefined>(
+  const paragraphHover = useRef<TranslationHover<PDFBlock> | undefined>(
     undefined,
   );
   const hover = (origin: "source" | "translation", blockId?: string) => {
     if (reflow) return;
     if (!blockId && hoverOwner.current !== origin) return;
     hoverOwner.current = blockId ? origin : undefined;
-    setHoveredBlock(blockId);
     engine?.hoverBlock?.(
       mode === "parallel" && origin === "translation"
         ? (blockId ?? null)
         : null,
     );
-    // Source hovers show the source toolbar; only translated paragraphs get this one.
-    blockActions.current?.hover(
+    // Source hovers mark the counterpart; only the translation side gets this
+    // pane's toolbar, the source shows its own.
+    paragraphHover.current?.set(
       pane.current,
-      origin === "translation" ? blockId : undefined,
+      blockId,
       state.current.blocks,
+      origin === "translation",
     );
   };
   const previousMode = useRef<ReadingMode>(readingMode);
@@ -321,6 +328,24 @@ export function PDFReadingView({
     ],
     [searchResults],
   );
+  const searchHits = useMemo(() => new Set(searchBlockIds), [searchBlockIds]);
+  // Paragraphs whose current translation carries a saved translation mark.
+  const annotatedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const annotation of annotations) {
+      const mark =
+        annotation.location.type === "pdf"
+          ? annotation.location.translation
+          : undefined;
+      for (const range of mark ? (mark.ranges ?? [mark]) : [])
+        if (
+          range.sentenceIndexes.length &&
+          range.sourceHash === byId.get(range.blockId)?.sourceHash
+        )
+          ids.add(range.blockId);
+    }
+    return ids;
+  }, [annotations, byId]);
   useEffect(() => {
     engine?.setSearchBlocks?.(searchBlockIds);
   }, [engine, searchBlockIds]);
@@ -610,7 +635,7 @@ export function PDFReadingView({
   }, [reflow, doc.id]);
   useEffect(() => {
     if (reflow) return;
-    const value = new TranslationBlockActions<PDFBlock>((block, action) =>
+    const value = new TranslationHover<PDFBlock>((block, action) =>
       translationBlockAction(
         block,
         action,
@@ -619,9 +644,9 @@ export function PDFReadingView({
           state.current.events.blockAction?.(b, a, translation),
       ),
     );
-    blockActions.current = value;
+    paragraphHover.current = value;
     return () => {
-      blockActions.current = undefined;
+      paragraphHover.current = undefined;
       value.destroy();
     };
   }, [reflow, doc.id]);
@@ -801,8 +826,7 @@ export function PDFReadingView({
   useLayoutEffect(() => {
     if (!engine || !active) return;
     hoverOwner.current = undefined;
-    setHoveredBlock(undefined);
-    blockActions.current?.hide();
+    paragraphHover.current?.clear();
     engine.hoverBlock?.(null);
     const previous = previousMode.current;
     previousMode.current = readingMode;
@@ -1152,6 +1176,48 @@ export function PDFReadingView({
       </Tabs>
     </div>
   );
+  // Rows are memoized; their handlers must keep one identity across renders.
+  const rowEvents = useStableHandlers({
+    citation: (blockId: string, label: string) =>
+      void visitCitation(blockId, label),
+    retry: (blockId: string) => void translate(blockId),
+    click: (event: ReactMouseEvent<HTMLElement>, block: PDFBlock) => {
+      const pressed = pressedBlock.current;
+      pressedBlock.current = undefined;
+      if (
+        (event.target as Element).closest(
+          "a, button, input, textarea, select, [role=button], [contenteditable=true]",
+        ) ||
+        window.getSelection()?.toString().trim() ||
+        (event.detail > 0 &&
+          (!pressed ||
+            pressed.id !== block.id ||
+            Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) >
+              5))
+      )
+        return;
+      if (theme.blockFocus !== false)
+        deferredFocus.schedule(event.detail, () => {
+          if (!window.getSelection()?.toString().trim())
+            focusTranslation(block);
+        });
+    },
+    keyDown: (event: ReactKeyboardEvent<HTMLElement>, block: PDFBlock) => {
+      if (
+        event.target === event.currentTarget &&
+        (event.key === "Enter" || event.key === " ")
+      ) {
+        event.preventDefault();
+        focusTranslation(block);
+      }
+    },
+    pointer: (event: ReactPointerEvent<HTMLElement>, blockId: string) => {
+      if (!event.buttons && !selecting.current) hover("translation", blockId);
+    },
+    leave: () => hover("translation"),
+  });
+  const paused =
+    processing?.enabled === false || processing?.status === "paused";
   return (
     <div
       className="pdf-reading"
@@ -1369,144 +1435,23 @@ export function PDFReadingView({
                     : "正文仍在解析中，完成的段落会在这里显示。"}
                 </p>
               )}
-              {visibleBlocks.map((block) => {
-                const translated = byId.get(block.id),
-                  noteIndexes = annotations.flatMap((a) => {
-                    const mark =
-                      a.location.type === "pdf"
-                        ? a.location.translation
-                        : undefined;
-                    return mark
-                      ? (mark.ranges ?? [mark])
-                          .filter(
-                            (r) =>
-                              r.blockId === block.id &&
-                              r.sourceHash === translated?.sourceHash,
-                          )
-                          .flatMap((r) => r.sentenceIndexes)
-                      : [];
-                  });
-                const text = (
-                  <TranslationText
-                    block={block}
-                    onCitation={(blockId, label) =>
-                      void visitCitation(blockId, label)
-                    }
-                    formulaNumber={equationNumbers.byFormula.get(block.id)}
-                    translation={translated}
-                    documentId={doc.id}
-                    renderImage={blockImages?.url}
-                    imageTheme={imageKey}
-                    retry={() => void translate(block.id)}
-                    paused={
-                      processing?.enabled === false ||
-                      processing?.status === "paused"
-                    }
-                  />
-                );
-                const indicator = noteIndexes.length > 0 && (
-                  <span
-                    className="translation-note-indicator"
-                    title="此段有已保存的标注"
-                    aria-label="此段有已保存的标注"
-                  />
-                );
-                if (reflow)
-                  return (
-                    <section
-                      key={block.id}
-                      data-reflow-block={block.id}
-                      data-block-kind={block.image ? "image" : "text"}
-                      data-label={block.label}
-                      data-search-hit={
-                        searchBlockIds.includes(block.id) || undefined
-                      }
-                      className={
-                        noteIndexes.length ? "translation-annotated" : ""
-                      }
-                    >
-                      {showsOriginal(block) ? (
-                        <div data-translation-block={block.id}>{text}</div>
-                      ) : (
-                        <TranslationText
-                          {...text.props}
-                          source={
-                            <ReflowSource
-                              block={block}
-                              translation={translated}
-                              onCitation={text.props.onCitation}
-                            />
-                          }
-                          showTranslation
-                          markTranslation
-                        />
-                      )}
-                      {indicator}
-                    </section>
-                  );
-                return (
-                  <section
-                    key={block.id}
-                    data-translation-block={block.id}
-                    data-block-kind={block.image ? "image" : "text"}
-                    data-label={block.label}
-                    data-hovered={hoveredBlock === block.id || undefined}
-                    data-focused={focusedBlock === block.id || undefined}
-                    data-search-hit={
-                      searchBlockIds.includes(block.id) || undefined
-                    }
-                    aria-current={focusedBlock === block.id || undefined}
-                    tabIndex={0}
-                    onClick={(event) => {
-                      const pressed = pressedBlock.current;
-                      pressedBlock.current = undefined;
-                      if (
-                        (event.target as Element).closest(
-                          "a, button, input, textarea, select, [role=button], [contenteditable=true]",
-                        ) ||
-                        window.getSelection()?.toString().trim() ||
-                        (event.detail > 0 &&
-                          (!pressed ||
-                            pressed.id !== block.id ||
-                            Math.hypot(
-                              event.clientX - pressed.x,
-                              event.clientY - pressed.y,
-                            ) > 5))
-                      )
-                        return;
-                      if (theme.blockFocus !== false)
-                        deferredFocus.schedule(event.detail, () => {
-                          if (!window.getSelection()?.toString().trim())
-                            focusTranslation(block);
-                        });
-                    }}
-                    onKeyDown={(event) => {
-                      if (
-                        event.target === event.currentTarget &&
-                        (event.key === "Enter" || event.key === " ")
-                      ) {
-                        event.preventDefault();
-                        focusTranslation(block);
-                      }
-                    }}
-                    onPointerEnter={(event) => {
-                      if (!event.buttons && !selecting.current)
-                        hover("translation", block.id);
-                    }}
-                    onPointerMove={(event) => {
-                      if (!event.buttons && !selecting.current)
-                        hover("translation", block.id);
-                    }}
-                    onPointerLeave={() => hover("translation")}
-                    className={
-                      noteIndexes.length ? "translation-annotated" : ""
-                    }
-                  >
-                    {text}
-                    {indicator}
-                  </section>
-                );
-              })}
+              {visibleBlocks.map((block) => (
+                <PDFTranslationRow
+                  key={block.id}
+                  block={block}
+                  translation={byId.get(block.id)}
+                  reflow={reflow}
+                  focused={focusedBlock === block.id}
+                  searchHit={searchHits.has(block.id)}
+                  annotated={annotatedIds.has(block.id)}
+                  formulaNumber={equationNumbers.byFormula.get(block.id)}
+                  documentId={doc.id}
+                  renderImage={blockImages?.url}
+                  imageTheme={imageKey}
+                  paused={paused}
+                  events={rowEvents}
+                />
+              ))}
             </div>
           )
         }
@@ -1560,3 +1505,116 @@ export function PDFReadingView({
     </div>
   );
 }
+
+type PDFRowEvents = {
+  citation: (blockId: string, label: string) => void;
+  retry: (blockId: string) => void;
+  click: (event: ReactMouseEvent<HTMLElement>, block: PDFBlock) => void;
+  keyDown: (event: ReactKeyboardEvent<HTMLElement>, block: PDFBlock) => void;
+  pointer: (event: ReactPointerEvent<HTMLElement>, blockId: string) => void;
+  leave: () => void;
+};
+
+/**
+ * One translated paragraph. Memoized so hover, focus and streamed translations
+ * re-render only the paragraphs they change, not the whole document.
+ */
+const PDFTranslationRow = memo(function PDFTranslationRow({
+  block,
+  translation,
+  reflow,
+  focused,
+  searchHit,
+  annotated,
+  formulaNumber,
+  documentId,
+  renderImage,
+  imageTheme,
+  paused,
+  events,
+}: {
+  block: PDFBlock;
+  translation?: TranslationBlock;
+  reflow: boolean;
+  focused: boolean;
+  searchHit: boolean;
+  annotated: boolean;
+  formulaNumber?: string;
+  documentId: string;
+  renderImage: ComponentProps<typeof TranslationText>["renderImage"];
+  imageTheme: string;
+  paused: boolean;
+  events: PDFRowEvents;
+}) {
+  const retry = useCallback(() => events.retry(block.id), [events, block.id]);
+  const text = (
+    <TranslationText
+      block={block}
+      onCitation={events.citation}
+      formulaNumber={formulaNumber}
+      translation={translation}
+      documentId={documentId}
+      renderImage={renderImage}
+      imageTheme={imageTheme}
+      retry={retry}
+      paused={paused}
+    />
+  );
+  const indicator = annotated && (
+    <span
+      className="translation-note-indicator"
+      title="此段有已保存的标注"
+      aria-label="此段有已保存的标注"
+    />
+  );
+  if (reflow)
+    return (
+      <section
+        data-reflow-block={block.id}
+        data-block-kind={block.image ? "image" : "text"}
+        data-label={block.label}
+        data-search-hit={searchHit || undefined}
+        className={annotated ? "translation-annotated" : ""}
+      >
+        <div className="translation-body">
+          {showsOriginal(block) ? (
+            <div data-translation-block={block.id}>{text}</div>
+          ) : (
+            <TranslationText
+              {...text.props}
+              source={
+                <ReflowSource
+                  block={block}
+                  translation={translation}
+                  onCitation={events.citation}
+                />
+              }
+              showTranslation
+              markTranslation
+            />
+          )}
+        </div>
+        {indicator}
+      </section>
+    );
+  return (
+    <section
+      data-translation-block={block.id}
+      data-block-kind={block.image ? "image" : "text"}
+      data-label={block.label}
+      data-focused={focused || undefined}
+      data-search-hit={searchHit || undefined}
+      aria-current={focused || undefined}
+      tabIndex={0}
+      onClick={(event) => events.click(event, block)}
+      onKeyDown={(event) => events.keyDown(event, block)}
+      onPointerEnter={(event) => events.pointer(event, block.id)}
+      onPointerMove={(event) => events.pointer(event, block.id)}
+      onPointerLeave={events.leave}
+      className={annotated ? "translation-annotated" : ""}
+    >
+      <div className="translation-body">{text}</div>
+      {indicator}
+    </section>
+  );
+});
