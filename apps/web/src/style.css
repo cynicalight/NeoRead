@@ -1743,10 +1743,10 @@ kbd {
   z-index: 1;
   display: flex;
   align-items: center;
-  border: 1px solid var(--border);
+  /* Translucent so the quote underneath stays readable. */
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   border-radius: 7px;
-  background: var(--popover);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+  background: color-mix(in srgb, var(--popover) 60%, transparent);
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease-out;
