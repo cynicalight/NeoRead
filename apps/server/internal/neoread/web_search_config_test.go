@@ -94,6 +94,40 @@ func TestSearchSettingsValidationAndSavedPermissions(t *testing.T) {
 	}
 }
 
+func TestKeenableSearchSettingsAreKeylessWithFixedAddress(t *testing.T) {
+	keyless := &WebSearchConfig{Provider: "keenable", URL: "https://other.example"}
+	if err := mergeWebSearchConfig(keyless, nil); err != nil || keyless.URL != keenableSearchURL {
+		t.Fatal("Keenable address not fixed", keyless.URL, err)
+	}
+	c := AIConfig{WebSearch: keyless}
+	for _, provider := range []string{"api", "codex", "claude", "kimi"} {
+		if !webSearchEnabled(c, provider) {
+			t.Fatal("keyless Keenable unavailable", provider)
+		}
+	}
+	if conn := searchAPIConnection(c); conn.Protocol != "keenable" || conn.Key != "" {
+		t.Fatal(conn)
+	}
+	old := &WebSearchConfig{Provider: "deepseek", URL: defaultSearchURL, Key: "deepseek-secret"}
+	switched := &WebSearchConfig{Provider: "keenable", HasKey: true}
+	if mergeWebSearchConfig(switched, old) == nil {
+		t.Fatal("DeepSeek key carried over to Keenable")
+	}
+	switched = &WebSearchConfig{Provider: "keenable"}
+	if mergeWebSearchConfig(switched, old) != nil || switched.Key != "" {
+		t.Fatal("switching to Keenable kept the DeepSeek key")
+	}
+	keyed := &WebSearchConfig{Provider: "keenable", URL: keenableSearchURL, Key: "keenable-secret"}
+	removed := &WebSearchConfig{Provider: "keenable", URL: keenableSearchURL}
+	if mergeWebSearchConfig(removed, keyed) != nil || removed.Key != "" ||
+		!webSearchEnabled(AIConfig{WebSearch: removed}, "api") {
+		t.Fatal("removing the optional Keenable key disabled search")
+	}
+	if c.WebSearch.Provider = ""; webSearchEnabled(c, "api") {
+		t.Fatal("disabled search API still authorized Keenable")
+	}
+}
+
 func TestRetiredCLISearchSettingIsIgnored(t *testing.T) {
 	s := testServer(t)
 	path := filepath.Join(s.Store.Root, "ai-connections.json")

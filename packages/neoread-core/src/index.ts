@@ -800,7 +800,7 @@ export interface APIConnection {
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export interface WebSearchConfig {
-  provider: "" | "deepseek";
+  provider: "" | "deepseek" | "keenable";
   url: string;
   key?: string;
   hasKey: boolean;

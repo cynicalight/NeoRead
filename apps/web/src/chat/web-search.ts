@@ -3,10 +3,8 @@ import type { WebSearchConfig } from "@neoread/core";
 /** A request captures the saved permission; there is no per-composer toggle. */
 export function webSearchEnabled(provider: string, config?: WebSearchConfig) {
   if (!config) return false;
-  return (
-    Boolean(provider) &&
-    config.provider === "deepseek" &&
-    !!config.url &&
-    config.hasKey
-  );
+  if (!provider || !config.url) return false;
+  // Keenable answers without a key; the optional key only lifts rate limits.
+  if (config.provider === "keenable") return true;
+  return config.provider === "deepseek" && config.hasKey;
 }
