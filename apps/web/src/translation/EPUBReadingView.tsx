@@ -852,17 +852,22 @@ export function EPUBReadingView({
           events.epubBlockAction?.(block, action);
         },
         epubBlocksChanged: (items) => {
-          const top = pane.current?.getBoundingClientRect().top ?? 0;
-          const node = Array.from(
-            pane.current?.querySelectorAll<HTMLElement>(
-              "[data-translation-block]",
-            ) ?? [],
-          ).find((n) => n.getBoundingClientRect().bottom > top);
-          if (node)
-            viewportAnchor.current = {
-              id: node.dataset.translationBlock!,
-              top: node.getBoundingClientRect().top,
-            };
+          // Called while the reader inserts a chapter: measuring an empty
+          // pane would only force the new chapter's layout early.
+          const rows = pane.current?.querySelectorAll<HTMLElement>(
+            "[data-translation-block]",
+          );
+          if (pane.current && rows?.length) {
+            const top = pane.current.getBoundingClientRect().top;
+            const node = Array.from(rows).find(
+              (n) => n.getBoundingClientRect().bottom > top,
+            );
+            if (node)
+              viewportAnchor.current = {
+                id: node.dataset.translationBlock!,
+                top: node.getBoundingClientRect().top,
+              };
+          }
           live.current.blocks = items;
           setBlocks(items);
         },
