@@ -1,11 +1,6 @@
 import { useEffect, useState } from "react";
-import {
-  ChevronDown,
-  ChevronUp,
-  Copy,
-  Download,
-  GripVertical,
-} from "lucide-react";
+import { ChevronDown, ChevronUp, Download, GripVertical } from "lucide-react";
+import { CopyButton } from "../CopyButton";
 import type { Document } from "@neoread/core";
 import { Badge } from "@neoread/ui/components/badge";
 import { Button } from "@neoread/ui/components/button";
@@ -227,13 +222,12 @@ export function CitationDialog({
             <Download />
             保存为文件
           </Button>
-          <Button
+          <CopyButton
+            size="icon"
+            variant="outline"
             disabled={!preview}
-            onClick={() => void copyText(preview, `已复制 ${meta.label} 引用`)}
-          >
-            <Copy />
-            复制
-          </Button>
+            onCopy={() => copyText(preview)}
+          />
         </div>
       </DialogContent>
     </Dialog>

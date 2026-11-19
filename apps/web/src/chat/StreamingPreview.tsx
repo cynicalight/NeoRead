@@ -4,6 +4,7 @@ import { Button } from "@neoread/ui/components/button";
 import { ScrollArea } from "@neoread/ui/components/scroll-area";
 import { MessageMarkdown } from "./MessageMarkdown";
 import { copyText } from "./clipboard";
+import { CopyButton } from "../CopyButton";
 import {
   markdownDemo,
   markdownFixture,
@@ -132,7 +133,12 @@ export default function StreamingPreview() {
         <Button onClick={() => setDark(!dark)}>深浅主题</Button>
         <Button onClick={start}>回放</Button>
         <Button onClick={stop}>停止</Button>
-        <Button onClick={() => void copyText(raw)}>复制原文</Button>
+        <CopyButton
+          label="复制原文"
+          size="icon"
+          variant="default"
+          onCopy={() => copyText(raw)}
+        />
         <Button
           onClick={() =>
             setReport(

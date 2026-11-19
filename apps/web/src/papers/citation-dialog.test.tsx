@@ -70,7 +70,7 @@ it("orders by author, reorders by hand and copies the preview", async () => {
     expect(preview().indexOf("zhou")).toBeLessThan(preview().indexOf("adams")),
   );
   await act(async () => button("复制").click());
-  expect(copyText).toHaveBeenCalledWith(preview(), expect.any(String));
+  expect(copyText).toHaveBeenCalledWith(preview());
 });
 it("switches to GB/T 7714 and sends incomplete papers to the editor", async () => {
   await act(async () =>

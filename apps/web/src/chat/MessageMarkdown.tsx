@@ -6,7 +6,8 @@ import {
   TooltipContent,
 } from "@neoread/ui/components/tooltip";
 import { copyText } from "./clipboard";
-import { ArrowUpLeft, Copy } from "lucide-react";
+import { ArrowUpLeft } from "lucide-react";
+import { CopyButton } from "../CopyButton";
 import { CachedMarkdown, Streamdown } from "@lobehub/streamdown";
 import {
   memo,
@@ -197,15 +198,11 @@ function MarkdownLink({
         {children}
       </a>
       {!navigate && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          title="复制链接"
-          aria-label={`复制链接 ${href}`}
-          onClick={() => void copyText(href)}
-        >
-          <Copy className="size-3" />
-        </Button>
+        <CopyButton
+          label={`复制链接 ${href}`}
+          iconClassName="size-3"
+          onCopy={() => copyText(href)}
+        />
       )}
     </span>
   );

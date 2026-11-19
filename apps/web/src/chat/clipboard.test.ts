@@ -52,15 +52,13 @@ it("copies figures through the desktop bridge", async () => {
     "fetch",
     vi.fn().mockResolvedValue(new Response(new Uint8Array([137, 80]))),
   );
-  await copyImage("/pub/t/doc/assets/fig.png", "图 1");
+  expect(await copyImage("/pub/t/doc/assets/fig.png", "图 1")).toBe(true);
   expect(writeClipboardImage).toHaveBeenCalledWith(
     new Uint8Array([137, 80]),
     "图 1",
   );
   expect(write).not.toHaveBeenCalled();
-  expect(toast.success).toHaveBeenCalledWith("已复制图片", {
-    id: "neoread-clipboard",
-  });
+  expect(toast.success).not.toHaveBeenCalled();
 });
 it("reports a failed figure fetch in the desktop app", async () => {
   const writeClipboardImage = vi.fn();

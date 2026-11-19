@@ -990,7 +990,7 @@ export function Workspace({
           blockImageURL(doc.id, block.id, block.image),
           (block.caption || block.text).trim(),
         );
-      else void copyText(block.text.trim(), "已复制");
+      else void copyText(block.text.trim());
       return;
     }
     if (!block.image) {
@@ -1051,7 +1051,7 @@ export function Workspace({
     if (action === "copy") {
       if (block.image)
         void copyImage(blockImageURL(doc.id, block.id), block.text.trim());
-      else void copyText(block.text.trim(), "已复制");
+      else void copyText(block.text.trim());
       return;
     }
     if (!block.image) {

@@ -799,7 +799,7 @@ export function EPUBReadingView({
             const translation = translations.find(
               (t) => t.blockId === block.id,
             );
-            void copyText(reflowBlockText(block.text, translation), "已复制");
+            void copyText(reflowBlockText(block.text, translation));
             return;
           }
           events.epubBlockAction?.(block, action);

@@ -582,7 +582,7 @@ export function PDFReadingView({
           const translation = state.current.translations.find(
             (t) => t.blockId === block.id,
           );
-          void copyText(reflowBlockText(block.text, translation), "已复制");
+          void copyText(reflowBlockText(block.text, translation));
           return;
         }
         state.current.events.blockAction?.(block, action);
@@ -1228,10 +1228,7 @@ export function PDFReadingView({
                     const translation = state.current.translations.find(
                       (t) => t.blockId === block.id,
                     );
-                    void copyText(
-                      restoredSource(block.text, translation),
-                      "已复制",
-                    );
+                    void copyText(restoredSource(block.text, translation));
                     return;
                   }
                   if (action !== "translate") {

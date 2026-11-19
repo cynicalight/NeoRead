@@ -1428,9 +1428,14 @@ it("offers paragraph actions and focuses reflowed paragraphs unless disabled", a
     expect(copy?.getAttribute("aria-label")).toBe("复制此段");
     await act(async () => copy!.click());
     // Reflowed paragraphs copy their source and translation together.
-    expect(vi.mocked(copyText)).toHaveBeenCalledWith(
-      expect.any(String),
-      "已复制",
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith(expect.any(String));
+    // The button itself confirms the copy with a green check.
+    await vi.waitFor(() =>
+      expect(
+        host
+          .querySelector('[data-block-action="copy"]')
+          ?.getAttribute("aria-label"),
+      ).toBe("已复制"),
     );
     expect(blockAction).not.toHaveBeenCalled();
     await act(async () =>
@@ -1490,7 +1495,6 @@ it("copies a PDF paragraph with the formulas its translation restored", async ()
     );
     expect(vi.mocked(copyText)).toHaveBeenCalledWith(
       "First $x_1$. Second sentence.",
-      "已复制",
     );
     expect(blockAction).not.toHaveBeenCalled();
   } finally {

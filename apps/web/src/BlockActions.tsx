@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { Copy, Expand, Sparkles } from "lucide-react";
+import { Expand, Sparkles } from "lucide-react";
 import { Button } from "@neoread/ui/components/button";
 import type { PDFBlockAction } from "@neoread/core";
+import { CopyButton } from "./CopyButton";
 // Shared by PDF layout blocks and EPUB paragraphs.
 export function BlockActions<Block extends { image?: string }>({
   block,
@@ -28,7 +29,17 @@ export function BlockActions<Block extends { image?: string }>({
   return (
     <div className="block-actions">
       {block.image && action("preview", "放大查看原图", <Expand />)}
-      {action("copy", block.image ? "复制图片" : "复制此段", <Copy />)}
+      <CopyButton
+        data-block-action="copy"
+        variant="secondary"
+        label={block.image ? "复制图片" : "复制此段"}
+        onCopy={(event) => {
+          event.stopPropagation();
+          // The host copies asynchronously and reports failures itself.
+          onAction(block, "copy");
+          return true;
+        }}
+      />
       {action(
         "explain",
         block.image ? "AI 解释此图" : "询问 AI 此段",

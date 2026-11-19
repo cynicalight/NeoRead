@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from "react";
-import { Button } from "@neoread/ui/components/button";
+import { CopyButton } from "../CopyButton";
 import { copyText } from "./clipboard";
 import type { ThemedToken } from "shiki";
 // Fine-grained bundle: only these grammars/themes and the engine ship offline.
@@ -46,13 +46,10 @@ export default memo(function CodeBlock({
     <div className="markdown-code">
       <div className="code-toolbar">
         <span>{language}</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => void copyText(content.replace(/\n$/, ""))}
-        >
-          复制代码
-        </Button>
+        <CopyButton
+          label="复制代码"
+          onCopy={() => copyText(content.replace(/\n$/, ""))}
+        />
       </div>
       <pre>
         <code>

@@ -4,7 +4,6 @@ import { registerTabCloseGuard } from "./document-tab-guards";
 import {
   Check,
   ChevronDown,
-  Copy,
   CircleHelp,
   Download,
   Loader2,
@@ -21,6 +20,7 @@ import {
   type Message,
 } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
+import { CopyButton } from "./CopyButton";
 import { PaperNoteRichEditor } from "./PaperNoteRichEditor";
 import { MessageMarkdown } from "./chat/MessageMarkdown";
 import { ScrollArea } from "@neoread/ui/components/scroll-area";
@@ -147,23 +147,16 @@ function NoteCard({
             <Pencil />
           </Button>
         )}
-        <Button
-          size="icon-xs"
-          variant="ghost"
-          aria-label="复制"
-          title="复制原文和批注内容"
-          onClick={() =>
-            void copyText(
+        <CopyButton
+          onCopy={() =>
+            copyText(
               [a.quote || locationLabel(a.location), a.note]
                 .map((part) => part.trim())
                 .filter(Boolean)
                 .join("\n\n"),
-              "已复制",
             )
           }
-        >
-          <Copy />
-        </Button>
+        />
         <Button
           size="icon-xs"
           variant="destructive-ghost"
