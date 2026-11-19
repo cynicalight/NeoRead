@@ -406,7 +406,7 @@ export function NotesPanel({
               </ToggleGroup>
             </div>
           )}
-          {filter === "question" && open > 0 && (
+          {filter === "question" && (open > 0 || openOnly) && (
             <Button
               size="xs"
               variant={openOnly ? "secondary" : "ghost"}
@@ -424,9 +424,11 @@ export function NotesPanel({
               <p>
                 {query
                   ? "没有匹配的记录"
-                  : annotations.length
-                    ? "没有这类记录"
-                    : "暂无批注"}
+                  : filter === "question" && openOnly && open === 0
+                    ? "暂无待回答的问题"
+                    : annotations.length
+                      ? "没有这类记录"
+                      : "暂无批注"}
               </p>
               {!annotations.length && (
                 <small>选中文字添加高亮、批注或问题。</small>
