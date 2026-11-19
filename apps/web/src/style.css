@@ -4663,7 +4663,7 @@ textarea.paper-note-editor-input {
   gap: 8px;
   min-width: 0;
 }
-/* Height follows the content plus one empty line, up to a scrolling cap. */
+/* Height follows the content, up to a scrolling cap. */
 .annotation-markdown-editor .paper-note-rich,
 .annotation-markdown-editor textarea.paper-note-editor-input {
   flex: none;
@@ -4682,7 +4682,7 @@ textarea.paper-note-editor-input {
 }
 .annotation-markdown-editor .paper-note-rich .ProseMirror,
 .annotation-markdown-editor textarea.paper-note-editor-input {
-  padding: 8px 10px calc(8px + 1.7em);
+  padding: 8px 10px;
   font-size: 13px;
   line-height: 1.7;
 }
