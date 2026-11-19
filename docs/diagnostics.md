@@ -155,6 +155,12 @@ API 厂商规则、实际强度映射、上游错误分类和请求关联字段�
 
 最终事件增加 `exitCodeHex`。Windows 的 `0xFFFF7003` 对应 Crashpad 未连接到崩溃处理程序，不能据此判断最初的异常原因。本次补充不会恢复旧诊断包中已丢弃的 stderr，也不保证所有原生崩溃均可仅凭日志确诊。
 
+## Pi worker 管道通信
+
+`pi.worker.start` 记录 worker 的 `runId`、操作类别及进程号。`pi.worker.send` 对发送给 worker 的 `start`、`toolResult`、`checkpointAck` 等消息记录 `phase=start/finish`、耗时和安全 `errorCode`，不记录提示词、令牌、工具参数或结果正文。某次发送只有开始而没有结束时，可定位到宿主向 worker 写入管道的等待；仍需结合 worker 进程、工具活动和模型终态区分后续等待位置。
+
+宿主独立持续读取 worker 的 stdout，再按原顺序处理事件。这样在回传 PDF 图片等大工具结果时，worker 同时发送的检查点仍能被接收，避免 Windows 双向管道背压互相等待。取消后关闭管道、回收 worker 并等待读取协程退出；不改变 provider 完成及本地保存后才确认回答完成的约定。
+
 ## 联网搜索配置与权限
 
 `web.search.config_saved / config_rejected` 记录保存结果、搜索服务类型和是否配置密钥；`web.search.permissions` 记录一次提问请求的提供方、请求的联网状态及设置核验后的授权结果，均带 `requestId`。不采集搜索服务地址、任何 Key、搜索词、网页内容或问题正文。

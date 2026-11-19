@@ -1,7 +1,6 @@
 package neoread
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -119,6 +118,8 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 	if err = cmd.Start(); err != nil {
 		return piEvent{}, generationError(ErrorConfiguration, "无法启动 pi 运行时")
 	}
+	frames := newPiOutputReader(output)
+	slog.InfoContext(ctx, "pi.worker.start", "runId", runID, "operation", operation, "pid", cmd.Process.Pid)
 	// Reap on every exit, including malformed output and canceled tools.
 	waited := false
 	defer func() {
@@ -127,21 +128,44 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 		if !waited {
 			_ = cmd.Wait()
 		}
+		_ = output.Close()
+		<-frames.done
 	}()
 	encoder := json.NewEncoder(input)
-	if err = encoder.Encode(map[string]any{"type": operation, "input": request}); err != nil {
+	send := func(kind string, value any) error {
+		started := time.Now()
+		slog.InfoContext(ctx, "pi.worker.send", "runId", runID, "operation", operation, "kind", kind, "phase", "start")
+		err := encoder.Encode(value)
+		level := slog.LevelInfo
+		errorCode := ErrorKind("")
+		if err != nil {
+			errorCode = ErrorProtocol
+			level = slog.LevelError
+			if ctx.Err() != nil {
+				errorCode = errorKind(ctx.Err())
+				if ctx.Err() == context.Canceled {
+					level = slog.LevelInfo
+				}
+			}
+		}
+		slog.Log(ctx, level, "pi.worker.send", "runId", runID, "operation", operation, "kind", kind, "phase", "finish", "durationMs", time.Since(started).Milliseconds(), "errorCode", errorCode)
+		return err
+	}
+	if err = send(operation, map[string]any{"type": operation, "input": request}); err != nil {
 		return piEvent{}, err
 	}
-	reader := bufio.NewReader(output)
 	var complete piEvent
 	seen := map[string]bool{}
 	checkpoints := map[string]bool{}
 	for {
-		line, readErr := reader.ReadBytes('\n')
+		line, readErr := frames.next(ctx)
 		if readErr == io.EOF && len(line) == 0 {
 			break
 		}
 		if readErr != nil {
+			if ctx.Err() != nil {
+				return piEvent{}, ctx.Err()
+			}
 			return piEvent{}, generationError(ErrorProtocol, "pi 输出读取失败或事件未完成")
 		}
 		var e piEvent
@@ -156,7 +180,7 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			seen[e.ID] = true
 			if len(e.Args) > 4096 {
 				content := []any{map[string]string{"type": "text", "text": `{"error":"invalid_arguments","message":"Tool arguments exceed the size limit. Use shorter arguments or available evidence."}`}}
-				if err = encoder.Encode(map[string]any{"type": "toolResult", "runId": runID, "id": e.ID, "content": content}); err != nil {
+				if err = send("toolResult", map[string]any{"type": "toolResult", "runId": runID, "id": e.ID, "content": content}); err != nil {
 					return piEvent{}, err
 				}
 				continue
@@ -165,7 +189,7 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			if callErr != nil {
 				return piEvent{}, callErr
 			}
-			if err = encoder.Encode(map[string]any{"type": "toolResult", "runId": runID, "id": e.ID, "content": content}); err != nil {
+			if err = send("toolResult", map[string]any{"type": "toolResult", "runId": runID, "id": e.ID, "content": content}); err != nil {
 				return piEvent{}, err
 			}
 		case "checkpoint":
@@ -179,7 +203,7 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			if err = event(e); err != nil {
 				return piEvent{}, err
 			}
-			if err = encoder.Encode(map[string]any{"type": "checkpointAck", "runId": runID, "id": e.ID}); err != nil {
+			if err = send("checkpointAck", map[string]any{"type": "checkpointAck", "runId": runID, "id": e.ID}); err != nil {
 				return piEvent{}, err
 			}
 		case "complete":
