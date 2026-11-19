@@ -25,6 +25,7 @@ it("keeps the source caret when typing during chunk loading, then allows explici
     const [body, setBody] = useState("original");
     return (
       <PaperNoteRichEditor
+        documentId="doc"
         body={body}
         disabled={false}
         onChange={setBody}

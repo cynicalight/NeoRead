@@ -143,6 +143,10 @@ func OpenStore(root string) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{DB: db, Root: root}
+	if err = store.installNoteImageSchema(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err = store.migrateOrganization(); err != nil {
 		db.Close()
 		return nil, err

@@ -16,6 +16,7 @@ import {
   useMemo,
   useState,
   useContext,
+  createContext,
   type ReactNode,
   type ComponentProps,
 } from "react";
@@ -35,6 +36,8 @@ import {
 import "./markdown.css";
 import { remarkLatex } from "./remark-latex";
 import { ChatCitationNavigation, remarkChatCitations } from "./citations";
+import { isNoteImagePath } from "@neoread/api";
+import { NoteImage } from "../NoteImage";
 
 const Code = lazy(() => import("./CodeBlock"));
 const MathFormula = lazy(() => import("./MathFormula"));
@@ -55,6 +58,15 @@ export const safeMarkdownURL = (url: string) =>
   /^(https?:\/\/|mailto:|#)/i.test(url)
     ? url.replace(/(?:[。，；！？]|%E3%80%82|%EF%BC%8C)+$/gi, "")
     : "";
+// Notes may reference library-managed images; every other image stays inert.
+const NoteImages = createContext(false);
+function MarkdownImage({ src, alt, title }: ComponentProps<"img">) {
+  return useContext(NoteImages) && typeof src === "string" ? (
+    <NoteImage src={src} alt={alt} title={title} />
+  ) : (
+    <span className="markdown-image">[图片：{alt || "未加载"}]</span>
+  );
+}
 function MarkdownLink({
   href,
   children,
@@ -206,9 +218,7 @@ function textContent(node: ReactNode): string {
   return "";
 }
 const components: Components = {
-  img: ({ alt }) => (
-    <span className="markdown-image">[图片：{alt || "未加载"}]</span>
-  ),
+  img: MarkdownImage,
   a: MarkdownLink,
   pre: ({ children }) => <div className="markdown-pre">{children}</div>,
   code: ({ className, children, node }) => {
@@ -258,7 +268,8 @@ const markdownOptions = {
   remarkPlugins: plugins,
   components,
   skipHtml: true,
-  urlTransform: safeMarkdownURL,
+  urlTransform: (url: string, key: string) =>
+    key === "src" && isNoteImagePath(url) ? url : safeMarkdownURL(url),
 };
 const StaticBlock = memo(function StaticBlock({
   text,
@@ -348,6 +359,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
   animated = true,
   citationBlockId,
   literalHtml = false,
+  noteImages = false,
 }: {
   content: string;
   generating?: boolean;
@@ -355,6 +367,8 @@ export const MessageMarkdown = memo(function MessageMarkdown({
   animated?: boolean;
   citationBlockId?: string;
   literalHtml?: boolean;
+  /** Render managed `assets/…` images from paper notes and annotations. */
+  noteImages?: boolean;
 }) {
   const reduced = useMotionPreference();
   const evidence = useContext(ChatCitationNavigation);
@@ -392,29 +406,31 @@ export const MessageMarkdown = memo(function MessageMarkdown({
     !globalDefinitions;
   return (
     <div className="message-markdown" data-animated={animate}>
-      {/* A Markdown failure falls back to the raw text of this message only. */}
-      <ErrorBoundary
-        resetKey={content}
-        fallback={<div style={{ whiteSpace: "pre-wrap" }}>{content}</div>}
-      >
-        {animate ? (
-          <Streamdown
-            {...markdownOptions}
-            remarkPlugins={streamingPlugins}
-            content={content}
-            smoothing="realtime"
-            granularity="word"
-          />
-        ) : (
-          <StaticMarkdown
-            content={content}
-            generating={generating}
-            global={globalDefinitions}
-            citationBlockId={citationBlockId}
-            literalHtml={literalHtml}
-          />
-        )}
-      </ErrorBoundary>
+      <NoteImages.Provider value={noteImages}>
+        {/* A Markdown failure falls back to the raw text of this message only. */}
+        <ErrorBoundary
+          resetKey={content}
+          fallback={<div style={{ whiteSpace: "pre-wrap" }}>{content}</div>}
+        >
+          {animate ? (
+            <Streamdown
+              {...markdownOptions}
+              remarkPlugins={streamingPlugins}
+              content={content}
+              smoothing="realtime"
+              granularity="word"
+            />
+          ) : (
+            <StaticMarkdown
+              content={content}
+              generating={generating}
+              global={globalDefinitions}
+              citationBlockId={citationBlockId}
+              literalHtml={literalHtml}
+            />
+          )}
+        </ErrorBoundary>
+      </NoteImages.Provider>
     </div>
   );
 });

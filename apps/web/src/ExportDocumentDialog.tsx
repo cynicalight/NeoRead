@@ -19,16 +19,33 @@ import {
 import { Check, Download, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
 import { saveExportBlob, exportCancelled, fileTitle } from "./download";
+import { copyText } from "./chat/clipboard";
+import { readPaperNote } from "./paper-note-state";
 import { exportTranslatedPDF } from "./translated-pdf-export";
 import {
   annotationExportKinds,
-  annotationMarkdown,
+  selectedNotesMarkdown,
   exportMarkdownFile,
   exportOriginal,
   type AnnotationExportKind,
   type ExportFormat,
   type ExportTarget,
 } from "./document-export";
+
+const targetLabels = {
+  annotations: "批注",
+  paperNote: "论文笔记",
+  original: "原文",
+  translation: "译文",
+} satisfies Record<ExportTarget, string>;
+const formatLabels = {
+  markdown: "Markdown",
+  pdf: "PDF",
+  zip: "Markdown + 图片 (.zip)",
+} satisfies Record<ExportFormat | "zip", string>;
+type DialogFormat = keyof typeof formatLabels;
+const isSource = (target: ExportTarget): target is "original" | "translation" =>
+  target === "original" || target === "translation";
 
 const storageKey = "neoread.annotation-export-kinds";
 const allKinds = Object.keys(annotationExportKinds) as AnnotationExportKind[];
@@ -60,8 +77,8 @@ export function ExportDocumentDialog({
 }) {
   const [kinds, setKinds] = useState(savedKinds);
   const [targets, setTargets] = useState<ExportTarget[]>(["original"]);
-  const [formats, setFormats] = useState<ExportFormat[]>(["markdown"]);
-  const [busy, setBusy] = useState<ExportTarget | null>(null);
+  const [formats, setFormats] = useState<DialogFormat[]>(["markdown"]);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const request = useRef<AbortController | null>(null);
   useEffect(
@@ -90,26 +107,90 @@ export function ExportDocumentDialog({
     kinds.length > 0 &&
     (!annotations ||
       annotations.some((a) => kinds.includes(a.kind as AnnotationExportKind)));
-  const save = async () => {
+  const annotationsUnavailable =
+    targets.includes("annotations") && !hasAnnotations;
+  const noteTargets = targets.filter((target) => !isSource(target));
+  const save = async (action: "download" | "copy") => {
     if (
-      !formats.length ||
+      (action === "download" ? !formats.length : !noteTargets.length) ||
       !targets.length ||
       request.current ||
-      (targets.includes("annotations") && !hasAnnotations)
+      annotationsUnavailable
     )
       return;
     const controller = new AbortController();
     request.current = controller;
-    setBusy(targets[0]);
+    setBusy(true);
     setError("");
     let savedCount = 0;
-    let exportAnnotations = annotations;
-    let exportMessages = messages;
+    let annotationData: Promise<[Annotation[], Message[]]> | undefined;
+    let paperNoteData: Promise<string> | undefined;
+    const notesFor = async (
+      selected: ExportTarget[],
+      includeTitle: boolean,
+    ) => {
+      const [marks, paperNote] = await Promise.all([
+        selected.includes("annotations")
+          ? (annotationData ??= Promise.all([
+              annotations ?? api.annotations(doc.id, controller.signal),
+              messages ?? api.messages(doc.id, controller.signal),
+            ]))
+          : undefined,
+        selected.includes("paperNote")
+          ? (paperNoteData ??= readPaperNote(doc.id))
+          : "",
+      ]);
+      controller.signal.throwIfAborted();
+      if (
+        marks &&
+        !marks[0].some((a) => kinds.includes(a.kind as AnnotationExportKind))
+      )
+        throw new Error("没有可导出的批注");
+      if (!marks && !paperNote.trim()) throw new Error("没有可导出的论文笔记");
+      return selectedNotesMarkdown(
+        doc,
+        marks?.[0] ?? [],
+        marks?.[1] ?? [],
+        kinds,
+        link ?? ((a) => neoreadLink({ id: doc.id, annotation: a.id })),
+        { paperNote, includeTitle },
+      );
+    };
     try {
+      if (action === "copy") {
+        try {
+          const markdown = notesFor(noteTargets, true);
+          if (
+            !window.neoreadDesktop?.writeClipboardText &&
+            typeof ClipboardItem === "function" &&
+            navigator.clipboard?.write
+          ) {
+            // Pass the text promise immediately to retain the click's activation.
+            const text = markdown.then(
+              (value) => new Blob([value], { type: "text/plain" }),
+            );
+            await Promise.all([
+              navigator.clipboard.write([
+                new ClipboardItem({ "text/plain": text }),
+              ]),
+              text,
+            ]);
+            toast.success("已复制 Markdown", { id: "neoread-clipboard" });
+          } else {
+            await copyText(await markdown, "已复制 Markdown");
+          }
+        } catch (error) {
+          if (!controller.signal.aborted)
+            setError(
+              error instanceof Error ? error.message : "复制失败，请重试",
+            );
+        }
+        return;
+      }
       for (const selection of targets) {
-        setBusy(selection);
         for (const format of formats) {
           if (controller.signal.aborted) return;
+          if (format === "zip" && selection !== targets[0]) continue;
           const requestId = crypto.randomUUID();
           const started = performance.now();
           const report = (stage: string) =>
@@ -118,12 +199,28 @@ export function ExportDocumentDialog({
               event: `document.export.${stage}`,
               requestId,
               durationMs: Math.round(performance.now() - started),
-              detail: `target=${selection} format=${format}`,
+              detail: `target=${format === "zip" ? "combined" : selection} format=${format}`,
             });
           report("start");
           try {
             let delivery: "download" | "print" = "download";
-            if (selection === "original")
+            if (format === "zip") {
+              const sources = targets.filter(isSource);
+              const notes = noteTargets.length
+                ? await notesFor(noteTargets, sources.length === 0)
+                : "";
+              const blob = await api.exportMarkdownArchive(
+                doc.id,
+                sources,
+                notes,
+                controller.signal,
+              );
+              await saveExportBlob(
+                blob,
+                `${fileTitle(doc.title)}.zip`,
+                controller.signal,
+              );
+            } else if (selection === "original")
               delivery = await exportOriginal(doc, format, controller.signal);
             else if (selection === "translation") {
               if (format === "pdf")
@@ -144,30 +241,10 @@ export function ExportDocumentDialog({
                 );
               }
             } else {
-              if (!exportAnnotations || !exportMessages) {
-                [exportAnnotations, exportMessages] = await Promise.all([
-                  exportAnnotations ??
-                    api.annotations(doc.id, controller.signal),
-                  exportMessages ?? api.messages(doc.id, controller.signal),
-                ]);
-                controller.signal.throwIfAborted();
-              }
-              if (
-                !exportAnnotations.some((a) =>
-                  kinds.includes(a.kind as AnnotationExportKind),
-                )
-              )
-                throw new Error("没有可导出的批注");
+              const markdown = await notesFor([selection], true);
               delivery = await exportMarkdownFile(
-                annotationMarkdown(
-                  doc,
-                  exportAnnotations,
-                  exportMessages,
-                  kinds,
-                  link ??
-                    ((a) => neoreadLink({ id: doc.id, annotation: a.id })),
-                ),
-                `${fileTitle(doc.title)}-批注`,
+                markdown,
+                `${fileTitle(doc.title)}-${targetLabels[selection]}`,
                 format,
                 controller.signal,
               );
@@ -215,14 +292,9 @@ export function ExportDocumentDialog({
     } finally {
       if (request.current === controller) {
         request.current = null;
-        setBusy(null);
+        setBusy(false);
       }
     }
-  };
-  const targetLabels: Record<ExportTarget, string> = {
-    annotations: "批注",
-    original: "原文",
-    translation: "译文",
   };
   return (
     <Dialog open onOpenChange={(open) => !open && close()}>
@@ -231,31 +303,29 @@ export function ExportDocumentDialog({
           <DialogTitle>导出</DialogTitle>
         </DialogHeader>
         <div
-          className="grid grid-cols-3 gap-2"
+          className="grid grid-cols-2 gap-2"
           role="group"
           aria-label="导出内容"
         >
-          {(["annotations", "original", "translation"] as const).map(
-            (selection) => (
-              <Toggle
-                key={selection}
-                variant="outline"
-                pressed={targets.includes(selection)}
-                disabled={!!busy}
-                onPressedChange={(pressed) =>
-                  setTargets((current) =>
-                    pressed
-                      ? [...current, selection]
-                      : current.filter((item) => item !== selection),
-                  )
-                }
-                className="flex-1 aria-pressed:border-emerald-300 aria-pressed:bg-emerald-100 aria-pressed:text-emerald-900 dark:aria-pressed:border-emerald-500/40 dark:aria-pressed:bg-emerald-500/20 dark:aria-pressed:text-emerald-200"
-              >
-                {targets.includes(selection) && <Check aria-hidden="true" />}
-                {targetLabels[selection]}
-              </Toggle>
-            ),
-          )}
+          {(Object.keys(targetLabels) as ExportTarget[]).map((selection) => (
+            <Toggle
+              key={selection}
+              variant="outline"
+              pressed={targets.includes(selection)}
+              disabled={!!busy}
+              onPressedChange={(pressed) =>
+                setTargets((current) =>
+                  pressed
+                    ? [...current, selection]
+                    : current.filter((item) => item !== selection),
+                )
+              }
+              className="flex-1 aria-pressed:border-emerald-300 aria-pressed:bg-emerald-100 aria-pressed:text-emerald-900 dark:aria-pressed:border-emerald-500/40 dark:aria-pressed:bg-emerald-500/20 dark:aria-pressed:text-emerald-200"
+            >
+              {targets.includes(selection) && <Check aria-hidden="true" />}
+              {targetLabels[selection]}
+            </Toggle>
+          ))}
         </div>
         {targets.includes("annotations") && (
           <div className="flex flex-wrap gap-x-5 gap-y-3">
@@ -272,8 +342,12 @@ export function ExportDocumentDialog({
             ))}
           </div>
         )}
-        <div className="flex gap-2" role="group" aria-label="导出格式">
-          {(["markdown", "pdf"] as const).map((format) => (
+        <div
+          className="flex flex-wrap gap-2"
+          role="group"
+          aria-label="导出格式"
+        >
+          {(Object.keys(formatLabels) as DialogFormat[]).map((format) => (
             <Toggle
               key={format}
               variant="outline"
@@ -289,7 +363,7 @@ export function ExportDocumentDialog({
               className="flex-1 aria-pressed:border-emerald-300 aria-pressed:bg-emerald-100 aria-pressed:text-emerald-900 dark:aria-pressed:border-emerald-500/40 dark:aria-pressed:bg-emerald-500/20 dark:aria-pressed:text-emerald-200"
             >
               {formats.includes(format) && <Check aria-hidden="true" />}
-              {format === "markdown" ? "Markdown" : "PDF"}
+              {formatLabels[format]}
             </Toggle>
           ))}
         </div>
@@ -298,15 +372,22 @@ export function ExportDocumentDialog({
             {error}
           </p>
         )}
+        {noteTargets.length > 0 && (
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={busy || annotationsUnavailable}
+            onClick={() => void save("copy")}
+          >
+            复制 Markdown
+          </Button>
+        )}
         <Button
           className="h-10 w-full gap-2 rounded-full"
           disabled={
-            !!busy ||
-            !formats.length ||
-            !targets.length ||
-            (targets.includes("annotations") && !hasAnnotations)
+            busy || !formats.length || !targets.length || annotationsUnavailable
           }
-          onClick={() => void save()}
+          onClick={() => void save("download")}
         >
           {busy ? (
             <LoaderCircle className="animate-spin motion-reduce:animate-none" />

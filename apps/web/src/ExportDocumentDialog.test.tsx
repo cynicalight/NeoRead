@@ -4,14 +4,23 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Annotation } from "@neoread/core";
 import { api } from "@neoread/api";
+import { copyText } from "./chat/clipboard";
+import { readPaperNote } from "./paper-note-state";
 import { saveExportBlob } from "./download";
 import { exportTranslatedPDF } from "./translated-pdf-export";
 import { exportMarkdownFile, exportOriginal } from "./document-export";
 import { ExportDocumentDialog } from "./ExportDocumentDialog";
 import { paper } from "./papers/fixtures";
 vi.mock("@neoread/api", () => ({
-  api: { exportTranslation: vi.fn(), annotations: vi.fn(), messages: vi.fn() },
+  api: {
+    exportTranslation: vi.fn(),
+    exportMarkdownArchive: vi.fn(),
+    annotations: vi.fn(),
+    messages: vi.fn(),
+  },
 }));
+vi.mock("./chat/clipboard", () => ({ copyText: vi.fn() }));
+vi.mock("./paper-note-state", () => ({ readPaperNote: vi.fn() }));
 vi.mock("./download", async (original) => ({
   ...(await original<typeof import("./download")>()),
   saveExportBlob: vi.fn(),
@@ -24,6 +33,8 @@ vi.mock("./document-export", async (original) => ({
   exportOriginal: vi.fn(),
 }));
 const doc = paper({ id: "doc", title: "论文" });
+const imagePath = `assets/${"a".repeat(64)}.png`;
+const archiveFormat = "Markdown + 图片 (.zip)";
 const annotations: Annotation[] = (
   ["note", "underline", "highlight", "question"] as const
 ).map((kind, i) => ({
@@ -32,7 +43,7 @@ const annotations: Annotation[] = (
   kind,
   location: { type: "pdf", page: 1 },
   quote: `${kind}-quote`,
-  note: `${kind}-note`,
+  note: `${kind}-note${kind === "note" ? `\n\n![annotation](${imagePath})` : ""}`,
   color: "#fff",
   createdAt: "",
 }));
@@ -45,7 +56,7 @@ const button = (text: string) =>
     (el) => el.textContent?.trim() === text,
   )!;
 const selectFormat = async (label: string) => {
-  for (const format of ["Markdown", "PDF"])
+  for (const format of ["Markdown", "PDF", archiveFormat])
     if (
       (button(format).getAttribute("aria-pressed") === "true") !==
       (format === label)
@@ -53,7 +64,7 @@ const selectFormat = async (label: string) => {
       await act(async () => button(format).click());
 };
 const selectTarget = async (label: string) => {
-  for (const target of ["批注", "原文", "译文"])
+  for (const target of ["批注", "论文笔记", "原文", "译文"])
     if (
       (button(target).getAttribute("aria-pressed") === "true") !==
       (target === label)
@@ -90,6 +101,9 @@ beforeEach(() => {
   vi.mocked(api.exportTranslation).mockResolvedValue(new Blob(["译文"]));
   vi.mocked(api.annotations).mockResolvedValue(annotations);
   vi.mocked(api.messages).mockResolvedValue([]);
+  vi.mocked(readPaperNote).mockResolvedValue(`![paper](${imagePath})`);
+  vi.mocked(copyText).mockResolvedValue(true);
+  vi.mocked(api.exportMarkdownArchive).mockResolvedValue(new Blob(["archive"]));
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -110,7 +124,6 @@ it("keeps only the four annotation kinds and separates original and translation"
   ).toEqual(["批注", "划线", "高亮", "问题"]);
   for (const text of [
     "论文信息",
-    "论文笔记",
     "AI 对话",
     "书签",
     "包含译文中的原文图片",
@@ -118,6 +131,7 @@ it("keeps only the four annotation kinds and separates original and translation"
     "按 Markdown 默认字号",
   ])
     expect(document.body.textContent).not.toContain(text);
+  expect(button("论文笔记")).toBeTruthy();
   expect(button("原文")).toBeTruthy();
   expect(button("译文")).toBeTruthy();
 });
@@ -373,4 +387,74 @@ it("requires at least one content selection", async () => {
   await mount();
   await act(async () => button("原文").click());
   expect(button("导出").disabled).toBe(true);
+});
+
+it("downloads one archive for the selected original, translation, paper note, and annotation kinds", async () => {
+  await mount();
+  for (const target of ["论文笔记", "批注", "译文"])
+    await act(async () => button(target).click());
+  await act(async () =>
+    document.querySelector<HTMLElement>('[aria-label="高亮"]')!.click(),
+  );
+  await selectFormat(archiveFormat);
+  await act(async () => button("导出").click());
+  const [[id, sources, notes, signal]] = vi.mocked(api.exportMarkdownArchive)
+    .mock.calls;
+  expect(id).toBe(doc.id);
+  expect(sources).toEqual(["original", "translation"]);
+  expect(notes).toContain(`## 论文笔记\n\n![paper](${imagePath})`);
+  expect(notes).toContain(`![annotation](${imagePath})`);
+  expect(notes).not.toContain("highlight-note");
+  expect(notes).not.toContain("# 论文\n");
+  expect(api.exportMarkdownArchive).toHaveBeenCalledOnce();
+  expect(saveExportBlob).toHaveBeenCalledExactlyOnceWith(
+    expect.any(Blob),
+    "论文.zip",
+    signal,
+  );
+  expect(exportOriginal).not.toHaveBeenCalled();
+  expect(exportMarkdownFile).not.toHaveBeenCalled();
+  expect(api.exportTranslation).not.toHaveBeenCalled();
+  expect(close).toHaveBeenCalledOnce();
+});
+
+it("copies selected notes as plain Markdown without requesting an archive", async () => {
+  await mount();
+  await selectTarget("论文笔记");
+  await act(async () => button("批注").click());
+  await selectFormat(archiveFormat);
+  await act(async () => button("复制 Markdown").click());
+  expect(copyText).toHaveBeenCalledExactlyOnceWith(
+    expect.stringContaining(`![paper](${imagePath})`),
+    "已复制 Markdown",
+  );
+  expect(vi.mocked(copyText).mock.calls[0][0]).toContain(
+    `![annotation](${imagePath})`,
+  );
+  expect(api.exportMarkdownArchive).not.toHaveBeenCalled();
+  expect(saveExportBlob).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
+});
+
+it("reports a failed notes-only archive without a download and permits retry", async () => {
+  vi.mocked(api.exportMarkdownArchive).mockRejectedValueOnce(
+    new Error("无法打包导出图片，请重试"),
+  );
+  await mount();
+  await selectFormat(archiveFormat);
+  await exportTarget("论文笔记");
+  expect(activeDialog().querySelector('[role="alert"]')?.textContent).toContain(
+    "无法打包导出图片",
+  );
+  expect(saveExportBlob).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
+  await act(async () => button("导出").click());
+  expect(api.exportMarkdownArchive).toHaveBeenLastCalledWith(
+    doc.id,
+    [],
+    expect.stringContaining(`# 论文\n\n## 论文笔记\n\n![paper](${imagePath})`),
+    expect.any(AbortSignal),
+  );
+  expect(saveExportBlob).toHaveBeenCalledOnce();
+  expect(close).toHaveBeenCalledOnce();
 });

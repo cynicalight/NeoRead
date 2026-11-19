@@ -201,6 +201,97 @@
                 },
             },
         },
+      "/api/documents/{id}/note-images":
+        {
+          "parameters":
+            [
+              {
+                "name": "id",
+                "in": "path",
+                "required": true,
+                "schema": { "type": "string" },
+              },
+            ],
+          "post":
+            {
+              "summary": "Store a pasted raster image in the local library for this document",
+              "requestBody":
+                {
+                  "required": true,
+                  "content":
+                    {
+                      "image/*":
+                        { "schema": { "type": "string", "format": "binary" } },
+                    },
+                },
+              "responses":
+                {
+                  "201":
+                    {
+                      "description": "Stable Markdown destination, including when identical bytes already exist",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "required": ["path"],
+                                  "properties":
+                                    {
+                                      "path":
+                                        {
+                                          "type": "string",
+                                          "pattern": "^assets/[0-9a-f]{64}\\.(png|jpg|gif|webp)$",
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                  "400": { "description": "Malformed image" },
+                  "404": { "description": "Missing or trashed document" },
+                  "413": { "description": "Image exceeds 10 MiB" },
+                  "415": { "description": "Unsupported image format" },
+                },
+            },
+        },
+      "/api/note-images/{name}":
+        {
+          "parameters":
+            [
+              {
+                "name": "name",
+                "in": "path",
+                "required": true,
+                "schema":
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}\\.(png|jpg|gif|webp)$",
+                  },
+              },
+            ],
+          "get":
+            {
+              "summary": "Read a managed local note image",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Original image bytes",
+                      "content":
+                        {
+                          "image/*":
+                            {
+                              "schema":
+                                { "type": "string", "format": "binary" },
+                            },
+                        },
+                    },
+                  "404": { "description": "Invalid or unavailable image" },
+                },
+            },
+        },
       "/api/documents/{id}/attachments":
         {
           "parameters":
@@ -3612,10 +3703,21 @@
                               "additionalProperties": false,
                               "properties":
                                 {
+                                  "sources":
+                                    {
+                                      "type": "array",
+                                      "uniqueItems": true,
+                                      "items":
+                                        {
+                                          "type": "string",
+                                          "enum": ["original", "translation"],
+                                        },
+                                      "description": "ZIP sections. An empty array exports notes only; omit to export the translation.",
+                                    },
                                   "notesMarkdown":
                                     {
                                       "type": "string",
-                                      "description": "Selected content without a document title; appended after the translation",
+                                      "description": "Selected notes and annotations in Markdown",
                                     },
                                 },
                             },

@@ -5,6 +5,7 @@ vi.mock("./diagnostics", () => ({ reportDiagnostic: vi.fn() }));
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Annotation, ReaderAnnotationTarget } from "@neoread/core";
+import { api } from "@neoread/api";
 import {
   AnnotationHoverCard,
   type AnnotationNoteEditor,
@@ -131,6 +132,7 @@ it("deletes the chosen note from the card", async () => {
 
 const editor = (value: string, initial = ""): AnnotationNoteEditor => ({
   anchor: target.anchor,
+  documentId: "doc",
   kind: "note",
   editing: !!initial,
   initial,
@@ -322,4 +324,82 @@ it("renders editor-generated line breaks while retaining Markdown links and lite
   expect(preview.querySelector("a")?.getAttribute("href")).toBe(
     "https://example.com",
   );
+});
+
+const asset = (char: string) => `assets/${char.repeat(64)}.png`;
+
+it("keeps saving disabled until a pasted image is in the draft", async () => {
+  let finish!: (value: { path: string }) => void;
+  const pending = new Promise<{ path: string }>(
+    (resolve) => (finish = resolve),
+  );
+  const upload = vi.spyOn(api, "uploadNoteImage").mockReturnValue(pending);
+  vi.setSystemTime(new Date(2026, 10, 18, 9, 5, 7));
+  const draft = editor("前后");
+  await render(null, annotations, draft);
+  const sourceTab = [
+    ...document.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+  ].find((tab) => tab.textContent === "源码")!;
+  await act(async () => sourceTab.click());
+  const input = document.querySelector<HTMLTextAreaElement>(
+    "[data-annotation-preview] textarea",
+  )!;
+  input.setSelectionRange(1, 1);
+  const file = new File(["png"], "image.png", { type: "image/png" });
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [file], getData: () => "" },
+  });
+  await act(async () => input.dispatchEvent(event));
+  expect(upload).toHaveBeenCalledExactlyOnceWith("doc", file);
+  const save = () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="保存"]')!;
+  expect(save().disabled).toBe(true);
+  await act(async () =>
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        metaKey: true,
+        bubbles: true,
+      }),
+    ),
+  );
+  expect(draft.onSave).not.toHaveBeenCalled();
+  await act(async () => finish({ path: asset("1") }));
+  expect(draft.onChange).toHaveBeenLastCalledWith(
+    `前![2026-11-18_09-05-07](${asset("1")})后`,
+  );
+  expect(save().disabled).toBe(false);
+  upload.mockRestore();
+});
+
+it("shows saved note images from the library only", async () => {
+  Object.assign(URL, {
+    createObjectURL: vi.fn(() => "blob:preview"),
+    revokeObjectURL: vi.fn(),
+  });
+  const load = vi
+    .spyOn(api, "noteImage")
+    .mockResolvedValue(new Blob(["png"], { type: "image/png" }));
+  await render(target, [
+    {
+      ...annotations[0],
+      note: `![截图](${asset("2")}) ![远程](https://example.com/x.png)`,
+    },
+  ]);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  const preview = document.querySelector(
+    "[data-annotation-preview] .message-markdown",
+  )!;
+  expect(load).toHaveBeenCalledExactlyOnceWith(
+    asset("2"),
+    expect.any(AbortSignal),
+  );
+  expect(
+    [...preview.querySelectorAll("img")].map((img) => img.getAttribute("src")),
+  ).toEqual(["blob:preview"]);
+  expect(preview.textContent).toContain("[图片：远程]");
+  load.mockRestore();
 });

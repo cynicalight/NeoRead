@@ -18,14 +18,16 @@ export const annotationExportKinds = {
 } as const;
 export type AnnotationExportKind = keyof typeof annotationExportKinds;
 export type ExportFormat = "markdown" | "pdf";
-export type ExportTarget = "annotations" | "original" | "translation";
+export type ExportTarget =
+  "annotations" | "paperNote" | "original" | "translation";
 
-export function annotationMarkdown(
+export function selectedNotesMarkdown(
   doc: Document,
   annotations: Annotation[],
   messages: Message[],
   kinds: AnnotationExportKind[],
   link?: (annotation: Annotation) => string,
+  options: { paperNote?: string; includeTitle?: boolean } = {},
 ) {
   return notesMarkdown(
     doc,
@@ -34,10 +36,11 @@ export function annotationMarkdown(
         kinds.includes(a.kind as AnnotationExportKind),
       ),
       messages,
-      paperNote: "",
+      paperNote: options.paperNote ?? "",
     },
-    ["notes", "highlights", "questions"],
+    ["paperNote", "notes", "highlights", "questions"],
     link,
+    options,
   );
 }
 

@@ -146,6 +146,7 @@ export function diagnosticRoute(path: string): string {
     "api",
     "documents",
     "annotations",
+    "note-images",
     "migrate-legacy",
     "chat",
     "messages",

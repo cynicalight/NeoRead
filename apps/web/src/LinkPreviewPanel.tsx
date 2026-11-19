@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { ArrowUpRight, Grip, Minus, Pin, Plus, X } from "lucide-react";
 import type { DocumentLocation, LinkPreview } from "@neoread/core";
@@ -235,7 +236,11 @@ export function LinkPreviewPanel({
           <DialogTitle className="sr-only">
             第 {current.page} 页固定预览
           </DialogTitle>
-          <div className="link-preview-header">
+          <PreviewImage
+            preview={current}
+            renderKey={renderKey}
+            actions={actions}
+          >
             <Button
               variant="ghost"
               size="sm"
@@ -252,9 +257,7 @@ export function LinkPreviewPanel({
               <Pin className="size-3.5" />
               <span>第 {current.page} 页</span>
             </Button>
-            {actions}
-          </div>
-          <PreviewImage preview={current} renderKey={renderKey} />
+          </PreviewImage>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -319,9 +322,13 @@ export function LinkPreviewPanel({
 function PreviewImage({
   preview,
   renderKey,
+  children,
+  actions,
 }: {
   preview: LinkPreview;
   renderKey: string;
+  children: ReactNode;
+  actions: ReactNode;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 560, height: 340 });
@@ -411,6 +418,39 @@ function PreviewImage({
   }, []);
   return (
     <>
+      <div className="link-preview-header flex-wrap">
+        {children}
+        <div className="link-preview-zoom">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="缩小预览内容"
+            disabled={zoom <= 0.5}
+            onClick={() => changeZoom(zoom - 0.25)}
+          >
+            <Minus />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => changeZoom(1)}
+            title="适应窗口"
+          >
+            适应窗口
+          </Button>
+          <span className="link-preview-scale">{Math.round(zoom * 100)}%</span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="放大预览内容"
+            disabled={zoom >= 4}
+            onClick={() => changeZoom(zoom + 0.25)}
+          >
+            <Plus />
+          </Button>
+        </div>
+        {actions}
+      </div>
       <div
         ref={viewport}
         className="link-preview-viewport"
@@ -473,35 +513,6 @@ function PreviewImage({
             style={{ width, height }}
           />
         </div>
-      </div>
-      <div className="link-preview-zoom">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="缩小预览内容"
-          disabled={zoom <= 0.5}
-          onClick={() => changeZoom(zoom - 0.25)}
-        >
-          <Minus />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => changeZoom(1)}
-          title="适应窗口"
-        >
-          适应窗口
-        </Button>
-        <span className="link-preview-scale">{Math.round(zoom * 100)}%</span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="放大预览内容"
-          disabled={zoom >= 4}
-          onClick={() => changeZoom(zoom + 0.25)}
-        >
-          <Plus />
-        </Button>
       </div>
       {status && (
         <span className="link-preview-status" role="status">

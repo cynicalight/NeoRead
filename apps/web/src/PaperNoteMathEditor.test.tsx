@@ -10,6 +10,7 @@ function Note() {
   const [body, setBody] = useState("$x_1$");
   return (
     <PaperNoteRichEditor
+      documentId="doc"
       body={body}
       disabled={false}
       onChange={(value) => {

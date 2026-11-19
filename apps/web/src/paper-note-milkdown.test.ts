@@ -5,6 +5,8 @@ import { TextSelection } from "@milkdown/kit/prose/state";
 import { closeHistory } from "@milkdown/kit/prose/history";
 import { Slice, DOMParser, DOMSerializer } from "@milkdown/kit/prose/model";
 import { createPaperNoteEditor } from "./paper-note-milkdown";
+import { api } from "@neoread/api";
+import type { NoteInsertionPoint } from "./note-images";
 
 const editors: Awaited<ReturnType<typeof createPaperNoteEditor>>[] = [];
 const create = async (
@@ -431,4 +433,120 @@ it("preserves pasted block math when a tight list is serialized and reopened", a
   ).toBe("x^2");
   expect(saved).toContain("first");
   expect(saved).toContain("last");
+});
+
+const asset = (char: string) => `assets/${char.repeat(64)}.png`;
+const clipboard = (files: File[], text = "") =>
+  ({
+    clipboardData: {
+      files,
+      getData: (type: string) => (type === "text/plain" ? text : ""),
+    },
+  }) as unknown as ClipboardEvent;
+
+it("inserts a pasted clipboard image where it was pasted, after later edits", async () => {
+  const onPasteImages =
+    vi.fn<(files: File[], point: NoteInsertionPoint) => void>();
+  const { view, change } = await create("before after", vi.fn(), {
+    onPasteImages,
+  });
+  view.dispatch(
+    view.state.tr.setSelection(TextSelection.create(view.state.doc, 7)),
+  );
+  const file = new File(["png"], "image.png", { type: "image/png" });
+  expect(
+    view.someProp("handlePaste", (handler) =>
+      handler(view, clipboard([file]), Slice.empty),
+    ),
+  ).toBe(true);
+  const [[files, point]] = onPasteImages.mock.calls;
+  expect(files).toEqual([file]);
+  view.dispatch(
+    view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)),
+  );
+  typeText(view, "x ");
+  const image = `![2026-11-18_09-05-07](${asset("d")})`;
+  expect(point.insert(image)).toBe(true);
+  // Milkdown's serializer may escape `_` in the alt; the asset path is exact.
+  expect(change).toHaveBeenLastCalledWith(
+    expect.stringMatching(
+      new RegExp(
+        String.raw`x before!\[2026-11-18\\?_09-05-07\]\(${asset("d")}\) after`,
+      ),
+    ),
+  );
+  expect(point.insert(image)).toBe(false);
+});
+
+it("leaves text and mixed clipboards to the existing Markdown paste", async () => {
+  const onPasteImages = vi.fn();
+  const { view, editor } = await create("before after", vi.fn(), {
+    onPasteImages,
+  });
+  view.dispatch(
+    view.state.tr.setSelection(TextSelection.create(view.state.doc, 8)),
+  );
+  const rendering = new File(["png"], "image.png", { type: "image/png" });
+  expect(
+    view.someProp("handlePaste", (handler) =>
+      handler(view, clipboard([rendering], "$x_1$"), Slice.empty),
+    ),
+  ).toBe(true);
+  expect(onPasteImages).not.toHaveBeenCalled();
+  expect(editor.ctx.get(serializerCtx)(view.state.doc)).toContain(
+    "before $x_1$after",
+  );
+});
+
+it("reports a pending image as undeliverable once its editor is destroyed", async () => {
+  const onPasteImages =
+    vi.fn<(files: File[], point: NoteInsertionPoint) => void>();
+  const { view, editor } = await create("text", vi.fn(), { onPasteImages });
+  view.someProp("handlePaste", (handler) =>
+    handler(
+      view,
+      clipboard([new File(["png"], "a.png", { type: "image/png" })]),
+      Slice.empty,
+    ),
+  );
+  editors.splice(editors.indexOf(editor), 1);
+  await editor.destroy();
+  expect(onPasteImages.mock.calls[0][1].insert(`![a](${asset("f")})`)).toBe(
+    false,
+  );
+});
+
+it("reopens managed images from authenticated object URLs and keeps other images inert", async () => {
+  Object.assign(URL, {
+    createObjectURL: vi.fn(() => "blob:rich"),
+    revokeObjectURL: vi.fn(),
+  });
+  const load = vi
+    .spyOn(api, "noteImage")
+    .mockResolvedValue(new Blob(["png"], { type: "image/png" }));
+  const body = `![截图](${asset("e")}) ![远程](https://example.com/x.png)`;
+  const opened = vi.fn();
+  const { view, editor, host, change } = await create(body, vi.fn(), {
+    onOpenImage: opened,
+  });
+  await vi.waitFor(() =>
+    expect(host.querySelector("img[src]")?.getAttribute("src")).toBe(
+      "blob:rich",
+    ),
+  );
+  expect(load).toHaveBeenCalledExactlyOnceWith(
+    asset("e"),
+    expect.any(AbortSignal),
+  );
+  expect(host.querySelectorAll("img[src]")).toHaveLength(1);
+  expect(host.textContent).toContain("[图片：远程]");
+  host
+    .querySelector("img[src]")!
+    .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  expect(opened).toHaveBeenCalledExactlyOnceWith({
+    path: asset("e"),
+    alt: "截图",
+  });
+  expect(editor.ctx.get(serializerCtx)(view.state.doc).trim()).toBe(body);
+  expect(change).not.toHaveBeenCalled();
 });

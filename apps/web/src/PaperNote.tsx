@@ -20,6 +20,7 @@ import { annotationDigest } from "./notes-export";
 import { registerTabCloseGuard } from "./document-tab-guards";
 import { getPaperNote } from "./paper-note-state";
 import { PaperNoteRichEditor } from "./PaperNoteRichEditor";
+import { appendNoteMarkdown } from "./note-images";
 
 const statusLabels = {
   loading: "读取中…",
@@ -45,6 +46,7 @@ export function PaperNote({
   );
   const [expanded, setExpanded] = useState(false);
   const expandButton = useRef<HTMLButtonElement>(null);
+  const uploads = useRef(0);
   const unavailable = status === "loading" || status === "load-error";
   useEffect(() => {
     void note.load().catch(() => {});
@@ -59,13 +61,26 @@ export function PaperNote({
       registerTabCloseGuard(documentId, () =>
         note.getSnapshot().status === "saving"
           ? { blocked: true, message: "论文笔记正在保存，请保存完成后再关闭。" }
-          : note.hasPending()
-            ? { message: "论文笔记还有未保存的修改，关闭后可能丢失。" }
-            : null,
+          : uploads.current
+            ? { message: "论文笔记中的图片仍在上传，关闭后可能丢失。" }
+            : note.hasPending()
+              ? { message: "论文笔记还有未保存的修改，关闭后可能丢失。" }
+              : null,
       ),
     [documentId, note],
   );
   const save = () => void note.flush().catch(() => {});
+  // Expanding or collapsing swaps editors; an upload outlives the one it began in.
+  const imageProps = {
+    documentId,
+    onUploadingChange: (uploading: boolean) => {
+      uploads.current += uploading ? 1 : -1;
+    },
+    onOrphanedImage: (markdown: string) => {
+      note.edit(appendNoteMarkdown(note.getSnapshot().body, markdown));
+      save();
+    },
+  };
   const digest = unavailable
     ? ""
     : annotationDigest(annotations, body, (a) =>
@@ -124,6 +139,7 @@ export function PaperNote({
         {active && !expanded && (
           <PaperNoteRichEditor
             key={documentId}
+            {...imageProps}
             body={body}
             disabled={unavailable}
             onChange={note.edit}
@@ -158,6 +174,7 @@ export function PaperNote({
         {expanded && active && (
           <PaperNoteRichEditor
             key={documentId}
+            {...imageProps}
             body={body}
             disabled={unavailable}
             onChange={note.edit}

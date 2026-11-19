@@ -38,6 +38,7 @@ func OpenLibrary(root string) (store *Store, err error) {
 			store = nil
 		}
 	}()
+	store.recoverAttachmentBlobs()
 	var count, initialized int
 	if err = store.DB.QueryRow("SELECT count(*) FROM documents").Scan(&count); err != nil {
 		return store, err
