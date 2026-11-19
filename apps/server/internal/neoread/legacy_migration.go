@@ -80,6 +80,15 @@ type migrationFile struct {
 }
 
 func atomicMigrationJSON(path string, value any) error {
+	if err := replaceMigrationJSON(path, value); err != nil {
+		return err
+	}
+	return syncMigrationDirectory(filepath.Dir(path))
+}
+
+// A successful rename is the commit point: callers must not roll back anything
+// referenced by the new JSON after this returns nil.
+func replaceMigrationJSON(path string, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
@@ -102,10 +111,7 @@ func atomicMigrationJSON(path string, value any) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	if err = os.Rename(f.Name(), path); err != nil {
-		return err
-	}
-	return syncMigrationDirectory(filepath.Dir(path))
+	return os.Rename(f.Name(), path)
 }
 func readMigration(target string) (*migrationFile, *ReaderMigration, error) {
 	file := &migrationFile{SchemaVersion: 1, Migrations: map[string]json.RawMessage{}}

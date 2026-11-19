@@ -38,6 +38,8 @@ func main() {
 	logs := flag.String("logs", "", "diagnostic log directory")
 	session := flag.String("session", "", "diagnostic session ID")
 	migrateLibrary := flag.String("migrate-library", "", "copy a stopped library to a new directory and exit")
+	installLibrary := flag.String("install-library-to", "", "copy and activate a stopped library before a Windows installer upgrade")
+	installUserData := flag.String("install-user-data", "", "desktop profile in which to save the installer library location")
 	legacySource := flag.String("migrate-reader-data", "", "migrate Reader application data once and exit")
 	legacyCleanup := flag.String("cleanup-reader-data", "", "keep or delete the migrated Reader application data")
 	legacyDirectory := flag.String("reader-data", "", "legacy application data directory for cleanup")
@@ -46,6 +48,23 @@ func main() {
 	checkLibrary := flag.Bool("check-library", false, "validate an existing library and exit")
 	desktopRuntime := flag.Bool("desktop-runtime", false, "receive desktop environment after local service readiness")
 	flag.Parse()
+	installerMode := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "install-library-to" || f.Name == "install-user-data" {
+			installerMode = true
+		}
+	})
+	if installerMode {
+		if *installLibrary == "" || *installUserData == "" {
+			fmt.Fprintln(os.Stderr, "安装迁移需要同时指定 --install-library-to 与 --install-user-data。")
+			os.Exit(2)
+		}
+		if err := neoread.InstallLibrary(*data, *installLibrary, *installUserData, flag.Args()); err != nil {
+			fmt.Fprintf(os.Stderr, "无法迁移并启用书库：%v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *retryLegacyCleanup && (*legacyCleanup != "delete" || *legacySource != "") {
 		fmt.Fprintln(os.Stderr, "--retry-reader-cleanup requires --cleanup-reader-data delete")
 		os.Exit(2)
