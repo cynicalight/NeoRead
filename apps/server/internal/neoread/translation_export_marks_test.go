@@ -72,23 +72,38 @@ func TestTranslationExportPlacesTranslatedMarks(t *testing.T) {
 	}
 }
 
-func TestSafeMarkSpanRejectsMarkdownSyntax(t *testing.T) {
+func TestMarkSpansFollowMarkdownSyntax(t *testing.T) {
+	note := &translationExportNote{annotation: Annotation{Kind: "highlight", Color: "#ffffff"}}
+	const link = "](#neoread-mark-0-highlight-ffffff)"
 	for _, c := range []struct {
-		text       string
-		start, end int
-		safe       bool
+		text, quote string
+		start       int
+		want        string
 	}{
-		{"普通文字", 0, len("普通"), true},
-		{"a $x$ b", 3, 4, false},
-		{"a `x` b", 3, 4, false},
-		{"[链接](u) 文本", 1, 1 + len("链接"), false},
-		{"![图](u)", 1, 1 + len("图"), false},
-		{"- 列表项", 0, len("- 列表"), false},
-		{"**粗体** 文本", 2, 2 + len("粗体"), true},
-		{"| 甲 | 乙 |", 2, 2 + len("甲"), true},
+		// Code, math and links keep their source; the note falls back to a quote.
+		{"值为 ``x``。", "x", 3, ""},
+		{"公式 $$x=1$$ 结束", "x", 3, ""},
+		{`公式 \(x=1\) 结束`, "x", 3, ""},
+		{"a $x$ b", "x", 2, ""},
+		{"[链接](u) 文本", "链接", 0, ""},
+		// Offsets are rendered-text offsets: the second foo, not the first.
+		{"**prefixprefix** foo foo", "foo", 17, "**prefixprefix** foo [foo" + link},
+		{"**粗**体文字", "粗体", 0, "**[粗" + link + "**[体" + link + "文字"},
+		{"- 列表项", "列表", 0, "- [列表" + link + "项"},
+		{"| 甲 | 乙 |\n| --- | --- |\n| 丙 | 丁 |", "丙", 2, "| 甲 | 乙 |\n| --- | --- |\n| [丙" + link + " | 丁 |"},
 	} {
-		if got := safeMarkSpan(c.text, c.start, c.end); got != c.safe {
-			t.Errorf("safeMarkSpan(%q, %d, %d) = %v", c.text, c.start, c.end, got)
+		targets := []string{c.text}
+		spans, ok := markSpans(newMarkTextModel(targets), targets, translationMarkRange{SentenceIndexes: []int{0}, Start: c.start, Quote: c.quote})
+		got := ""
+		if ok {
+			for i := range spans {
+				spans[i].note = note
+			}
+			applyMarkSpans(targets, spans, nil)
+			got = targets[0]
+		}
+		if got != c.want {
+			t.Errorf("%q / %q: got %q, want %q", c.text, c.quote, got, c.want)
 		}
 	}
 }

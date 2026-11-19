@@ -11,6 +11,11 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
+
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 )
 
 // Marks made on the translation belong only to the translated export; the
@@ -146,6 +151,10 @@ func (m *translationExportMarks) block(id string, t TranslationBlock, targets []
 		return a.Start < b.Start
 	})
 	var spans, references []translationMarkSpan
+	var model *markTextModel
+	if inline && len(notes) > 0 {
+		model = newMarkTextModel(targets)
+	}
 	var written []*translationExportNote
 	for _, item := range notes {
 		note := item.note
@@ -158,7 +167,7 @@ func (m *translationExportMarks) block(id string, t TranslationBlock, targets []
 			if !inline {
 				break
 			}
-			found, ok := markSpans(targets, part)
+			found, ok := markSpans(model, targets, part)
 			if !ok {
 				continue
 			}
@@ -224,100 +233,195 @@ func validMarkIndexes(indexes []int, targets []string) bool {
 	return true
 }
 
-// markSpans finds the selected text inside the marked sentences. Offsets come
-// from the rendered paragraph, so the quote is searched and the occurrence
-// nearest the saved offset wins. Every piece must be safe to wrap.
-func markSpans(targets []string, part translationMarkRange) ([]translationMarkSpan, bool) {
+// markRune is one character of the rendered paragraph text, with its place
+// in the Markdown source. Only prose outside code, math and links is safe.
+type markRune struct {
+	r                rune
+	src, size, plain int
+	safe             bool
+}
+
+// markTextModel maps the exported paragraph Markdown to the text the reader
+// rendered, where selections and their UTF-16 offsets were recorded.
+type markTextModel struct {
+	starts []int
+	runes  []markRune
+}
+
+func newMarkTextModel(targets []string) *markTextModel {
+	source := []byte(strings.Join(targets, "\n"))
+	model := &markTextModel{}
+	offset := 0
+	for _, target := range targets {
+		model.starts = append(model.starts, offset)
+		offset += len(target) + 1
+	}
+	math := markdownMathRanges(string(source))
+	inMath := func(position int) bool {
+		for _, r := range math {
+			if position >= r[0] && position < r[1] {
+				return true
+			}
+		}
+		return false
+	}
+	unsafe, hidden, plain := 0, 0, 0
+	_ = ast.Walk(archiveMarkdownParser.Parse(text.NewReader(source)), func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		step := 1
+		if !entering {
+			step = -1
+		}
+		switch node.Kind() {
+		case ast.KindCodeSpan, ast.KindLink, ast.KindAutoLink, ast.KindRawHTML:
+			unsafe += step
+		case ast.KindImage:
+			hidden += step
+		}
+		if !entering || hidden > 0 {
+			return ast.WalkContinue, nil
+		}
+		switch node := node.(type) {
+		case *ast.Text:
+			start := node.Segment.Start
+			for i, r := range string(node.Segment.Value(source)) {
+				model.runes = append(model.runes, markRune{r: r, src: start + i, size: utf8.RuneLen(r), plain: plain, safe: unsafe == 0 && !inMath(start+i)})
+				plain += utf16.RuneLen(r)
+			}
+		case *ast.AutoLink:
+			plain += utf16Length(string(node.Label(source)))
+		case *ast.String:
+			plain += utf16Length(string(node.Value))
+		}
+		return ast.WalkContinue, nil
+	})
+	return model
+}
+
+// markdownMathRanges finds the delimiters the print renderer treats as math:
+// $…$, $$…$$, \(…\) and \[…\]. Goldmark itself parses them as text.
+func markdownMathRanges(source string) [][2]int {
+	var ranges [][2]int
+	for i := 0; i < len(source); {
+		open, closing := "", ""
+		switch {
+		case strings.HasPrefix(source[i:], `\(`):
+			open, closing = `\(`, `\)`
+		case strings.HasPrefix(source[i:], `\[`):
+			open, closing = `\[`, `\]`
+		case source[i] == '\\':
+			i += 2
+			continue
+		case strings.HasPrefix(source[i:], "$$"):
+			open, closing = "$$", "$$"
+		case source[i] == '$':
+			open, closing = "$", "$"
+		default:
+			i++
+			continue
+		}
+		if j := strings.Index(source[i+len(open):], closing); j >= 0 {
+			end := i + len(open) + j + len(closing)
+			ranges = append(ranges, [2]int{i, end})
+			i = end
+			continue
+		}
+		i += len(open)
+	}
+	return ranges
+}
+
+// markSpans finds the selected text inside the marked sentences. Saved
+// offsets refer to the rendered paragraph, so the quote is searched in the
+// rendered text and the occurrence nearest the saved offset wins. Every
+// selected character must be prose that can be wrapped safely.
+func markSpans(model *markTextModel, targets []string, part translationMarkRange) ([]translationMarkSpan, bool) {
 	first, last := part.SentenceIndexes[0], part.SentenceIndexes[len(part.SentenceIndexes)-1]
+	from, to := model.starts[first], model.starts[last]+len(targets[last])
+	var region []markRune
+	for _, r := range model.runes {
+		if r.src >= from && r.src < to {
+			region = append(region, r)
+		}
+	}
 	quote := strings.TrimSpace(part.Quote)
 	if part.Recovered {
 		quote = strings.TrimSpace(part.MatchedQuote)
-		if part.WholeSentence {
-			quote = ""
-		}
 	}
-	var spans []translationMarkSpan
+	var chosen []markRune
 	if quote == "" || part.WholeSentence {
-		for _, index := range part.SentenceIndexes {
-			spans = append(spans, translationMarkSpan{sentence: index, start: 0, end: len(targets[index])})
+		for _, r := range region {
+			if r.safe {
+				chosen = append(chosen, r)
+			}
 		}
 	} else {
-		joined := strings.Join(targets[first:last+1], "")
-		base := utf16Length(strings.Join(targets[:first], ""))
+		needle := []rune(quote)
 		best, distance := -1, 0
-		for offset := 0; ; {
-			found := strings.Index(joined[offset:], quote)
-			if found < 0 {
-				break
+		for i := 0; i+len(needle) <= len(region); i++ {
+			match := true
+			for j, r := range needle {
+				if region[i+j].r != r {
+					match = false
+					break
+				}
 			}
-			position := offset + found
-			d := base + utf16Length(joined[:position]) - part.Start
+			if !match {
+				continue
+			}
+			d := region[i].plain - part.Start
 			if d < 0 {
 				d = -d
 			}
 			if best < 0 || d < distance {
-				best, distance = position, d
+				best, distance = i, d
 			}
-			offset = position + 1
 		}
 		if best < 0 {
 			return nil, false
 		}
-		start, end := best, best+len(quote)
-		offset := 0
-		for index := first; index <= last; index++ {
-			size := len(targets[index])
-			from, to := max(start, offset)-offset, min(end, offset+size)-offset
-			if to > from {
-				spans = append(spans, translationMarkSpan{sentence: index, start: from, end: to})
+		chosen = region[best : best+len(needle)]
+		for _, r := range chosen {
+			if !r.safe {
+				return nil, false
 			}
-			offset += size
 		}
 	}
-	result := spans[:0]
-	for _, span := range spans {
-		text := targets[span.sentence]
-		for span.start < span.end && (text[span.start] == ' ' || text[span.start] == '\t') {
-			span.start++
+	// Characters adjacent in the source form one span; formatting syntax or a
+	// sentence break between them starts the next one.
+	var spans []translationMarkSpan
+	for i := 0; i < len(chosen); {
+		j := i + 1
+		for j < len(chosen) && chosen[j].src == chosen[j-1].src+chosen[j-1].size {
+			j++
 		}
-		for span.end > span.start && (text[span.end-1] == ' ' || text[span.end-1] == '\t') {
-			span.end--
+		start, end := chosen[i].src, chosen[j-1].src+chosen[j-1].size
+		sentence := sort.SearchInts(model.starts, start+1) - 1
+		text := targets[sentence]
+		start, end = start-model.starts[sentence], end-model.starts[sentence]
+		for start < end && (text[start] == ' ' || text[start] == '\t') {
+			start++
 		}
-		if span.end == span.start {
-			continue
+		for end > start && (text[end-1] == ' ' || text[end-1] == '\t') {
+			end--
 		}
-		if !safeMarkSpan(text, span.start, span.end) {
-			return nil, false
+		if end > start {
+			if !safeMarkSpan(text, start, end) {
+				return nil, false
+			}
+			spans = append(spans, translationMarkSpan{sentence: sentence, start: start, end: end})
 		}
-		result = append(result, span)
+		i = j
 	}
-	return result, len(result) > 0
+	return spans, len(spans) > 0
 }
 
-// safeMarkSpan accepts plain inline prose only: wrapping must not cross or
-// enter Markdown syntax such as math, code, links, tables or block markers.
+// safeMarkSpan rejects text whose characters could pair with the inserted
+// link syntax, after the parser has excluded code, math and links.
 func safeMarkSpan(text string, start, end int) bool {
 	if strings.ContainsAny(text[start:end], "[]`$\\*_~<>|\n") {
 		return false
 	}
-	if start > 0 && (text[start-1] == '!' || text[start-1] == '\\') {
-		return false
-	}
-	lineStart := start == 0 || text[start-1] == '\n'
-	if lineStart && strings.ContainsRune("#->+=0123456789", rune(text[start])) {
-		return false
-	}
-	before := text[:start]
-	if strings.Count(before, "$")%2 == 1 || strings.Count(before, "`")%2 == 1 {
-		return false
-	}
-	if strings.Count(before, "[") != strings.Count(before, "]") {
-		return false
-	}
-	if strings.LastIndex(before, "](") > strings.LastIndex(before, ")") || strings.LastIndex(before, "<") > strings.LastIndex(before, ">") {
-		return false
-	}
-	return true
+	return start == 0 || (text[start-1] != '!' && text[start-1] != '\\')
 }
 
 // applyMarkSpans splits overlapping marks into adjacent segments, so every
