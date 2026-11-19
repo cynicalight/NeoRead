@@ -10,8 +10,10 @@ vi.mock("node:child_process", async () => {
   return { execFile: Object.assign(() => {}, { [promisify.custom]: execute }) };
 });
 import {
+  hasLibraryDatabase,
   libraryDirectory,
   migrateLibrary,
+  resetLibraryDirectory,
   stopLibraryServer,
 } from "./library-location";
 let directory: string;
@@ -43,6 +45,20 @@ it.each(["not json", "{}", '{"directory":"relative"}'])(
     await expect(libraryDirectory(directory)).rejects.toThrow();
   },
 );
+it("recovers from a deleted saved library by returning to the default location", async () => {
+  await writeFile(
+    join(directory, "library-location.json"),
+    JSON.stringify({ directory: join(directory, "deleted") }),
+  );
+  await expect(libraryDirectory(directory)).rejects.toThrow("ENOENT");
+  const fallback = await resetLibraryDirectory(directory);
+  expect(fallback).toBe(join(directory, "library"));
+  expect(await libraryDirectory(directory)).toBe(fallback);
+  expect(await hasLibraryDatabase(fallback)).toBe(false);
+  await mkdir(fallback);
+  await writeFile(join(fallback, "reader.sqlite"), "db");
+  expect(await hasLibraryDatabase(fallback)).toBe(true);
+});
 it("waits for shutdown and copies before switching the saved path", async () => {
   const order: string[] = [];
   const target = join(directory, "new");

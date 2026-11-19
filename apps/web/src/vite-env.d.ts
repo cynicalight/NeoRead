@@ -29,6 +29,7 @@ interface Window {
     libraryLocation?: () => Promise<string>;
     libraryWarning?: () => Promise<string>;
     importLibrary?: () => Promise<boolean>;
+    resetLibrary?: () => Promise<boolean>;
     moveLibrary?: () => Promise<boolean>;
     commandLine?: () => Promise<import("@neoread/core").CommandLineStatus>;
     setCommandLine?: (

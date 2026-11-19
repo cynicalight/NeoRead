@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld("neoreadDesktop", {
   libraryLocation: () => proxyRequest("neoread:library-location"),
   libraryWarning: () => proxyRequest("neoread:library-warning"),
   importLibrary: () => proxyRequest("neoread:import-library"),
+  resetLibrary: () => proxyRequest("neoread:reset-library"),
   moveLibrary: () => proxyRequest("neoread:move-library"),
   commandLine: () => proxyRequest("neoread:command-line"),
   setCommandLine: (installed: boolean) =>
