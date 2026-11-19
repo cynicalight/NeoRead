@@ -4663,6 +4663,10 @@ textarea.paper-note-editor-input {
   gap: 8px;
   min-width: 0;
 }
+/* The 32px control row already carries inner space; pull the card edge in. */
+.annotation-markdown-editor > .paper-note-toolbar:last-child {
+  margin-bottom: -4px;
+}
 /* Height follows the content, up to a scrolling cap. */
 .annotation-markdown-editor .paper-note-rich,
 .annotation-markdown-editor textarea.paper-note-editor-input {
