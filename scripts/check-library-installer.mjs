@@ -6,10 +6,11 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
-  realpathSync,
-  writeFileSync,
+  readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -202,7 +203,14 @@ SectionEnd
       const location = JSON.parse(
         readFileSync(join(userData, "library-location.json"), "utf8"),
       );
-      assert.equal(realpathSync(location.directory), realpathSync(destination));
+      const active = statSync(location.directory, { bigint: true });
+      const expected = statSync(destination, { bigint: true });
+      assert(active.isDirectory() && expected.isDirectory());
+      // Junctions and DOS 8.3 names can spell the same NTFS directory
+      // differently. Compare the volume and file identity, not path text.
+      assert.notEqual(expected.ino, 0n);
+      assert.equal(active.dev, expected.dev);
+      assert.equal(active.ino, expected.ino);
       assertLibrary(destination);
       assertLibrary(source);
     };
