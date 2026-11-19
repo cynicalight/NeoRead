@@ -539,11 +539,14 @@ it.each(["原文", "对照", "译文"])(
     const pane = host.querySelector<HTMLElement>(".translation-document")!;
     Object.defineProperty(pane, "clientHeight", { value: 400 });
     pane.getBoundingClientRect = () => new DOMRect(0, 0, 400, 400);
+    // Source mode renders no translated paragraphs.
     const node = pane.querySelector<HTMLElement>(
       '[data-translation-block="p2"]',
-    )!;
-    node.getBoundingClientRect = () =>
-      new DOMRect(0, 600 - pane.scrollTop, 400, 100);
+    );
+    expect(!!node).toBe(label !== "原文");
+    if (node)
+      node.getBoundingClientRect = () =>
+        new DOMRect(0, 600 - pane.scrollTop, 400, 100);
     await flush();
     if (label !== "原文") expect(pane.scrollTop).toBe(450);
     await act(async () => {

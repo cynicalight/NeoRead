@@ -533,8 +533,16 @@ export interface ReaderEvents {
   epubBlockHover?: (blockId: string | null) => void;
   /** A click on an EPUB paragraph; the default centers it in the source. */
   epubBlockFocus?: (blockId: string) => void;
-  /** The copy, ask-AI or preview button on a hovered EPUB paragraph. */
-  epubBlockAction?: (block: EPUBReadingBlock, action: PDFBlockAction) => void;
+  /**
+   * The copy, ask-AI or preview button on a hovered EPUB paragraph.
+   * `translation` quotes the paragraph's complete translation when the button
+   * belongs to the translation pane.
+   */
+  epubBlockAction?: (
+    block: EPUBReadingBlock,
+    action: PDFBlockAction,
+    translation?: ReaderSelection,
+  ) => void;
   blockHover?: (block: PDFBlock | null) => void;
   annotation?: (target: ReaderAnnotationTarget | null) => void;
   /** Hover preview only; never select or copy annotation text. */
@@ -546,7 +554,12 @@ export interface ReaderEvents {
   ) => void;
   readingAnchor?: (anchor: PDFReadingAnchor) => void;
   blockFocus?: (block: PDFBlock) => void;
-  blockAction?: (block: PDFBlock, action: PDFBlockAction) => void;
+  /** Like `epubBlockAction`, for parsed PDF blocks. */
+  blockAction?: (
+    block: PDFBlock,
+    action: PDFBlockAction,
+    translation?: ReaderSelection,
+  ) => void;
   location: (location: DocumentLocation, percentage: number) => void;
   selection: (selection: ReaderSelection | null) => void;
 }

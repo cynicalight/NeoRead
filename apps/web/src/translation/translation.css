@@ -106,6 +106,33 @@
 .translation-panes[data-divider-drag] .translation-document section {
   content-visibility: auto;
 }
+/*
+ * Paragraphs far off screen skip layout and paint. The rule sits on the body,
+ * not the section, because it clips like paint containment: the toolbar above
+ * the section and the note marker beside it must stay outside it.
+ */
+.translation-body {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 120px;
+}
+/*
+ * Containment stops edge margins from collapsing into the section margin.
+ * They were never larger than it, so dropping them keeps the old spacing.
+ */
+.translation-body > :first-child,
+.translation-body > .message-markdown:first-child > :first-child {
+  margin-top: 0;
+}
+.translation-body > :last-child {
+  margin-bottom: 0;
+}
+/* The shared paragraph toolbar; positioned by .block-actions on the section. */
+.translation-block-actions {
+  display: contents;
+}
+.translation-block-actions .block-actions {
+  user-select: none;
+}
 /* Stacked source text keeps the same line width as the translation below. */
 .epub-reading .translation-panes[data-stacked] .epub-web-reader {
   scrollbar-gutter: stable;

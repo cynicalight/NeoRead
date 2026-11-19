@@ -1456,6 +1456,55 @@ it("offers paragraph actions and focuses reflowed paragraphs unless disabled", a
     delete (events as { blockAction?: unknown }).blockAction;
   }
 });
+it("copies the translation and asks with both sides from the translation pane", async () => {
+  const blockAction = vi.fn();
+  Object.assign(events, { blockAction });
+  try {
+    await click("对照");
+    const paragraph = host.querySelector<HTMLElement>(
+      'section[data-translation-block="p1-b1"]',
+    )!;
+    await act(async () =>
+      paragraph.dispatchEvent(new MouseEvent("pointermove", { bubbles: true })),
+    );
+    const copy = paragraph.querySelector<HTMLButtonElement>(
+      '[data-block-action="copy"]',
+    );
+    expect(copy).toBeTruthy();
+    await act(async () => copy!.click());
+    expect(vi.mocked(copyText)).toHaveBeenLastCalledWith("第一句。第二句。");
+    expect(blockAction).not.toHaveBeenCalled();
+    const explain = paragraph.querySelector<HTMLButtonElement>(
+      '[data-block-action="explain"]',
+    )!;
+    // A press on the toolbar must not dismiss it before its click lands.
+    await act(async () =>
+      explain.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      ),
+    );
+    expect(explain.isConnected).toBe(true);
+    await act(async () => explain.click());
+    expect(blockAction).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "p1-b1" }),
+      "explain",
+      {
+        text: "第一句。第二句。",
+        location: expect.objectContaining({
+          type: "pdf",
+          page: 1,
+          translation: expect.objectContaining({
+            blockId: "p1-b1",
+            sourceHash: "hash",
+            sentenceIndexes: [0, 1],
+          }),
+        }),
+      },
+    );
+  } finally {
+    delete (events as { blockAction?: unknown }).blockAction;
+  }
+});
 it("copies a PDF paragraph with the formulas its translation restored", async () => {
   const blockAction = vi.fn();
   Object.assign(events, { blockAction });

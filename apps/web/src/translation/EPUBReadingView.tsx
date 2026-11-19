@@ -6,6 +6,8 @@ import { useSentenceMarks } from "./useSentenceMarks";
 import { useTranslations } from "./useTranslations";
 import { readerLayout, updateReaderLayout } from "../neoread-layout";
 import {
+  memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -13,6 +15,9 @@ import {
   useState,
   type ComponentProps,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -24,6 +29,7 @@ import type {
   ReadingAnchor,
   ReaderSelection,
   Processing,
+  TranslationBlock,
 } from "@neoread/core";
 import { api, publicationURL } from "@neoread/api";
 import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
@@ -45,6 +51,11 @@ import { DeferredBlockFocus } from "../readers/deferred-block-focus";
 import { defaultTheme } from "@neoread/core";
 import { translationFont } from "../appearance";
 import "./translation.css";
+import {
+  TranslationHover,
+  translationBlockAction,
+} from "./translation-block-actions";
+import { useStableHandlers } from "./useStableHandlers";
 
 import type { ReadingMode } from "./reading-mode";
 /** Scroll settling after a pinned jump or click does not move the anchor. */
@@ -176,12 +187,36 @@ export function EPUBReadingView({
   const modeTarget = useRef<EPUBLocation | undefined>(undefined);
   const modeDocument = useRef(doc.id);
   const dragging = useRef(false);
-  const [hoveredBlock, setHoveredBlock] = useState<string>();
   const [focusedBlock, setFocusedBlock] = useState<string>();
   const hoverOwner = useRef<"source" | "translation" | undefined>(undefined);
+  const paragraphHover = useRef<
+    TranslationHover<EPUBReadingBlock> | undefined
+  >(undefined);
+  useEffect(() => {
+    if (reflow) return;
+    const value = new TranslationHover<EPUBReadingBlock>(
+      (block, action) =>
+        translationBlockAction(
+          block,
+          action,
+          live.current.translations.find((t) => t.blockId === block.id),
+          (b, a, translation) =>
+            live.current.events.epubBlockAction?.(b, a, translation),
+        ),
+    );
+    paragraphHover.current = value;
+    return () => {
+      paragraphHover.current = undefined;
+      value.destroy();
+    };
+  }, [reflow, doc.id]);
   const pressedBlock = useRef<{ id: string; x: number; y: number }>(undefined);
   // An explicit block focus owns both panes until its motion settles.
   const focusMotion = useRef({ operation: 0, moving: false });
+  const translationById = useMemo(
+    () => new Map(translations.map((t) => [t.blockId, t])),
+    [translations],
+  );
   const translationRevision = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const t of translations)
@@ -284,6 +319,9 @@ export function EPUBReadingView({
     const block = live.current.blocks.find((b) => b.id === id);
     if (!block) return;
     pendingFollow.current = { blockId: id, fraction };
+    // Source mode renders no translated paragraphs; the pending target places
+    // the pane once it is shown.
+    if (live.current.mode === "source") return;
     if (block.location.href !== live.current.chapter)
       setChapter(block.location.href);
     else {
@@ -321,11 +359,18 @@ export function EPUBReadingView({
   const hover = (origin: "source" | "translation", blockId?: string) => {
     if (!blockId && hoverOwner.current !== origin) return;
     hoverOwner.current = blockId ? origin : undefined;
-    setHoveredBlock(blockId);
     engine.current?.hoverBlock?.(
       live.current.mode === "parallel" && origin === "translation"
         ? (blockId ?? null)
         : null,
+    );
+    // Source hovers mark the counterpart; only the translation side gets this
+    // pane's toolbar, the source shows its own.
+    paragraphHover.current?.set(
+      pane.current,
+      blockId,
+      live.current.blocks,
+      origin === "translation",
     );
   };
   const centerTranslation = (id: string, cancelled: () => boolean) => {
@@ -593,6 +638,8 @@ export function EPUBReadingView({
   };
   const scroll = () => {
     live.current.events.annotationHover?.(null);
+    // Like the source toolbar, scrolling removes it until the pointer moves.
+    paragraphHover.current?.hideActions();
     cancelAnimationFrame(scrollFrame.current);
     scrollFrame.current = requestAnimationFrame(() => {
       if (
@@ -805,17 +852,22 @@ export function EPUBReadingView({
           events.epubBlockAction?.(block, action);
         },
         epubBlocksChanged: (items) => {
-          const top = pane.current?.getBoundingClientRect().top ?? 0;
-          const node = Array.from(
-            pane.current?.querySelectorAll<HTMLElement>(
-              "[data-translation-block]",
-            ) ?? [],
-          ).find((n) => n.getBoundingClientRect().bottom > top);
-          if (node)
-            viewportAnchor.current = {
-              id: node.dataset.translationBlock!,
-              top: node.getBoundingClientRect().top,
-            };
+          // Called while the reader inserts a chapter: measuring an empty
+          // pane would only force the new chapter's layout early.
+          const rows = pane.current?.querySelectorAll<HTMLElement>(
+            "[data-translation-block]",
+          );
+          if (pane.current && rows?.length) {
+            const top = pane.current.getBoundingClientRect().top;
+            const node = Array.from(rows).find(
+              (n) => n.getBoundingClientRect().bottom > top,
+            );
+            if (node)
+              viewportAnchor.current = {
+                id: node.dataset.translationBlock!,
+                top: node.getBoundingClientRect().top,
+              };
+          }
           live.current.blocks = items;
           setBlocks(items);
         },
@@ -907,6 +959,53 @@ export function EPUBReadingView({
       }}
     />
   );
+  // Rows are memoized; their handlers must keep one identity across renders.
+  const rowEvents = useStableHandlers({
+    retry: (blockId: string) => retry(blockId),
+    pointerDown: (event: ReactPointerEvent<HTMLElement>, blockId: string) => {
+      cancelFocus();
+      pressedBlock.current =
+        event.button === 0
+          ? { id: blockId, x: event.clientX, y: event.clientY }
+          : undefined;
+    },
+    click: (event: ReactMouseEvent<HTMLElement>, blockId: string) => {
+      const pressed = pressedBlock.current;
+      pressedBlock.current = undefined;
+      if (
+        (event.target as Element).closest(
+          "a, button, input, textarea, select, [role=button], [contenteditable=true]",
+        ) ||
+        window.getSelection()?.toString().trim() ||
+        (event.detail > 0 &&
+          (!pressed ||
+            pressed.id !== blockId ||
+            Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) >
+              5))
+      )
+        return;
+      if (theme.blockFocus !== false)
+        deferredFocus.schedule(event.detail, () => {
+          if (!window.getSelection()?.toString().trim())
+            focusBlock(blockId, "translation");
+        });
+    },
+    keyDown: (event: ReactKeyboardEvent<HTMLElement>, blockId: string) => {
+      if (
+        event.target === event.currentTarget &&
+        (event.key === "Enter" || event.key === " ")
+      ) {
+        event.preventDefault();
+        focusBlock(blockId, "translation");
+      }
+    },
+    pointer: (event: ReactPointerEvent<HTMLElement>, blockId: string) => {
+      if (!event.buttons && !dragging.current) hover("translation", blockId);
+    },
+    leave: () => hover("translation"),
+  });
+  const paused =
+    processing?.enabled === false || processing?.status === "paused";
   return (
     <div
       ref={root}
@@ -985,7 +1084,9 @@ export function EPUBReadingView({
                   : undefined,
               lineHeight: theme.lineHeight,
             }}
-            onPointerDown={() => {
+            onPointerDown={(event) => {
+              if (!(event.target as Element).closest(".block-actions"))
+                paragraphHover.current?.hideActions();
               live.current.events.annotationHover?.(null);
               input("translation");
               dragging.current = true;
@@ -1053,85 +1154,19 @@ export function EPUBReadingView({
                   : "正在读取正文段落…"}
               </p>
             )}
+            {/* The pane is collapsed in source mode; skip its paragraphs. */}
             {!reflow &&
+              mode !== "source" &&
               blocks.map((block) => (
-                <section
+                <EPUBTranslationRow
                   key={block.id}
-                  data-translation-block={block.id}
-                  data-block-kind={block.image ? "image" : "text"}
-                  data-label={block.label}
-                  data-chapter={block.location.href}
-                  data-hovered={hoveredBlock === block.id || undefined}
-                  data-focused={focusedBlock === block.id || undefined}
-                  aria-current={focusedBlock === block.id || undefined}
-                  tabIndex={0}
-                  onPointerDown={(event) => {
-                    cancelFocus();
-                    pressedBlock.current =
-                      event.button === 0
-                        ? { id: block.id, x: event.clientX, y: event.clientY }
-                        : undefined;
-                  }}
-                  onClick={(event) => {
-                    const pressed = pressedBlock.current;
-                    pressedBlock.current = undefined;
-                    if (
-                      (event.target as Element).closest(
-                        "a, button, input, textarea, select, [role=button], [contenteditable=true]",
-                      ) ||
-                      window.getSelection()?.toString().trim() ||
-                      (event.detail > 0 &&
-                        (!pressed ||
-                          pressed.id !== block.id ||
-                          Math.hypot(
-                            event.clientX - pressed.x,
-                            event.clientY - pressed.y,
-                          ) > 5))
-                    )
-                      return;
-                    if (theme.blockFocus !== false)
-                      deferredFocus.schedule(event.detail, () => {
-                        if (!window.getSelection()?.toString().trim())
-                          focusBlock(block.id, "translation");
-                      });
-                  }}
-                  onKeyDown={(event) => {
-                    if (
-                      event.target === event.currentTarget &&
-                      (event.key === "Enter" || event.key === " ")
-                    ) {
-                      event.preventDefault();
-                      focusBlock(block.id, "translation");
-                    }
-                  }}
-                  onPointerEnter={(event) => {
-                    if (!event.buttons && !dragging.current)
-                      hover("translation", block.id);
-                  }}
-                  onPointerMove={(event) => {
-                    if (!event.buttons && !dragging.current)
-                      hover("translation", block.id);
-                  }}
-                  onPointerLeave={() => hover("translation")}
-                >
-                  <TranslationText
-                    block={block}
-                    imageURL={
-                      block.image
-                        ? publicationURL(doc.id, block.image)
-                        : undefined
-                    }
-                    documentId={doc.id}
-                    translation={translations.find(
-                      (t) => t.blockId === block.id,
-                    )}
-                    paused={
-                      processing?.enabled === false ||
-                      processing?.status === "paused"
-                    }
-                    retry={() => retry(block.id)}
-                  />
-                </section>
+                  block={block}
+                  translation={translationById.get(block.id)}
+                  focused={focusedBlock === block.id}
+                  documentId={doc.id}
+                  paused={paused}
+                  events={rowEvents}
+                />
               ))}
           </div>
         }
@@ -1139,3 +1174,64 @@ export function EPUBReadingView({
     </div>
   );
 }
+
+type EPUBRowEvents = {
+  retry: (blockId: string) => void;
+  pointerDown: (event: ReactPointerEvent<HTMLElement>, blockId: string) => void;
+  click: (event: ReactMouseEvent<HTMLElement>, blockId: string) => void;
+  keyDown: (event: ReactKeyboardEvent<HTMLElement>, blockId: string) => void;
+  pointer: (event: ReactPointerEvent<HTMLElement>, blockId: string) => void;
+  leave: () => void;
+};
+
+/**
+ * One translated paragraph. Memoized so hover, focus and streamed translations
+ * re-render only the paragraphs they change, not every loaded chapter.
+ */
+const EPUBTranslationRow = memo(function EPUBTranslationRow({
+  block,
+  translation,
+  focused,
+  documentId,
+  paused,
+  events,
+}: {
+  block: EPUBReadingBlock;
+  translation?: TranslationBlock;
+  focused: boolean;
+  documentId: string;
+  paused: boolean;
+  events: EPUBRowEvents;
+}) {
+  const retry = useCallback(() => events.retry(block.id), [events, block.id]);
+  return (
+    <section
+      data-translation-block={block.id}
+      data-block-kind={block.image ? "image" : "text"}
+      data-label={block.label}
+      data-chapter={block.location.href}
+      data-focused={focused || undefined}
+      aria-current={focused || undefined}
+      tabIndex={0}
+      onPointerDown={(event) => events.pointerDown(event, block.id)}
+      onClick={(event) => events.click(event, block.id)}
+      onKeyDown={(event) => events.keyDown(event, block.id)}
+      onPointerEnter={(event) => events.pointer(event, block.id)}
+      onPointerMove={(event) => events.pointer(event, block.id)}
+      onPointerLeave={events.leave}
+    >
+      <div className="translation-body">
+        <TranslationText
+          block={block}
+          imageURL={
+            block.image ? publicationURL(documentId, block.image) : undefined
+          }
+          documentId={documentId}
+          translation={translation}
+          paused={paused}
+          retry={retry}
+        />
+      </div>
+    </section>
+  );
+});

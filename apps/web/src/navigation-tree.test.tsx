@@ -103,6 +103,34 @@ it("collapses without navigating and persists across remounts", async () => {
   );
   expect(go).toHaveBeenCalledWith({ type: "pdf", page: 1 });
 });
+it("toggles at once and keeps a second click made while saving", async () => {
+  let finish: (() => void) | undefined;
+  // The project's TypeScript lib predates Promise.withResolvers.
+  mocks.save.mockImplementation(
+    (_id: string, n: DocumentNavigation) =>
+      new Promise<DocumentNavigation>((resolve) => {
+        finish = () => resolve({ ...n, revision: n.revision + 1 });
+      }),
+  );
+  await render();
+  const toggle = () =>
+    host.querySelector<HTMLButtonElement>(".navigation-toggle")!;
+  await act(async () => toggle().click());
+  // The branch closes before the save returns.
+  expect(toggle().getAttribute("aria-expanded")).toBe("false");
+  await act(async () => toggle().click());
+  expect(toggle().getAttribute("aria-expanded")).toBe("true");
+  expect(mocks.save).toHaveBeenCalledTimes(1);
+  await act(async () => finish!());
+  // The reopened state follows with the revision the first save returned.
+  expect(mocks.save).toHaveBeenCalledTimes(2);
+  expect(mocks.save.mock.calls[1][1]).toMatchObject({
+    revision: 1,
+    entries: { a: { collapsed: false } },
+  });
+  await act(async () => finish!());
+  expect(toggle().getAttribute("aria-expanded")).toBe("true");
+});
 it("renames with F2 and Enter without changing the document destination", async () => {
   await render();
   await act(async () =>

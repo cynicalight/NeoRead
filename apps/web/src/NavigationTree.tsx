@@ -69,9 +69,10 @@ export function NavigationTree({
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
-  const [saving, setSaving] = useState(false);
   const [allCollapsed, setAllCollapsed] = useState(false);
-  const lock = useRef(false);
+  const revision = useRef(0);
+  const queued = useRef<DocumentNavigation | undefined>(undefined);
+  const saving = useRef<Promise<boolean> | undefined>(undefined);
   const alive = useRef(true);
   const [orders, setOrders] = useState<Record<string, number[]>>({});
   const [resolving, setResolving] = useState(false);
@@ -99,6 +100,7 @@ export function NavigationTree({
     void api.navigation(documentId).then(
       (value) => {
         if (alive.current) {
+          revision.current = value.revision;
           setState(value);
           setLoaded(true);
         }
@@ -157,7 +159,7 @@ export function NavigationTree({
             .filter((item) => compareOrder(item.order, currentOrder!) <= 0)
             .at(-1)?.id
         : flat.find(sameSection)?.id;
-  const disabled = !loaded || saving || resolving;
+  const disabled = !loaded || resolving;
   const branches = flat.filter((item) => item.children.length > 0);
   function toggleAllCollapsed() {
     const collapsed = !allCollapsed;
@@ -170,22 +172,41 @@ export function NavigationTree({
   async function change(id: string, patch: NavigationEdit) {
     return save(editNavigation(state, id, patch));
   }
-  async function save(next: DocumentNavigation) {
-    if (lock.current || !loaded) return;
-    lock.current = true;
-    setSaving(true);
+  /**
+   * Edits show at once; saves run one at a time with the latest revision, so
+   * a quick second click is neither dropped nor kept waiting on the first
+   * round trip.
+   */
+  function save(next: DocumentNavigation) {
+    if (!loaded) return Promise.resolve(false);
+    setState(next);
+    queued.current = next;
+    saving.current ??= flush().finally(() => {
+      saving.current = undefined;
+    });
+    return saving.current;
+  }
+  async function flush() {
     try {
-      const saved = await api.saveNavigation(documentId, next);
-      if (alive.current) setState(saved);
+      while (queued.current) {
+        const next = queued.current;
+        queued.current = undefined;
+        const saved = await api.saveNavigation(documentId, {
+          ...next,
+          revision: revision.current,
+        });
+        revision.current = saved.revision;
+        // Newer edits already show; adopt the server copy once settled.
+        if (!queued.current && alive.current) setState(saved);
+      }
       return true;
     } catch (e) {
+      queued.current = undefined;
       if (alive.current) {
         toast.error((e as Error).message);
         load();
       }
-    } finally {
-      lock.current = false;
-      if (alive.current) setSaving(false);
+      return false;
     }
   }
   const visible: NavigationItem[] = [];
@@ -471,7 +492,7 @@ export function NavigationTree({
     <nav
       className="navigation-tree"
       aria-label="目录与书签"
-      aria-busy={saving || resolving}
+      aria-busy={resolving}
       onKeyDown={(event) => {
         if (event.key === "Escape" && selecting) {
           event.preventDefault();
@@ -578,7 +599,6 @@ export function NavigationTree({
               variant="ghost"
               size="icon-sm"
               aria-label="取消多选"
-              disabled={saving}
               onClick={exitSelection}
             >
               <X className="size-4" />

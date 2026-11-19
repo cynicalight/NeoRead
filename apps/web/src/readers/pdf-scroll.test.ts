@@ -77,3 +77,22 @@ it("respects reduced motion and clamps destinations to scrollable bounds", async
   expect(host.scrollTop).toBe(1400);
   expect(frames).toHaveLength(0);
 });
+it("jumps to one viewport short of distant destinations before animating", async () => {
+  const host = document.createElement("div");
+  Object.defineProperties(host, {
+    scrollHeight: { value: 100_000 },
+    clientHeight: { value: 800 },
+  });
+  const positions: number[] = [];
+  const pending = animatePDFScroll(host, 0, 50_000, () => false, () =>
+    positions.push(host.scrollTop),
+  );
+  // No frame may pass through the pages between start and destination.
+  expect(host.scrollTop).toBe(49_200);
+  tick(0);
+  tick(120);
+  tick(240);
+  await pending;
+  expect(host.scrollTop).toBe(50_000);
+  expect(Math.min(...positions)).toBe(49_200);
+});
