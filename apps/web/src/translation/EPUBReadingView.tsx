@@ -319,6 +319,9 @@ export function EPUBReadingView({
     const block = live.current.blocks.find((b) => b.id === id);
     if (!block) return;
     pendingFollow.current = { blockId: id, fraction };
+    // Source mode renders no translated paragraphs; the pending target places
+    // the pane once it is shown.
+    if (live.current.mode === "source") return;
     if (block.location.href !== live.current.chapter)
       setChapter(block.location.href);
     else {
@@ -1146,7 +1149,9 @@ export function EPUBReadingView({
                   : "正在读取正文段落…"}
               </p>
             )}
+            {/* The pane is collapsed in source mode; skip its paragraphs. */}
             {!reflow &&
+              mode !== "source" &&
               blocks.map((block) => (
                 <EPUBTranslationRow
                   key={block.id}

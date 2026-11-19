@@ -16,12 +16,14 @@ export function installTranslationSelectionHighlight(host: HTMLElement) {
   const update = () => {
     const selection = document.getSelection();
     const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+    // Every DOM change in the pane runs this; settle cheap checks before
+    // serializing the selection, which lays out what it spans.
     if (
       !range ||
       selection?.isCollapsed ||
-      !selection?.toString().trim() ||
       !host.contains(range.startContainer) ||
-      !host.contains(range.endContainer)
+      !host.contains(range.endContainer) ||
+      !selection?.toString().trim()
     ) {
       clear();
       return;
