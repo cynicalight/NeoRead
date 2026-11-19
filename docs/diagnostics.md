@@ -133,6 +133,16 @@ ZIP 包含：
 
 自动测试覆盖脱敏、跨会话/级别导出、旧翻译诊断、ZIP CRC、轮转和过期清理、符号链接边界、IPC frame 校验、离线桌面导出、React 错误界面以及 HTTP ResponseController Flush 兼容。全项目检查仍要求 `pnpm typecheck`、`pnpm test`、`pnpm build`。视觉验收采用人工检查。
 
+## Pi 模型失败诊断
+
+`pi.worker.failed` 记录一次 Pi 生成 worker 的失败或取消，覆盖聊天和非聊天生成；登录、模型目录和额度继续使用各自已有事件。它通过 `attemptId` 关联 `generation.start / finish`，通过 `runId` 关联 worker，并保留可用的 HTTP `requestId`。后台聊天及继续请求只传递起源请求 ID，仍独立于 HTTP 连接取消。
+
+事件包含失败阶段 `phase`、细分原因 `reasonCode`、Pi 停止原因 `stopReason`、提供方停止原因 `providerStopReason`、最后收到的协议事件 `providerEvent`、提供方状态 `providerStatus`、白名单提供方错误码 `providerErrorCode`、上游 HTTP 状态、受限网络错误码、模型请求次数、是否已有可见文字或思考，以及 worker 报告的可续接状态。不逐片段写日志；HTTP 200、部分输出和可续接均不表示回答已完成或保存成功。
+
+例如，HTTP 错误为 `http_error`；发起请求失败为 `fetch_failed`；流内失败为 `provider_error`；输出达到限制为 `output_limit`；提供方拒绝为 `content_policy`；Responses 完成状态不合法为 `invalid_completion_status`；空回答为 `empty_answer`；进度保存失败为 `checkpoint_failed`。进程异常退出、无效 worker 事件及缺失完成结果也有各自原因。请求次数包括 Pi 的重试和工具后续请求，阶段和上游状态对应最后一次模型请求，`partialOutput` 覆盖整个运行。
+
+Worker 只提取固定枚举和计数，Go 接收端再次白名单校验；未知值归为 `unrecognized`，缺失值为 `none` 或 0。原始错误文案、错误栈、任意模型名、地址、工具参数和正文均不进入该事件。旧 worker 没有诊断字段时仍记录通用原因及 Go 侧观察到的部分输出。这些字段用于缩小故障范围：SDK 未暴露的底层原因仍可能需要上游日志，不能仅凭 `provider_error` 判定断网或某种具体服务故障；旧诊断包中已经丢失的信息无法补回。
+
 ## API 适配诊断
 
 API 厂商规则、实际强度映射、上游错误分类和请求关联字段见 [API 厂商适配与错误诊断](api-provider-compatibility.md)。新增 API 错误事件只记录安全的结构化证据，不保存厂商可能回显正文的原始错误 message。

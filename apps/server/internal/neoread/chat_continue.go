@@ -153,7 +153,7 @@ func (s *Server) continueSessionRun(w http.ResponseWriter, r *http.Request) {
 	} else {
 		config.Models[record.Provider] = record.Checkpoint.Model
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), diagnosticRequestKey{}, requestID(r.Context())), time.Hour)
 	ctx, finish, err := s.beginDocumentTask(ctx, document.ID)
 	if err != nil {
 		cancel()

@@ -14,6 +14,8 @@ import {
   type ToolResult,
 } from "./runtime";
 
+import { RunDiagnostics } from "./run-diagnostics";
+
 function upstreamError(status: number) {
   switch (status) {
     case 401:
@@ -141,6 +143,7 @@ lines.on("line", (line) => {
         throw new Error("模型端点不匹配");
       const fetch = globalThis.fetch;
       const cwd = `\n<cwd>\n${process.cwd()}\n</cwd>`;
+      const diagnostics = new RunDiagnostics();
       let errorCode = "";
       globalThis.fetch = async (url, init) => {
         const target = new URL(url instanceof Request ? url.url : String(url));
@@ -235,12 +238,20 @@ lines.on("line", (line) => {
           }
           body = JSON.stringify(payload);
         }
-        const response = await fetch(input.endpoint || url, {
-          ...init,
-          body,
-          headers,
-          redirect: "error",
-        });
+        diagnostics.request();
+        let response: Response;
+        try {
+          response = await fetch(input.endpoint || url, {
+            ...init,
+            body,
+            headers,
+            redirect: "error",
+          });
+        } catch (error) {
+          diagnostics.network(error);
+          throw error;
+        }
+        diagnostics.response(response.status);
         errorCode = upstreamError(response.status);
         return response;
       };
@@ -268,6 +279,7 @@ lines.on("line", (line) => {
               });
             }
           : undefined,
+        diagnostics,
       )
         .then((result) => {
           send({ type: "complete", ...result });
@@ -278,6 +290,7 @@ lines.on("line", (line) => {
           send({
             type: "error",
             errorCode,
+            diagnostics: diagnostics.snapshot(),
             canContinue: error instanceof AgentRunError && error.canContinue,
             message: input.key
               ? text.split(input.key).join("[redacted]")
