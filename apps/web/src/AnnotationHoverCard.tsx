@@ -311,6 +311,7 @@ export function AnnotationHoverCard({
                     <CardButton
                       label="保存"
                       variant="default"
+                      className="rounded-full"
                       disabled={!canSave}
                       onClick={editor.onSave}
                     >

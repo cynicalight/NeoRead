@@ -215,6 +215,7 @@ function NoteCard({
             actions={
               <Button
                 size="icon-sm"
+                className="rounded-full"
                 aria-label="保存"
                 title="保存"
                 disabled={saving || uploading || (question && !draft.trim())}
