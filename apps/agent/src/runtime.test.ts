@@ -138,7 +138,7 @@ test("SDK worker bridges only registered tools and resumes accepted history", as
   }
 }, 20000);
 
-test.each(["truncated", "anthropic"])(
+test.each(["truncated", "anthropic", "refusal"])(
   "validates %s provider termination",
   async (mode) => {
     const upstream = createServer(async (req, res) => {
@@ -192,7 +192,10 @@ test.each(["truncated", "anthropic"])(
           "message_delta",
           {
             type: "message_delta",
-            delta: { stop_reason: "end_turn", stop_sequence: null },
+            delta: {
+              stop_reason: mode === "refusal" ? "refusal" : "end_turn",
+              stop_sequence: null,
+            },
             usage: { output_tokens: 4 },
           },
         ],
@@ -224,14 +227,14 @@ test.each(["truncated", "anthropic"])(
           effort: "off",
           tools: [],
           endpoint:
-            base + (mode === "anthropic" ? "/messages" : "/chat/completions"),
-          payload: mode === "anthropic" ? { max_tokens: 8192 } : {},
+            base + (mode !== "truncated" ? "/messages" : "/chat/completions"),
+          payload: mode !== "truncated" ? { max_tokens: 8192 } : {},
           model: {
             id: "test",
             name: "test",
             provider: "neoread",
             api:
-              mode === "anthropic"
+              mode !== "truncated"
                 ? "anthropic-messages"
                 : "openai-completions",
             baseUrl: base,
@@ -253,6 +256,16 @@ test.each(["truncated", "anthropic"])(
           events.some((e) => e.type === "draft" && e.text === "partial answer"),
         ).toBe(true);
         expect(events.some((e) => e.type === "complete")).toBe(false);
+      } else if (mode === "refusal") {
+        expect(code).toBe(1);
+        expect(
+          events.find((e) => e.type === "error").diagnostics,
+        ).toMatchObject({
+          reasonCode: "content_policy",
+          providerStopReason: "refusal",
+          upstreamStatus: 200,
+          partialOutput: true,
+        });
       } else {
         expect({ code, error: events.find((e) => e.type === "error") }).toEqual(
           { code: 0, error: undefined },
@@ -612,6 +625,30 @@ test.each([
       expect(requests).toBe(
         ["truncated", "failed", "retryable"].includes(mode) ? 3 : 1,
       );
+      const diagnostic = result.events.find(
+        (event) => event.type === "error",
+      )?.diagnostics;
+      expect(diagnostic).toMatchObject({
+        requestCount: requests,
+        upstreamStatus: mode === "retryable" ? 503 : 200,
+      });
+      const reasons: Record<string, string> = {
+        truncated: "provider_error",
+        failed: "provider_error",
+        incomplete: "output_limit",
+        "missing-status": "invalid_completion_status",
+        in_progress: "invalid_completion_status",
+        malformed: "provider_error",
+        cancel: "cancelled",
+        "tool-cancel": "cancelled",
+        retryable: "http_error",
+      };
+      expect(diagnostic.reasonCode).toBe(reasons[mode]);
+      if (mode === "failed")
+        expect(diagnostic.providerErrorCode).toBe("server_error");
+      if (["truncated", "failed", "cancel"].includes(mode))
+        expect(diagnostic.partialOutput).toBe(true);
+
       if (mode === "truncated" || mode === "failed" || mode === "cancel")
         expect(
           result.events.some(
@@ -1509,6 +1546,10 @@ test.each(["reject", "cancel"] as const)(
       expect(result.events.at(-1)).toMatchObject({
         type: "error",
         canContinue: false,
+        diagnostics: {
+          phase: reply === "reject" ? "checkpoint" : "completion",
+          reasonCode: reply === "reject" ? "checkpoint_failed" : "cancelled",
+        },
       });
       expect(result.events.some((event) => event.type === "complete")).toBe(
         false,
@@ -1968,4 +2009,65 @@ test.each([
       await rm(directory, { recursive: true, force: true });
     }
   },
+);
+
+test.each(["401", "503", "empty", "network"])(
+  "worker emits safe diagnostics for %s without provider error text",
+  async (mode) => {
+    const upstream = createServer(async (req, res) => {
+      for await (const _chunk of req) {
+        /* consume */
+      }
+      if (mode === "network") {
+        req.socket.destroy();
+        return;
+      }
+      if (mode !== "empty") {
+        res.writeHead(Number(mode));
+        res.end('{"error":{"message":"PRIVATE_ERROR_PRIVATE_DOCUMENT"}}');
+      } else {
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.end(
+          responseEvents({
+            ...responseText,
+            content: [{ type: "output_text", text: "", annotations: [] }],
+          }),
+        );
+      }
+    });
+    await new Promise<void>((resolve) =>
+      upstream.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      const input = {
+        ...responsesInput(
+          `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1`,
+        ),
+        disableRetry: true,
+      };
+      const result = await responseWorker(input);
+      expect(result.code).toBe(1);
+      const event = result.events.find((event) => event.type === "error");
+      expect(event.diagnostics).toMatchObject({
+        reasonCode:
+          mode === "network"
+            ? "fetch_failed"
+            : mode === "empty"
+              ? "empty_answer"
+              : "http_error",
+        upstreamStatus:
+          mode === "network" ? 0 : mode === "empty" ? 200 : Number(mode),
+        partialOutput: false,
+      });
+      expect(JSON.stringify(event.diagnostics)).not.toMatch(
+        /PRIVATE_|127\.0\.0\.1/,
+      );
+      if (mode === "network")
+        expect(event.diagnostics.networkCode).toBe("UND_ERR_SOCKET");
+    } finally {
+      upstream.close();
+      upstream.closeAllConnections();
+    }
+  },
+  15000,
 );

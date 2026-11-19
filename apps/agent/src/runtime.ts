@@ -1,3 +1,4 @@
+import { RunDiagnostics } from "./run-diagnostics";
 import { connectionRuntime, type PiConnection } from "./connections";
 import {
   createAgentSession,
@@ -98,12 +99,13 @@ function canContinueSession(manager: SessionManager): boolean {
 export type AgentEvent = { type: string; [key: string]: unknown };
 
 // Pi 1.3 兼容缺失/进行中的终态；NeoRead 只接受明确 completed，避免保存不完整回答。
-function responsesApi(): ProviderStreams {
+function responsesApi(diagnostics: RunDiagnostics): ProviderStreams {
   const native = openAIResponsesApi();
   const checkedOptions = <T extends StreamOptions>(options?: T) => ({
     ...options,
     maxRetries: 0,
     onProviderStreamEvent: async (event: unknown, model: Model<Api>) => {
+      diagnostics.provider(event);
       const value = event as { type?: string; response?: { status?: string } };
       if (
         value.type === "response.completed" &&
@@ -138,6 +140,7 @@ export async function runAgent(
   ) => Promise<ToolResult>,
   signal: AbortSignal,
   saveCheckpoint?: (checkpoint: AgentCheckpoint) => Promise<void>,
+  diagnostics = new RunDiagnostics(),
 ) {
   if (
     input.version !== 1 ||
@@ -173,11 +176,15 @@ export async function runAgent(
     model.api === "anthropic-messages"
       ? anthropicMessagesApi()
       : model.api === "openai-responses"
-        ? responsesApi()
+        ? responsesApi(diagnostics)
         : openAICompletionsApi();
   // SDK 在自己的重试/压缩循环中发起下一次请求；只在请求边界等待宿主持久化。
   const withCheckpoint = <T extends StreamOptions>(options?: T) => ({
     ...options,
+    onProviderStreamEvent: async (event: unknown, currentModel: Model<Api>) => {
+      if (model.api !== "openai-responses") diagnostics.provider(event);
+      await options?.onProviderStreamEvent?.(event, currentModel);
+    },
     onPayload: async (payload: unknown, currentModel: Model<Api>) => {
       await checkpointBarrier;
       signal.throwIfAborted();
@@ -380,6 +387,7 @@ export async function runAgent(
     if (event.type === "message_update") {
       const delta = event.assistantMessageEvent;
       if (delta.type === "text_delta" || delta.type === "thinking_delta") {
+        if (delta.delta) diagnostics.partialOutput = true;
         emit({
           type: delta.type === "text_delta" ? "draft" : "reasoning",
           text: delta.delta,
@@ -388,6 +396,11 @@ export async function runAgent(
     }
     if (event.type === "message_end" && event.message.role === "assistant") {
       const m = event.message;
+      diagnostics.assistant(
+        m.stopReason,
+        isContextOverflow(m),
+        m.rawStopReason,
+      );
       emit({
         type: "usage",
         model: m.model,
@@ -428,6 +441,11 @@ export async function runAgent(
     await session.waitForIdle();
     signal.throwIfAborted();
     const last = session.messages.at(-1);
+    if (
+      (!last || last.role !== "assistant") &&
+      diagnostics.reasonCode === "agent_failed"
+    )
+      diagnostics.failure("missing_assistant");
     if (!last || last.role !== "assistant" || last.stopReason !== "stop")
       throw new Error(
         last?.role === "assistant"
@@ -438,7 +456,10 @@ export async function runAgent(
       .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("");
-    if (!text.trim()) throw new Error("模型未返回回答");
+    if (!text.trim()) {
+      diagnostics.failure("empty_answer");
+      throw new Error("模型未返回回答");
+    }
     await checkpointBarrier;
     if (checkpointFailure) throw checkpointFailure;
     return { text, entries: snapshot() };
@@ -463,6 +484,8 @@ export async function runAgent(
     } catch {
       /* 持久化失败不能宣称可续接。 */
     }
+    if (signal.aborted) diagnostics.failure("cancelled");
+    if (checkpointFailure) diagnostics.failure("checkpoint_failed");
     throw new AgentRunError(
       checkpointFailure?.message ??
         (error instanceof Error ? error.message : "Agent 运行失败"),

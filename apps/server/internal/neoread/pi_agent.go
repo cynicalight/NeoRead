@@ -42,6 +42,7 @@ type piCatalogModel struct {
 }
 
 type piEvent struct {
+	Diagnostics    *piFailureDiagnostics                                `json:"diagnostics,omitempty"`
 	Quota          *agentQuota                                          `json:"quota,omitempty"`
 	Phase          string                                               `json:"phase"`
 	UpstreamStatus int                                                  `json:"upstreamStatus"`
@@ -77,7 +78,28 @@ var piRuntimePaths = func() (node, worker string, err error) {
 	return os.Getenv("NEOREAD_NODE"), os.Getenv("NEOREAD_AGENT"), nil
 }
 
-func runPiOperation(ctx context.Context, root, operation, runID string, request any, durable bool, event func(piEvent) error, tool func(string, json.RawMessage) ([]any, error)) (piEvent, error) {
+func runPiOperation(ctx context.Context, root, operation, runID string, request any, durable bool, event func(piEvent) error, tool func(string, json.RawMessage) ([]any, error)) (result piEvent, err error) {
+	started := time.Now()
+	failure := piFailureDiagnostics{Phase: "worker_start", ReasonCode: "worker_failed"}
+	partialOutput, canContinue := false, false
+	defer func() {
+		if operation == "start" && err != nil {
+			diagnosticErr := err
+			if ctx.Err() != nil {
+				diagnosticErr = ctx.Err()
+				failure.ReasonCode = "cancelled"
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					failure.ReasonCode = "timeout"
+				}
+				canContinue = false
+			}
+			logPiFailure(ctx, runID, diagnosticErr, failure, partialOutput, canContinue, time.Since(started).Milliseconds())
+		}
+	}()
+	reject := func(reason, message string) error {
+		failure.ReasonCode = reason
+		return generationError(ErrorProtocol, message)
+	}
 	node, worker, err := piRuntimePaths()
 	if err != nil {
 		return piEvent{}, err
@@ -119,6 +141,7 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 	if err = cmd.Start(); err != nil {
 		return piEvent{}, generationError(ErrorConfiguration, "无法启动 pi 运行时")
 	}
+	failure.Phase, failure.ReasonCode = "worker_stream", "worker_interrupted"
 	// Reap on every exit, including malformed output and canceled tools.
 	waited := false
 	defer func() {
@@ -142,16 +165,16 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			break
 		}
 		if readErr != nil {
-			return piEvent{}, generationError(ErrorProtocol, "pi 输出读取失败或事件未完成")
+			return piEvent{}, reject("event_incomplete", "pi 输出读取失败或事件未完成")
 		}
 		var e piEvent
 		if json.Unmarshal(line, &e) != nil || e.Version != 1 || e.RunID != runID || complete.Type != "" {
-			return piEvent{}, generationError(ErrorProtocol, "pi 返回了无效的运行事件")
+			return piEvent{}, reject("invalid_event", "pi 返回了无效的运行事件")
 		}
 		switch e.Type {
 		case "tool":
 			if e.ID == "" || seen[e.ID] || tool == nil {
-				return piEvent{}, generationError(ErrorProtocol, "pi 返回了无效的工具请求")
+				return piEvent{}, reject("invalid_tool", "pi 返回了无效的工具请求")
 			}
 			seen[e.ID] = true
 			if len(e.Args) > 4096 {
@@ -170,7 +193,7 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			}
 		case "checkpoint":
 			if !durable || e.ID == "" || checkpoints[e.ID] || len(e.Entries) == 0 || !json.Valid(e.Entries) {
-				return piEvent{}, generationError(ErrorProtocol, "pi 继续位置事件无效")
+				return piEvent{}, reject("invalid_checkpoint", "pi 继续位置事件无效")
 			}
 			checkpoints[e.ID] = true
 			if event == nil {
@@ -184,10 +207,15 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			}
 		case "complete":
 			if operation == "start" && (strings.TrimSpace(e.Text) == "" || len(e.Entries) == 0 || !json.Valid(e.Entries)) {
-				return piEvent{}, generationError(ErrorProtocol, "pi 未返回完整回答和会话状态")
+				return piEvent{}, reject("invalid_completion", "pi 未返回完整回答和会话状态")
 			}
 			complete = e
 		case "error":
+			failure.Phase, failure.ReasonCode = "completion", "worker_error"
+			if e.Diagnostics != nil {
+				failure = *e.Diagnostics
+			}
+			canContinue = e.CanContinue
 			if event != nil {
 				if err := event(e); err != nil {
 					return piEvent{}, err
@@ -213,19 +241,22 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			}
 		case "auth_url", "device_code", "progress":
 			if operation != "login" || event == nil {
-				return piEvent{}, generationError(ErrorProtocol, "pi 返回了无效授权事件")
+				return piEvent{}, reject("unexpected_event", "pi 返回了无效授权事件")
 			}
 			if err := event(e); err != nil {
 				return piEvent{}, err
 			}
 		case "draft", "reasoning", "activity", "usage":
+			if (e.Type == "draft" || e.Type == "reasoning") && e.Text != "" {
+				partialOutput = true
+			}
 			if event != nil {
 				if err = event(e); err != nil {
 					return piEvent{}, err
 				}
 			}
 		default:
-			return piEvent{}, generationError(ErrorProtocol, "pi 返回了未知事件")
+			return piEvent{}, reject("unexpected_event", "pi 返回了未知事件")
 		}
 	}
 	err = cmd.Wait()

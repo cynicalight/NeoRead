@@ -109,7 +109,7 @@ func (s *Server) startSessionChat(w http.ResponseWriter, r *http.Request, docume
 		fail(w, 429, "最多同时运行 4 个会话，请等待一个会话结束")
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), diagnosticRequestKey{}, requestID(r.Context())), time.Hour)
 	ctx, finish, err := s.beginDocumentTask(ctx, document.ID)
 	if err != nil {
 		cancel()
