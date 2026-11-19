@@ -32,6 +32,7 @@ export function PaperNoteRichEditor({
   onBlur,
   leading,
   actions,
+  toolbarPlacement = "top",
   ariaLabel = "编辑论文笔记",
   placeholder = "使用 Markdown 记录要点、疑问和启发…",
   autoFocus = false,
@@ -54,6 +55,8 @@ export function PaperNoteRichEditor({
   /** Start-side toolbar slot; when set the mode tabs sit centered. */
   leading?: ReactNode;
   actions?: ReactNode;
+  /** Compact editors keep their controls below the input. */
+  toolbarPlacement?: "top" | "bottom";
   ariaLabel?: string;
   placeholder?: string;
   autoFocus?: boolean;
@@ -262,36 +265,39 @@ export function PaperNoteRichEditor({
     focusRequested.current = false;
     editorRef.current?.focus?.();
   }, [showSource]);
+  const toolbar = (
+    <div
+      className="paper-note-toolbar"
+      data-centered={leading ? "" : undefined}
+    >
+      {leading && <div className="paper-note-leading">{leading}</div>}
+      <Tabs
+        value={source ? "source" : "rich"}
+        onValueChange={(value) => {
+          if (value === "source") {
+            setMathEdit(null);
+            setSource(true);
+          } else {
+            focusRequested.current = autoFocus;
+            setSource(false);
+          }
+        }}
+      >
+        <TabsList aria-label={`${ariaLabel}模式`}>
+          <TabsTrigger value="rich" className="px-2.5 text-xs">
+            编辑
+          </TabsTrigger>
+          <TabsTrigger value="source" className="px-2.5 text-xs">
+            源码
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {actions && <div className="paper-note-actions">{actions}</div>}
+    </div>
+  );
   return (
     <div className={`paper-note-workspace ${className}`}>
-      <div
-        className="paper-note-toolbar"
-        data-centered={leading ? "" : undefined}
-      >
-        {leading && <div className="paper-note-leading">{leading}</div>}
-        <Tabs
-          value={source ? "source" : "rich"}
-          onValueChange={(value) => {
-            if (value === "source") {
-              setMathEdit(null);
-              setSource(true);
-            } else {
-              focusRequested.current = autoFocus;
-              setSource(false);
-            }
-          }}
-        >
-          <TabsList aria-label={`${ariaLabel}模式`}>
-            <TabsTrigger value="rich" className="px-2.5 text-xs">
-              编辑
-            </TabsTrigger>
-            <TabsTrigger value="source" className="px-2.5 text-xs">
-              源码
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-        {actions && <div className="paper-note-actions">{actions}</div>}
-      </div>
+      {toolbarPlacement === "top" && toolbar}
       {(reason || (!source && loading && !disabled)) && (
         <p className="paper-note-editor-message" role="status">
           {reason || "编辑器加载中，可先编辑源码"}
@@ -358,6 +364,7 @@ export function PaperNoteRichEditor({
         hidden={showSource}
         onBlur={onBlur}
       />
+      {toolbarPlacement === "bottom" && toolbar}
     </div>
   );
 }

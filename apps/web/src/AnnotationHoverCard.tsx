@@ -296,6 +296,7 @@ export function AnnotationHoverCard({
                 onChange={editor.onChange}
                 onUploadingChange={setUploading}
                 leading={grip}
+                toolbarPlacement="bottom"
                 actions={
                   <>
                     {editor.kind === "question" && !editor.editing && (
@@ -324,7 +325,8 @@ export function AnnotationHoverCard({
             notes.map((annotation, index) => (
               <div
                 key={annotation.id}
-                className="border-b pb-2 last:border-0 last:pb-0"
+                // Inset text to the icon edge of the 28px ghost buttons below.
+                className="border-b pb-2 last:border-0 last:pb-0 [&>.message-markdown]:px-[7px]"
               >
                 <MessageMarkdown
                   content={annotation.note}

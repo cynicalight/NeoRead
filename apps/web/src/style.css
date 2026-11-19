@@ -4663,12 +4663,17 @@ textarea.paper-note-editor-input {
   gap: 8px;
   min-width: 0;
 }
+/* Height follows the content plus one empty line, up to a scrolling cap. */
 .annotation-markdown-editor .paper-note-rich,
 .annotation-markdown-editor textarea.paper-note-editor-input {
   flex: none;
-  height: clamp(8rem, 28vh, 16rem);
+  height: auto;
   min-height: 0;
+  max-height: clamp(8rem, 28vh, 16rem);
   scrollbar-width: none;
+}
+.annotation-markdown-editor textarea.paper-note-editor-input {
+  field-sizing: content;
 }
 .annotation-markdown-editor .paper-note-rich::-webkit-scrollbar,
 .annotation-markdown-editor
@@ -4677,7 +4682,7 @@ textarea.paper-note-editor-input {
 }
 .annotation-markdown-editor .paper-note-rich .ProseMirror,
 .annotation-markdown-editor textarea.paper-note-editor-input {
-  padding: 8px 10px;
+  padding: 8px 10px calc(8px + 1.7em);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -4685,6 +4690,9 @@ textarea.paper-note-editor-input {
 .note-card > .message-markdown > :first-child,
 [data-annotation-preview] .message-markdown > :first-child {
   margin-top: 0;
+}
+.annotation-markdown-editor .ProseMirror > :last-child {
+  margin-bottom: 0;
 }
 
 .paper-note-rich [data-note-math] {
