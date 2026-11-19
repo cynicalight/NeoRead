@@ -2,7 +2,7 @@ import {
   useId,
   useLayoutEffect,
   useRef,
-  useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { ArrowLeftRight, ArrowUpDown, Columns2, Rows2 } from "lucide-react";
@@ -39,7 +39,9 @@ export function TranslationPanes({
   const sourcePanel = usePanelRef();
   const rememberedWidth = useRef(sourceWidth);
   rememberedWidth.current = sourceWidth;
-  const [dividerAt, setDividerAt] = useState(50);
+  // Written directly on layout changes: a React render per drag frame is wasted.
+  const controls = useRef<HTMLDivElement>(null);
+  const dividerAt = useRef(50);
   const stacked = useReaderStore(
     (state) => readerLayout(state.theme.readerLayout).stacked,
   );
@@ -110,7 +112,12 @@ export function TranslationPanes({
             onResizeStart?.();
         }}
         onLayoutChange={(layout) => {
-          if (parallel) setDividerAt(layout[`${id}-left`]);
+          if (!parallel) return;
+          dividerAt.current = layout[`${id}-left`];
+          controls.current?.style.setProperty(
+            "--divider-at",
+            `${dividerAt.current}%`,
+          );
         }}
         onLayoutChanged={(layout, { isUserInteraction }) => {
           if (parallel && isUserInteraction) {
@@ -125,8 +132,9 @@ export function TranslationPanes({
           does not consume pointer events intended for these buttons. */}
       {parallel && (
         <div
+          ref={controls}
           className="translation-pane-controls"
-          style={stacked ? { top: `${dividerAt}%` } : { left: `${dividerAt}%` }}
+          style={{ "--divider-at": `${dividerAt.current}%` } as CSSProperties}
         >
           <Button
             variant="outline"

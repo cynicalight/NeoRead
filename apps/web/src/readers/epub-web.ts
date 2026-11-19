@@ -66,6 +66,10 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   private observer?: IntersectionObserver;
   private resize?: ResizeObserver;
   private frame = 0;
+  // Width changes reflow every loaded chapter each frame of a divider drag.
+  // Keep the anchor fixed then and report once the width settles.
+  private width = 0;
+  private widthSettle?: ReturnType<typeof setTimeout>;
   private navigation = 0;
   private followOperation = 0;
   private restoring = false;
@@ -268,11 +272,22 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       for (const chapter of this.chapters) this.observer.observe(chapter.node);
     }
     if (typeof ResizeObserver !== "undefined") {
+      this.width = this.container.clientWidth;
       this.resize = new ResizeObserver(() => {
         if (this.container.closest("[inert]")) return;
-        this.placeNotes();
+        // Restore the scroll position before writing note markers so the
+        // anchor read does not force a second layout.
         this.preserveAnchor();
-        this.onScroll();
+        this.placeNotes();
+        const width = this.container.clientWidth;
+        if (width !== this.width) {
+          this.width = width;
+          clearTimeout(this.widthSettle);
+          this.widthSettle = setTimeout(() => {
+            this.widthSettle = undefined;
+            this.onScroll();
+          }, 150);
+        } else if (this.widthSettle === undefined) this.onScroll();
       });
       for (const chapter of this.chapters) this.resize.observe(chapter.node);
       this.resize.observe(this.container);
@@ -423,6 +438,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       if (
         this.disposed ||
         this.restoring ||
+        this.widthSettle !== undefined ||
         !this.container.clientHeight ||
         !this.container.clientWidth
       )
@@ -1162,6 +1178,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
     this.observer?.disconnect();
     this.resize?.disconnect();
     cancelAnimationFrame(this.frame);
+    clearTimeout(this.widthSettle);
     for (const name of this.names) globalThis.CSS?.highlights?.delete(name);
     this.style.remove();
     this.clearSelection();

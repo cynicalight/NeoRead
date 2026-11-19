@@ -234,19 +234,23 @@ export function PDFReadingView({
     // Measure the panel, not the pane: the pane's own half-height padding
     // would keep it from shrinking when the panel gets shorter.
     const frame = host.parentElement ?? host;
-    let initialized = false;
+    let height: number | undefined;
     const resize = () => {
-      const node = Array.from(
-        host.querySelectorAll<HTMLElement>(blockSelector),
-      ).find((node) => nodeBlockId(node) === reading.current?.blockId);
+      // Width-only changes (dragging the parallel divider) leave the inset and
+      // the reading block's offset unchanged; skip the block scan and layout reads.
+      if (frame.clientHeight === height) return;
+      const initialized = height !== undefined;
+      height = frame.clientHeight;
+      const id = reading.current?.blockId;
+      const node = id
+        ? Array.from(host.querySelectorAll<HTMLElement>(blockSelector)).find(
+            (node) => nodeBlockId(node) === id,
+          )
+        : undefined;
       const before = node?.getBoundingClientRect().top;
-      host.style.setProperty(
-        "--translation-inset",
-        `${frame.clientHeight / 2}px`,
-      );
+      host.style.setProperty("--translation-inset", `${height / 2}px`);
       if (initialized && node && before !== undefined)
         host.scrollTop += node.getBoundingClientRect().top - before;
-      initialized = true;
     };
     resize();
     const observer = new ResizeObserver(resize);
