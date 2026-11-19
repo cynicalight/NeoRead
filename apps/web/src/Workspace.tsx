@@ -1355,7 +1355,7 @@ export function Workspace({
               </TabsContent>
               <TabsContent
                 value="search"
-                className="relative flex min-h-0 flex-1 flex-col gap-3 p-3"
+                className="sidebar-search-panel relative flex min-h-0 flex-1 flex-col gap-3 p-3"
               >
                 <form
                   onSubmit={(e) => {
@@ -1375,7 +1375,7 @@ export function Workspace({
                   />
                 </form>
                 <ScrollArea className="min-h-0 flex-1">
-                  <div className="pb-12">
+                  <div className="sidebar-search-results pb-12">
                     {results.map((result) => (
                       <Button
                         key={result.id}

@@ -737,25 +737,27 @@ kbd {
     transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 .neoread-sidebar {
+  --sidebar-header-height: 80px;
+  position: relative;
   min-width: 180px;
 }
 .assistant-sidebar {
-  --assistant-header-height: 112px;
+  --sidebar-header-height: 112px;
   position: relative;
   min-width: 250px;
 }
-/* Shared by all three tabs: keep controls crisp while the surface and blur
-   fade independently over the content below each tab’s toolbar. */
-.assistant-sidebar::before,
-.assistant-sidebar::after {
+/* Shared by both sidebars and all their tabs: keep controls crisp while the
+   surface and blur fade independently over the content below the toolbar. */
+:is(.neoread-sidebar, .assistant-sidebar)::before,
+:is(.neoread-sidebar, .assistant-sidebar)::after {
   content: "";
   position: absolute;
   inset: 0 0 auto;
-  height: var(--assistant-header-height);
+  height: var(--sidebar-header-height);
   z-index: 1;
   pointer-events: none;
 }
-.assistant-sidebar::before {
+:is(.neoread-sidebar, .assistant-sidebar)::before {
   background: linear-gradient(
     to bottom,
     var(--background) 0%,
@@ -767,22 +769,45 @@ kbd {
   backdrop-filter: blur(16px);
   mask-image: linear-gradient(to bottom, #000 42%, #0009 70%, transparent);
 }
-.assistant-sidebar::after {
+:is(.neoread-sidebar, .assistant-sidebar)::after {
   backdrop-filter: blur(4px);
   mask-image: linear-gradient(to bottom, #000 55%, #000b 78%, transparent);
 }
-.assistant-sidebar > [data-slot="tabs"] > .panel-tabs {
+:is(.neoread-sidebar, .assistant-sidebar) > [data-slot="tabs"] > .panel-tabs {
   z-index: 2;
   border-bottom: 0;
   background: transparent;
 }
 .assistant-sidebar .notes-header,
-.assistant-sidebar .paper-note-toolbar {
+.assistant-sidebar .paper-note-toolbar,
+.neoread-sidebar .sidebar-search-panel > form {
   position: relative;
   z-index: 2;
 }
 .assistant-sidebar:has(> [data-slot="tabs"] > .notes-panel:not([hidden])) {
-  --assistant-header-height: 156px;
+  --sidebar-header-height: 156px;
+}
+/* Contents start under the 48px tab bar and scroll up beneath it. */
+.neoread-sidebar > [data-slot="tabs"] > [data-slot="tabs-content"] {
+  margin-top: -48px;
+}
+.neoread-sidebar .navigation-rows {
+  padding-top: 76px;
+}
+.neoread-sidebar:has(
+  > [data-slot="tabs"] > .sidebar-search-panel:not([hidden])
+) {
+  --sidebar-header-height: 124px;
+}
+.neoread-sidebar .sidebar-search-panel {
+  padding-top: 60px;
+}
+/* Results scroll up beneath the search field to the sidebar top. */
+.neoread-sidebar .sidebar-search-panel > [data-slot="scroll-area"] {
+  margin-top: -104px;
+}
+.neoread-sidebar .sidebar-search-results {
+  padding-top: 116px;
 }
 /* The paper note scrolls inside its own editor, never under the header. */
 .assistant-sidebar:has(
@@ -4248,7 +4273,8 @@ textarea.citation-preview {
 .settings-tabs::after {
   content: "";
   position: absolute;
-  inset: 0 0 auto;
+  /* Span the dialog padding so the blur never ends beside the content. */
+  inset: 0 -24px auto;
   height: var(--settings-header-height);
   z-index: 1;
   pointer-events: none;
