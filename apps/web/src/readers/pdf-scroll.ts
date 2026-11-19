@@ -7,8 +7,8 @@ export function animatePDFScroll(
   cancelled: () => boolean,
   moved: () => void,
 ): Promise<void> {
-  const fromLeft = host.scrollLeft,
-    fromTop = host.scrollTop;
+  const fromLeft = host.scrollLeft;
+  let fromTop = host.scrollTop;
   left = Math.max(0, left);
   top = Math.max(0, top);
   if (host.scrollWidth)
@@ -24,6 +24,14 @@ export function animatePDFScroll(
   if (reducedMotion() || Math.hypot(left - fromLeft, top - fromTop) < 1) {
     apply(1);
     return Promise.resolve();
+  }
+  // Gliding across many pages makes PDF.js render each page it passes. Jump
+  // to one viewport short of the destination and animate only that stretch.
+  const span = host.clientHeight;
+  if (span > 0 && Math.abs(top - fromTop) > span * 2) {
+    fromTop = top - Math.sign(top - fromTop) * span;
+    host.scrollTop = fromTop;
+    moved();
   }
   let started: number | undefined;
   return new Promise((resolve) => {
