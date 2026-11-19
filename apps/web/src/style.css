@@ -1318,8 +1318,8 @@ kbd {
 .chat-message {
   font-family: var(--assistant-font-family);
   font-weight: var(--assistant-font-weight);
-  font-size: calc(12px * var(--assistant-font-scale, 1));
-  line-height: 1.9;
+  font-size: calc(14px * var(--assistant-font-scale, 1));
+  line-height: 1.7;
   padding: 13px 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1451,7 +1451,7 @@ kbd {
   max-height: 160px;
   overflow-y: auto;
   font-family: var(--assistant-font-family);
-  font-size: calc(11px * var(--assistant-font-scale, 1));
+  font-size: calc(14px * var(--assistant-font-scale, 1));
   line-height: 1.5;
   padding: 7px 9px;
   outline: none;
