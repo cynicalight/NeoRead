@@ -102,7 +102,7 @@ beforeEach(async () => {
       const controls = this.closest<HTMLElement>(".translation-pane-controls");
       if (controls)
         return new DOMRect(
-          parseFloat(controls.style.left) * 10 - 12,
+          parseFloat(controls.style.getPropertyValue("--divider-at")) * 10 - 12,
           12,
           24,
           24,
@@ -214,7 +214,9 @@ it("supports keyboard resizing and keeps clicks on the swap button out of the dr
   const button = host.querySelector<HTMLButtonElement>(
     '[aria-label="交换原文和译文"]',
   )!;
-  const x = parseFloat(button.parentElement!.style.left) * 10;
+  const x =
+    parseFloat(button.parentElement!.style.getPropertyValue("--divider-at")) *
+    10;
   await act(async () => {
     button.dispatchEvent(
       new MouseEvent("pointerdown", {
@@ -286,8 +288,9 @@ it("stacks source and translation top and bottom without remounting the source",
   const controls = host.querySelector<HTMLElement>(
     ".translation-pane-controls",
   )!;
-  expect(controls.style.top).not.toBe("");
-  expect(controls.style.left).toBe("");
+  expect(
+    parseFloat(controls.style.getPropertyValue("--divider-at")),
+  ).toBeCloseTo(sourceSize());
   await click("交换原文和译文");
   await click("左右排列");
   expect(
