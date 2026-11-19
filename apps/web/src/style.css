@@ -1193,16 +1193,22 @@ kbd {
   position: absolute;
   max-width: calc(100% - 16px);
   flex-wrap: wrap;
-  background: var(--popover);
-  padding: 7px 9px;
+  /* Floating bars share a slightly translucent capsule. */
+  background: color-mix(in srgb, var(--popover) 82%, transparent);
+  backdrop-filter: blur(12px);
+  padding: 5px 10px;
   display: flex;
   align-items: center;
   gap: 3px;
-  border: 1px solid var(--border);
-  border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
   box-shadow: 0 6px 25px #00000015;
   z-index: 20;
   white-space: nowrap;
+}
+.selection-bar [data-slot="button"],
+.note-card-actions [data-slot="button"] {
+  border-radius: 999px;
 }
 .selection-bar [data-slot="badge"] {
   font-size: 9px;
@@ -1745,7 +1751,8 @@ kbd {
   align-items: center;
   /* Translucent so the quote underneath stays readable. */
   border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  border-radius: 7px;
+  border-radius: 999px;
+  padding: 0 3px;
   background: color-mix(in srgb, var(--popover) 60%, transparent);
   opacity: 0;
   pointer-events: none;
