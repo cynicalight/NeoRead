@@ -12,6 +12,9 @@ on:
       mac-only:
         default: false
         type: boolean
+      mac-intel:
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -22,7 +25,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.mac-only && '[{"os":"macos-15","target":"mac-arm64"}]' || '[{"os":"macos-15","target":"mac-arm64"},{"os":"windows-2022","target":"win-x64"}]') }}
+        include: >-
+          ${{ fromJSON(format('[{{"os":"macos-15","target":"mac-arm64"}}{0}{1}]',
+            inputs.mac-intel && ',{"os":"macos-15-intel","target":"mac-intel-x64"}' || '',
+            !inputs.mac-only && ',{"os":"windows-2022","target":"win-x64"}' || '')) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
@@ -50,6 +56,12 @@ jobs:
           go-version-file: apps/server/go.mod
           cache-dependency-path: apps/server/go.sum
       - run: pnpm install --frozen-lockfile
+      - name: Install Intel-compatible ONNX Runtime
+        if: matrix.target == 'mac-intel-x64'
+        run: |
+          node -e 'if (process.platform !== "darwin" || process.arch !== "x64") process.exit(1)'
+          pnpm --filter @neoread/processor add --save-exact onnxruntime-node@1.22.0
+          pnpm --filter @neoread/processor exec node -e 'require("onnxruntime-node")'
       - name: Cache pinned layout-model weights
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:

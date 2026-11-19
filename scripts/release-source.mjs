@@ -39,5 +39,5 @@ const sha = execFileSync("git", ["rev-parse", "HEAD"], {
   encoding: "utf8",
 }).trim();
 if (process.env.GITHUB_OUTPUT)
-  await appendFile(process.env.GITHUB_OUTPUT, `sha=${sha}\n`);
+  await appendFile(process.env.GITHUB_OUTPUT, `sha=${sha}\nmac-intel=true\n`);
 console.log(`Building NeoRead ${app.version} from ${sha}`);

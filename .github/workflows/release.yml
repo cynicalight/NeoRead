@@ -26,6 +26,7 @@ jobs:
       actions: read
     outputs:
       sha: ${{ steps.source.outputs.sha }}
+      mac-intel: ${{ steps.source.outputs.mac-intel }}
       verified: ${{ steps.ci.outputs.verified }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -73,6 +74,7 @@ jobs:
       ref: ${{ needs.prepare.outputs.sha }}
       release-tag: ${{ inputs.release-tag || github.event.release.tag_name || '' }}
       mac-only: ${{ contains(github.event.release.body, '<!-- neoread:mac-only -->') }}
+      mac-intel: ${{ needs.prepare.outputs.mac-intel == 'true' }}
 
   publish:
     needs: [prepare, desktop]

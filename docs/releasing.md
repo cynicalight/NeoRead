@@ -6,10 +6,12 @@ NeoRead 使用 GitHub Actions 和 electron-builder，发布 GitHub Release 后�
 | ------------------------------------ | -------------------------- |
 | `NeoRead-<version>-mac-arm64.dmg`     | Apple Silicon Mac          |
 | `NeoRead-<version>-mac-arm64.zip`     | Mac 应用内原地更新包       |
+| `NeoRead-<version>-mac-intel-x64.dmg` | Intel Mac                  |
+| `NeoRead-<version>-mac-intel-x64.zip` | Intel Mac 原地更新包       |
 | `NeoRead-<version>-win-x64.exe`       | Windows x64（NSIS）        |
 | `SHA256SUMS.txt`                     | 安装包的 SHA-256 校验值    |
 
-当前工作流不构建 Intel Mac、Windows ARM64 或 Linux 安装包。Intel Mac 暂停构建：`onnxruntime-node` 自 1.24 起不再提供 darwin/x64 原生库，包内检查无法加载版面模型。`builder.config.cjs` 与更新检查仍保留 `mac-intel-x64` 命名，恢复时在 `.github/workflows/build.yml`（`macos-15-intel` runner）和 `scripts/release-assets.mjs` 中加回该目标即可。
+Intel Mac 使用 `macos-15-intel` 原生 runner。仅该构建固定 `onnxruntime-node@1.22.0`，以保留 `darwin-x64` 原生库；Apple Silicon 和 Windows 沿用锁定依赖。三种目标均运行包内检查。不构建 Windows ARM64 或 Linux 安装包。
 
 当前没有 Apple 开发者证书。macOS 正式版使用仓库固定的自签名证书签名（见下文“macOS 签名证书”），不做 Apple 公证；Gatekeeper 不信任该证书，表现与 ad-hoc 签名相同。Windows 安装包没有 Authenticode 签名。系统可能阻止首次打开。macOS 可在确认下载来源后，在“系统设置 → 隐私与安全性”中允许该应用；Windows SmartScreen 可选择“更多信息 → 仍要运行”。组织设备策略可能禁止绕过。无需关闭系统整体安全保护。校验值用于检查文件完整性，不能替代开发者身份签名。
 
@@ -34,18 +36,18 @@ gh secret set NEOREAD_MAC_SIGN_P12_PASSWORD < ~/neoread-mac-sign/password.txt
 1. 在独立 worktree/分支完成修改，将根目录 `package.json` 和 `apps/desktop/package.json` 的版本同步，例如都改为 `0.2.0`。提交后 merge 到 `main`。
 2. 推送 `main`，手动运行 **CI**（`gh workflow run ci.yml --ref main`），等待该提交的 Linux 和 Windows 检查全部通过。直接推送 `main` 不会自动触发 CI。首次启用时，可从 Actions 手动运行 **Release installers** 并留空 `release-tag`；它只保存安装包与校验值为 Actions artifacts，不创建或修改 Release。
 3. 在所需提交上创建 tag，例如 `v0.2.0`，并发布该 tag 对应的 GitHub Release。Release 所在提交必须包含本工作流。预发布版本可用 `0.2.0-beta.1` / `v0.2.0-beta.1`。
-4. **Release installers** 将 tag 解析为固定提交，核对版本，分别在原生 macOS ARM64 和 Windows x64 runner 上构建。同一源提交已经通过的 `main` CI 会直接复用；没有成功记录时，先调用与日常 CI 相同的检查流程。检查通过后才构建安装包，所有平台都成功后统一上传安装包与校验值到同一个 Release。
+4. **Release installers** 将 tag 解析为固定提交，核对版本，使用 Apple Silicon、Intel Mac 和 Windows x64 原生 runner 构建。同一源提交已经通过的 `main` CI 会直接复用；没有成功记录时，先调用与日常 CI 相同的检查流程。检查通过且所有目标构建成功后，统一上传安装包与校验值。
 5. 下载并做安装后的人工检查：打开应用，导入 EPUB/PDF，确认阅读、笔记保存及重新打开后恢复；退出后检查服务已停止。在设置中连接模型服务并验证 AI 功能。
 
 触发事件为 `release: published`，适用于正式版和预发布版。保存草稿、单独推送 tag 或修改 Release 描述不会触发。Release 页面会先发布，安装包稍后上传；任一构建失败时上传任务不会运行。GitHub 资产上传不是事务操作，上传过程中网络失败可能留下部分文件；修复后重新运行工作流会覆盖同名资产。不要移动已发布的 tag；代码修复请发布新版本。
 
-只发布 macOS 测试版时，在创建 Release 的描述中加入 `<!-- neoread:mac-only -->`。工作流只运行 macOS 构建，并要求 Release 恰好包含 Apple Silicon 的 DMG、原地更新 ZIP 和校验值；Windows 用户不会收到这个版本的安装包。
+只发布 macOS 测试版时，在 Release 描述中加入 `<!-- neoread:mac-only -->`。工作流跳过 Windows，仍要求 Apple Silicon 与 Intel 各自的 DMG 和更新 ZIP。
 
 工作流使用仓库自动提供的 `GITHUB_TOKEN` 和上述两个 macOS 签名 secrets，无需 PAT。构建任务只有 `contents: read`，上传任务才有 `contents: write`。若以后由另一个工作流创建 Release，需要注意：默认 `GITHUB_TOKEN` 产生的事件通常不会触发新的工作流；应改为显式调用构建工作流，或调整发布入口。
 
 ### 恢复已有 Release 的构建
 
-若已发布 tag 的应用源码无需修改，只需修复构建环境，可先将工作流修复合并到 `main`，再执行 `gh workflow run release.yml --ref main -f release-tag=v0.9.5`（替换为实际标签）。工作流使用 `main` 的构建配置，检出指定 tag 的固定提交，验证版本及已发布 Release，复用该源提交的 CI，并在全部平台通过后上传附件。恢复入口构建 macOS ARM64 和 Windows x64 两个平台。不要移动已发布的 tag；应用源码需要修改时应发布新版本。
+若已发布 tag 的应用源码无需修改，只需修复构建环境，可先将工作流修复合并到 `main`，再执行 `gh workflow run release.yml --ref main -f release-tag=v0.9.5`（替换为实际标签）。工作流检出固定提交，验证版本及已发布 Release，复用该提交的 CI，并按该标签支持的目标构建与上传；早于 0.14.0 的标签不新增 Intel。不要移动已发布的 tag；应用源码需要修改时应发布新版本。
 
 CI 为 Node 构建进程设置 4096 MiB 堆上限，避免 macOS runner 在 Vite 渲染资源块时触及默认约 2 GiB 的堆上限。该设置只属于构建环境。
 

@@ -9,6 +9,8 @@ const { version } = JSON.parse(
 const expected = [
   `NeoRead-${version}-mac-arm64.dmg`,
   `NeoRead-${version}-mac-arm64.zip`,
+  `NeoRead-${version}-mac-intel-x64.dmg`,
+  `NeoRead-${version}-mac-intel-x64.zip`,
   ...(process.env.MAC_ONLY === "true" ? [] : [`NeoRead-${version}-win-x64.exe`]),
 ].sort();
 const actual = (await readdir("release"))

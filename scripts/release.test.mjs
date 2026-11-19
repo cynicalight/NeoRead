@@ -39,7 +39,13 @@ function run(script, cwd, env = {}, args = []) {
 }
 async function installers(cwd) {
   const files = [];
-  for (const target of ["mac-arm64.dmg", "mac-arm64.zip", "win-x64.exe"]) {
+  for (const target of [
+    "mac-arm64.dmg",
+    "mac-arm64.zip",
+    "mac-intel-x64.dmg",
+    "mac-intel-x64.zip",
+    "win-x64.exe",
+  ]) {
     const file = `NeoRead-0.2.0-${target}`;
     const bytes = Buffer.alloc(1024 * 1024 + 512);
     if (target.endsWith("dmg")) bytes.write("koly", bytes.length - 512);
@@ -106,14 +112,21 @@ test("release checks installer format before writing hashes", async () => {
   expect(result.status).not.toBe(0);
   expect(result.stderr).toContain("Invalid installer format");
 });
-test("Mac-only release requires the Apple Silicon DMG and update ZIP", async () => {
+test("Mac-only release requires both architectures' DMG and update ZIP", async () => {
   const cwd = await fixture();
   const files = await installers(cwd);
   await rm(join(cwd, "release/NeoRead-0.2.0-win-x64.exe"));
   expect(run("release-assets.mjs", cwd).status).not.toBe(0);
+  const intelZip = join(cwd, "release/NeoRead-0.2.0-mac-intel-x64.zip");
+  await rm(intelZip);
+  expect(run("release-assets.mjs", cwd, { MAC_ONLY: "true" }).status).not.toBe(0);
+  await writeFile(
+    intelZip,
+    files.find(({ file }) => file.endsWith("intel-x64.zip")).bytes,
+  );
   expect(run("release-assets.mjs", cwd, { MAC_ONLY: "true" }).status).toBe(0);
   const hashes = await readFile(join(cwd, "release/SHA256SUMS.txt"), "utf8");
-  expect(hashes.split("\n").filter(Boolean)).toHaveLength(2);
+  expect(hashes.split("\n").filter(Boolean)).toHaveLength(4);
   for (const { file, bytes } of files.filter(
     ({ file }) => !file.endsWith(".exe"),
   ))
@@ -122,7 +135,7 @@ test("Mac-only release requires the Apple Silicon DMG and update ZIP", async () 
     );
   await writeFile(
     join(cwd, "release/NeoRead-0.2.0-win-x64.exe"),
-    files[2].bytes,
+    files.find(({ file }) => file.endsWith(".exe")).bytes,
   );
   expect(run("release-assets.mjs", cwd, { MAC_ONLY: "true" }).status).not.toBe(
     0,
@@ -187,6 +200,8 @@ test.each([0, 1, 2])(
       "v0.2.0",
       "release/NeoRead-0.2.0-mac-arm64.dmg",
       "release/NeoRead-0.2.0-mac-arm64.zip",
+      "release/NeoRead-0.2.0-mac-intel-x64.dmg",
+      "release/NeoRead-0.2.0-mac-intel-x64.zip",
       "release/NeoRead-0.2.0-win-x64.exe",
       "--clobber",
     ]);
