@@ -4246,11 +4246,42 @@ textarea.citation-preview {
   height: min(620px, 85vh);
   grid-template-rows: auto minmax(0, 1fr);
 }
+/* Panels scroll up under the nav into the same fading blur as the assistant
+   sidebar header (::before surface + 16px blur, ::after 4px blur). */
 .settings-tabs {
+  --settings-header-height: 80px;
+  position: relative;
   min-height: 0;
-  gap: 20px;
+  gap: 0;
+}
+.settings-tabs::before,
+.settings-tabs::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--settings-header-height);
+  z-index: 1;
+  pointer-events: none;
+}
+.settings-tabs::before {
+  background: linear-gradient(
+    to bottom,
+    var(--popover) 0%,
+    var(--popover) 38%,
+    color-mix(in srgb, var(--popover) 82%, transparent) 56%,
+    color-mix(in srgb, var(--popover) 38%, transparent) 76%,
+    transparent 100%
+  );
+  backdrop-filter: blur(16px);
+  mask-image: linear-gradient(to bottom, #000 42%, #0009 70%, transparent);
+}
+.settings-tabs::after {
+  backdrop-filter: blur(4px);
+  mask-image: linear-gradient(to bottom, #000 55%, #000b 78%, transparent);
 }
 .settings-nav.settings-nav {
+  position: relative;
+  z-index: 2;
   width: 100%;
   height: 38px;
   flex-shrink: 0;
@@ -4266,6 +4297,10 @@ textarea.citation-preview {
   overflow-y: auto;
   padding: 2px 4px 24px;
   scrollbar-width: none;
+}
+.settings-tabs > .settings-panel {
+  margin-top: -38px;
+  padding-top: var(--settings-header-height);
 }
 /* Every block in a settings tab is a titled section; dividers come from here. */
 .settings-panel > * + * {
