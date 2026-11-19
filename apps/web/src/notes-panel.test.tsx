@@ -217,7 +217,11 @@ it("warns before closing the tab with an unsaved inline note", async () => {
   const field = host.querySelector<HTMLTextAreaElement>('[aria-label="批注"]')!;
   await act(async () => type(field, "Unsaved thought"));
   expect(tabCloseWarning("p")?.message).toContain("批注尚未保存");
-  await act(async () => button("取消").click());
+  await act(async () =>
+    field.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    ),
+  );
   expect(tabCloseWarning("p")).toBeNull();
 });
 

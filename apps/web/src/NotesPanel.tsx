@@ -213,29 +213,20 @@ function NoteCard({
             onUploadingChange={setUploading}
             toolbarPlacement="bottom"
             actions={
-              <>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={saving}
-                  onClick={() => setEditing(false)}
-                >
-                  取消
-                </Button>
-                <Button
-                  size="xs"
-                  disabled={saving || uploading || (question && !draft.trim())}
-                  onClick={() => {
-                    setSaving(true);
-                    void onSave(draft)
-                      .then((ok) => ok && setEditing(false))
-                      .finally(() => setSaving(false));
-                  }}
-                >
-                  <Check />
-                  保存
-                </Button>
-              </>
+              <Button
+                size="icon-sm"
+                aria-label="保存"
+                title="保存"
+                disabled={saving || uploading || (question && !draft.trim())}
+                onClick={() => {
+                  setSaving(true);
+                  void onSave(draft)
+                    .then((ok) => ok && setEditing(false))
+                    .finally(() => setSaving(false));
+                }}
+              >
+                <Check className="size-3.5" />
+              </Button>
             }
           />
         </div>
