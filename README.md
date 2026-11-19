@@ -228,5 +228,11 @@ assets/            # Logo 源文件与应用图标
 
 ## 交流群
 
-<img width="720" height="1088" alt="image" src="https://github.com/user-attachments/assets/a91dde2e-b202-45c8-88bd-639b83cd5245" />
+欢迎交流/分享/催更, 加群获得最新动向.
+
+微信群:
+<img width="720" height="1232" alt="image" src="https://github.com/user-attachments/assets/dd527037-8725-4402-bd7e-35b38297e413" />
+
+抖音搜 bu44er 有 500 人反馈大群.
+
 
