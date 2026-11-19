@@ -784,6 +784,15 @@ kbd {
 .assistant-sidebar:has(> [data-slot="tabs"] > .notes-panel:not([hidden])) {
   --assistant-header-height: 156px;
 }
+/* The paper note scrolls inside its own editor, never under the header. */
+.assistant-sidebar:has(
+    > [data-slot="tabs"] > .paper-note-panel:not([hidden])
+  )::before,
+.assistant-sidebar:has(
+    > [data-slot="tabs"] > .paper-note-panel:not([hidden])
+  )::after {
+  display: none;
+}
 .notes-header {
   display: flex;
   flex-direction: column;
