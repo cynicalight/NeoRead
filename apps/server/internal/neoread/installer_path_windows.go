@@ -1,12 +1,25 @@
 package neoread
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/windows"
 )
+
+func installerPlatformReason(err error) installerReason {
+	switch {
+	case errors.Is(err, windows.ERROR_DISK_FULL), errors.Is(err, windows.ERROR_HANDLE_DISK_FULL):
+		return installNoSpace
+	case errors.Is(err, windows.ERROR_SHARING_VIOLATION), errors.Is(err, windows.ERROR_LOCK_VIOLATION):
+		return installBusy
+	case errors.Is(err, windows.ERROR_WRITE_PROTECT):
+		return installPermissionDenied
+	}
+	return ""
+}
 
 func existingInstallPath(path string) (string, error) {
 	// The handle resolves junctions, short names and drive aliases. Use the

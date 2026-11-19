@@ -25,35 +25,35 @@ func copyLibrary(source, destination string, activate func(string) error) (err e
 	// even when symlinks are resolved below for overlap checks and safe copying.
 	sourceRoot, err := filepath.Abs(source)
 	if err != nil {
-		return err
+		return installerFailureAt(installPreflight, installUnsafeLocation, err)
 	}
 	destinationRoot, err := filepath.Abs(destination)
 	if err != nil {
-		return err
+		return installerFailureAt(installPreflight, installUnsafeLocation, err)
 	}
 	// OpenStore treats ? as the start of SQLite DSN parameters on restart.
 	if strings.Contains(destinationRoot, "?") {
-		return fmt.Errorf("书库路径不能包含 ?，请选择其他位置。")
+		return installerFailureAt(installPreflight, installUnsafeLocation, fmt.Errorf("书库路径不能包含 ?，请选择其他位置。"))
 	}
 	source, err = filepath.EvalSymlinks(source)
 	if err != nil {
-		return err
+		return installerFailureAt(installPreflight, installInvalidLibrary, err)
 	}
 	source, err = filepath.Abs(source)
 	if err != nil {
-		return err
+		return installerFailureAt(installPreflight, installUnsafeLocation, err)
 	}
 	parent, err := filepath.EvalSymlinks(filepath.Dir(destination))
 	if err != nil {
-		return err
+		return installerFailureAt(installPreflight, installUnsafeLocation, err)
 	}
 	parent, err = filepath.Abs(parent)
 	if err != nil {
-		return err
+		return installerFailureAt(installPreflight, installUnsafeLocation, err)
 	}
 	destination = filepath.Join(parent, filepath.Base(destination))
 	if containsPath(source, destination) || containsPath(destination, source) {
-		return fmt.Errorf("新书库不能与当前书库重叠")
+		return installerFailureAt(installPreflight, installUnsafeLocation, fmt.Errorf("新书库不能与当前书库重叠"))
 	}
 	database := filepath.Join(source, "neoread.sqlite")
 	info, err := os.Lstat(database)
@@ -62,36 +62,43 @@ func copyLibrary(source, destination string, activate func(string) error) (err e
 		database = filepath.Join(source, "reader.sqlite")
 		info, err = os.Lstat(database)
 	}
+	if errors.Is(err, os.ErrNotExist) {
+		return installerFailureAt(installPreflight, installInvalidLibrary, err)
+	}
 	if err != nil {
-		return err
+		return installerFailureAt(installPreflight, installCopyFailed, err)
 	}
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("书库数据库不是普通文件")
+		return installerFailureAt(installPreflight, installInvalidLibrary, fmt.Errorf("书库数据库不是普通文件"))
 	}
 	if activate != nil {
 		for _, name := range []string{"neoread.lock", "reader.lock"} {
 			if err := checkInstallRegularFile(filepath.Join(source, name)); err != nil {
-				return err
+				return installerFailureAt(installSourceLock, installUnsafeLocation, err)
 			}
 		}
 	}
 	unlock, err := LockLibrary(source)
 	if err != nil {
-		return err
+		return installerFailureAt(installSourceLock, installCopyFailed, err)
 	}
 	defer unlock()
 	// Never merge with or overwrite a directory the user already owns.
 	if err = os.Mkdir(destination, 0700); err != nil {
-		return fmt.Errorf("无法创建新书库，请选择不含 NeoRead Library 的文件夹：%w", err)
+		reason := installCopyFailed
+		if errors.Is(err, os.ErrExist) {
+			reason = installDestinationExists
+		}
+		return installerFailureAt(installDestinationCreate, reason, fmt.Errorf("无法创建新书库，请选择不含 NeoRead Library 的文件夹：%w", err))
 	}
 	createdDir, err := os.Open(destination)
 	if err != nil {
-		return err
+		return installerFailureAt(installDestinationCreate, installCopyFailed, err)
 	}
 	created, err := createdDir.Stat()
 	if err != nil {
 		createdDir.Close()
-		return err
+		return installerFailureAt(installDestinationCreate, installCopyFailed, err)
 	}
 	unlockTarget, err := LockLibrary(destination)
 	if err != nil {
@@ -100,7 +107,7 @@ func copyLibrary(source, destination string, activate func(string) error) (err e
 		if current, statErr := os.Lstat(destination); statErr == nil && os.SameFile(created, current) {
 			_ = os.Remove(destination)
 		}
-		return err
+		return installerFailureAt(installDestinationLock, installCopyFailed, err)
 	}
 	defer func() {
 		unlockTarget()
@@ -147,36 +154,36 @@ func copyLibrary(source, destination string, activate func(string) error) (err e
 			return err
 		}
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("书库包含链接或特殊文件，无法安全迁移：%s", relative)
+			return installerFailureAt(installCopy, installUnsafeLocation, fmt.Errorf("书库包含链接或特殊文件，无法安全迁移：%s", relative))
 		}
 		return copyLibraryFile(path, target)
 	})
 	if err != nil {
-		return err
+		return installerFailureAt(installCopy, installCopyFailed, err)
 	}
 	// Validate the copy and rebind its corpus paths without opening the source
 	// database. Only the installer also converts the legacy database filename.
 	if legacy {
 		if err = convertLegacyDatabase(destination, sourceRoot, destinationRoot); err != nil {
-			return err
+			return installerFailureAt(installVerify, installCopyFailed, err)
 		}
 	} else if err = checkLibraryDatabase(sourceRoot, destinationRoot); err != nil {
-		return err
+		return installerFailureAt(installVerify, installCopyFailed, err)
 	}
 	if activate != nil {
 		currentDir, err := os.Open(destination)
 		if err != nil {
-			return err
+			return installerFailureAt(installActivate, installUnsafeLocation, err)
 		}
 		current, statErr := currentDir.Stat()
 		currentDir.Close()
 		if statErr != nil {
-			return statErr
+			return installerFailureAt(installActivate, installUnsafeLocation, statErr)
 		}
 		if !current.IsDir() || !os.SameFile(created, current) {
-			return fmt.Errorf("新书库目录已更换，未启用：%s", destination)
+			return installerFailureAt(installActivate, installUnsafeLocation, fmt.Errorf("新书库目录已更换，未启用：%s", destination))
 		}
-		return activate(destinationRoot)
+		return installerFailureAt(installActivate, installSettingsWrite, activate(destinationRoot))
 	}
 	return nil
 }
@@ -235,11 +242,14 @@ func checkLibraryDatabase(source, destination string) error {
 		return fmt.Errorf("新书库数据库校验失败：%w", err)
 	}
 	if result != "ok" {
-		return fmt.Errorf("新书库数据库校验失败")
+		return installerFailureAt(installVerify, installInvalidLibrary, fmt.Errorf("新书库数据库校验失败"))
 	}
 	var tables int
-	if err := db.QueryRow("SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='documents'").Scan(&tables); err != nil || tables != 1 {
-		return fmt.Errorf("新目录不是有效的 NeoRead 书库")
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='documents'").Scan(&tables); err != nil {
+		return installerFailureWithMessage(installVerify, installCopyFailed, err, "新目录不是有效的 NeoRead 书库")
+	}
+	if tables != 1 {
+		return installerFailureAt(installVerify, installInvalidLibrary, fmt.Errorf("新目录不是有效的 NeoRead 书库"))
 	}
 	return relocateCorpusFingerprints(db, source, destination)
 }

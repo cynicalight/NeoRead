@@ -93,6 +93,14 @@ ${
 Var neoreadTestPickedParent
 !define NEOREAD_INSTALL_USER_DATA "$neoreadTestUserData"
 !macro neoreadLibraryPrompt PURPOSE TEXT FLAGS
+  !if "\${PURPOSE}" == "RETRY"
+    StrCpy $1 "\${TEXT}"
+    ReadEnvStr $2 "NEOREAD_TEST_RETRY_MESSAGE"
+    \${If} $1 S!= $2
+      SetErrorLevel 39 ; unexpected retry message
+      Quit
+    \${EndIf}
+  !endif
   ReadEnvStr $0 "NEOREAD_TEST_\${PURPOSE}"
 !macroend
 !macro neoreadLibraryPickParent
@@ -141,13 +149,13 @@ SectionEnd
   };
   compile("installer-native");
   compile("uninstaller", { uninstaller: true });
+  const executable = compile("installer-regression", { scripted: true });
   console.log(
     "Library guard compiles for both build passes and precedes old uninstall.",
   );
 
   if (windows) {
     const { DatabaseSync } = await import("node:sqlite");
-    const executable = compile("installer-regression", { scripted: true });
     const fixtures = join(directory, "fixtures");
     const folder = (name) => {
       const path = join(fixtures, name);
@@ -218,6 +226,37 @@ SectionEnd
       assert(!existsSync(join(userData, "library-location.json")));
       assertLibrary(source);
     };
+    const assertMigrationResults = (userData, expected) => {
+      const logs = join(userData, "logs");
+      const finish = readdirSync(logs)
+        .filter((name) => /^server-.*\.jsonl$/.test(name))
+        .flatMap((name) =>
+          readFileSync(join(logs, name), "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line)),
+        )
+        .filter(({ event }) => event === "library.install_migration.finish");
+      for (const { sessionId, durationMs, timestamp } of finish) {
+        assert.equal(typeof sessionId, "string");
+        assert(sessionId.length > 0);
+        assert(Number.isFinite(durationMs) && durationMs >= 0);
+        assert(Number.isFinite(Date.parse(timestamp)));
+      }
+      finish.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+      assert.deepEqual(
+        finish.map(({ status, stage, reasonCode }) => [
+          status,
+          stage,
+          reasonCode ?? "",
+        ]),
+        expected,
+      );
+      assert.equal(
+        new Set(finish.map(({ sessionId }) => sessionId)).size,
+        finish.length,
+      );
+    };
 
     // Only dialog replies and the installer profile/registry are isolated.
     // The exit sentinel confirms whether the real NSIS guard permitted the
@@ -241,6 +280,9 @@ SectionEnd
             NEOREAD_TEST_RISK: options.risk ?? "7",
             NEOREAD_TEST_PARENT: options.parent ?? "",
             NEOREAD_TEST_RETRY: options.retryParent ? "4" : "2",
+            NEOREAD_TEST_RETRY_MESSAGE: options.retryTip
+              ? `安装尚未继续。\r\n\r\n${options.retryTip}`
+              : "",
             NEOREAD_TEST_RETRY_PARENT: options.retryParent ?? "",
             NEOREAD_TEST_AMBIGUOUS: "1",
           },
@@ -275,6 +317,8 @@ SectionEnd
     const newRoot = folder("new NeoRead");
     const fallbackRoot = folder("uninstall location");
     const external = folder("external 书库 # &");
+    const unsafeLocationTip =
+      "所选位置不安全。请选择安装目录和旧书库之外的文件夹后重试。";
     try {
       for (const [name, path, status] of [
         ["missing installation", join(fixtures, "missing"), 37],
@@ -313,6 +357,7 @@ SectionEnd
           choice: "6",
           uninstallRoot: fallbackRoot,
           parent: fallbackRoot,
+          retryTip: unsafeLocationTip,
         }),
       );
       assert(!existsSync(join(fallbackRoot, "NeoRead Library")));
@@ -342,23 +387,40 @@ SectionEnd
         external,
       );
       const retryParent = folder("external retry");
-      assertMigrated(
-        run("updater retries an unsafe selection before proceeding", oldRoot, 38, {
+      const retriedUserData = run(
+        "updater retries an unsafe selection before proceeding",
+        oldRoot,
+        38,
+        {
           choice: "6",
           parent: oldRoot,
           retryParent,
-        }),
-        retryParent,
+          retryTip: unsafeLocationTip,
+        },
       );
+      assertMigrated(retriedUserData, retryParent);
+      assertMigrationResults(retriedUserData, [
+        ["failed", "preflight", "unsafe_location"],
+        ["success", "activate", ""],
+      ]);
       assert(!existsSync(join(oldRoot, "NeoRead Library")));
       const blocked = folder("external existing/NeoRead Library");
       writeFileSync(join(blocked, "untouched"), "existing contents");
-      assertNotActivated(
-        run("an existing destination is never overwritten", oldRoot, 2, {
+      const blockedUserData = run(
+        "an existing destination is never overwritten",
+        oldRoot,
+        2,
+        {
           choice: "6",
           parent: dirname(blocked),
-        }),
+          retryTip:
+            "所选位置已有 NeoRead Library。请保留现有书库，选择其他文件夹后重试。",
+        },
       );
+      assertNotActivated(blockedUserData);
+      assertMigrationResults(blockedUserData, [
+        ["failed", "destination_create", "destination_exists"],
+      ]);
       assert.equal(
         readFileSync(join(blocked, "untouched"), "utf8"),
         "existing contents",

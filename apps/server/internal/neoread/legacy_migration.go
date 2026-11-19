@@ -407,7 +407,7 @@ func digestEntry(path string) (string, error) {
 func convertLegacyDatabase(directory, source, final string) error {
 	old := filepath.Join(directory, "reader.sqlite")
 	if !pathExists(old) {
-		return fmt.Errorf("旧书库缺少 reader.sqlite")
+		return installerFailureAt(installVerify, installInvalidLibrary, fmt.Errorf("旧书库缺少 reader.sqlite"))
 	}
 	db, err := sql.Open("sqlite", libraryDatabaseURI(old))
 	if err != nil {
@@ -420,7 +420,7 @@ func convertLegacyDatabase(directory, source, final string) error {
 		return err
 	}
 	if result != "ok" {
-		return fmt.Errorf("旧书库数据库完整性检查失败")
+		return installerFailureAt(installVerify, installInvalidLibrary, fmt.Errorf("旧书库数据库完整性检查失败"))
 	}
 	rows, err := db.Query("PRAGMA foreign_key_check")
 	if err != nil {
@@ -433,31 +433,39 @@ func convertLegacyDatabase(directory, source, final string) error {
 		return rowErr
 	}
 	if hasInvalidReference {
-		return fmt.Errorf("旧书库存在无效的数据关联，未启用新书库")
+		return installerFailureAt(installVerify, installInvalidLibrary, fmt.Errorf("旧书库存在无效的数据关联，未启用新书库"))
 	}
 	if source != final {
 		rows, err = db.Query("SELECT id,type FROM documents")
 		if err != nil {
-			return err
+			return installerFailureAt(installVerify, installInvalidLibrary, err)
 		}
 		for rows.Next() {
 			var id, kind string
 			if err = rows.Scan(&id, &kind); err != nil {
 				rows.Close()
-				return err
+				return installerFailureAt(installVerify, installInvalidLibrary, err)
 			}
 			if filepath.Base(id) != id || (kind != "pdf" && kind != "epub") {
 				rows.Close()
-				return fmt.Errorf("旧书库包含无效的文档记录")
+				return installerFailureAt(installVerify, installInvalidLibrary, fmt.Errorf("旧书库包含无效的文档记录"))
 			}
 			dir := "books"
 			if kind == "pdf" {
 				dir = "papers"
 			}
 			info, e := os.Stat(filepath.Join(directory, dir, id+"."+kind))
-			if e != nil || !info.Mode().IsRegular() {
+			if e != nil {
 				rows.Close()
-				return fmt.Errorf("旧书库缺少原文文件：%s.%s", id, kind)
+				reason := installCopyFailed
+				if errors.Is(e, os.ErrNotExist) {
+					reason = installInvalidLibrary
+				}
+				return installerFailureWithMessage(installVerify, reason, e, fmt.Sprintf("旧书库缺少原文文件：%s.%s", id, kind))
+			}
+			if !info.Mode().IsRegular() {
+				rows.Close()
+				return installerFailureAt(installVerify, installInvalidLibrary, fmt.Errorf("旧书库缺少原文文件：%s.%s", id, kind))
 			}
 		}
 		rowErr = rows.Err()
@@ -467,7 +475,7 @@ func convertLegacyDatabase(directory, source, final string) error {
 		}
 	}
 	if _, err = db.Exec("INSERT OR IGNORE INTO settings(key,value) SELECT 'neoread',value FROM settings WHERE key='reader'; DELETE FROM settings WHERE key='reader'"); err != nil {
-		return err
+		return installerFailureAt(installVerify, installInvalidLibrary, err)
 	}
 	if source != final {
 		if err = relocateCorpusFingerprintsAt(db, source, directory, final); err != nil {
@@ -479,13 +487,13 @@ func convertLegacyDatabase(directory, source, final string) error {
 		return err
 	}
 	if busy != 0 {
-		return fmt.Errorf("数据库仍被占用，未完成 WAL 合并")
+		return installerFailureAt(installVerify, installBusy, fmt.Errorf("数据库仍被占用，未完成 WAL 合并"))
 	}
 	if err = db.Close(); err != nil {
 		return err
 	}
 	if pathExists(filepath.Join(directory, "neoread.sqlite")) {
-		return fmt.Errorf("目标数据库已存在，未覆盖")
+		return installerFailureAt(installVerify, installDestinationExists, fmt.Errorf("目标数据库已存在，未覆盖"))
 	}
 	if err = os.Rename(old, filepath.Join(directory, "neoread.sqlite")); err != nil {
 		return err

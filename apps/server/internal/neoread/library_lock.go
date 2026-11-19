@@ -1,11 +1,14 @@
 package neoread
 
 import (
-	"fmt"
-	"github.com/gofrs/flock"
+	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/gofrs/flock"
 )
+
+var errLibraryBusy = errors.New("书库已在另一个 NeoRead 实例中打开，请先关闭该实例")
 
 // Keep the OS lock for the server lifetime. Kernel release also covers crashes.
 func LockLibrary(root string) (func(), error) {
@@ -18,7 +21,7 @@ func LockLibrary(root string) (func(), error) {
 		return nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("书库已在另一个 NeoRead 实例中打开，请先关闭该实例")
+		return nil, errLibraryBusy
 	}
 	legacyUnlock := func() {}
 	if pathExists(filepath.Join(root, "reader.sqlite")) {

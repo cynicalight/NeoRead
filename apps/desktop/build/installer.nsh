@@ -72,6 +72,17 @@
   IfErrors migration_failed
 !macroend
 
+; nsExec captures arbitrary bytes from stdout and stderr. Compare ordinally
+; and keep the literal token, never the captured text, for diagnostics.
+!macro neoreadMatchMigrationReason REASON TIP
+  System::Call 'kernel32::CompareStringOrdinal(w r2, i -1, w "${REASON}", i -1, i 0) i .r3'
+  ${If} $3 == 2 ; CSTR_EQUAL
+    StrCpy $neoreadMigrationReason "${REASON}"
+    StrCpy $neoreadMigrationTip "${TIP}"
+    Goto migration_failed
+  ${EndIf}
+!macroend
+
 ; This section precedes electron-builder's install section, including silent
 ; installs. customInstall/customUnInstall run too late to protect old data.
 !macro customHeader
@@ -93,6 +104,8 @@
   Var neoreadMigrationUserData
   Var neoreadMigrationCommand
   Var neoreadMigrationExe
+  Var neoreadMigrationReason
+  Var neoreadMigrationTip
 
   Function neoreadFoundLibrary
     Exch $0
@@ -337,6 +350,8 @@
     ${EndIf}
 
     retry_migration:
+      StrCpy $neoreadMigrationReason "unknown"
+      StrCpy $neoreadMigrationTip "无法完成书库迁移。请选择安装目录之外有足够空间的可写文件夹重试；若仍失败，请取消安装并联系支持。"
       !insertmacro neoreadLibraryPickParent
       ${If} $0 == "error"
       ${OrIf} $0 == ""
@@ -404,19 +419,38 @@
       !ifndef NEOREAD_INSTALL_USER_DATA
         Banner::show /set 76 "正在复制整个书库，请等待完成。" "NeoRead"
       !endif
-      nsExec::Exec "$neoreadMigrationCommand"
-      Pop $0
+      ; Never stream helper output to the installer log. The only supported
+      ; failure output is one ASCII token without a newline.
+      ClearErrors
+      nsExec::ExecToStack /OEM "$neoreadMigrationCommand"
+      Pop $0 ; exit status (or plugin error)
+      Pop $2 ; captured stdout/stderr
       !ifndef NEOREAD_INSTALL_USER_DATA
         Banner::destroy
       !endif
-      ${If} $0 == "0"
+      IfErrors migration_failed
+      StrLen $3 $2
+      ${If} $0 S== "0"
+      ${AndIf} $3 == 0
         DetailPrint "library.install_migrated: copied and activated library"
         Goto guard_done
       ${EndIf}
-      DetailPrint "library.install_migration_failed: helper exited with $0"
+      ; A plugin error, invalid status or unrecognized output uses the safe
+      ; fallback. Only exact whitelisted tokens may select text or be logged.
+      IntCmp $0 0 migration_failed
+      !insertmacro neoreadMatchMigrationReason "busy" "旧书库正在使用。请完全退出 NeoRead（包括托盘中的实例），再重试。"
+      !insertmacro neoreadMatchMigrationReason "invalid_library" "无法读取旧书库，书库可能损坏或不完整。请取消安装，确认备份可用或联系支持后再安装。"
+      !insertmacro neoreadMatchMigrationReason "no_space" "可用磁盘空间不足。请释放空间，或选择有足够空间的其他磁盘后重试。"
+      !insertmacro neoreadMatchMigrationReason "settings_write" "无法保存当前用户的书库设置。请检查当前用户的 NeoRead 设置目录是否可写、磁盘空间是否充足，再重试。"
+      !insertmacro neoreadMatchMigrationReason "unsafe_location" "所选位置不安全。请选择安装目录和旧书库之外的文件夹后重试。"
+      !insertmacro neoreadMatchMigrationReason "destination_exists" "所选位置已有 NeoRead Library。请保留现有书库，选择其他文件夹后重试。"
+      !insertmacro neoreadMatchMigrationReason "permission_denied" "迁移所需的读取或写入权限不足。请确认当前用户可以读取旧书库、写入 NeoRead 设置目录，并选择可写的目标文件夹后重试。"
+      !insertmacro neoreadMatchMigrationReason "copy_failed" "无法完整复制或启用书库。请检查旧书库是否可读，并选择安装目录之外有足够空间的可写文件夹重试。"
     migration_failed:
+      StrCpy $2 ""
+      DetailPrint "library.install_migration_failed: $neoreadMigrationReason"
       ; MB_RETRYCANCEL, default CANCEL. Never fall through to old uninstall.
-      !insertmacro neoreadLibraryPrompt "RETRY" "无法复制或启用书库，安装尚未继续。请选择安装目录之外有足够空间、尚无 NeoRead Library 的可写位置重试，或取消安装。" 0x10135
+      !insertmacro neoreadLibraryPrompt "RETRY" "安装尚未继续。$\r$\n$\r$\n$neoreadMigrationTip" 0x10135
       ${If} $0 == 4 ; IDRETRY
         Goto retry_migration
       ${EndIf}

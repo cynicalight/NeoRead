@@ -55,15 +55,7 @@ func main() {
 		}
 	})
 	if installerMode {
-		if *installLibrary == "" || *installUserData == "" {
-			fmt.Fprintln(os.Stderr, "安装迁移需要同时指定 --install-library-to 与 --install-user-data。")
-			os.Exit(2)
-		}
-		if err := neoread.InstallLibrary(*data, *installLibrary, *installUserData, flag.Args()); err != nil {
-			fmt.Fprintf(os.Stderr, "无法迁移并启用书库：%v\n", err)
-			os.Exit(1)
-		}
-		return
+		os.Exit(runInstallerMigration(*data, *installLibrary, *installUserData, flag.Args(), os.Stdout))
 	}
 	if *retryLegacyCleanup && (*legacyCleanup != "delete" || *legacySource != "") {
 		fmt.Fprintln(os.Stderr, "--retry-reader-cleanup requires --cleanup-reader-data delete")

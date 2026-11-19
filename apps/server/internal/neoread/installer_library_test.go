@@ -8,7 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+
+	"github.com/gofrs/flock"
 )
 
 func TestInstallLibraryActivatesCompleteCopy(t *testing.T) {
@@ -99,8 +102,10 @@ func TestInstallLibraryRejectsProtectedOrExistingPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(protected, "NeoRead Library")
-	if err := InstallLibrary(source, target, profile, []string{filepath.Dir(source), "", protected}); err == nil || !strings.Contains(err.Error(), "安装目录") {
-		t.Fatalf("accepted target under a protected root: %v", err)
+	err := InstallLibrary(source, target, profile, []string{filepath.Dir(source), "", protected})
+	assertInstallerFailure(t, err, "preflight", "unsafe_location")
+	if !strings.Contains(err.Error(), "安装目录") {
+		t.Fatalf("wrong protected path error: %v", err)
 	}
 	assertInstallPathMissing(t, target)
 	target = filepath.Join(parent, "NeoRead Library")
@@ -116,9 +121,7 @@ func TestInstallLibraryRejectsProtectedOrExistingPaths(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("untouched"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallLibrary(source, target, profile, nil); err == nil {
-		t.Fatal("accepted an existing destination")
-	}
+	assertInstallerFailure(t, InstallLibrary(source, target, profile, nil), "destination_create", "destination_exists")
 	if string(installFile(t, marker)) != "untouched" {
 		t.Fatal("modified existing destination")
 	}
@@ -171,9 +174,7 @@ func TestInstallLibraryPreservesLocationOnInvalidCopy(t *testing.T) {
 	}
 	original := installFile(t, settings)
 	target := filepath.Join(t.TempDir(), "NeoRead Library")
-	if err := InstallLibrary(source, target, profile, nil); err == nil {
-		t.Fatal("activated an invalid copy")
-	}
+	assertInstallerFailure(t, InstallLibrary(source, target, profile, nil), "verify", "invalid_library")
 	assertInstallPathMissing(t, target)
 	if !bytes.Equal(original, installFile(t, settings)) {
 		t.Fatal("changed location before verification")
@@ -194,8 +195,10 @@ func TestInstallLibraryRefusesUnfinishedReaderMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "NeoRead Library")
-	if err := InstallLibrary(source, target, profile, nil); err == nil || !strings.Contains(err.Error(), "尚未完成") {
-		t.Fatalf("accepted an unfinished Reader migration: %v", err)
+	err := InstallLibrary(source, target, profile, nil)
+	assertInstallerFailure(t, err, "profile_lock", "busy")
+	if !strings.Contains(err.Error(), "尚未完成") {
+		t.Fatalf("wrong unfinished migration error: %v", err)
 	}
 	assertInstallPathMissing(t, target)
 	assertInstallPathMissing(t, filepath.Join(profile, installLibraryLocationFile))
@@ -205,7 +208,19 @@ func TestInstallLibraryRollsBackOnlyOwnedCopy(t *testing.T) {
 	source := migrationSource(t)
 	target := filepath.Join(t.TempDir(), "NeoRead Library")
 	commitErr := errors.New("settings replacement failed")
-	if err := copyLibrary(source, target, func(string) error { return commitErr }); !errors.Is(err, commitErr) {
+	err := copyLibrary(source, target, func(directory string) error {
+		for _, path := range []string{source, directory} {
+			if unlock, err := LockLibrary(path); err == nil {
+				unlock()
+				t.Errorf("library unlocked before activation completed: %s", path)
+			} else if !errors.Is(err, errLibraryBusy) {
+				t.Errorf("wrong activation lock error: %v", err)
+			}
+		}
+		return commitErr
+	})
+	assertInstallerFailure(t, err, "activate", "settings_write")
+	if !errors.Is(err, commitErr) {
 		t.Fatalf("wrong activation failure: %v", err)
 	}
 	assertInstallPathMissing(t, target)
@@ -222,6 +237,142 @@ func TestInstallLibraryRollsBackOnlyOwnedCopy(t *testing.T) {
 	}
 	if _, err := os.Stat(target); err != nil {
 		t.Fatal("removed unowned target", err)
+	}
+}
+
+func TestInstallLibraryClassifiesAdvisoryLocks(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		lock  string
+		stage string
+	}{
+		{"profile", ".migration.lock", "profile_lock"},
+		{"source", "neoread.lock", "source_lock"},
+		{"legacy source", "reader.lock", "source_lock"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := migrationSource(t)
+			profile := t.TempDir()
+			target := filepath.Join(t.TempDir(), "NeoRead Library")
+			lockRoot := source
+			if tc.name == "profile" {
+				lockRoot = profile
+			} else if tc.name == "legacy source" {
+				if err := os.Rename(filepath.Join(source, "neoread.sqlite"), filepath.Join(source, "reader.sqlite")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			lock := flock.New(filepath.Join(lockRoot, tc.lock))
+			ok, err := lock.TryLock()
+			if err != nil || !ok {
+				t.Fatalf("could not hold advisory lock: %v", err)
+			}
+			defer lock.Unlock()
+			assertInstallerFailure(t, InstallLibrary(source, target, profile, nil), tc.stage, "busy")
+			assertInstallPathMissing(t, target)
+			assertInstallPathMissing(t, filepath.Join(profile, installLibraryLocationFile))
+		})
+	}
+}
+
+func TestInstallerFailureClassifiesWrappedSystemErrors(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		reason string
+	}{
+		{syscall.ENOSPC, "no_space"},
+		{os.ErrPermission, "permission_denied"},
+		{syscall.EROFS, "permission_denied"},
+	} {
+		underlying := &os.PathError{Op: "write", Path: "private/path", Err: tc.err}
+		failure := installerFailureAt(installActivate, installSettingsWrite, underlying)
+		// Cleanup can fail for a different reason, without replacing the original.
+		failure = errors.Join(failure, os.ErrExist)
+		assertInstallerFailure(t, failure, "activate", tc.reason)
+		if !errors.Is(failure, tc.err) {
+			t.Fatalf("lost original cause: %v", failure)
+		}
+	}
+}
+
+func TestInstallerFailureClassifiesSQLiteFull(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err = db.Exec("CREATE TABLE data (payload BLOB); PRAGMA max_page_count=2"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("INSERT INTO data VALUES (zeroblob(1048576))")
+	assertInstallerFailure(t, installerFailureAt(installVerify, installCopyFailed, err), "verify", "no_space")
+}
+
+func TestInstallerLogDirectorySeparatesProfileFromProtectedPaths(t *testing.T) {
+	source := t.TempDir()
+	protected := t.TempDir()
+	profile := filepath.Join(t.TempDir(), "new profile")
+	physical, err := canonicalInstallPath(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := InstallerLogDirectory(source, profile, []string{"", protected})
+	want := filepath.Join(physical, "logs")
+	if err != nil || got != want {
+		t.Fatalf("log directory = %q, %v; want %q", got, err, want)
+	}
+	assertInstallPathMissing(t, profile)
+
+	t.Run("source", func(t *testing.T) {
+		if _, err := InstallerLogDirectory(source, filepath.Join(source, "profile"), nil); err == nil {
+			t.Fatal("allowed logs inside source library")
+		}
+	})
+	t.Run("protected profile", func(t *testing.T) {
+		if _, err := InstallerLogDirectory(source, filepath.Join(protected, "profile"), []string{protected}); err == nil {
+			t.Fatal("allowed logs inside protected installation")
+		}
+	})
+	t.Run("protected logs only", func(t *testing.T) {
+		if _, err := InstallerLogDirectory(source, profile, []string{filepath.Join(profile, "logs")}); err == nil {
+			t.Fatal("allowed logs equal to protected installation")
+		}
+	})
+	t.Run("linked profile", func(t *testing.T) {
+		alias := filepath.Join(t.TempDir(), "profile link")
+		if err := os.Symlink(protected, alias); err != nil {
+			t.Skipf("directory symlinks unavailable: %v", err)
+		}
+		if _, err := InstallerLogDirectory(source, filepath.Join(alias, "profile"), []string{protected}); err == nil {
+			t.Fatal("allowed linked profile inside protected installation")
+		}
+	})
+	t.Run("linked logs", func(t *testing.T) {
+		profile := t.TempDir()
+		if err := os.Symlink(t.TempDir(), filepath.Join(profile, "logs")); err != nil {
+			t.Skipf("directory symlinks unavailable: %v", err)
+		}
+		if _, err := InstallerLogDirectory(source, profile, nil); err == nil {
+			t.Fatal("allowed a logs symlink")
+		}
+	})
+	t.Run("logs file", func(t *testing.T) {
+		profile := t.TempDir()
+		if err := os.WriteFile(filepath.Join(profile, "logs"), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := InstallerLogDirectory(source, profile, nil); err == nil {
+			t.Fatal("allowed a non-directory logs path")
+		}
+	})
+}
+
+func assertInstallerFailure(t *testing.T, err error, stage, reason string) {
+	t.Helper()
+	gotStage, gotReason := InstallerFailure(err)
+	if gotStage != stage || gotReason != reason {
+		t.Fatalf("failure = (%q, %q); want (%q, %q), original: %v", gotStage, gotReason, stage, reason, err)
 	}
 }
 
