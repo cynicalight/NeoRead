@@ -244,8 +244,7 @@ export function PaperNoteRichEditor({
         editorRef.current = editor;
         stage = "synchronize";
         editor.setMarkdown(latest.current.body);
-        if (autoFocus && document.activeElement === sourceInput.current)
-          focusRequested.current = true;
+        if (autoFocus) focusRequested.current = true;
         setLoading(false);
       })
       .catch((error: unknown) => {
@@ -259,12 +258,14 @@ export function PaperNoteRichEditor({
       void destroy?.();
     };
   }, [source, disabled, ariaLabel, autoFocus]);
-  const showSource = source || disabled || loading || !!reason;
+  // The rich surface shows (and animates in) while its chunk loads; there is
+  // no loading notice or source fallback for the short wait.
+  const showSource = source || disabled || !!reason;
   useLayoutEffect(() => {
-    if (showSource || !focusRequested.current) return;
+    if (showSource || loading || !focusRequested.current) return;
     focusRequested.current = false;
     editorRef.current?.focus?.();
-  }, [showSource]);
+  }, [showSource, loading]);
   const toolbar = (
     <div
       className="paper-note-toolbar"
@@ -298,9 +299,9 @@ export function PaperNoteRichEditor({
   return (
     <div className={`paper-note-workspace ${className}`}>
       {toolbarPlacement === "top" && toolbar}
-      {(reason || (!source && loading && !disabled)) && (
+      {reason && (
         <p className="paper-note-editor-message" role="status">
-          {reason || "编辑器加载中，可先编辑源码"}
+          {reason}
         </p>
       )}
       {uploading && (

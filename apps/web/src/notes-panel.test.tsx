@@ -198,7 +198,8 @@ it("searches quoted text and note content within the active filter", async () =>
 
 it("edits a note in place", async () => {
   await act(async () => button("编辑批注").click());
-  const field = host.querySelector<HTMLTextAreaElement>('[aria-label="批注"]')!;
+  await act(async () => button("源码").click());
+  const field = host.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => type(field, "Checked twice"));
   expect(host.querySelector('[aria-label="标签"]')).toBeNull();
   expect(host.querySelector('[aria-label="按标签筛选"]')).toBeNull();
@@ -214,7 +215,8 @@ it("edits a note in place", async () => {
 it("warns before closing the tab with an unsaved inline note", async () => {
   await act(async () => button("编辑批注").click());
   expect(tabCloseWarning("p")).toBeNull();
-  const field = host.querySelector<HTMLTextAreaElement>('[aria-label="批注"]')!;
+  await act(async () => button("源码").click());
+  const field = host.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => type(field, "Unsaved thought"));
   expect(tabCloseWarning("p")?.message).toContain("批注尚未保存");
   await act(async () =>

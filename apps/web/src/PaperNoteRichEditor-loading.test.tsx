@@ -16,7 +16,7 @@ vi.mock("./paper-note-milkdown", async (importOriginal) => {
   return importOriginal();
 });
 
-it("keeps the source caret when typing during chunk loading, then allows explicitly entering rich mode", async () => {
+it("shows the rich surface without a loading notice, then focuses the loaded editor", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const host = document.createElement("div");
   document.body.append(host);
@@ -28,42 +28,32 @@ it("keeps the source caret when typing during chunk loading, then allows explici
         documentId="doc"
         body={body}
         disabled={false}
+        autoFocus
         onChange={setBody}
-        onBlur={() => {}}
       />
     );
   }
   try {
     await act(async () => root.render(<Note />));
-    const source = host.querySelector("textarea")!;
-    await act(async () => {
-      source.focus();
-      Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!.call(source, "loading 时输入中文 English");
-      source.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(host.querySelector('button[aria-selected="true"]')?.textContent).toBe(
-      "源码",
+    expect(host.querySelector("textarea")).toBeNull();
+    expect(host.querySelector('[role="status"]')).toBeNull();
+    expect(host.querySelector<HTMLElement>(".paper-note-rich")!.hidden).toBe(
+      false,
     );
     await act(async () => {
       chunk.resolve();
       await import("./paper-note-milkdown");
     });
-    expect(host.querySelector("textarea")).toBe(source);
-    expect(document.activeElement).toBe(source);
-    expect(source.value).toBe("loading 时输入中文 English");
-    await act(async () =>
-      host.querySelector<HTMLButtonElement>("button")!.click(),
-    );
     await act(async () => {
       await vi.waitFor(() =>
         expect(host.querySelector(".ProseMirror")?.textContent).toContain(
-          "loading 时输入中文 English",
+          "original",
         ),
       );
     });
+    expect(
+      host.querySelector(".ProseMirror")!.contains(document.activeElement),
+    ).toBe(true);
     expect(host.querySelector("textarea")).toBeNull();
   } finally {
     chunk.resolve();

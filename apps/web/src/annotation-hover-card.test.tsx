@@ -150,6 +150,11 @@ it("edits in the same card and keeps a typed draft on Escape only", async () => 
   const onSave = vi.mocked(draft.onSave);
   const onClose = vi.mocked(draft.onClose);
   await render(null, annotations, draft);
+  await act(async () =>
+    [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent === "源码")!
+      .click(),
+  );
   const input = document.querySelector<HTMLTextAreaElement>(
     "[data-annotation-preview] textarea",
   )!;
