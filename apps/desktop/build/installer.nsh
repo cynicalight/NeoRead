@@ -88,10 +88,6 @@
 !macro customHeader
 !ifndef BUILD_UNINSTALLER
   !include FileFunc.nsh
-  !ifndef NEOREAD_INSTALL_MIGRATION_EXE
-    ; PROJECT_DIR is the builder project directory (apps/desktop in package.mjs).
-    !define NEOREAD_INSTALL_MIGRATION_EXE "${PROJECT_DIR}/bin/neoread-server.exe"
-  !endif
 
   Var neoreadNewRoot
   Var neoreadUserRoot
@@ -397,7 +393,7 @@
       SetOutPath "$PLUGINSDIR"
       IfErrors migration_failed
       ${If} $neoreadMigrationExe == ""
-        File /oname=neoread-install-library.exe "${NEOREAD_INSTALL_MIGRATION_EXE}"
+        File /oname=neoread-install-library.exe "${PROJECT_DIR}\bin\neoread-server.exe"
         IfErrors migration_failed
         StrCpy $neoreadMigrationExe "$PLUGINSDIR\neoread-install-library.exe"
       ${EndIf}

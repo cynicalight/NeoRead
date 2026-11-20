@@ -32,7 +32,7 @@ pnpm build:server
 node scripts/check-library-installer.mjs
 ```
 
-最后一项需要 `makensis`。编译安装器和卸载器分支可以检查 hook 的顺序，但不能代替 Windows 实机升级验收。
+Windows 回归使用 electron-builder 的发布编译器，通过 `PROJECT_DIR` 嵌入 `bin\neoread-server.exe`，再运行迁移用例。其他平台需要本机 `makensis`，仅检查编译。两者均不能代替真实旧版本的升级验收。
 
 Windows 人工验收应使用临时测试数据，覆盖：
 

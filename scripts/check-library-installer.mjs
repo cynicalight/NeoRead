@@ -1,7 +1,8 @@
-// Requires makensis (NSIS) and, on Windows, the newly built server executable.
+// Windows uses electron-builder's release compiler and a real migration helper.
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
+  copyFileSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -56,17 +57,21 @@ const helper = (name) => {
 const directory = mkdtempSync(join(tmpdir(), "neoread-installer-check-"));
 try {
   const windows = process.platform === "win32";
-  const migrationExe = windows
-    ? resolve(
-        process.env.NEOREAD_TEST_MIGRATION_EXE ??
-          "apps/desktop/bin/neoread-server.exe",
-      )
-    : join(directory, "compile-only.exe");
-  if (!windows) writeFileSync(migrationExe, "compile-only payload");
-  assert(
-    existsSync(migrationExe),
-    `Missing ${migrationExe}; run pnpm build:server or set NEOREAD_TEST_MIGRATION_EXE`,
-  );
+  const projectDir = join(directory, "desktop project");
+  const bin = join(projectDir, "bin");
+  mkdirSync(bin, { recursive: true });
+  const migrationExe = join(bin, "neoread-server.exe");
+  if (windows) {
+    copyFileSync(
+      process.env.NEOREAD_TEST_MIGRATION_EXE ?? "apps/desktop/bin/neoread-server.exe",
+      migrationExe,
+    );
+  } else {
+    writeFileSync(migrationExe, "compile-only payload");
+  }
+  const compiler = windows
+    ? await electronBuilder("app-builder-lib/out/toolsets/windows").getMakeNsisPath()
+    : { path: "makensis" };
   const testKey = `Software\\NeoReadGuardTest-${randomUUID()}`;
   const uninstallKey = `${testKey}\\Uninstall`;
   const installerInclude = resolve("apps/desktop/build/installer.nsh");
@@ -85,7 +90,7 @@ AutoCloseWindow true
 Page instfiles
 !define INSTALL_REGISTRY_KEY "${testKey}"
 !define UNINSTALL_REGISTRY_KEY "${uninstallKey}"
-!define NEOREAD_INSTALL_MIGRATION_EXE "${migrationExe}"
+!define PROJECT_DIR "${projectDir}"
 ${uninstaller ? "!define BUILD_UNINSTALLER" : ""}
 ${
   scripted
@@ -144,7 +149,10 @@ ${
 SectionEnd
 `,
     );
-    execFileSync("makensis", ["-V2", source], { stdio: "inherit" });
+    execFileSync(compiler.path, ["-V2", source], {
+      stdio: "inherit",
+      env: { ...process.env, ...compiler.env },
+    });
     return executable;
   };
   compile("installer-native");

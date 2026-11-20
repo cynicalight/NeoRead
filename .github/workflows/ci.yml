@@ -86,15 +86,7 @@ jobs:
         run: go test ./internal/neoread -run '^TestInstallLibrary' -count=1
       - run: pnpm build:server
       - name: Exercise installer library migration on Windows
-        shell: pwsh
-        run: |
-          $nsis = "${env:ProgramFiles(x86)}\NSIS"
-          if (-not (Test-Path "$nsis\makensis.exe")) {
-            choco install nsis -y --no-progress
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-          $env:Path = "$nsis;$env:Path"
-          node scripts/check-library-installer.mjs
+        run: node scripts/check-library-installer.mjs
 
   windows-attachments:
     runs-on: windows-2022
