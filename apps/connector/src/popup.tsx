@@ -228,7 +228,7 @@ function App() {
         }
       }
       setMessage(
-        `已收录 ${success} 篇，失败 ${failures.length} 篇${verificationTabs.length ? `，待网站验证 ${verificationTabs.length} 篇` : ""}${warnings.length ? "\n提醒：" + warnings.join("\n") : ""}`,
+        `已收录 ${success} 篇，失败 ${failures.length} 篇${verificationTabs.length ? `，等待网站提供 PDF ${verificationTabs.length} 篇` : ""}${warnings.length ? "\n提醒：" + warnings.join("\n") : ""}`,
       );
       setMessageTone(failures.length ? "error" : "success");
       setOutcomes(completed);

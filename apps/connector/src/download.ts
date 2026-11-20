@@ -228,55 +228,6 @@ function scienceDirectBrowserRequired(): ConnectorError {
   );
 }
 
-function scienceDirectPDFPageError(
-  html: string,
-  url: string,
-  sourceUrl: string,
-): ConnectorError | undefined {
-  // Inspect only explicit static markup. No scripts run and no intermediate
-  // URL is opened or returned to the caller.
-  const markup = html.replace(
-    /<!--[\s\S]*?(?:-->|$)|<(script|style|template|textarea)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi,
-    "",
-  );
-  if (/<meta\b[^>]*\sname\s*=\s*["']citation_title["']/i.test(markup)) return;
-  const title = markup.match(/<title\b[^>]*>([^<]*)<\/title\s*>/i)?.[1].trim();
-  if (
-    (title && /^(?:just a moment(?:\.{3}|…)?|attention required!\s*\|\s*cloudflare|checking your browser(?:\.{3}|…)?)$/i.test(title)) ||
-    /<(?:div|form|main|section)\b[^>]*\sid\s*=\s*["'](?:challenge-stage|challenge-running|cf-challenge-running)["']/i.test(markup)
-  ) return scienceDirectBrowserRequired();
-
-  const attribute = (tag: string, key: string) => {
-    for (const match of tag.matchAll(/\s([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)) {
-      if (match[1].toLowerCase() === key) return match[2] ?? match[3] ?? match[4];
-    }
-    return "";
-  };
-  const isOfficialDestination = (value: string) => {
-    if (!value) return false;
-    try {
-      return isScienceDirectPDFLocation(new URL(value.replace(/&amp;/gi, "&"), url).href, sourceUrl);
-    } catch {
-      return false;
-    }
-  };
-  const navigation = () => new ConnectorError(
-    "sciencedirect-browser-navigation",
-    "ScienceDirect 需要在浏览器中打开 PDF。请从原文的 PDF 按钮继续，待 PDF 打开后再收录",
-  );
-  for (const [meta] of markup.matchAll(/<meta\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
-    if (attribute(meta, "http-equiv").trim().toLowerCase() !== "refresh") continue;
-    const value = attribute(meta, "content").match(/^\s*\d+(?:\.\d+)?\s*;\s*url\s*=\s*(.*?)\s*$/i)?.[1];
-    if (value && isOfficialDestination(value.replace(/^(['"])(.*)\1$/, "$2")))
-      return navigation();
-  }
-  const redirectLink = markup.match(
-    /<(div|p|section)\b[^>]*\sid\s*=\s*["']redirect-message["'][^>]*>(?:(?!<\/\1\s*>)[\s\S])*?(<a\b(?:[^>"']|"[^"]*"|'[^']*')*>)/i,
-  )?.[2];
-  if (redirectLink && isOfficialDestination(attribute(redirectLink, "href")))
-    return navigation();
-}
-
 type DownloadPDFOptions = {
   visibleScienceDirectPDF?: boolean;
   signal?: AbortSignal;
@@ -322,12 +273,12 @@ export async function downloadPDF(
     const location = scienceDirect
       ? classifyScienceDirectPDFLocation(finalURL, candidate.sourceUrl)
       : "pdf";
-    const mayBePublisherHTML = scienceDirect && response.status === 200;
+    const canOpenPublisherPage = scienceDirect && response.status === 200;
     if (scienceDirect && location && response.status === 403) {
       await response.body?.cancel();
       throw scienceDirectBrowserRequired();
     }
-    if (!location || (location === "verification" && !mayBePublisherHTML)) {
+    if (!location || (location === "verification" && !canOpenPublisherPage)) {
       await response.body?.cancel();
       throw response.ok
         ? mismatchedPDF()
@@ -336,15 +287,9 @@ export async function downloadPDF(
     const blob = await boundedBlob(response, 512 * 1024 * 1024);
     const signature = await blob.slice(0, 5).text();
     if (signature !== "%PDF-") {
-      if (mayBePublisherHTML) {
-        const issue = scienceDirectPDFPageError(
-          await blob.slice(0, 65536).text(),
-          finalURL,
-          candidate.sourceUrl,
-        );
-        if (issue && (location === "pdf" || issue.code === "sciencedirect-browser-required"))
-          throw issue;
-      }
+      // The destination is validated above. Its HTML, scripts, and links are
+      // neither instructions nor evidence of a login problem.
+      if (canOpenPublisherPage) throw scienceDirectBrowserRequired();
       if (location !== "pdf") throw mismatchedPDF();
       if (cnki) {
         const issue = cnkiPageError(

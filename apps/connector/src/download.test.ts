@@ -275,9 +275,9 @@ it.each([
   `<meta http-equiv="refresh" content="0; url=${otherScienceDirectPDF}">`,
   `<meta http-equiv="refresh" content="0; url=${scienceDirectPDF}&amp;__cf_chl_tk=temporary">`,
   '<p id="redirect-message"><a href="https://example.org/document.pdf">Continue</a></p>',
-])("does not infer verification or follow unrelated HTML: %s", async (html) => {
+])("offers the official page without following links or inferring verification from HTML: %s", async (html) => {
   fetchMock.mockResolvedValue(new Response(html, { headers: { "content-type": "text/html" } }));
-  await expect(downloadPDF(scienceDirectCandidate)).rejects.toMatchObject({ code: "pdf-invalid-response" });
+  await expect(downloadPDF(scienceDirectCandidate)).rejects.toMatchObject({ code: "sciencedirect-browser-required" });
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
@@ -287,7 +287,7 @@ it.each([
 ])("guides visible navigation without following publisher HTML: %s", async (html) => {
   fetchMock.mockResolvedValue(new Response(html, { headers: { "content-type": "text/html" } }));
   await expect(downloadPDF(scienceDirectCandidate)).rejects.toMatchObject({
-    code: "sciencedirect-browser-navigation",
+    code: "sciencedirect-browser-required",
   });
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });

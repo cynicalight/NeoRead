@@ -340,15 +340,17 @@ it("ignores ScienceDirect controls from website or content-script contexts", asy
   expect(await status(tabId)).toMatchObject({ pending: { status: "waiting" } });
 });
 
-it("opens a visible handoff for a normal same-paper publisher interstitial", async () => {
+it.each([
+  `<meta http-equiv="refresh" content="0; url=${signedPDF}">`,
+  "<!doctype html><html><body>Opening your article…</body></html>",
+])("keeps the article and labels when the official PDF endpoint returns a web page", async (html) => {
   fetchMock.mockResolvedValueOnce(new Response(
-    `<meta http-equiv="refresh" content="0; url=${signedPDF}">`,
-    { headers: { "content-type": "text/html" } },
+    html, { headers: { "content-type": "text/html" } },
   ));
-  expect(await dispatch({ type: "save", candidate: article })).toMatchObject({
-    ok: false,
-    code: "sciencedirect-pending",
-    verificationTabId: expect.any(Number),
+  const result = await dispatch({ type: "save", candidate: article, folders: ["科研"], tags: ["物理"] });
+  expect(result).toMatchObject({ ok: false, code: "sciencedirect-pending" });
+  expect(session[`sciencedirect:${result.verificationTabId}`]).toMatchObject({
+    request: { candidate: { title: article.title }, folders: ["科研"], tags: ["物理"] },
   });
   expect(createTab).toHaveBeenCalledWith({
     url: `${publisher}/${pii}/pdfft`,

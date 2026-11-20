@@ -92,8 +92,7 @@ async function saveOrOpenScienceDirect(
   } catch (error) {
     if (
       !(error instanceof ConnectorError) ||
-      (error.code !== "sciencedirect-browser-required" &&
-        error.code !== "sciencedirect-browser-navigation")
+      error.code !== "sciencedirect-browser-required"
     ) throw error;
     const sourceUrl = scienceDirectArticleURL(candidate.sourceUrl);
     if (!sourceUrl) throw error;

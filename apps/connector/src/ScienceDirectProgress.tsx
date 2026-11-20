@@ -56,7 +56,7 @@ export function ScienceDirectProgress({ tabId, initial }: {
 
   const { status } = pending;
   const text = {
-    waiting: "请在此标签页完成网站验证或打开本篇 PDF。识别到 PDF 后会继续收录。",
+    waiting: "请在此标签页打开本篇 PDF；如网站要求验证，请按页面提示完成。PDF 打开后会继续收录。如果 PDF 已下载到磁盘，可直接将文件导入 NeoRead。",
     saving: "正在收录 PDF…",
     done: "已收录到 NeoRead。",
     error: pending.error || "未能取得 PDF，请确认当前标签页已打开本篇全文。",
