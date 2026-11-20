@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"os"
 	"regexp"
@@ -36,12 +37,21 @@ type translationExportNote struct {
 	annotation Annotation
 	answer     string
 	parts      []translationMarkRange
-	// firstBlock is where the note's text is written, after that block.
-	firstBlock string
-	number     int
-	inline     bool
+	// placed records which parts were found in the exported translation.
+	placed []bool
+	number int
+	inline bool
 	// order is creation order; a later mark is drawn over an earlier one.
 	order int
+}
+
+// translationExportEntry is a numbered note written after a block. quotes are
+// the selections that could not be marked in the text. A continuation repeats
+// the number for parts of a multi-paragraph mark found later.
+type translationExportEntry struct {
+	note      *translationExportNote
+	quotes    []string
+	continued bool
 }
 
 type translationExportMarks struct {
@@ -94,7 +104,7 @@ func (s *Server) translationExportMarks(documentID string) (*translationExportMa
 			}
 			parts = []translationMarkRange{part}
 		}
-		note := &translationExportNote{annotation: a, parts: parts, order: len(marks.notes)}
+		note := &translationExportNote{annotation: a, parts: parts, placed: make([]bool, len(parts)), order: len(marks.notes)}
 		if note.annotation.Note, err = s.inlineNoteImages(a.Note); err != nil {
 			return nil, err
 		}
@@ -120,32 +130,32 @@ func (s *Server) translationExportMarks(documentID string) (*translationExportMa
 
 // block places the marks for one translated block. targets are the sentence
 // targets as exported; they receive inline marks when inline is true. It
-// returns the notes whose text is written after this block.
-func (m *translationExportMarks) block(id string, t TranslationBlock, targets []string, inline bool) []*translationExportNote {
+// returns the entries written after this block.
+func (m *translationExportMarks) block(id string, t TranslationBlock, targets []string, inline bool) []translationExportEntry {
 	if m == nil || t.Status != "complete" {
 		return nil
 	}
 	type placed struct {
-		note  *translationExportNote
-		parts []translationMarkRange
+		note    *translationExportNote
+		indexes []int
 	}
 	var notes []placed
 	for _, note := range m.byBlock[id] {
-		var parts []translationMarkRange
-		for _, part := range note.parts {
+		var indexes []int
+		for i, part := range note.parts {
 			// Source hashes keep old marks off regenerated, unrelated text.
 			if part.BlockID != id || part.SourceHash != t.SourceHash || !validMarkIndexes(part.SentenceIndexes, targets) {
 				continue
 			}
-			parts = append(parts, part)
+			indexes = append(indexes, i)
 		}
-		if len(parts) > 0 {
-			notes = append(notes, placed{note, parts})
+		if len(indexes) > 0 {
+			notes = append(notes, placed{note, indexes})
 		}
 	}
 	sort.SliceStable(notes, func(i, j int) bool {
-		a, b := notes[i].parts[0], notes[j].parts[0]
-		if len(a.SentenceIndexes) > 0 && len(b.SentenceIndexes) > 0 && a.SentenceIndexes[0] != b.SentenceIndexes[0] {
+		a, b := notes[i].note.parts[notes[i].indexes[0]], notes[j].note.parts[notes[j].indexes[0]]
+		if a.SentenceIndexes[0] != b.SentenceIndexes[0] {
 			return a.SentenceIndexes[0] < b.SentenceIndexes[0]
 		}
 		return a.Start < b.Start
@@ -155,20 +165,21 @@ func (m *translationExportMarks) block(id string, t TranslationBlock, targets []
 	if inline && len(notes) > 0 {
 		model = newMarkTextModel(targets)
 	}
-	var written []*translationExportNote
+	var written []translationExportEntry
 	for _, item := range notes {
 		note := item.note
-		first := note.firstBlock == ""
-		if first {
-			note.firstBlock = id
-		}
 		var noteSpans []translationMarkSpan
-		for _, part := range item.parts {
-			if !inline {
-				break
+		var failed []string
+		for _, index := range item.indexes {
+			part := note.parts[index]
+			note.placed[index] = true
+			var found []translationMarkSpan
+			ok := false
+			if inline {
+				found, ok = markSpans(model, targets, part)
 			}
-			found, ok := markSpans(model, targets, part)
 			if !ok {
+				failed = append(failed, note.partQuote(part))
 				continue
 			}
 			for i := range found {
@@ -180,41 +191,71 @@ func (m *translationExportMarks) block(id string, t TranslationBlock, targets []
 		if len(noteSpans) > 0 {
 			note.inline = true
 		}
-		if !first || (note.inline && !note.hasText()) {
-			continue
-		}
-		m.next++
-		note.number = m.next
-		written = append(written, note)
-		if len(noteSpans) > 0 {
-			// The number follows the end of the note's marked text.
-			end := noteSpans[0]
-			for _, span := range noteSpans[1:] {
-				if span.sentence > end.sentence || span.sentence == end.sentence && span.end > end.end {
-					end = span
+		switch {
+		case note.number == 0 && (note.hasText() || len(failed) > 0):
+			m.next++
+			note.number = m.next
+			written = append(written, translationExportEntry{note: note, quotes: failed})
+			if len(noteSpans) > 0 {
+				// The number follows the end of the note's marked text.
+				end := noteSpans[0]
+				for _, span := range noteSpans[1:] {
+					if span.sentence > end.sentence || span.sentence == end.sentence && span.end > end.end {
+						end = span
+					}
 				}
+				references = append(references, translationMarkSpan{sentence: end.sentence, start: end.end, end: end.end, note: note})
 			}
-			references = append(references, translationMarkSpan{sentence: end.sentence, start: end.end, end: end.end, note: note})
+		case note.number > 0 && len(failed) > 0:
+			written = append(written, translationExportEntry{note: note, quotes: failed, continued: true})
 		}
 	}
 	applyMarkSpans(targets, spans, references)
 	return written
 }
 
-// unplaced lists marks whose translated text is no longer in the export.
-func (m *translationExportMarks) unplaced() []*translationExportNote {
+// unplaced lists marks, or parts of marks, whose translated text is no longer
+// in the export.
+func (m *translationExportMarks) unplaced() []translationExportEntry {
 	if m == nil {
 		return nil
 	}
-	var notes []*translationExportNote
+	var entries []translationExportEntry
 	for _, note := range m.notes {
-		if note.firstBlock == "" {
+		var quotes []string
+		found := false
+		for i, part := range note.parts {
+			if note.placed[i] {
+				found = true
+			} else {
+				quotes = append(quotes, note.partQuote(part))
+			}
+		}
+		switch {
+		case !found:
 			m.next++
 			note.number = m.next
-			notes = append(notes, note)
+			entries = append(entries, translationExportEntry{note: note, quotes: []string{note.annotation.Quote}})
+		case len(quotes) == 0:
+		case note.number == 0:
+			m.next++
+			note.number = m.next
+			entries = append(entries, translationExportEntry{note: note, quotes: quotes})
+		default:
+			entries = append(entries, translationExportEntry{note: note, quotes: quotes, continued: true})
 		}
 	}
-	return notes
+	return entries
+}
+
+func (n *translationExportNote) partQuote(part translationMarkRange) string {
+	if part.Recovered && part.MatchedQuote != "" {
+		return part.MatchedQuote
+	}
+	if part.Quote != "" {
+		return part.Quote
+	}
+	return n.annotation.Quote
 }
 
 func (n *translationExportNote) hasText() bool {
@@ -283,9 +324,22 @@ func newMarkTextModel(targets []string) *markTextModel {
 		switch node := node.(type) {
 		case *ast.Text:
 			start := node.Segment.Start
-			for i, r := range string(node.Segment.Value(source)) {
-				model.runes = append(model.runes, markRune{r: r, src: start + i, size: utf8.RuneLen(r), plain: plain, safe: unsafe == 0 && !inMath(start+i)})
+			value := string(node.Segment.Value(source))
+			for i := 0; i < len(value); {
+				// Entities and backslash escapes render as one character. They
+				// map to their whole source and are never wrapped.
+				if decoded, size := markdownReference(value[i:]); size > 0 {
+					for _, r := range decoded {
+						model.runes = append(model.runes, markRune{r: r, src: start + i, size: size, plain: plain})
+						plain += utf16.RuneLen(r)
+					}
+					i += size
+					continue
+				}
+				r, size := utf8.DecodeRuneInString(value[i:])
+				model.runes = append(model.runes, markRune{r: r, src: start + i, size: size, plain: plain, safe: unsafe == 0 && !inMath(start+i)})
 				plain += utf16.RuneLen(r)
+				i += size
 			}
 		case *ast.AutoLink:
 			plain += utf16Length(string(node.Label(source)))
@@ -295,6 +349,22 @@ func newMarkTextModel(targets []string) *markTextModel {
 		return ast.WalkContinue, nil
 	})
 	return model
+}
+
+var markdownEntity = regexp.MustCompile(`^&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});`)
+
+// markdownReference decodes a backslash escape or HTML entity at the start of
+// source, returning the rendered text and the source length it occupies.
+func markdownReference(source string) (string, int) {
+	if len(source) > 1 && source[0] == '\\' && strings.IndexByte("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", source[1]) >= 0 {
+		return source[1:2], 2
+	}
+	if entity := markdownEntity.FindString(source); entity != "" {
+		if decoded := html.UnescapeString(entity); decoded != entity {
+			return decoded, len(entity)
+		}
+	}
+	return "", 0
 }
 
 // markdownMathRanges finds the delimiters the print renderer treats as math:
@@ -480,25 +550,30 @@ func markFragment(a Annotation, number int) string {
 	return fmt.Sprintf("%s%d-%s-%s", translationMarkFragment, number, kind, color)
 }
 
-func writeTranslationExportNotes(out *strings.Builder, notes []*translationExportNote) {
-	for _, note := range notes {
+func writeTranslationExportNotes(out *strings.Builder, entries []translationExportEntry) {
+	for _, entry := range entries {
+		note := entry.note
 		a := note.annotation
 		label := translationMarkKinds[a.Kind]
 		if label == "" {
 			label = "批注"
 		}
+		if entry.continued {
+			label += "（续）"
+		}
 		lines := []string{fmt.Sprintf("**%d · %s**", note.number, label)}
-		if !note.inline {
-			if quote := exportMarkdownLabel(a.Quote); quote != "" {
+		for _, quote := range entry.quotes {
+			if quote = exportMarkdownLabel(quote); quote != "" {
 				lines[0] += " 「" + quote + "」"
 			}
 		}
-		if a.Kind == "question" {
+		// A continuation's note text is already written with its first part.
+		if !entry.continued && a.Kind == "question" {
 			lines = append(lines, "", "**问：** "+strings.TrimSpace(a.Note))
 			if answer := strings.TrimSpace(note.answer); answer != "" {
 				lines = append(lines, "", "**AI 答：**", "", answer)
 			}
-		} else if text := strings.TrimSpace(a.Note); text != "" {
+		} else if text := strings.TrimSpace(a.Note); !entry.continued && text != "" {
 			lines = append(lines, "", text)
 		}
 		for _, line := range strings.Split(strings.Join(lines, "\n"), "\n") {

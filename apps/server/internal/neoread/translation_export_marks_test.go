@@ -91,6 +91,11 @@ func TestMarkSpansFollowMarkdownSyntax(t *testing.T) {
 		{"**粗**体文字", "粗体", 0, "**[粗" + link + "**[体" + link + "文字"},
 		{"- 列表项", "列表", 0, "- [列表" + link + "项"},
 		{"| 甲 | 乙 |\n| --- | --- |\n| 丙 | 丁 |", "丙", 2, "| 甲 | 乙 |\n| --- | --- |\n| [丙" + link + " | 丁 |"},
+		// Entities and escapes render as one character and are never split.
+		{"A &amp; B", "&", 2, ""},
+		{"A &amp; B &amp; C", "B", 4, "A &amp; [B" + link + " &amp; C"},
+		{`a \* b`, "*", 2, ""},
+		{`a \* b`, "b", 4, `a \* [b` + link},
 	} {
 		targets := []string{c.text}
 		spans, ok := markSpans(newMarkTextModel(targets), targets, translationMarkRange{SentenceIndexes: []int{0}, Start: c.start, Quote: c.quote})
@@ -105,5 +110,43 @@ func TestMarkSpansFollowMarkdownSyntax(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%q / %q: got %q, want %q", c.text, c.quote, got, c.want)
 		}
+	}
+}
+
+func TestTranslationExportKeepsFallbackForLaterParagraphs(t *testing.T) {
+	s, _, m := translationFixture(t)
+	saveExportTranslation(t, s, m.Blocks[0], "第一段文字。")
+	saveExportTranslation(t, s, m.Blocks[1], "第二段 $x$ 结束。")
+	hash := func(b PDFBlock) string { return newTranslation(b).SourceHash }
+	mark := func(id, kind, note string) {
+		t.Helper()
+		body := `{"id":"` + id + `","documentId":"doc","kind":"` + kind + `","quote":"文字。第二段 x","note":"` + note + `","color":"#6cc58c","createdAt":"",
+"location":{"type":"pdf","page":1,"translation":{"blockId":"p1-b1","sourceHash":"` + hash(m.Blocks[0]) + `","sentenceIndexes":[0],"start":2,"end":5,"ranges":[
+{"blockId":"p1-b1","sourceHash":"` + hash(m.Blocks[0]) + `","sentenceIndexes":[0],"start":2,"end":5,"quote":"文字。"},
+{"blockId":"p1-b2","sourceHash":"` + hash(m.Blocks[1]) + `","sentenceIndexes":[0],"start":4,"end":5,"quote":"x"}]}}}`
+		if _, err := s.Store.DB.Exec("INSERT INTO annotations(id,document_id,body) VALUES(?,?,?)", id, "doc", body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The second paragraph's selection is inside math; neither mark may lose it.
+	mark("a1", "note", "跨段")
+	mark("a2", "highlight", "")
+	text := request(t, s, "GET", "/api/documents/doc/translations/export?annotations=1", nil).Body.String()
+	first, second := strings.Index(text, "第一段"), strings.Index(text, "第二段")
+	for _, c := range []struct {
+		want  string
+		after int
+	}{
+		{"第一段[文字。](#neoread-mark-0-highlight-6cc58c)[](#neoread-mark-1-note-6cc58c)", first},
+		{"> **1 · 批注**\n>\n> 跨段\n", first},
+		{"> **1 · 批注（续）** 「x」\n", second},
+		{"> **2 · 高亮** 「x」\n", second},
+	} {
+		if at := strings.Index(text, c.want); at < c.after {
+			t.Fatalf("missing %q after %d in\n%s", c.want, c.after, text)
+		}
+	}
+	if strings.Index(text, "> **1 · 批注**") > second {
+		t.Fatalf("first note text moved to the later paragraph:\n%s", text)
 	}
 }

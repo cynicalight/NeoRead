@@ -64,7 +64,7 @@ func translationExportMarkdown(title string, source translationInput, items []Tr
 	}
 	writeBlock := func(b PDFBlock) {
 		t, requested := translations[b.ID]
-		var notes []*translationExportNote
+		var notes []translationExportEntry
 		defer func() { writeTranslationExportNotes(&out, notes) }()
 		if isFormula(b) && t.Status == "complete" && t.FormulaMarkdown != "" {
 			out.WriteString(strings.TrimSpace(t.FormulaMarkdown) + "\n\n")
