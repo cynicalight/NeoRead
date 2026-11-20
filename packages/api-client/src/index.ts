@@ -202,9 +202,10 @@ async function fetchMarkdownExport(
     notesMarkdown: string;
     sources?: ("original" | "translation")[];
   },
+  annotations = false,
 ): Promise<Blob> {
   const response = await diagnosticFetch(
-    `/api/documents/${encodeURIComponent(id)}/translations/export?format=${format}`,
+    `/api/documents/${encodeURIComponent(id)}/translations/export?format=${format}${annotations ? "&annotations=1" : ""}`,
     {
       method: selection ? "POST" : "GET",
       headers: {
@@ -485,18 +486,13 @@ export const api = {
       `/api/documents/${id}/translations`,
       { signal },
     ),
+  /** `annotations` adds translated marks for the print renderer only. */
   exportTranslation: (
     id: string,
     format: "markdown" | "zip",
     signal?: AbortSignal,
-    notesMarkdown = "",
-  ) =>
-    fetchMarkdownExport(
-      id,
-      format,
-      signal,
-      notesMarkdown ? { notesMarkdown } : undefined,
-    ),
+    { annotations = false }: { annotations?: boolean } = {},
+  ) => fetchMarkdownExport(id, format, signal, undefined, annotations),
   exportMarkdownArchive: (
     id: string,
     sources: ("original" | "translation")[],

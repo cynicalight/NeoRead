@@ -42,3 +42,17 @@ it("renders embedded images and escapes the print filename", () => {
     markdownPrintHTML("![bad](data:text/html;base64,PHNjcmlwdD4=)"),
   ).not.toContain("<img");
 });
+
+it("draws translated marks from the export fragment links", () => {
+  const html = markdownPrintHTML(
+    "第一句[包含](#neoread-mark-0-note-6cc58c)[](#neoread-mark-1-note-6cc58c) $x$ [公式](#neoread-mark-0-underline-e6b94c)。[链接](#other)\n\n> **1 · 批注**\n>\n> 重点",
+  );
+  expect(html).toContain(
+    '<mark style="--mark:#6cc58c">包含</mark><sup>1</sup>',
+  );
+  expect(html).toContain(
+    '<mark class="underline" style="--mark:#e6b94c">公式</mark>。',
+  );
+  expect(html).toContain('<a href="#other">链接</a>');
+  expect(html).not.toContain("neoread-mark");
+});
