@@ -24,7 +24,7 @@ await build({
   minify: true,
 });
 await copyFile(
-  new URL("../../assets/logo/png/neoread-logo-256.png", import.meta.url),
+  new URL("store/icon-128.png", import.meta.url),
   new URL("icon.png", out),
 );
 await copyFile(
