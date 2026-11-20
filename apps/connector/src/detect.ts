@@ -11,6 +11,32 @@ export type Candidate = {
 };
 export type Detection = { items: Candidate[]; kind: "single" | "list" };
 
+export function withPDFTitle(candidate: Candidate): Candidate {
+  if (
+    candidate.sourceUrl !== candidate.pdfUrl ||
+    !candidate.title.includes("：") ||
+    !/[A-Za-z]/.test(candidate.title) ||
+    /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
+      candidate.title,
+    )
+  )
+    return candidate;
+  const title = candidate.title
+    .replace(/：(?=[A-Za-z])/g, ": ")
+    .replace(/：/g, ":");
+  return { ...candidate, title, metadata: { ...candidate.metadata, title } };
+}
+
+export function pdfTabCandidate(url: string, title: string): Candidate {
+  return withPDFTitle({
+    title,
+    sourceUrl: url,
+    pdfUrl: url,
+    metadata: { title, url, itemType: "journal" },
+    snapshot: "",
+  });
+}
+
 // Self-contained so Chrome can serialize this function for activeTab injection.
 export function detectPage(html?: string, url?: string): Detection {
   const page =

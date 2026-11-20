@@ -1,7 +1,13 @@
 /// <reference types="chrome" />
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { detectPage, type Candidate, type Detection } from "./detect";
+import {
+  detectPage,
+  pdfTabCandidate,
+  withPDFTitle,
+  type Candidate,
+  type Detection,
+} from "./detect";
 import { prepareCandidate } from "./prepare";
 import { TagPicker } from "./TagPicker";
 const bridge = "http://127.0.0.1:17841";
@@ -72,19 +78,7 @@ function App() {
         });
         if (!tab?.id) throw Error("无法读取当前标签页");
         if (tab.url?.toLowerCase().includes(".pdf")) {
-          setItems([
-            {
-              title: tab.title || "PDF",
-              sourceUrl: tab.url,
-              pdfUrl: tab.url,
-              metadata: {
-                title: tab.title || "PDF",
-                url: tab.url,
-                itemType: "journal",
-              },
-              snapshot: "",
-            },
-          ]);
+          setItems([pdfTabCandidate(tab.url, tab.title || "PDF")]);
           setSelected([0]);
           return;
         }
@@ -96,7 +90,9 @@ function App() {
         if (!detection?.items.length) throw Error("未识别到论文");
         setItems(
           detection.items.map((item) =>
-            detection.kind === "single" ? { ...item, tabId: tab.id } : item,
+            detection.kind === "single"
+              ? { ...withPDFTitle(item), tabId: tab.id }
+              : item,
           ),
         );
         setSelected(detection.items.map((_, i) => i));
@@ -108,19 +104,7 @@ function App() {
         if (tab?.url && /^https?:\/\//.test(tab.url)) {
           // Chrome's built-in PDF viewer does not allow page script injection.
           // The worker validates the PDF signature before sending anything to NeoRead.
-          setItems([
-            {
-              title: tab.title || "PDF",
-              sourceUrl: tab.url,
-              pdfUrl: tab.url,
-              metadata: {
-                title: tab.title || "PDF",
-                url: tab.url,
-                itemType: "journal",
-              },
-              snapshot: "",
-            },
-          ]);
+          setItems([pdfTabCandidate(tab.url, tab.title || "PDF")]);
           setSelected([0]);
           setMessage("无法读取页面内容；如果当前标签页是 PDF，仍可尝试收录。");
           setMessageTone("neutral");

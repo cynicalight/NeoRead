@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { detectPage } from "./detect";
+import { detectPage, pdfTabCandidate, withPDFTitle } from "./detect";
 import { prepareCandidate } from "./prepare";
 const url = "https://kns.cnki.net/kcms2/article/abstract?v=example";
 const html =
@@ -84,4 +84,21 @@ it("keeps generic direct PDF imports unchanged", async () => {
     ...item,
     metadata: { title: "PDF" },
   });
+});
+
+const paperTitle = "RegionReasoner: Region-Grounded Multi-Round Visual Reasoning";
+it.each([
+  [paperTitle.replace(":", "："), paperTitle],
+  [paperTitle.replace(": ", "："), paperTitle],
+  ["RegionReasoner：区域推理", "RegionReasoner：区域推理"],
+])("uses the same PDF title in the popup and import: %s", async (input, expected) => {
+  const url = "https://arxiv.org/pdf/2602.03733";
+  const candidates = [
+    pdfTabCandidate(url, input),
+    withPDFTitle(detectPage(`<title>${input}</title>`, url).items[0]),
+  ];
+  for (const candidate of candidates) {
+    expect(candidate.title).toBe(expected);
+    expect((await prepareCandidate(candidate)).metadata.title).toBe(expected);
+  }
 });

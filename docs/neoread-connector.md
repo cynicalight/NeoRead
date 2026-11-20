@@ -10,4 +10,6 @@
 
 第一批识别规则覆盖通用 `citation_*`、Dublin Core、JSON-LD 元数据，并识别 arXiv、Google Scholar、PubMed、Semantic Scholar 的部分结果列表。有 DOI 时还会尝试从 Crossref 补全缺失的信息。规则依赖站点当前页面结构；登录态、反爬限制、订阅页面及跨站 PDF 下载可能导致单篇失败，扩展会逐篇显示结果。Chrome PDF 查看器无法注入页面脚本时仍可尝试收录，上传前会校验 PDF 文件签名。没有 PDF 的页面不会创建 NeoRead 条目。扩展暂不处理 Zotero 云端、机构代理、Google Docs 引用或书目格式文件自动导入。
 
+从 PDF 标签页收录英文论文时，Connector 会将标题中的全角冒号 `：` 转为英文冒号 `:`。含中日韩文字的标题保留原标点，不修改已收录的条目。
+
 手动验收：用一篇 arXiv 论文检查自动连接、单篇收录、论文信息、PDF 阅读与离线快照；在 Google Scholar 或 arXiv 搜索结果中选择两篇，核对逐篇结果与去重；打开需要登录的 PDF 验证当前会话可用性及失败提示；重启 NeoRead 后确认自动恢复连接；关闭 NeoRead 后确认扩展不能继续写入。视觉检查需要在 Chrome 和 NeoRead 桌面版中手动完成。
