@@ -200,6 +200,32 @@ it("does not pass a different paper's published download link through preparatio
   expect(result.pdfUrl).toBe(`${scienceDirectArticle}/pdfft?download=true`);
 });
 
+it("reads a legacy PDF menu on save without navigating to the PDF or leaving the menu open", async () => {
+  const expected = `${scienceDirectArticle}/pdfft?pid=menu-attachment`;
+  const page = new DOMParser().parseFromString(`<meta name="citation_title" content="Paper">
+    <button id="pdfLink" aria-haspopup="menu" aria-expanded="false">View PDF</button>`, "text/html");
+  const button = page.querySelector("button")!;
+  button.addEventListener("click", () => {
+    button.setAttribute("aria-expanded", "true");
+    queueMicrotask(() => page.body.insertAdjacentHTML("beforeend", `<div class="PdfDropDownMenu"><a href="${expected}">PDF</a></div>`));
+  });
+  page.body.addEventListener("click", event => {
+    if (event.target === page.body) {
+      page.querySelector(".PdfDropDownMenu")?.remove();
+      button.setAttribute("aria-expanded", "false");
+    }
+  });
+  vi.stubGlobal("document", page);
+  vi.stubGlobal("location", new URL(scienceDirectArticle));
+  vi.stubGlobal("chrome", { scripting: { executeScript: async (
+    { func, args = [] }: { func: (...a: string[]) => unknown; args?: string[] },
+  ) => [{ result: await func(...args) }] } });
+  const result = await prepareCandidate({ ...resultCandidate, tabId: 7 });
+  expect(result.scienceDirectPublishedPDF).toBe(expected);
+  expect(button.getAttribute("aria-expanded")).toBe("false");
+  expect(JSON.stringify([result.metadata, result.snapshot])).not.toContain("menu-attachment");
+});
+
 it("does not turn a newly displayed ScienceDirect access notice into a PDF request", async () => {
   const initial = detectPage(articleHTML, scienceDirectArticle).items[0];
   const latest = detectPage(

@@ -44,7 +44,7 @@ await writeFile(
         ? { key: developmentKey }
         : {}),
       name: "NeoRead Connector",
-      version: "0.1.7",
+      version: "0.1.8",
       description: "将网页中的 PDF 论文收录到本机 NeoRead",
       icons: { 128: "icon.png" },
       action: { default_popup: "popup.html", default_icon: "icon.png" },

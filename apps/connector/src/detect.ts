@@ -125,6 +125,8 @@ export function detectPage(html?: string, url?: string): Detection {
       const path = `/science/article/pii/${pii}/pdfft`;
       const values = [
         page.querySelector("a#pdfLink")?.getAttribute("href"),
+        ...Array.from(page.querySelectorAll("a.accessbar-utility-link[href]"),
+          link => link.getAttribute("href")),
         meta("citation_pdf_url"),
         page.querySelector(".PdfEmbed > object")?.getAttribute("data"),
         page.querySelector(".PdfDropDownMenu a[href]")?.getAttribute("href"),

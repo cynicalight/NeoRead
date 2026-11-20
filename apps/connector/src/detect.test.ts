@@ -211,6 +211,15 @@ it.each([
   expect(JSON.stringify(article.metadata)).not.toContain("md5=");
 });
 
+it("selects the current article's View PDF toolbar link, not a recommendation or the guessed endpoint", () => {
+  const own = `${scienceDirectArticle}/pdfft?pid=published-attachment`;
+  const { items: [paper] } = detectPage(`<meta name="citation_title" content="Paper">
+    <a class="accessbar-utility-link" href="${otherScienceDirectArticle}/pdfft?pid=related">View PDF</a>
+    <a class="accessbar-utility-link" href="${own}"><span>View&nbsp;PDF</span></a>`, scienceDirectArticle);
+  expect(paper.scienceDirectPublishedPDF).toBe(own);
+  expect(JSON.stringify([paper.metadata, paper.snapshot])).not.toContain("published-attachment");
+});
+
 it.each([
   `${scienceDirectArticle}/pdfft`,
   `${scienceDirectArticle}/pdfft?download=true#viewer`,

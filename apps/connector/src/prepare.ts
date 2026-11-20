@@ -13,6 +13,36 @@ const cleanDate = (value: unknown) => {
     : "";
 };
 
+// Serialized by Chrome. Only operate the article's own PDF dropdown on Save;
+// never click a download link, generic button, or publisher verification UI.
+async function readPDFMenu(source: string): Promise<string | null> {
+  const expected = new URL(source);
+  if (location.protocol !== "https:" || location.hostname.replace(/^www\./, "") !== "sciencedirect.com" ||
+      location.port || location.pathname.replace(/\/$/, "").replace("/abs/pii/", "/pii/") !== expected.pathname)
+    return null;
+  const button = document.querySelector<HTMLElement>(
+    'button#pdfLink, a#pdfLink[href="#"], #pdfLink[role="button"]:not([href])',
+  );
+  if (!button || button.matches(":disabled,[aria-disabled=true]") ||
+      button.closest("form, [hidden], [aria-hidden=true], #recommendations, .related-articles")) return null;
+  const href = () => document.querySelector<HTMLAnchorElement>(".PdfDropDownMenu a[href]")?.href || null;
+  const open = href();
+  if (open || button.getAttribute("aria-expanded") === "true") return open;
+  try {
+    button.click();
+    if (!href()) await new Promise<void>(resolve => {
+      const observer = new MutationObserver(() => { if (href()) finish(); });
+      const timer = setTimeout(finish, 400);
+      function finish() { observer.disconnect(); clearTimeout(timer); resolve(); }
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] });
+    });
+    return href();
+  } finally {
+    if (button.isConnected && (button.getAttribute("aria-expanded") === "true" || href()))
+      document.body.click();
+  }
+}
+
 // Older desktop versions require a nonempty, single-line title on every import.
 function importTitle(title: string, url: URL): string {
   return (title.replace(/[\p{Cc}\s]+/gu, " ").trim() ||
@@ -57,7 +87,13 @@ export async function prepareCandidate(
       );
 
     const title = importTitle(article.title, source);
-    const { scienceDirectPublishedPDF, ...articleData } = article;
+    let { scienceDirectPublishedPDF, ...articleData } = article;
+    if (!scienceDirectPublishedPDF && candidate.tabId !== undefined) {
+      const frames = await chrome.scripting.executeScript({
+        target: { tabId: candidate.tabId }, func: readPDFMenu, args: [publisherSource],
+      });
+      scienceDirectPublishedPDF = frames[0]?.result || undefined;
+    }
     return {
       ...articleData,
       sourceUrl: publisherSource,
