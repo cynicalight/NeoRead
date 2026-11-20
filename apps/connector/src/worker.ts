@@ -7,6 +7,7 @@ import {
   readCNKIPage,
 } from "./download";
 import { scienceDirectArticleURL } from "./scienceDirect";
+import { findPublishedCopy } from "./publishedCopy";
 import { createScienceDirectResume, type ImportResult } from "./scienceDirectResume";
 // Remove a rule left by an interrupted service worker before handling requests.
 const ready = clearCNKIRequestRule().then(
@@ -14,7 +15,6 @@ const ready = clearCNKIRequestRule().then(
   () => "无法初始化知网下载规则，请重新加载插件",
 );
 const bridge = "http://127.0.0.1:17841";
-type Result = ImportResult & { verificationTabId?: number };
 async function save(
   candidate: Candidate,
   folders: string[],
@@ -27,12 +27,27 @@ async function save(
   if (!secret)
     return { ok: false, error: "请先打开 NeoRead 后重新打开插件" };
   attempt?.signal.throwIfAborted();
-  const blob = attempt
-    ? await downloadPDF(
-        { ...candidate, pdfUrl: attempt.pdfUrl },
-        { visibleScienceDirectPDF: true, signal: attempt.signal },
-      )
-    : await downloadPDF(candidate);
+  let blob: Blob;
+  let copyURL: string | undefined;
+  if (attempt) {
+    blob = await downloadPDF(
+      { ...candidate, pdfUrl: attempt.pdfUrl },
+      { visibleScienceDirectPDF: true, signal: attempt.signal },
+    );
+  } else {
+    try {
+      blob = await downloadPDF(candidate);
+    } catch (error) {
+      if (!(error instanceof ConnectorError) || !scienceDirectArticleURL(candidate.sourceUrl) ||
+          !["sciencedirect-browser-required", "pdf-network", "pdf-http"].includes(error.code)) throw error;
+      const doi = candidate.metadata.doi;
+      const copy = typeof doi === "string" && doi ? await findPublishedCopy(doi) : null;
+      if (!copy) throw new ConnectorError("pdf-unavailable",
+        "未取得本篇 PDF：出版商未提供可下载的文件，也未找到可核实的公开出版版。未收录。");
+      blob = copy.blob;
+      copyURL = copy.url;
+    }
+  }
   attempt?.signal.throwIfAborted();
   const form = new FormData();
   form.append("library", library);
@@ -61,7 +76,9 @@ async function save(
     .json()
     .catch(() => ({ error: `收录失败 (${response.status})` }));
   return response.ok
-    ? { ok: true, document: data.document, warnings: data.warnings }
+    ? { ok: true, document: data.document, warnings: copyURL
+        ? [...(data.warnings ?? []), `PDF 来源：公开仓储的出版版（${copyURL}）`]
+        : data.warnings }
     : {
         ok: false,
         error: data.error || "收录失败",
@@ -79,30 +96,6 @@ const scienceDirect = createScienceDirectResume((request, attempt) =>
     attempt,
   ),
 );
-
-async function saveOrOpenScienceDirect(
-  candidate: Candidate,
-  folders: string[],
-  tags: string[],
-  allowLarge: boolean,
-  library: "papers" | "books" = "papers",
-): Promise<Result> {
-  try {
-    return await save(candidate, folders, tags, allowLarge, library);
-  } catch (error) {
-    if (
-      !(error instanceof ConnectorError) ||
-      error.code !== "sciencedirect-browser-required"
-    ) throw error;
-    const sourceUrl = scienceDirectArticleURL(candidate.sourceUrl);
-    if (!sourceUrl) throw error;
-    const verificationTabId = await scienceDirect.begin(
-      { candidate, folders, tags, allowLarge, library },
-      sourceUrl,
-    );
-    return { ok: false, code: "sciencedirect-pending", verificationTabId };
-  }
-}
 
 chrome.runtime.onMessage.addListener(
   (message: unknown, sender, sendResponse) => {
@@ -164,7 +157,7 @@ chrome.runtime.onMessage.addListener(
         });
         return scienceDirect.resume(m.viewerTabId);
       }
-      return saveOrOpenScienceDirect(
+      return save(
         m.candidate,
         m.folders || [],
         m.tags || [],

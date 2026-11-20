@@ -9,6 +9,8 @@ export type Candidate = {
   tabId?: number;
   referrerUrl?: string;
   scienceDirectAccess?: "article" | "denied";
+  // The article's live download link can be signed; never persist or upload it.
+  scienceDirectPublishedPDF?: string;
 };
 export type Detection = { items: Candidate[]; kind: "single" | "list" };
 
@@ -118,6 +120,37 @@ export function detectPage(html?: string, url?: string): Detection {
     const denied = Array.from(page.querySelectorAll(
       ".accessContent, .access-options-link-text, #check-access-popover",
     )).some((node) => !node.closest("#recommendations, .related-articles"));
+    const publishedPDF = () => {
+      const pii = sourceUrl.slice(sourceUrl.lastIndexOf("/") + 1);
+      const path = `/science/article/pii/${pii}/pdfft`;
+      const values = [
+        page.querySelector("a#pdfLink")?.getAttribute("href"),
+        meta("citation_pdf_url"),
+        page.querySelector(".PdfEmbed > object")?.getAttribute("data"),
+        page.querySelector(".PdfDropDownMenu a[href]")?.getAttribute("href"),
+        page.querySelector("a.pdf-download-btn-link")?.getAttribute("href"),
+      ];
+      for (const value of values) {
+        if (!value || value.trim().startsWith("#")) continue;
+        const href = absolute(value);
+        if (!href) continue;
+        const link = new URL(href);
+        if (link.username || link.password) continue;
+        if (Array.from(link.searchParams.keys()).some((key) => /^__cf_chl_/i.test(key)))
+          continue;
+        // As with articleURL, mirror the shared check for the serialized function.
+        const publisherPDF = (link.origin === publisher || link.origin === "https://sciencedirect.com") &&
+          (link.pathname === path || link.pathname === `${path}/`);
+        const cdnPDF = link.origin === "https://pdf.sciencedirectassets.com" &&
+          link.pathname.match(/^\/\d+\/1-s2\.0-(?:S[0-9X]{16}|B[0-9X]{19})\/1-s2\.0-(S[0-9X]{16}|B[0-9X]{19})\/main\.pdf$/)?.[1] === pii;
+        if (!publisherPDF && !cdnPDF) continue;
+        // Prefer the canonical form when the published link is equivalent.
+        if (publisherPDF && (!link.search || link.search === "?download=true")) continue;
+        link.hash = "";
+        return link.href;
+      }
+    };
+    const scienceDirectPublishedPDF = denied ? undefined : publishedPDF();
     const doi = meta("citation_doi").replace(/^doi:/i, "").trim();
     const firstPage = meta("citation_firstpage");
     const lastPage = meta("citation_lastpage");
@@ -184,6 +217,7 @@ export function detectPage(html?: string, url?: string): Detection {
         metadata,
         snapshot: snapshot.hasChildNodes() ? snapshot.outerHTML : "",
         scienceDirectAccess: denied ? "denied" : "article",
+        ...(scienceDirectPublishedPDF ? { scienceDirectPublishedPDF } : {}),
       }],
     };
   }

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Candidate } from "./detect";
+const { findPublishedCopy } = vi.hoisted(() => ({ findPublishedCopy: vi.fn() }));
+vi.mock("./publishedCopy", () => ({ findPublishedCopy }));
 let listener: (
   message: unknown,
   sender: unknown,
@@ -30,6 +32,7 @@ const dispatch = (message: unknown) =>
   );
 beforeEach(async () => {
   vi.resetModules();
+  findPublishedCopy.mockReset().mockResolvedValue(null);
   rules = vi.fn().mockResolvedValue(undefined);
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
@@ -151,15 +154,18 @@ function challenge() {
   });
 }
 async function begin(paper = article) {
-  fetchMock.mockResolvedValueOnce(challenge());
+  const tabId = 10 + tabs.size;
+  tabs.set(tabId, { id: tabId, url: paper.pdfUrl, active: true, status: "loading" } as chrome.tabs.Tab);
   const result = await dispatch({
     type: "save",
+    viewerTabId: tabId,
     candidate: paper,
     folders: ["科研"],
     tags: ["物理"],
   });
-  expect(result).toMatchObject({ ok: false, code: "sciencedirect-pending" });
-  return result.verificationTabId as number;
+  expect(result).toMatchObject({ pending: { status: "waiting" } });
+  tabs.get(tabId)!.active = false;
+  return tabId;
 }
 const status = (tabId: number) => dispatch({ type: "sciencedirect-status", tabId });
 const resume = (tabId: number, options = {}) =>
@@ -200,22 +206,18 @@ it("collects an already-open publisher PDF in its original tab, waiting there if
 
 it("only resumes a visible, complete same-article PDF and preserves the original import choices", async () => {
   const tabId = await begin();
-  expect(createTab).toHaveBeenCalledTimes(1);
-  expect(createTab).toHaveBeenCalledWith({
-    url: `${publisher}/${pii}/pdfft`,
-    active: false,
-  });
+  expect(createTab).not.toHaveBeenCalled();
   expect(JSON.stringify(session)).not.toMatch(/via=ihub|temporary-referrer|ephemeral/);
   navigate(tabId, signedPDF);
   expect(await status(tabId)).toEqual({
     pending: { title: article.title, status: "waiting" },
   });
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).not.toHaveBeenCalled();
 
   inspect.mockResolvedValueOnce([{ result: { url: signedPDF, type: "text/html" } }]);
   activate(tabId);
   await status(tabId);
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).not.toHaveBeenCalled();
   navigate(tabId, `${publisher}/${pii}`);
   expect(await resume(tabId)).toMatchObject({ ok: false, pending: { status: "waiting" } });
   navigate(tabId, signedPDF.replace("pdf.sciencedirectassets.com", "evil.invalid"));
@@ -224,7 +226,7 @@ it("only resumes a visible, complete same-article PDF and preserves the original
   expect(await resume(tabId)).toMatchObject({ ok: false, pending: { status: "waiting" } });
   navigate(tabId, signedPDF, "loading");
   expect(await resume(tabId)).toMatchObject({ ok: false, pending: { status: "waiting" } });
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).not.toHaveBeenCalled();
 
   fetchMock
     .mockResolvedValueOnce(new Response("%PDF-1.7\narticle"))
@@ -234,9 +236,9 @@ it("only resumes a visible, complete same-article PDF and preserves the original
   await vi.waitFor(async () => {
     expect(await status(tabId)).toEqual({ pending: { title: "Final title", status: "done" } });
   });
-  expect(fetchMock).toHaveBeenCalledTimes(3);
-  expect(fetchMock.mock.calls[1]).toEqual([signedPDF, expect.objectContaining({ redirect: "error" })]);
-  const form = fetchMock.mock.calls[2][1].body as FormData;
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls[0]).toEqual([signedPDF, expect.objectContaining({ redirect: "error" })]);
+  const form = fetchMock.mock.calls[1][1].body as FormData;
   expect(form.get("sourceUrl")).toBe(`${publisher}/${pii}`);
   expect(form.get("snapshot")).toBe(article.snapshot);
   expect(form.get("metadata")).toBe(JSON.stringify(article.metadata));
@@ -262,15 +264,15 @@ it.each([403, 200])("keeps a failed resumed download (%s HTML) for explicit retr
   tabUpdated(tabId, { status: "complete" });
   tabActivated({ tabId });
   await status(tabId);
-  expect(fetchMock).toHaveBeenCalledTimes(2);
-  expect(createTab).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(createTab).not.toHaveBeenCalled();
   expect(JSON.stringify(session)).not.toContain("ephemeral");
 
   fetchMock
     .mockResolvedValueOnce(new Response("%PDF-1.7\nretry"))
     .mockResolvedValueOnce(Response.json({ document: { id: "retried", title: article.title } }));
   expect(await resume(tabId)).toMatchObject({ ok: true, pending: { status: "done" } });
-  expect(createTab).toHaveBeenCalledTimes(1);
+  expect(createTab).not.toHaveBeenCalled();
 });
 
 it("keeps independent tasks across worker restarts, including large-paper confirmation", async () => {
@@ -293,7 +295,7 @@ it("keeps independent tasks across worker restarts, including large-paper confir
     .mockResolvedValueOnce(Response.json({ code: "large-paper", pages: 123 }, { status: 409 }));
   expect(await resume(first)).toMatchObject({ pending: { status: "large-paper", pages: 123 } });
   expect(await resume(first)).toMatchObject({ pending: { status: "large-paper" } });
-  expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 
   fetchMock
     .mockResolvedValueOnce(new Response("%PDF-1.7"))
@@ -302,7 +304,7 @@ it("keeps independent tasks across worker restarts, including large-paper confir
     ok: true,
     pending: { status: "done" },
   });
-  const form = fetchMock.mock.calls[5][1].body as FormData;
+  const form = fetchMock.mock.calls[3][1].body as FormData;
   expect(form.get("allowLarge")).toBe("1");
   expect(form.get("library")).toBe("books");
   expect(form.get("tags")).toBe('["物理"]');
@@ -318,14 +320,14 @@ it("aborts a download after its verification tab closes and does not resurrect t
   let complete!: (response: Response) => void;
   fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => { complete = resolve; }));
   const attempt = resume(tabId);
-  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   tabs.delete(tabId);
   tabRemoved(tabId);
   expect(await status(tabId)).toEqual({});
-  expect(fetchMock.mock.calls[1][1].signal.aborted).toBe(true);
+  expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
   complete(new Response("%PDF-1.7"));
   await attempt;
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(session).toEqual({});
 });
 
@@ -340,22 +342,31 @@ it("ignores ScienceDirect controls from website or content-script contexts", asy
   expect(await status(tabId)).toMatchObject({ pending: { status: "waiting" } });
 });
 
-it.each([
-  `<meta http-equiv="refresh" content="0; url=${signedPDF}">`,
-  "<!doctype html><html><body>Opening your article…</body></html>",
-])("keeps the article and labels when the official PDF endpoint returns a web page", async (html) => {
-  fetchMock.mockResolvedValueOnce(new Response(
-    html, { headers: { "content-type": "text/html" } },
-  ));
-  const result = await dispatch({ type: "save", candidate: article, folders: ["科研"], tags: ["物理"] });
-  expect(result).toMatchObject({ ok: false, code: "sciencedirect-pending" });
-  expect(session[`sciencedirect:${result.verificationTabId}`]).toMatchObject({
-    request: { candidate: { title: article.title }, folders: ["科研"], tags: ["物理"] },
-  });
-  expect(createTab).toHaveBeenCalledWith({
-    url: `${publisher}/${pii}/pdfft`,
-    active: false,
-  });
+it("uploads a verified published copy with the original citation and labels, without opening a PDF tab", async () => {
+  const url = "https://publikationen.bibliothek.kit.edu/1000000001/100000001";
+  findPublishedCopy.mockResolvedValue({ blob: new Blob(["%PDF-1.7\npublished copy"]), url });
+  fetchMock.mockResolvedValueOnce(challenge()).mockResolvedValueOnce(
+    Response.json({ document: { id: "saved", title: article.title } }, { status: 201 }),
+  );
+  const result = await dispatch({ type: "save", candidate: article, folders: ["科研"], tags: ["材料"] });
+  expect(findPublishedCopy).toHaveBeenCalledWith(article.metadata.doi);
+  expect(result).toMatchObject({ ok: true, warnings: [expect.stringContaining(url)] });
+  const [bridgeURL, { body }] = fetchMock.mock.calls[1];
+  expect(bridgeURL).toBe("http://127.0.0.1:17841/v1/import");
+  expect(await body.get("pdf").text()).toBe("%PDF-1.7\npublished copy");
+  expect(JSON.parse(body.get("metadata"))).toEqual(article.metadata);
+  expect(body.get("snapshot")).toBe(article.snapshot);
+  expect(body.get("folders")).toBe('["科研"]');
+  expect(body.get("tags")).toBe('["材料"]');
+  expect(createTab).not.toHaveBeenCalled();
+});
+
+it("returns a final result without opening a tab if neither source supplies an attachment", async () => {
+  fetchMock.mockResolvedValueOnce(challenge());
+  const result = await dispatch({ type: "save", candidate: { ...article, metadata: {} } });
+  expect(result).toMatchObject({ ok: false, code: "pdf-unavailable" });
+  expect(createTab).not.toHaveBeenCalled();
+  expect(session).toEqual({});
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
@@ -369,5 +380,5 @@ it("does not automatically repeat an upload with an unknown outcome after worker
   navigate(tabId, signedPDF);
   activate(tabId);
   expect(await status(tabId)).toMatchObject({ pending: { status: "error" } });
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).not.toHaveBeenCalled();
 });

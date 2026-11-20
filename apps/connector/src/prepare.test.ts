@@ -164,6 +164,7 @@ it("loads a ScienceDirect search selection as its own article and prepares a tex
   });
   expect(result).toMatchObject({
     pdfUrl: `${scienceDirectArticle}/pdfft?download=true`,
+    scienceDirectPublishedPDF: `${scienceDirectArticle}/pdfft?token=signed-secret`,
     sourceUrl: scienceDirectArticle,
     metadata: {
       url: scienceDirectArticle,
@@ -175,7 +176,9 @@ it("loads a ScienceDirect search selection as its own article and prepares a tex
     },
   });
   expect(result.snapshot).toContain("<h2>Methods</h2><p>Readable <em>body</em> reference</p>");
-  expect(JSON.stringify(result)).not.toMatch(/-secret|__cf_chl_/);
+  const { scienceDirectPublishedPDF, ...uploadable } = result;
+  expect(scienceDirectPublishedPDF).toContain("signed-secret");
+  expect(JSON.stringify(uploadable)).not.toMatch(/-secret|__cf_chl_/);
   expect(result.snapshot).not.toMatch(/href=|src=|data-|style=|onclick=|<script|<form|Download control|Temporary link|Unrelated article/);
 });
 
@@ -185,6 +188,16 @@ it("rejects another PII presented by the selected result before using its citati
   ));
   vi.stubGlobal("fetch", fetchMock);
   await expect(prepareCandidate(resultCandidate)).rejects.toThrow("无法确认是这篇 ScienceDirect 论文");
+});
+
+it("does not pass a different paper's published download link through preparation", async () => {
+  const article = detectPage(articleHTML, scienceDirectArticle).items[0];
+  const result = await prepareCandidate({
+    ...article,
+    scienceDirectPublishedPDF: `${otherScienceDirectArticle}/pdfft?token=temporary`,
+  });
+  expect(result).not.toHaveProperty("scienceDirectPublishedPDF");
+  expect(result.pdfUrl).toBe(`${scienceDirectArticle}/pdfft?download=true`);
 });
 
 it("does not turn a newly displayed ScienceDirect access notice into a PDF request", async () => {

@@ -155,7 +155,6 @@ function App() {
     const completed: { ok: boolean; text: string }[] = [];
     const failures: string[] = [];
     const warnings: string[] = [];
-    const verificationTabs: number[] = [];
     try {
       const allowed = await chrome.permissions.request({
         origins: ["https://*/*", "http://*/*"],
@@ -165,7 +164,7 @@ function App() {
         const item = items[index];
         let label = item.title.trim() || item.sourceUrl;
         setMessage(
-          `正在收录 ${success + failures.length + verificationTabs.length + 1}/${selected.length}：${label}`,
+          `正在收录 ${success + failures.length + 1}/${selected.length}：${label}`,
         );
         setMessageTone("neutral");
         try {
@@ -185,7 +184,6 @@ function App() {
             pages?: number;
             warnings?: string[];
             document?: { title: string };
-            verificationTabId?: number;
             pending?: ScienceDirectPending;
           };
           if (viewerTabId !== undefined && result.pending) {
@@ -202,10 +200,6 @@ function App() {
               allowLarge: true,
               library,
             });
-          }
-          if (result.code === "sciencedirect-pending" && result.verificationTabId !== undefined) {
-            verificationTabs.push(result.verificationTabId);
-            continue;
           }
           if (result.ok) {
             success++;
@@ -228,12 +222,10 @@ function App() {
         }
       }
       setMessage(
-        `已收录 ${success} 篇，失败 ${failures.length} 篇${verificationTabs.length ? `，等待网站提供 PDF ${verificationTabs.length} 篇` : ""}${warnings.length ? "\n提醒：" + warnings.join("\n") : ""}`,
+        `已收录 ${success} 篇，失败 ${failures.length} 篇${warnings.length ? "\n提醒：" + warnings.join("\n") : ""}`,
       );
       setMessageTone(failures.length ? "error" : "success");
       setOutcomes(completed);
-      // Opening the official page closes this popup; finish the entire selection first.
-      if (verificationTabs.length) await chrome.tabs.update(verificationTabs[0], { active: true });
     } catch (error) {
       setMessage((error as Error).message);
       setMessageTone("error");

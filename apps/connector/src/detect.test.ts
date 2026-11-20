@@ -191,15 +191,50 @@ it("detects a serializable ScienceDirect result for this PII, not related PDFs o
       abstract: "",
     },
   });
+  expect(result.items[0]).not.toHaveProperty("scienceDirectPublishedPDF");
+});
+
+it.each([
+  `<a id="pdfLink" href="/science/article/pii/S2352711024000111/pdfft?md5=published&amp;pid=paper#viewer">PDF</a>`,
+  `<a id="pdfLink" href="#">PDF</a><meta name="citation_pdf_url" content="${scienceDirectArticle}/pdfft?md5=published&amp;pid=paper">`,
+  `<div class="PdfEmbed"><object data="${scienceDirectArticle}/pdfft?md5=published&amp;pid=paper"></object></div>`,
+  `<div class="PdfDropDownMenu"><a href="${scienceDirectArticle}/pdfft?md5=published&amp;pid=paper">PDF</a></div>`,
+  `<a class="pdf-download-btn-link" href="${scienceDirectArticle}/pdfft?md5=published&amp;pid=paper">PDF</a>`,
+])("retains a distinct published link only as a transient download hint: %s", (html) => {
+  const [article] = detectPage(
+    `<meta name="citation_title" content="Paper"><article>${html}<p>Article body</p></article>`,
+    scienceDirectArticle,
+  ).items;
+  expect(article.scienceDirectPublishedPDF).toBe(`${scienceDirectArticle}/pdfft?md5=published&pid=paper`);
+  expect(article.pdfUrl).toBe(`${scienceDirectArticle}/pdfft?download=true`);
+  expect(article.snapshot).toBe("<article><p>Article body</p></article>");
+  expect(JSON.stringify(article.metadata)).not.toContain("md5=");
+});
+
+it.each([
+  `${scienceDirectArticle}/pdfft`,
+  `${scienceDirectArticle}/pdfft?download=true#viewer`,
+  `${scienceDirectArticle}/pdfft?__cf_chl_tk=verification`,
+  `${otherScienceDirectArticle}/pdfft?md5=signed`,
+  "https://example.org/paper.pdf",
+])("uses the canonical link instead of an equivalent or unauthorized publisher href: %s", (href) => {
+  const [article] = detectPage(
+    `<meta name="citation_title" content="Paper"><a id="pdfLink" href="${href}">PDF</a>`,
+    scienceDirectArticle,
+  ).items;
+  expect(article.pdfUrl).toBe(`${scienceDirectArticle}/pdfft?download=true`);
+  expect(article).not.toHaveProperty("scienceDirectPublishedPDF");
 });
 
 it("does not offer a PDF when ScienceDirect displays its primary access notice", () => {
-  expect(detectPage(
+  const [article] = detectPage(
     `<meta name="citation_title" content="Article with an access notice">
-    <meta name="citation_pdf_url" content="${scienceDirectArticle}/pdfft">
+    <meta name="citation_pdf_url" content="${scienceDirectArticle}/pdfft?md5=published">
     <div id="check-access-popover"><span>Get full text elsewhere</span></div>`,
     scienceDirectArticle,
-  ).items[0]).toMatchObject({ pdfUrl: "", scienceDirectAccess: "denied" });
+  ).items;
+  expect(article).toMatchObject({ pdfUrl: "", scienceDirectAccess: "denied" });
+  expect(article).not.toHaveProperty("scienceDirectPublishedPDF");
 });
 
 it("offers only unique, on-site article results on ScienceDirect search pages", () => {

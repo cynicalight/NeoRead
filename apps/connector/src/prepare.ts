@@ -1,7 +1,7 @@
 /// <reference types="chrome" />
 import { detectPage, withPDFTitle, type Candidate, type Detection } from "./detect";
 import { cnkiPageError, ConnectorError, isCNKIURL } from "./download";
-import { scienceDirectArticleURL, scienceDirectDownloadURL } from "./scienceDirect";
+import { isScienceDirectPDFLocation, scienceDirectArticleURL, scienceDirectDownloadURL } from "./scienceDirect";
 const cleanDate = (value: unknown) => {
   const match = String(value || "").match(
     /^(\d{4})(?:[-/](\d{1,2})(?:[-/](\d{1,2}))?)?/,
@@ -57,10 +57,14 @@ export async function prepareCandidate(
       );
 
     const title = importTitle(article.title, source);
+    const { scienceDirectPublishedPDF, ...articleData } = article;
     return {
-      ...article,
+      ...articleData,
       sourceUrl: publisherSource,
       pdfUrl: scienceDirectDownloadURL(publisherSource)!,
+      ...(scienceDirectPublishedPDF && isScienceDirectPDFLocation(scienceDirectPublishedPDF, publisherSource)
+        ? { scienceDirectPublishedPDF }
+        : {}),
       title,
       metadata: {
         ...article.metadata,

@@ -246,6 +246,7 @@ it("makes an ordinary PDF request and gives a browser-required hint for a publis
   expect(fetchMock).toHaveBeenCalledExactlyOnceWith(scienceDirectPDF, {
     credentials: "include",
     redirect: "follow",
+    cache: "no-store",
   });
   expect(rules).not.toHaveBeenCalled();
 });
@@ -272,7 +273,19 @@ it.each([
   "<title>ScienceDirect Login</title><p>Sign in</p>",
   "<title>A paper about browser verification</title><p>Just a moment...</p>",
   `<script>const bogus = '<meta http-equiv="refresh" content="0; url=${scienceDirectCDN}">';</script>`,
+  `<!-- <meta http-equiv="refresh" content="0; url=${scienceDirectCDN}"> -->`,
+  `<template><p id="redirect-message"><a href="${scienceDirectCDN}">Download</a></p></template>`,
+  `<p><a href="${scienceDirectCDN}">Ordinary attachment link</a></p>`,
+  `<title>Just a moment...</title><p id="redirect-message"><a href="${scienceDirectCDN}">Continue</a></p>`,
+  `<div id="challenge-form"></div><meta http-equiv="refresh" content="0; url=${scienceDirectCDN}">`,
+  `<script src="/cdn-cgi/challenge-platform/example.js"></script><meta http-equiv="refresh" content="0; url=${scienceDirectCDN}">`,
+  `<div class="accessContent">Get Full Text Elsewhere</div><meta http-equiv="refresh" content="0; url=${scienceDirectCDN}">`,
+  `<meta http-equiv="refresh" content="0; url=${scienceDirectPDF}#self">`,
   `<meta http-equiv="refresh" content="0; url=${otherScienceDirectPDF}">`,
+  `<meta http-equiv="refresh" content="0; url=${scienceDirectCDN.replace("S2352711024000111", "S2352711024000222")}">`,
+  `<meta http-equiv="refresh" content="0; url=${scienceDirectCDN.replace("https:", "http:")}">`,
+  `<meta http-equiv="refresh" content="0; url=${scienceDirectCDN.replace("://", "://user@")}">`,
+  `<meta http-equiv="refresh" content="0; url=https://www.sciencedirect.com/science/search?q=article">`,
   `<meta http-equiv="refresh" content="0; url=${scienceDirectPDF}&amp;__cf_chl_tk=temporary">`,
   '<p id="redirect-message"><a href="https://example.org/document.pdf">Continue</a></p>',
 ])("offers the official page without following links or inferring verification from HTML: %s", async (html) => {
@@ -282,13 +295,87 @@ it.each([
 });
 
 it.each([
-  `<meta content="0; URL='${scienceDirectCDN}?download=1&amp;attachment=pdf'" http-equiv="Refresh">`,
-  `<p id='redirect-message'><a href='${scienceDirectCDN}'>Download</a></p>`,
-])("guides visible navigation without following publisher HTML: %s", async (html) => {
-  fetchMock.mockResolvedValue(new Response(html, { headers: { "content-type": "text/html" } }));
+  [
+    `<meta content="0; URL='${scienceDirectCDN}?download=1&amp;attachment=pdf'" http-equiv="Refresh">`,
+    `${scienceDirectCDN}?download=1&attachment=pdf`,
+  ],
+  [`<p id='redirect-message'><a href='${scienceDirectCDN}'>Download</a></p>`, scienceDirectCDN],
+])("downloads the official PDF reached by a single static publisher link: %s", async (html, finalPDF) => {
+  fetchMock
+    .mockResolvedValueOnce(new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }))
+    .mockResolvedValueOnce(new Response("%PDF-1.7\nthis article"));
+  expect(await (await downloadPDF(scienceDirectCandidate)).text()).toBe("%PDF-1.7\nthis article");
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock).toHaveBeenNthCalledWith(2, finalPDF, {
+    credentials: "include",
+    redirect: "error",
+    cache: "no-store",
+  });
+});
+
+it("uses a distinct published download link in memory and resolves a relative link against the actual response", async () => {
+  const publishedPDF = `${scienceDirectArticle}/pdfft?md5=publisher-signature&pid=published-paper`;
+  const responseURL = scienceDirectPDF.replace("www.sciencedirect.com", "sciencedirect.com");
+  const finalPDF = new URL("?download=true&attachment=pdf", responseURL).href;
+  const intermediate = new Response(
+    '<base href="https://example.org"><div id="redirect-message"><span><a href="?download=true&amp;attachment=pdf">PDF</a></span></div>',
+    { headers: { "content-type": "text/html" } },
+  );
+  Object.defineProperty(intermediate, "url", { value: responseURL });
+  fetchMock
+    .mockResolvedValueOnce(intermediate)
+    .mockResolvedValueOnce(new Response("%PDF-1.7\nthis article"));
+  await expect(downloadPDF({ ...scienceDirectCandidate, scienceDirectPublishedPDF: publishedPDF }))
+    .resolves.toBeInstanceOf(Blob);
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([publishedPDF, finalPDF]);
+});
+
+it("never follows a second static PDF link", async () => {
+  fetchMock
+    .mockResolvedValueOnce(new Response(`<meta http-equiv="refresh" content="0;URL=${scienceDirectCDN}">`, {
+      headers: { "content-type": "text/html" },
+    }))
+    .mockResolvedValueOnce(new Response(`<div id="redirect-message"><a href="${scienceDirectCDN}?download=1">PDF</a></div>`, {
+      headers: { "content-type": "text/html" },
+    }));
+  await expect(downloadPDF(scienceDirectCandidate)).rejects.toMatchObject({ code: "sciencedirect-browser-required" });
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([scienceDirectPDF, scienceDirectCDN]);
+});
+
+it("keeps a failed final static request recoverable without exposing its address", async () => {
+  fetchMock
+    .mockResolvedValueOnce(new Response(`<meta http-equiv="refresh" content="0;URL=${scienceDirectCDN}">`, {
+      headers: { "content-type": "text/html" },
+    }))
+    .mockRejectedValueOnce(new TypeError(`redirected: ${scienceDirectCDN}`));
   await expect(downloadPDF(scienceDirectCandidate)).rejects.toMatchObject({
     code: "sciencedirect-browser-required",
+    message: expect.not.stringContaining(scienceDirectCDN),
   });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("bounds the publisher HTML read before attempting to resolve an intermediate link", async () => {
+  fetchMock.mockResolvedValue(new Response(`<meta http-equiv="refresh" content="0;URL=${scienceDirectCDN}">`, {
+    headers: { "content-type": "text/html", "content-length": String(1024 * 1024 + 1) },
+  }));
+  await expect(downloadPDF(scienceDirectCandidate)).rejects.toMatchObject({ code: "sciencedirect-browser-required" });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("ignores an invalid optional published link and uses the canonical request", async () => {
+  fetchMock.mockResolvedValue(new Response("%PDF-1.7\nexample"));
+  await expect(downloadPDF({ ...scienceDirectCandidate, scienceDirectPublishedPDF: otherScienceDirectPDF }))
+    .resolves.toBeInstanceOf(Blob);
+  expect(fetchMock).toHaveBeenCalledExactlyOnceWith(scienceDirectPDF, expect.anything());
+});
+
+it("does not resolve a static link when re-fetching the already visible PDF", async () => {
+  fetchMock.mockResolvedValue(new Response(`<meta http-equiv="refresh" content="0;URL=${scienceDirectCDN}">`, {
+    headers: { "content-type": "text/html" },
+  }));
+  await expect(downloadPDF(scienceDirectCandidate, { visibleScienceDirectPDF: true }))
+    .rejects.toMatchObject({ code: "sciencedirect-browser-required" });
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
@@ -333,6 +420,7 @@ it("uses the already visible same-article PDF URL without following redirects on
   expect(fetchMock).toHaveBeenCalledExactlyOnceWith(scienceDirectCDN, {
     credentials: "include",
     redirect: "error",
+    cache: "no-store",
     signal,
   });
 });
