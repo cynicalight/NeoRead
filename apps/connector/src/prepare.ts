@@ -1,5 +1,5 @@
 /// <reference types="chrome" />
-import { detectPage, type Candidate, type Detection } from "./detect";
+import { detectPage, withPDFTitle, type Candidate, type Detection } from "./detect";
 import { cnkiPageError, isCNKIURL } from "./download";
 const cleanDate = (value: unknown) => {
   const match = String(value || "").match(
@@ -11,20 +11,52 @@ const cleanDate = (value: unknown) => {
         .join("-")
     : "";
 };
+
+// Older desktop versions require a nonempty, single-line title on every import.
+function importTitle(title: string, url: URL): string {
+  return (title.replace(/[\p{Cc}\s]+/gu, " ").trim() ||
+    url.pathname.split("/").pop() || url.hostname || "PDF").slice(0, 300);
+}
+
 export async function prepareCandidate(
   candidate: Candidate,
 ): Promise<Candidate> {
+  const source = new URL(candidate.sourceUrl);
+  const arxivPDF = source.hostname === "arxiv.org"
+    ? source.pathname.match(/^\/pdf\/(\d{4}\.\d{4,5}(?:v\d+)?|[a-z.-]+\/\d{7}(?:v\d+)?)(?:\.pdf)?$/i)?.[1]
+    : undefined;
   if (
-    candidate.pdfUrl === candidate.sourceUrl &&
-    (!candidate.snapshot || /\.pdf(?:$|[?#])/i.test(candidate.sourceUrl))
-  )
+    arxivPDF ||
+    (candidate.pdfUrl === candidate.sourceUrl &&
+      (!candidate.snapshot || /\.pdf$/i.test(source.pathname)))
+  ) {
+    let title = candidate.title.trim();
+    if (arxivPDF && (!title || title === "PDF" || title === source.href ||
+        /^(?:arxiv:)?(?:\d{4}\.\d{4,5})(?:v\d+)?(?:\.pdf)?$/i.test(title) ||
+        title === source.pathname.split("/").pop())) {
+      title = `arXiv:${arxivPDF}`;
+      try {
+        const res = await fetch(`https://arxiv.org/abs/${arxivPDF}`, {
+          credentials: "omit",
+          signal: AbortSignal.timeout(4000),
+        });
+        if (res.ok) {
+          const page = new DOMParser().parseFromString(await res.text(), "text/html");
+          title = page.querySelector<HTMLMetaElement>('meta[name="citation_title"]')?.content.trim() || title;
+        }
+      } catch {
+        // The identifier is sufficient to import when abstract metadata is unavailable.
+      }
+    }
+    const normalized = withPDFTitle({ ...candidate, pdfUrl: candidate.sourceUrl, title });
+    title = importTitle(normalized.title, source);
     return {
-      ...candidate,
-      metadata: {
-        ...candidate.metadata,
-        title: candidate.title.slice(0, 300),
-      },
+      ...normalized,
+      snapshot: "",
+      title,
+      metadata: { ...normalized.metadata, title },
     };
+  }
   if (isCNKIURL(candidate.sourceUrl)) {
     if (candidate.tabId !== undefined) {
       const results = await chrome.scripting.executeScript({
@@ -237,6 +269,7 @@ export async function prepareCandidate(
     snapshot = "";
     snapshotWarnings.push("网页快照超过 10 MB，未保存快照");
   }
+  metadata.title = importTitle(String(metadata.title || ""), source);
   return {
     ...candidate,
     title: String(metadata.title),

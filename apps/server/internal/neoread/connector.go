@@ -263,13 +263,9 @@ func (s *Server) connectorImport(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "论文信息无效")
 		return
 	}
-	titleRaw := fields["title"]
+	// The page title is an optional hint; keep the PDF importer's title if unusable.
+	title, _ := metadataText(fields["title"], 300, true)
 	delete(fields, "title")
-	title, err := metadataText(titleRaw, 300, false)
-	if err != nil {
-		fail(w, 400, "标题无效")
-		return
-	}
 	sourceURL, err := url.Parse(r.FormValue("sourceUrl"))
 	if err != nil || !(sourceURL.Scheme == "https" || sourceURL.Scheme == "http") || sourceURL.Host == "" {
 		fail(w, 400, "来源链接无效")

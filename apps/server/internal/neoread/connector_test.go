@@ -139,6 +139,31 @@ func TestConnectorSessionAndImport(t *testing.T) {
 		t.Fatalf("rotated credential: %d", w.Code)
 	}
 }
+func TestConnectorImportWithoutUsablePageTitle(t *testing.T) {
+	for _, metadata := range []string{`{}`, `{"title":""}`, `{"title":123}`, `{"title":"bad\u0000title"}`} {
+		t.Run(metadata, func(t *testing.T) {
+			s := testServer(t)
+			secret := sessionTestConnector(t, s)
+			var body bytes.Buffer
+			m := multipart.NewWriter(&body)
+			_ = m.WriteField("metadata", metadata)
+			_ = m.WriteField("sourceUrl", "https://arxiv.org/pdf/2602.03733")
+			f, _ := m.CreateFormFile("pdf", "paper.pdf")
+			_, _ = f.Write(testPDF(2))
+			_ = m.Close()
+			w := bridgeRequest(s, "POST", "/v1/import", secret, &body, m.FormDataContentType())
+			var result struct{ Document Document }
+			if w.Code != http.StatusCreated || json.Unmarshal(w.Body.Bytes(), &result) != nil {
+				t.Fatalf("import %d: %s", w.Code, w.Body.String())
+			}
+			d, err := s.Store.Document(result.Document.ID)
+			if err != nil || d.Title == "" || d.Metadata.Sources["title"] == "connector" {
+				t.Fatalf("did not preserve importer title: %q, %v", d.Title, err)
+			}
+		})
+	}
+}
+
 func TestConnectorLabelsIncludeSavedEmptyCategoriesAndPaperTags(t *testing.T) {
 	s := testServer(t)
 	secret := sessionTestConnector(t, s)

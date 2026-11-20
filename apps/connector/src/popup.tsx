@@ -91,7 +91,7 @@ function App() {
         setItems(
           detection.items.map((item) =>
             detection.kind === "single"
-              ? { ...withPDFTitle(item), tabId: tab.id }
+              ? { ...withPDFTitle({ ...item, title: item.title || tab.title || "" }), tabId: tab.id }
               : item,
           ),
         );
@@ -132,12 +132,14 @@ function App() {
       if (!allowed) throw Error("需要网站访问权限才能读取论文页面和 PDF");
       for (const index of selected) {
         const item = items[index];
+        let label = item.title.trim() || item.sourceUrl;
         setMessage(
-          `正在收录 ${success + failures.length + 1}/${selected.length}：${item.title}`,
+          `正在收录 ${success + failures.length + 1}/${selected.length}：${label}`,
         );
         setMessageTone("neutral");
         try {
           const prepared = await prepareCandidate(item);
+          label = prepared.title;
           const request = {
             type: "save",
             candidate: prepared,
@@ -150,6 +152,7 @@ function App() {
             code?: string;
             pages?: number;
             warnings?: string[];
+            document?: { title: string };
           };
           if (result.code === "large-paper") {
             const library = await new Promise<"papers" | "books">((resolve) =>
@@ -164,20 +167,20 @@ function App() {
           }
           if (result.ok) {
             success++;
-            completed.push({ ok: true, text: `✓ ${item.title}` });
+            completed.push({ ok: true, text: `✓ ${result.document?.title || label}` });
             if (prepared.snapshotWarnings?.length)
               warnings.push(
-                `${item.title}：${prepared.snapshotWarnings.join("；")}`,
+                `${label}：${prepared.snapshotWarnings.join("；")}`,
               );
             if (result.warnings?.length)
-              warnings.push(`${item.title}：${result.warnings.join("；")}`);
+              warnings.push(`${label}：${result.warnings.join("；")}`);
           } else {
-            const failure = `${item.title}：${result.error || "失败"}`;
+            const failure = `${label}：${result.error || "失败"}`;
             failures.push(failure);
             completed.push({ ok: false, text: `✕ ${failure}` });
           }
         } catch (error) {
-          const failure = `${item.title}：${(error as Error).message}`;
+          const failure = `${label}：${(error as Error).message}`;
           failures.push(failure);
           completed.push({ ok: false, text: `✕ ${failure}` });
         }
@@ -239,7 +242,7 @@ function App() {
                   }
                 />
                 <span>
-                  <strong>{item.title}</strong>
+                  <strong>{item.title.trim() || item.sourceUrl}</strong>
                   <small>
                     {item.pdfUrl ? "已发现 PDF" : "将尝试在论文页面查找 PDF"}
                   </small>

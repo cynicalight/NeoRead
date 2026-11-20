@@ -102,3 +102,22 @@ it.each([
     expect((await prepareCandidate(candidate)).metadata.title).toBe(expected);
   }
 });
+
+it("imports a titleless arXiv viewer using the paper's citation title", async () => {
+  const url = "https://arxiv.org/pdf/2602.03733";
+  const item = detectPage("<body><embed type='application/pdf'></body>", url).items[0];
+  const fetchPage = vi.fn().mockResolvedValue(new Response(`<meta name="citation_title" content="${paperTitle}">`));
+  vi.stubGlobal("fetch", fetchPage);
+  expect(await prepareCandidate(item)).toMatchObject({
+    title: paperTitle, pdfUrl: url, metadata: { title: paperTitle },
+  });
+  expect(fetchPage.mock.calls[0][0]).toBe("https://arxiv.org/abs/2602.03733");
+});
+
+it("can still import into older desktops when arXiv metadata is unavailable", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+  const url = "https://arxiv.org/pdf/2602.03733v2.pdf?download=1";
+  expect(await prepareCandidate(pdfTabCandidate(url, ""))).toMatchObject({
+    pdfUrl: url, metadata: { title: "arXiv:2602.03733v2" },
+  });
+});
