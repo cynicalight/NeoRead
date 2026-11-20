@@ -36,14 +36,20 @@ function hasVerificationQuery(url: URL): boolean {
   return false;
 }
 
-function isPublisherPDFPath(url: URL, pii: string): boolean {
+function viewerPII(url: URL): string | undefined {
   if (publisherOrigins.includes(url.origin))
-    return url.pathname === `/science/article/pii/${pii}/pdfft`;
-  if (url.origin !== pdfCDNOrigin) return false;
-  const match = url.pathname.match(
+    return url.pathname.match(/^\/science\/article\/pii\/(S[0-9X]{16}|B[0-9X]{19})\/pdfft\/?$/)?.[1];
+  if (url.origin !== pdfCDNOrigin) return;
+  return url.pathname.match(
     /^\/\d+\/1-s2\.0-(?:S[0-9X]{16}|B[0-9X]{19})\/1-s2\.0-(S[0-9X]{16}|B[0-9X]{19})\/main\.pdf$/,
-  );
-  return match?.[1] === pii;
+  )?.[1];
+}
+
+// Identifies the paper, not whether the tab actually contains a PDF.
+export function scienceDirectViewerArticle(value: string): string | null {
+  const url = httpsURL(value);
+  const pii = url && viewerPII(url);
+  return pii ? `${origin}/science/article/pii/${pii}` : null;
 }
 
 // A verification location is only useful for classifying a response from an
@@ -56,7 +62,7 @@ export function classifyScienceDirectPDFLocation(
   const url = httpsURL(value);
   if (!pii || !url || (!publisherOrigins.includes(url.origin) && url.origin !== pdfCDNOrigin))
     return null;
-  if (isPublisherPDFPath(url, pii)) return hasVerificationQuery(url) ? "verification" : "pdf";
+  if (viewerPII(url) === pii) return hasVerificationQuery(url) ? "verification" : "pdf";
   if (/^\/cdn-cgi\/challenge-platform(?:\/|$)/.test(url.pathname) ||
       (articlePII(url) === pii && hasVerificationQuery(url))) return "verification";
   return null;

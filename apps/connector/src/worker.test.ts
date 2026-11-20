@@ -173,6 +173,31 @@ function activate(tabId: number) {
   tabActivated({ tabId });
 }
 
+it("collects an already-open publisher PDF in its original tab, waiting there if it still shows HTML", async () => {
+  const tabId = 41;
+  tabs.set(tabId, { id: tabId, active: true, status: "complete", url: signedPDF } as chrome.tabs.Tab);
+  inspect.mockResolvedValueOnce([{ result: { url: signedPDF, type: "text/html" } }]);
+  const sourceUrl = `${publisher}/${pii}`;
+  const result = await dispatch({
+    type: "save", viewerTabId: tabId, candidate: { ...article, sourceUrl, pdfUrl: "" },
+    folders: ["科研"], tags: ["物理"],
+  });
+  expect(result.pending).toMatchObject({ status: "waiting" });
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(createTab).not.toHaveBeenCalled();
+  expect(JSON.stringify(session)).not.toContain("ephemeral");
+  fetchMock
+    .mockResolvedValueOnce(new Response("%PDF-1.7\ncurrent viewer"))
+    .mockResolvedValueOnce(Response.json({ document: { id: "direct", title: "Paper" } }));
+  navigate(tabId, signedPDF);
+  await vi.waitFor(async () => expect(await status(tabId)).toMatchObject({ pending: { status: "done" } }));
+  expect(fetchMock.mock.calls[0][0]).toBe(signedPDF);
+  const form = fetchMock.mock.calls[1][1].body as FormData;
+  expect(form.get("sourceUrl")).toBe(sourceUrl);
+  expect(form.get("tags")).toBe('["物理"]');
+  expect(form.get("folders")).toBe('["科研"]');
+});
+
 it("only resumes a visible, complete same-article PDF and preserves the original import choices", async () => {
   const tabId = await begin();
   expect(createTab).toHaveBeenCalledTimes(1);

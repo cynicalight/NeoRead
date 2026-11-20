@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 import type { Candidate } from "./detect";
-import { isScienceDirectPDFLocation } from "./scienceDirect";
+import { isScienceDirectPDFLocation, scienceDirectViewerArticle } from "./scienceDirect";
 
 export type ScienceDirectPending = {
   title: string;
@@ -73,13 +73,15 @@ export function createScienceDirectResume(
     });
   };
 
-  async function begin(request: SaveRequest, sourceUrl: string) {
-    const tab = await chrome.tabs.create({ url: `${sourceUrl}/pdfft`, active: false });
-    if (tab.id === undefined) throw new Error("Missing verification tab ID");
-    const tabId = tab.id;
+  async function begin(request: SaveRequest, sourceUrl: string, existingTabId?: number) {
+    const tabId = existingTabId ?? (await chrome.tabs.create({ url: `${sourceUrl}/pdfft`, active: false })).id;
+    if (tabId === undefined) throw new Error("Missing verification tab ID");
     try {
       await withTab(tabId, async () => {
-        if (!(await tabInfo(tabId))) throw new Error("Verification tab closed");
+        const tab = await tabInfo(tabId);
+        if (!tab || (existingTabId !== undefined && (!tab.active || !tab.url ||
+            scienceDirectViewerArticle(tab.url) !== sourceUrl))) throw new Error("Viewer tab changed");
+        if (existingTabId !== undefined && await read(tabId)) return;
         const { title, metadata, snapshot, snapshotWarnings } = request.candidate;
         await write(tabId, {
           pending: { title, status: "waiting" },
@@ -94,7 +96,7 @@ export function createScienceDirectResume(
         });
       });
     } catch (error) {
-      await chrome.tabs.remove(tabId).catch(() => {});
+      if (existingTabId === undefined) await chrome.tabs.remove(tabId).catch(() => {});
       throw error;
     }
     return tabId;

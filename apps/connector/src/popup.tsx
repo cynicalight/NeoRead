@@ -12,6 +12,7 @@ import { prepareCandidate } from "./prepare";
 import { TagPicker } from "./TagPicker";
 import { ScienceDirectProgress } from "./ScienceDirectProgress";
 import type { ScienceDirectPending } from "./scienceDirectResume";
+import { scienceDirectViewerArticle } from "./scienceDirect";
 
 function isScienceDirectTab(value?: string) {
   if (!value?.startsWith("https://")) return false;
@@ -36,6 +37,7 @@ function App() {
   const [outcomes, setOutcomes] = useState<{ ok: boolean; text: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [verification, setVerification] = useState<{ tabId: number; pending: ScienceDirectPending }>();
+  const [viewerTabId, setViewerTabId] = useState<number>();
   const [largeConfirmation, setLargeConfirmation] = useState<{
     resolve: (library: "papers" | "books") => void;
   }>();
@@ -92,14 +94,19 @@ function App() {
           setVerification({ tabId: tab.id, pending: task.pending });
           return;
         }
-        // A standalone publisher viewer may carry a temporary signed URL.
-        // Resume it only as an attachment, never save it as the article's source.
-        const publisherTab = isScienceDirectTab(tab.url);
-        if (publisherTab && tab.url) {
-          const url = new URL(tab.url);
-          if (url.hostname === "pdf.sciencedirectassets.com" || /\/pdfft\/?$/.test(url.pathname))
-            throw Error("请在 ScienceDirect 论文详情页打开插件收录。");
+        // A signed viewer address or tab title must never enter the bibliography.
+        const source = tab.url && scienceDirectViewerArticle(tab.url);
+        if (source) {
+          const title = source.slice(source.lastIndexOf("/") + 1);
+          setItems([{ title, sourceUrl: source, pdfUrl: "", snapshot: "",
+            metadata: { itemType: "journal", url: source, title } }]);
+          setViewerTabId(tab.id);
+          setSelected([0]);
+          return;
         }
+        const publisherTab = isScienceDirectTab(tab.url);
+        if (publisherTab && tab.url && new URL(tab.url).hostname === "pdf.sciencedirectassets.com")
+          throw Error("此 ScienceDirect 文件地址中没有可识别的论文编号。");
         if (tab.url?.toLowerCase().includes(".pdf") && !publisherTab) {
           setItems([pdfTabCandidate(tab.url, tab.title || "PDF")]);
           setSelected([0]);
@@ -162,13 +169,14 @@ function App() {
         );
         setMessageTone("neutral");
         try {
-          const prepared = await prepareCandidate(item);
+          const prepared = viewerTabId === undefined ? await prepareCandidate(item) : item;
           label = prepared.title;
           const request = {
             type: "save",
             candidate: prepared,
             folders: folder ? [folder] : [],
             tags,
+            viewerTabId,
           };
           let result = (await chrome.runtime.sendMessage(request)) as {
             ok: boolean;
@@ -178,7 +186,12 @@ function App() {
             warnings?: string[];
             document?: { title: string };
             verificationTabId?: number;
+            pending?: ScienceDirectPending;
           };
+          if (viewerTabId !== undefined && result.pending) {
+            setVerification({ tabId: viewerTabId, pending: result.pending });
+            return;
+          }
           if (result.code === "large-paper") {
             const library = await new Promise<"papers" | "books">((resolve) =>
               setLargeConfirmation({ resolve }),
@@ -276,7 +289,8 @@ function App() {
                 <span>
                   <strong>{item.title.trim() || item.sourceUrl}</strong>
                   <small>
-                    {item.pdfUrl ? "已发现 PDF" : "将尝试在论文页面查找 PDF"}
+                    {viewerTabId !== undefined ? "从当前标签页收录 PDF" :
+                      item.pdfUrl ? "已发现 PDF" : "将尝试在论文页面查找 PDF"}
                   </small>
                 </span>
               </label>

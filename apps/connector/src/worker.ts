@@ -117,6 +117,7 @@ chrome.runtime.onMessage.addListener(
       allowLarge?: boolean;
       library?: "papers" | "books";
       tabId?: number;
+      viewerTabId?: number;
     };
     if (sender.id !== chrome.runtime.id ||
         sender.url !== chrome.runtime.getURL("popup.html"))
@@ -152,6 +153,18 @@ chrome.runtime.onMessage.addListener(
       }
       if (!m.candidate)
         throw new ConnectorError("invalid-request", "收录请求缺少论文信息");
+      if (m.viewerTabId !== undefined) {
+        const source = scienceDirectArticleURL(m.candidate.sourceUrl);
+        if (!source || !Number.isSafeInteger(m.viewerTabId) || m.viewerTabId < 0)
+          throw new ConnectorError("invalid-viewer", "无法确认当前标签页的论文编号");
+        await scienceDirect.begin({
+          candidate: m.candidate, folders: m.folders || [], tags: m.tags || [],
+          allowLarge: false, library: "papers",
+        }, source, m.viewerTabId).catch(() => {
+          throw new ConnectorError("viewer-changed", "无法在当前标签页开始收录，请重新打开插件");
+        });
+        return scienceDirect.resume(m.viewerTabId);
+      }
       return saveOrOpenScienceDirect(
         m.candidate,
         m.folders || [],
