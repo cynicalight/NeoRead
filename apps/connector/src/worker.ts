@@ -7,7 +7,7 @@ import {
   readCNKIPage,
 } from "./download";
 import { scienceDirectArticleURL } from "./scienceDirect";
-import { findPublishedCopy } from "./publishedCopy";
+import { citationForPII, findPublishedCopy } from "./publishedCopy";
 import { createScienceDirectResume, type ImportResult } from "./scienceDirectResume";
 // Remove a rule left by an interrupted service worker before handling requests.
 const ready = clearCNKIRequestRule().then(
@@ -21,38 +21,46 @@ async function save(
   tags: string[],
   allowLarge = false,
   library: "papers" | "books" = "papers",
-  attempt?: { pdfUrl: string; signal: AbortSignal },
+  attempt?: { pdfUrl: string; signal: AbortSignal; repositoryOnly?: boolean },
 ): Promise<ImportResult> {
   const { secret } = await chrome.storage.local.get("secret");
   if (!secret)
     return { ok: false, error: "请先打开 NeoRead 后重新打开插件" };
   attempt?.signal.throwIfAborted();
-  let blob: Blob;
+  let blob: Blob | undefined;
   let copyURL: string | undefined;
-  if (attempt) {
-    blob = await downloadPDF(
-      { ...candidate, pdfUrl: attempt.pdfUrl },
-      { visibleScienceDirectPDF: true, signal: attempt.signal },
-    );
-  } else {
+  let metadata = candidate.metadata;
+  if (!attempt?.repositoryOnly) {
     try {
-      blob = await downloadPDF(candidate);
+      blob = attempt
+        ? await downloadPDF({ ...candidate, pdfUrl: attempt.pdfUrl }, { visibleScienceDirectPDF: true, signal: attempt.signal })
+        : await downloadPDF(candidate);
     } catch (error) {
-      if (!(error instanceof ConnectorError) || !scienceDirectArticleURL(candidate.sourceUrl) ||
+      if (!scienceDirectArticleURL(candidate.sourceUrl) || !(error instanceof ConnectorError) ||
           !["sciencedirect-browser-required", "pdf-network", "pdf-http"].includes(error.code)) throw error;
-      const doi = candidate.metadata.doi;
-      const copy = typeof doi === "string" && doi ? await findPublishedCopy(doi) : null;
-      if (!copy) throw new ConnectorError("pdf-unavailable",
-        "未取得本篇 PDF：出版商未提供可下载的文件，也未找到可核实的公开出版版。未收录。");
-      blob = copy.blob;
-      copyURL = copy.url;
     }
+  }
+  if (!blob) {
+    attempt?.signal.throwIfAborted();
+    if (attempt && !metadata.doi) {
+      // Viewer tasks retain the canonical article URL, never the CDN query.
+      const pii = candidate.sourceUrl.slice(candidate.sourceUrl.lastIndexOf("/") + 1);
+      const citation = await citationForPII(pii, attempt.signal);
+      if (citation) metadata = { ...metadata, doi: citation.doi, title: citation.title || candidate.title };
+    }
+    attempt?.signal.throwIfAborted();
+    const doi = metadata.doi;
+    const copy = typeof doi === "string" && doi ? await findPublishedCopy(doi, attempt?.signal) : null;
+    if (!copy) return { ok: false, code: "pdf-unavailable",
+      error: "未取得本篇 PDF，也未找到可核实的公开出版版。请从论文页重新打开 PDF，或导入已下载的文件。" };
+    blob = copy.blob;
+    copyURL = copy.url;
   }
   attempt?.signal.throwIfAborted();
   const form = new FormData();
   form.append("library", library);
   form.append("pdf", blob, "paper.pdf");
-  form.append("metadata", JSON.stringify(candidate.metadata));
+  form.append("metadata", JSON.stringify(metadata));
   form.append("sourceUrl", candidate.sourceUrl);
   form.append("snapshot", candidate.snapshot);
   form.append("tags", JSON.stringify(tags));

@@ -7,6 +7,7 @@ export type ScienceDirectPending = {
   status: "waiting" | "saving" | "done" | "error" | "large-paper";
   error?: string;
   pages?: number;
+  warnings?: string[];
 };
 export type ImportResult = {
   ok: boolean;
@@ -25,10 +26,10 @@ type SaveRequest = {
   library: Library;
 };
 type Task = { pending: ScienceDirectPending; request?: SaveRequest };
-type Attempt = { signal: AbortSignal; pdfUrl: string };
+type Attempt = { signal: AbortSignal; pdfUrl: string; repositoryOnly?: boolean };
 type Retry = { allowLarge?: boolean; library?: Library };
 type Reply = { pending?: ScienceDirectPending; ok?: boolean; error?: string };
-type Started = { controller: AbortController; pdfUrl: string; title: string; request: SaveRequest };
+type Started = { controller: AbortController; pdfUrl: string; repositoryOnly: boolean; title: string; request: SaveRequest };
 const noPDF = "请在此标签页打开该论文的 PDF 并等待加载完成，再重试";
 const downloadFailed = "插件无法下载此 PDF；请在网站确认能正常打开后重试，或手动下载后导入";
 const interrupted = "上一次收录已中断；请先检查 NeoRead 中是否已收录，再重试";
@@ -105,13 +106,17 @@ export function createScienceDirectResume(
     }).catch(() => null);
     const page = frames?.[0]?.result;
     if (page) {
-      if (page.url !== tab.url || page.type !== "application/pdf") return;
+      if (page.url !== tab.url) return;
+      if (page.type !== "application/pdf") {
+        if (new URL(tab.url).hostname !== "pdf.sciencedirectassets.com") return;
+        return { pdfUrl: tab.url, repositoryOnly: true };
+      }
     } else if (frames && !manual) {
       // No document was inspected. If Chrome refused injection (as it can
       // for its PDF viewer), allow one validated fetch at the matching URL.
       return;
     }
-    return tab.url;
+    return { pdfUrl: tab.url, repositoryOnly: false };
   }
 
   async function resume(tabId: number, retry?: Retry): Promise<Reply> {
@@ -124,10 +129,11 @@ export function createScienceDirectResume(
         status.status === "saving" || (!retry && status.status !== "waiting") ||
         (status.status === "large-paper" && !retry?.allowLarge)
       ) return { reply: { pending: status } };
-      const pdfUrl = await currentPDF(tabId, task.request.candidate.sourceUrl, !!retry);
-      if (!pdfUrl) {
+      const location = await currentPDF(tabId, task.request.candidate.sourceUrl, !!retry);
+      if (!location) {
         return { reply: { pending: status, ...(retry && { ok: false, error: noPDF }) } };
       }
+      const { pdfUrl, repositoryOnly } = location;
       const controller = new AbortController();
       running.set(tabId, { controller, pdfUrl });
       try {
@@ -137,7 +143,7 @@ export function createScienceDirectResume(
         throw error;
       }
       return {
-        controller, pdfUrl, title: status.title,
+        controller, pdfUrl, repositoryOnly, title: status.title,
         request: {
           ...task.request,
           library: retry?.library ?? task.request.library,
@@ -155,12 +161,13 @@ export function createScienceDirectResume(
         return {};
       }
       if (controller.signal.aborted) return {};
-      const result = await save(request, { pdfUrl, signal: controller.signal })
+      const result = await save(request, { pdfUrl, signal: controller.signal, repositoryOnly: next.repositoryOnly })
         .catch((): ImportResult => ({ ok: false, error: downloadFailed }));
       return await withTab(tabId, async () => {
         if (controller.signal.aborted) return {};
         const update: ScienceDirectPending = result.ok
-          ? { title: result.document?.title || title, status: "done" }
+          ? { title: result.document?.title || title, status: "done",
+              ...(result.warnings?.length && { warnings: result.warnings }) }
           : result.code === "large-paper"
             ? { title, status: "large-paper", pages: result.pages }
             : { title, status: "error", error: result.error || downloadFailed };

@@ -420,7 +420,6 @@ it("uses the already visible same-article PDF URL without following redirects on
   expect(fetchMock).toHaveBeenCalledExactlyOnceWith(scienceDirectCDN, {
     credentials: "include",
     redirect: "error",
-    cache: "no-store",
     signal,
   });
 });

@@ -66,6 +66,7 @@ export function ScienceDirectProgress({ tabId, initial }: {
     <main>
       <h1>{pending.title}</h1>
       <p role="status">{text}</p>
+      {status === "done" && pending.warnings?.map((warning, i) => <p key={i}>{warning}</p>)}
       {error && <p role="alert" className="error">{error}</p>}
       <div className="row">
         {status === "large-paper" && <>

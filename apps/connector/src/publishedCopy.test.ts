@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { findPublishedCopy } from "./publishedCopy";
+import { citationForPII, findPublishedCopy } from "./publishedCopy";
 
 const doi = "10.1016/j.surfrep.2025.100669";
 const doiURL = `https://doi.org/${doi}`;
@@ -45,6 +45,14 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+it.each([[2, "S0167572925000172"], [1, "S0167572925000173"]])(
+  "rejects ambiguous or mismatched Crossref identities", async (count, alternativeID) => {
+    fetchMock.mockResolvedValueOnce(Response.json({ message: { "total-results": count,
+      items: [{ DOI: doi, "alternative-id": [alternativeID], title: ["Paper"] }] } }));
+    expect(await citationForPII("S0167572925000172", new AbortController().signal)).toBeNull();
+  },
+);
 
 it("uses the explicit KITopen publisher-version file even when OpenAlex does not classify its version", async () => {
   fetchMock.mockResolvedValueOnce(discovery()).mockResolvedValueOnce(record()).mockResolvedValueOnce(pdf());

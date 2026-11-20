@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Candidate } from "./detect";
 const { findPublishedCopy } = vi.hoisted(() => ({ findPublishedCopy: vi.fn() }));
-vi.mock("./publishedCopy", () => ({ findPublishedCopy }));
+vi.mock("./publishedCopy", async (original) => {
+  const actual = await original<Record<string, unknown>>();
+  return { ...actual, findPublishedCopy };
+});
 let listener: (
   message: unknown,
   sender: unknown,
@@ -179,10 +182,40 @@ function activate(tabId: number) {
   tabActivated({ tabId });
 }
 
+it.each(["loaded PDF", "expired XML"])("recovers the standalone %s using only the paper identifier", async mode => {
+  const tabId = 42;
+  const sourceUrl = `${publisher}/${pii}`;
+  tabs.set(tabId, { id: tabId, active: true, status: "complete", url: signedPDF } as chrome.tabs.Tab);
+  const copyURL = "https://publikationen.bibliothek.kit.edu/123/456";
+  const doi = "10.1016/j.surfrep.2025.100669";
+  findPublishedCopy.mockResolvedValue({ url: copyURL, blob: new Blob(["%PDF-1.7\npublished"]) });
+  if (mode === "loaded PDF") fetchMock.mockResolvedValueOnce(new Response("Expired", { status: 403 }));
+  else inspect.mockResolvedValueOnce([{ result: { url: signedPDF, type: "application/xml" } }]);
+  fetchMock.mockResolvedValueOnce(Response.json({ message: { "total-results": 1, items: [
+      { DOI: doi, title: ["Original title"], "alternative-id": [pii] },
+    ] } }))
+    .mockResolvedValueOnce(Response.json({ document: { id: "recovered", title: "Original title" } }));
+  const result = await dispatch({ type: "save", viewerTabId: tabId, folders: ["科研"], tags: ["材料"],
+    candidate: { title: pii, sourceUrl, pdfUrl: "", snapshot: "", metadata: { title: pii, url: sourceUrl } } });
+  expect(result.pending).toMatchObject({ status: "done", title: "Original title", warnings: [expect.stringContaining(copyURL)] });
+  const calls = fetchMock.mock.calls;
+  expect(calls.some(([url]) => url === signedPDF)).toBe(mode === "loaded PDF");
+  const lookup = new URL(calls.at(-2)![0]);
+  expect(lookup.hostname).toBe("api.crossref.org");
+  expect(lookup.searchParams.get("filter")).toBe(`alternative-id:${pii}`);
+  const form = calls.at(-1)![1].body as FormData;
+  expect(JSON.parse(String(form.get("metadata")))).toMatchObject({ title: "Original title", doi });
+  expect(form.get("sourceUrl")).toBe(sourceUrl);
+  expect(form.get("folders")).toBe('["科研"]');
+  expect(form.get("tags")).toBe('["材料"]');
+  expect(JSON.stringify([lookup.href, session])).not.toContain("ephemeral");
+  expect(createTab).not.toHaveBeenCalled();
+});
+
 it("collects an already-open publisher PDF in its original tab, waiting there if it still shows HTML", async () => {
   const tabId = 41;
-  tabs.set(tabId, { id: tabId, active: true, status: "complete", url: signedPDF } as chrome.tabs.Tab);
-  inspect.mockResolvedValueOnce([{ result: { url: signedPDF, type: "text/html" } }]);
+  tabs.set(tabId, { id: tabId, active: true, status: "complete", url: article.pdfUrl } as chrome.tabs.Tab);
+  inspect.mockResolvedValueOnce([{ result: { url: article.pdfUrl, type: "text/html" } }]);
   const sourceUrl = `${publisher}/${pii}`;
   const result = await dispatch({
     type: "save", viewerTabId: tabId, candidate: { ...article, sourceUrl, pdfUrl: "" },
@@ -208,13 +241,13 @@ it("only resumes a visible, complete same-article PDF and preserves the original
   const tabId = await begin();
   expect(createTab).not.toHaveBeenCalled();
   expect(JSON.stringify(session)).not.toMatch(/via=ihub|temporary-referrer|ephemeral/);
-  navigate(tabId, signedPDF);
+  navigate(tabId, article.pdfUrl);
   expect(await status(tabId)).toEqual({
     pending: { title: article.title, status: "waiting" },
   });
   expect(fetchMock).not.toHaveBeenCalled();
 
-  inspect.mockResolvedValueOnce([{ result: { url: signedPDF, type: "text/html" } }]);
+  inspect.mockResolvedValueOnce([{ result: { url: article.pdfUrl, type: "text/html" } }]);
   activate(tabId);
   await status(tabId);
   expect(fetchMock).not.toHaveBeenCalled();
@@ -349,7 +382,7 @@ it("uploads a verified published copy with the original citation and labels, wit
     Response.json({ document: { id: "saved", title: article.title } }, { status: 201 }),
   );
   const result = await dispatch({ type: "save", candidate: article, folders: ["科研"], tags: ["材料"] });
-  expect(findPublishedCopy).toHaveBeenCalledWith(article.metadata.doi);
+  expect(findPublishedCopy).toHaveBeenCalledWith(article.metadata.doi, undefined);
   expect(result).toMatchObject({ ok: true, warnings: [expect.stringContaining(url)] });
   const [bridgeURL, { body }] = fetchMock.mock.calls[1];
   expect(bridgeURL).toBe("http://127.0.0.1:17841/v1/import");

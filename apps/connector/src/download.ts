@@ -331,7 +331,7 @@ export async function downloadPDF(
       return await fetch(url, {
         credentials: "include",
         redirect,
-        ...(scienceDirect ? { cache: "no-store" as const } : {}),
+        ...(scienceDirect && !options.visibleScienceDirectPDF ? { cache: "no-store" as const } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
       });
     } catch {

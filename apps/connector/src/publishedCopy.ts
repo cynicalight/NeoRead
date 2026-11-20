@@ -101,15 +101,35 @@ async function publicBody(url: string, type: string, limit: number, signal: Abor
   }
 }
 
+export async function citationForPII(pii: string, signal: AbortSignal): Promise<{ doi: string; title: string } | null> {
+  if (!/^(?:S[0-9X]{16}|B[0-9X]{19})$/.test(pii)) return null;
+  const url = new URL("https://api.crossref.org/works");
+  url.search = new URLSearchParams({ filter: `alternative-id:${pii}`, rows: "2", select: "DOI,title,alternative-id" }).toString();
+  try {
+    const data = await publicBody(url.href, "application/json", metadataLimit,
+      AbortSignal.any([signal, AbortSignal.timeout(8000)]));
+    if (!data) return null;
+    const { message } = JSON.parse(await data.text());
+    if (message?.["total-results"] !== 1 || message.items?.length !== 1) return null;
+    const item = message.items[0];
+    if (!Array.isArray(item?.["alternative-id"]) || !item["alternative-id"].includes(pii) ||
+        typeof item.DOI !== "string" || !/^10\.\d{4,9}\/\S+$/i.test(item.DOI)) return null;
+    const title = item.title?.[0];
+    return { doi: item.DOI, title: typeof title === "string" ? title.replace(/\s+/g, " ").trim().slice(0, 300) : "" };
+  } catch {
+    return null;
+  }
+}
+
 /** Resolve a public publisher-version PDF, never an accepted manuscript. */
-export async function findPublishedCopy(doi: string): Promise<{ blob: Blob; url: string } | null> {
+export async function findPublishedCopy(doi: string, cancel?: AbortSignal): Promise<{ blob: Blob; url: string } | null> {
   const original = doi.trim().toLowerCase();
   if (original.length > 512 || !/^10\.[0-9]{4,9}\/[a-z0-9._;()+/-]+$/.test(original) ||
       original.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) return null;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), lookupTimeoutMs);
-  const { signal } = controller;
+  const signal = cancel ? AbortSignal.any([cancel, controller.signal]) : controller.signal;
   try {
     const work = await publicBody(
       `https://api.openalex.org/works/${doiOrigin}/${original}?select=doi%2Clocations`,
