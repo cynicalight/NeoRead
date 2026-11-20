@@ -1,6 +1,7 @@
 /// <reference types="chrome" />
 import { detectPage, withPDFTitle, type Candidate, type Detection } from "./detect";
-import { cnkiPageError, isCNKIURL } from "./download";
+import { cnkiPageError, ConnectorError, isCNKIURL } from "./download";
+import { scienceDirectArticleURL, scienceDirectDownloadURL } from "./scienceDirect";
 const cleanDate = (value: unknown) => {
   const match = String(value || "").match(
     /^(\d{4})(?:[-/](\d{1,2})(?:[-/](\d{1,2}))?)?/,
@@ -22,6 +23,54 @@ export async function prepareCandidate(
   candidate: Candidate,
 ): Promise<Candidate> {
   const source = new URL(candidate.sourceUrl);
+  const publisherSource = scienceDirectArticleURL(source.href);
+  if (publisherSource) {
+    let latest: Detection | undefined;
+    if (candidate.tabId !== undefined) {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: candidate.tabId },
+        func: detectPage,
+      });
+      latest = results[0]?.result as Detection | undefined;
+    } else if (candidate.scienceDirectAccess) {
+      latest = { kind: "single", items: [candidate] };
+    } else {
+      // A search result is only a pointer; read its own detail page for the
+      // access notice, authoritative citation, and safe article snapshot.
+      const response = await fetch(publisherSource, {
+        credentials: "include",
+        redirect: "error",
+      });
+      if (!response.ok) throw Error(`ScienceDirect 页面读取失败 (${response.status})；请在浏览器中打开原文后重试`);
+      const finalURL = response.url || publisherSource;
+      if (scienceDirectArticleURL(finalURL) === publisherSource)
+        latest = detectPage(await response.text(), finalURL);
+    }
+    const article = latest?.kind === "single" ? latest.items[0] : undefined;
+    if (!article || scienceDirectArticleURL(article.sourceUrl) !== publisherSource ||
+        !article.scienceDirectAccess)
+      throw Error("无法确认是这篇 ScienceDirect 论文，请在浏览器中打开原文后重试");
+    if (article.scienceDirectAccess === "denied")
+      throw new ConnectorError(
+        "sciencedirect-access-denied",
+        "ScienceDirect 页面未提供本篇 PDF 下载，请在原网页查看全文获取选项",
+      );
+
+    const title = importTitle(article.title, source);
+    return {
+      ...article,
+      sourceUrl: publisherSource,
+      pdfUrl: scienceDirectDownloadURL(publisherSource)!,
+      title,
+      metadata: {
+        ...article.metadata,
+        url: publisherSource,
+        title,
+        date: cleanDate(article.metadata.date),
+      },
+      ...(candidate.tabId === undefined ? {} : { tabId: candidate.tabId }),
+    };
+  }
   const arxivPDF = source.hostname === "arxiv.org"
     ? source.pathname.match(/^\/pdf\/(\d{4}\.\d{4,5}(?:v\d+)?|[a-z.-]+\/\d{7}(?:v\d+)?)(?:\.pdf)?$/i)?.[1]
     : undefined;

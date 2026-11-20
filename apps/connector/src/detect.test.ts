@@ -155,3 +155,76 @@ it("does not substitute a related article PDF for a CAJ-only CNKI article", () =
     "https://kns.cnki.net/download?format=caj",
   );
 });
+
+const scienceDirectArticle = "https://www.sciencedirect.com/science/article/pii/S2352711024000111";
+const otherScienceDirectArticle = "https://www.sciencedirect.com/science/article/pii/S2352711024000222";
+
+it("detects a serializable ScienceDirect result for this PII, not related PDFs or temporary URLs", () => {
+  const injected = (0, eval)(`(${detectPage.toString()})`) as typeof detectPage;
+  const result = injected(
+    `<link rel="canonical" href="${scienceDirectArticle}">
+    <meta name="citation_title" content="The actual article">
+    <meta name="citation_pdf_url" content="${otherScienceDirectArticle}/pdfft">
+    <meta name="citation_author" content="Ada Lovelace">
+    <meta name="citation_journal_title" content="Example Journal">
+    <meta name="citation_volume" content="34">
+    <meta name="citation_firstpage" content="99">
+    <meta name="citation_lastpage" content="111">
+    <script type="application/ld+json">{"@type":"ScholarlyArticle","name":"Other article","description":"Not this abstract"}</script>
+    <article><h1 id="title">The actual article</h1><p>Article text</p>
+      <a href="${otherScienceDirectArticle}/pdfft">Related PDF</a>
+    </article>`,
+    scienceDirectArticle + "?via%3Dihub&__cf_chl_tk=temporary#section",
+  );
+  expect(result.kind).toBe("single");
+  expect(result.items[0]).toMatchObject({
+    title: "The actual article",
+    sourceUrl: scienceDirectArticle,
+    pdfUrl: scienceDirectArticle + "/pdfft?download=true",
+    metadata: {
+      title: "The actual article",
+      url: scienceDirectArticle,
+      creators: [{ name: "Ada Lovelace" }],
+      venue: "Example Journal",
+      volume: "34",
+      pages: "99-111",
+      abstract: "",
+    },
+  });
+});
+
+it("does not offer a PDF when ScienceDirect displays its primary access notice", () => {
+  expect(detectPage(
+    `<meta name="citation_title" content="Article with an access notice">
+    <meta name="citation_pdf_url" content="${scienceDirectArticle}/pdfft">
+    <div id="check-access-popover"><span>Get full text elsewhere</span></div>`,
+    scienceDirectArticle,
+  ).items[0]).toMatchObject({ pdfUrl: "", scienceDirectAccess: "denied" });
+});
+
+it("offers only unique, on-site article results on ScienceDirect search pages", () => {
+  const result = detectPage(
+    `<h2><a class="result-list-title-link" href="/science/article/abs/pii/S2352711024000111?__cf_chl_tk=temporary#abstract">Paper One</a></h2>
+    <h2><a class="result-list-title-link" href="${scienceDirectArticle}">Same Paper Again</a></h2>
+    <h2><a class="result-list-title-link" href="${otherScienceDirectArticle}">Paper Two</a></h2>
+    <h2><a class="result-list-title-link" href="https://www.sciencedirect.com.example.org/science/article/pii/S2352711024000333">Lookalike</a></h2>
+    <h2><a class="result-list-title-link" href="${scienceDirectArticle}/pdfft">PDF viewer</a></h2>`,
+    "https://www.sciencedirect.com/search?qs=paper#results",
+  );
+  expect(result.kind).toBe("list");
+  expect(result.items.map(({ title, sourceUrl, pdfUrl }) => ({ title, sourceUrl, pdfUrl }))).toEqual([
+    { title: "Paper One", sourceUrl: scienceDirectArticle, pdfUrl: "" },
+    { title: "Paper Two", sourceUrl: otherScienceDirectArticle, pdfUrl: "" },
+  ]);
+});
+
+it("does not present ScienceDirect challenge pages or insecure lookalike article locations as papers", () => {
+  expect(detectPage(
+    '<title>Just a moment...</title><article><h1>Verify you are human</h1></article>',
+    `${scienceDirectArticle}?__cf_chl_tk=temporary`,
+  ).items).toEqual([]);
+  expect(detectPage(
+    '<meta name="citation_title" content="Example"><a href="https://example.org/related.pdf">PDF</a>',
+    scienceDirectArticle.replace("https:", "http:"),
+  ).items).toEqual([]);
+});

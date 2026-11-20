@@ -10,6 +10,15 @@ import {
 } from "./detect";
 import { prepareCandidate } from "./prepare";
 import { TagPicker } from "./TagPicker";
+import { ScienceDirectProgress } from "./ScienceDirectProgress";
+import type { ScienceDirectPending } from "./scienceDirectResume";
+
+function isScienceDirectTab(value?: string) {
+  if (!value?.startsWith("https://")) return false;
+  const host = new URL(value).hostname;
+  return host === "www.sciencedirect.com" || host === "sciencedirect.com" ||
+    host === "pdf.sciencedirectassets.com";
+}
 const bridge = "http://127.0.0.1:17841";
 const outdatedAppMessage = "请重启 pnpm desktop，更新本机分类和标签接口";
 function App() {
@@ -26,6 +35,7 @@ function App() {
   >("neutral");
   const [outcomes, setOutcomes] = useState<{ ok: boolean; text: string }[]>([]);
   const [busy, setBusy] = useState(false);
+  const [verification, setVerification] = useState<{ tabId: number; pending: ScienceDirectPending }>();
   const [largeConfirmation, setLargeConfirmation] = useState<{
     resolve: (library: "papers" | "books") => void;
   }>();
@@ -77,7 +87,20 @@ function App() {
           currentWindow: true,
         });
         if (!tab?.id) throw Error("无法读取当前标签页");
-        if (tab.url?.toLowerCase().includes(".pdf")) {
+        const task = await chrome.runtime.sendMessage({ type: "sciencedirect-status", tabId: tab.id });
+        if (task?.pending) {
+          setVerification({ tabId: tab.id, pending: task.pending });
+          return;
+        }
+        // A standalone publisher viewer may carry a temporary signed URL.
+        // Resume it only as an attachment, never save it as the article's source.
+        const publisherTab = isScienceDirectTab(tab.url);
+        if (publisherTab && tab.url) {
+          const url = new URL(tab.url);
+          if (url.hostname === "pdf.sciencedirectassets.com" || /\/pdfft\/?$/.test(url.pathname))
+            throw Error("请在 ScienceDirect 论文详情页打开插件收录。");
+        }
+        if (tab.url?.toLowerCase().includes(".pdf") && !publisherTab) {
           setItems([pdfTabCandidate(tab.url, tab.title || "PDF")]);
           setSelected([0]);
           return;
@@ -101,7 +124,7 @@ function App() {
           active: true,
           currentWindow: true,
         });
-        if (tab?.url && /^https?:\/\//.test(tab.url)) {
+        if (tab?.url && /^https?:\/\//.test(tab.url) && !isScienceDirectTab(tab.url)) {
           // Chrome's built-in PDF viewer does not allow page script injection.
           // The worker validates the PDF signature before sending anything to NeoRead.
           setItems([pdfTabCandidate(tab.url, tab.title || "PDF")]);
@@ -125,6 +148,7 @@ function App() {
     const completed: { ok: boolean; text: string }[] = [];
     const failures: string[] = [];
     const warnings: string[] = [];
+    const verificationTabs: number[] = [];
     try {
       const allowed = await chrome.permissions.request({
         origins: ["https://*/*", "http://*/*"],
@@ -134,7 +158,7 @@ function App() {
         const item = items[index];
         let label = item.title.trim() || item.sourceUrl;
         setMessage(
-          `正在收录 ${success + failures.length + 1}/${selected.length}：${label}`,
+          `正在收录 ${success + failures.length + verificationTabs.length + 1}/${selected.length}：${label}`,
         );
         setMessageTone("neutral");
         try {
@@ -153,6 +177,7 @@ function App() {
             pages?: number;
             warnings?: string[];
             document?: { title: string };
+            verificationTabId?: number;
           };
           if (result.code === "large-paper") {
             const library = await new Promise<"papers" | "books">((resolve) =>
@@ -164,6 +189,10 @@ function App() {
               allowLarge: true,
               library,
             });
+          }
+          if (result.code === "sciencedirect-pending" && result.verificationTabId !== undefined) {
+            verificationTabs.push(result.verificationTabId);
+            continue;
           }
           if (result.ok) {
             success++;
@@ -186,10 +215,12 @@ function App() {
         }
       }
       setMessage(
-        `已收录 ${success} 篇，失败 ${failures.length} 篇${warnings.length ? "\n提醒：" + warnings.join("\n") : ""}`,
+        `已收录 ${success} 篇，失败 ${failures.length} 篇${verificationTabs.length ? `，待网站验证 ${verificationTabs.length} 篇` : ""}${warnings.length ? "\n提醒：" + warnings.join("\n") : ""}`,
       );
       setMessageTone(failures.length ? "error" : "success");
       setOutcomes(completed);
+      // Opening the official page closes this popup; finish the entire selection first.
+      if (verificationTabs.length) await chrome.tabs.update(verificationTabs[0], { active: true });
     } catch (error) {
       setMessage((error as Error).message);
       setMessageTone("error");
@@ -197,6 +228,7 @@ function App() {
       setBusy(false);
     }
   }
+  if (verification) return <ScienceDirectProgress tabId={verification.tabId} initial={verification.pending} />;
   if (largeConfirmation)
     return (
       <main>

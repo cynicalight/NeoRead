@@ -121,3 +121,85 @@ it("can still import into older desktops when arXiv metadata is unavailable", as
     pdfUrl: url, metadata: { title: "arXiv:2602.03733v2" },
   });
 });
+
+const scienceDirectArticle = "https://www.sciencedirect.com/science/article/pii/S2352711024000111";
+const otherScienceDirectArticle = "https://www.sciencedirect.com/science/article/pii/S2352711024000222";
+const articleHTML = `<link rel="canonical" href="${scienceDirectArticle}">
+  <meta name="citation_title" content="Article detail title">
+  <meta name="citation_author" content="Ada Lovelace">
+  <meta name="citation_doi" content="10.1016/j.example.2024.100001">
+  <meta name="citation_publication_date" content="2024/7/9">
+  <meta name="citation_pdf_url" content="${otherScienceDirectArticle}/pdfft">
+  <article id="article" data-session="attribute-secret">
+    <h1 id="title">Article detail title</h1>
+    <section id="abstracts"><div class="abstract"><p>Abstract text</p></div></section>
+    <section><h2>Methods</h2><p style="display:block" onclick="event-secret()">Readable <em>body</em> <a href="https://example.org/doi">reference</a></p></section>
+    <a id="pdfLink" href="${scienceDirectArticle}/pdfft?token=signed-secret">Download control</a>
+    <a href="${scienceDirectArticle}?__cf_chl_tk=challenge-secret">Temporary link</a>
+    <script type="application/json">{"request":"json-secret"}</script>
+    <script src="/cdn-cgi/challenge-platform/script-secret"></script>
+    <form action="/external"><input value="form-secret">Form text</form>
+    <aside>Unrelated article</aside>
+    <img src="https://example.org/image-secret">
+  </article>`;
+
+const resultCandidate = {
+  title: "Abbreviated search title",
+  sourceUrl: scienceDirectArticle,
+  pdfUrl: `${otherScienceDirectArticle}/pdfft`,
+  snapshot: "",
+  metadata: { title: "Abbreviated search title", url: otherScienceDirectArticle },
+};
+
+it("loads a ScienceDirect search selection as its own article and prepares a text-only snapshot", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(articleHTML));
+  vi.stubGlobal("fetch", fetchMock);
+  const result = await prepareCandidate({
+    ...resultCandidate,
+    sourceUrl: `${scienceDirectArticle}?__cf_chl_tk=old-secret#abstract`,
+  });
+  expect(fetchMock).toHaveBeenCalledExactlyOnceWith(scienceDirectArticle, {
+    credentials: "include",
+    redirect: "error",
+  });
+  expect(result).toMatchObject({
+    pdfUrl: `${scienceDirectArticle}/pdfft?download=true`,
+    sourceUrl: scienceDirectArticle,
+    metadata: {
+      url: scienceDirectArticle,
+      title: "Article detail title",
+      doi: "10.1016/j.example.2024.100001",
+      creators: [{ name: "Ada Lovelace" }],
+      date: "2024-07-09",
+      abstract: "Abstract text",
+    },
+  });
+  expect(result.snapshot).toContain("<h2>Methods</h2><p>Readable <em>body</em> reference</p>");
+  expect(JSON.stringify(result)).not.toMatch(/-secret|__cf_chl_/);
+  expect(result.snapshot).not.toMatch(/href=|src=|data-|style=|onclick=|<script|<form|Download control|Temporary link|Unrelated article/);
+});
+
+it("rejects another PII presented by the selected result before using its citation", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(
+    articleHTML.replace(`rel="canonical" href="${scienceDirectArticle}"`, `rel="canonical" href="${otherScienceDirectArticle}"`),
+  ));
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(prepareCandidate(resultCandidate)).rejects.toThrow("无法确认是这篇 ScienceDirect 论文");
+});
+
+it("does not turn a newly displayed ScienceDirect access notice into a PDF request", async () => {
+  const initial = detectPage(articleHTML, scienceDirectArticle).items[0];
+  const latest = detectPage(
+    articleHTML.replace("<article", '<div class="access-options-link-text">Check for this article elsewhere</div><article'),
+    `${scienceDirectArticle}#abstract`,
+  );
+  vi.stubGlobal("chrome", {
+    scripting: { executeScript: vi.fn().mockResolvedValue([{ result: latest }]) },
+  });
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(prepareCandidate({ ...initial, tabId: 7 })).rejects.toMatchObject({
+    code: "sciencedirect-access-denied",
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
+});
