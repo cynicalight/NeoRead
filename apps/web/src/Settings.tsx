@@ -5,6 +5,7 @@ import { Switch } from "@neoread/ui/components/switch";
 import { PaperServiceSettings } from "./papers/PaperServiceSettings";
 import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
 import { TranslationPromptSettings } from "./TranslationPromptSettings";
+import { CustomPromptSettings } from "./CustomPromptSettings";
 import { WebSearchSettings } from "./WebSearchSettings";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -772,11 +773,18 @@ export function Settings({
               <FileText />
               诊断
             </TabsTrigger>
+            <TabsTrigger value="prompts">
+              <Pencil />
+              常用 prompt
+            </TabsTrigger>
             <TabsTrigger value="papers">
               <Library />
               {libraryModes[currentLibrary].label}
             </TabsTrigger>
           </TabsList>
+          <TabsContent value="prompts" className="settings-panel" keepMounted>
+            <CustomPromptSettings />
+          </TabsContent>
           <TabsContent
             value="diagnostics"
             className="settings-panel"

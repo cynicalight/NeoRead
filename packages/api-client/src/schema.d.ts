@@ -4053,7 +4053,7 @@ export interface paths {
                 query?: never;
                 header?: never;
                 path: {
-                    key: "library" | "guide" | "shortcuts" | "fonts";
+                    key: "library" | "guide" | "shortcuts" | "fonts" | "chat-prompts";
                 };
                 cookie?: never;
             };
@@ -4086,7 +4086,7 @@ export interface paths {
                 query?: never;
                 header?: never;
                 path: {
-                    key: "library" | "guide" | "shortcuts" | "fonts";
+                    key: "library" | "guide" | "shortcuts" | "fonts" | "chat-prompts";
                 };
                 cookie?: never;
             };
