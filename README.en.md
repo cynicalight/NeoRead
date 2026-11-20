@@ -183,11 +183,9 @@ The current version primarily targets DRM-free, horizontal left-to-right reflowa
 
 Fixed-layout EPUBs, vertical text, RTL, complex footnotes, and large files need more testing with real documents. The desktop app handles macOS file-open events, but system file associations are not registered. Installers are built by CI without trusted developer signing or macOS notarization. See the [release and update guide (Chinese)](docs/releasing.md) for in-app update requirements.
 
-Planned for October 2026:
+Next up:
 
-- **NeoRead command line**: search, read, and import library documents from the terminal, for agents such as Claude Code and Codex as well as scripts.
-- **RAG support**: a broad upgrade to AI question answering, grounding answers in passages retrieved across chapters and documents.
-- **Large EPUB translation**: faster chapter translation, better job scheduling, and smoother resumption for long books.
+- **Agent features**: let AI search across documents in your library, read the original text, and organize annotations and notes, with citations that jump to the source passages.
 
 See the [roadmap](docs/roadmap.md) (Chinese) for longer-term plans.
 
