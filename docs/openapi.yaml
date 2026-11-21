@@ -5103,6 +5103,60 @@
                 },
             },
         },
+      "/api/libraries/papers/title-translations":
+        {
+          "post":
+            {
+              "summary": "Translate missing paper titles in the current request",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Saved translations and failures",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                {
+                                  "type": "object",
+                                  "properties":
+                                    {
+                                      "translated": { "type": "number" },
+                                      "failed": { "type": "number" },
+                                    },
+                                  "required": ["translated", "failed"],
+                                },
+                            },
+                        },
+                    },
+                  "503":
+                    {
+                      "description": "No usable translation model",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                  "default":
+                    {
+                      "description": "Error",
+                      "content":
+                        {
+                          "application/json":
+                            {
+                              "schema":
+                                { "$ref": "#/components/schemas/Error" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
       "/api/documents/resolve":
         {
           "post":

@@ -25,7 +25,9 @@ func TestAutoPaperTitleFallback(t *testing.T) {
 	}))
 	defer titles.Close()
 	s.scholar.SemanticScholar = titles.URL + "/"
-	upstream, calls := fakeAPI(t, func(_ int, _ apiCall) string { return `{"title":"A Reliable Paper Title"}` })
+	upstream, calls := fakeAPI(t, func(_ int, _ apiCall) string {
+		return `{"title":"A Reliable Paper Title","translatedTitle":"可靠的论文标题"}`
+	})
 	config := AIConfig{Primary: "api", API: APIConnection{URL: upstream.URL + "/v1", Key: "sk-test"}, TranslationModels: map[string]string{"api": "deepseek-flash"}}
 	passModels(&config, map[string]bool{"deepseek-flash": false})
 	if err := s.writeAIConfig(config); err != nil {
@@ -39,7 +41,7 @@ func TestAutoPaperTitleFallback(t *testing.T) {
 	}
 	revision := s.connectorRevision.Load()
 	got, err := s.lookupDocument(context.Background(), d.ID, false)
-	if err != nil || got.Title != "A Reliable Paper Title" || got.Metadata.SuggestedTitle != "" || got.Metadata.Lookup != "done" || got.Metadata.Venue != "Example Journal" || got.Author != "Alex Smith" {
+	if err != nil || got.Title != "A Reliable Paper Title" || got.Metadata.TranslatedTitle != "可靠的论文标题" || got.Metadata.SuggestedTitle != "" || got.Metadata.Lookup != "done" || got.Metadata.Venue != "Example Journal" || got.Author != "Alex Smith" {
 		t.Fatalf("suggested-title lookup: %+v err=%v", got, err)
 	}
 	if s.connectorRevision.Load() <= revision {
@@ -48,9 +50,9 @@ func TestAutoPaperTitleFallback(t *testing.T) {
 	if len(calls()) != 1 || calls()[0].Model != "deepseek-flash" {
 		t.Fatalf("unexpected calls: %+v", calls())
 	}
-	request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"Manual title"}`))
+	request(t, s, "PATCH", "/api/documents/"+d.ID, strings.NewReader(`{"title":"Manual title","metadata":{"translatedTitle":"手填译名"}}`))
 	got, err = s.lookupDocument(context.Background(), d.ID, false)
-	if err != nil || got.Title != "A Reliable Paper Title" || got.Metadata.SuggestedTitle != "" {
+	if err != nil || got.Title != "A Reliable Paper Title" || got.Metadata.SuggestedTitle != "" || got.Metadata.TranslatedTitle != "手填译名" {
 		t.Fatalf("lookup did not replace edited title: %q %v", got.Title, err)
 	}
 }

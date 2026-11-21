@@ -318,12 +318,12 @@ func (s *Server) lookupDocument(ctx context.Context, id string, useCurrentTitle 
 		}
 		titleHint = pdfTitle
 	}
-	suggestion := ""
+	suggestion, translated := "", ""
 	if !useCurrentTitle {
 		suggestion = strings.Join(strings.Fields(d.Metadata.SuggestedTitle), " ")
 	}
 	if !useCurrentTitle && !foundPrimary && pdfTitle == "" && suggestion == "" && ctx.Err() == nil {
-		suggestion = s.suggestPaperTitle(ctx, id, quick)
+		suggestion, translated = s.suggestPaperTitle(ctx, id, quick)
 		if suggestion != "" {
 			if _, err = s.applyFound(id, PaperMetadata{}, suggestion, "ai", "", ctx); err != nil {
 				return d, err
@@ -350,6 +350,11 @@ func (s *Server) lookupDocument(ctx context.Context, id string, useCurrentTitle 
 			titleHint = suggestion
 		}
 		s.diagnosticEvent(slog.LevelInfo, "paper.title.lookup", "documentId", id, "outcome", outcome)
+	}
+	if translated != "" {
+		if _, err := s.savePaperTitleTranslation(ctx, id, suggestion, translated); err != nil && ctx.Err() == nil {
+			s.diagnosticEvent(slog.LevelWarn, "paper.title.ai", "documentId", id, "outcome", "failed", "reason", "translation_not_saved")
+		}
 	}
 	return s.finishPaperVenue(ctx, id, lookupErr, titleHint, useCurrentTitle && !foundVenue)
 }

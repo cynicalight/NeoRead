@@ -25,6 +25,7 @@ import {
 import { LegacyAnnotationMigration } from "./LegacyAnnotationMigration";
 import { DiagnosticExport } from "./DiagnosticExport";
 import { PaperRefreshSettings } from "./PaperRefreshSettings";
+import { PaperTitleTranslationSettings } from "./PaperTitleTranslationSettings";
 import { LibraryLocationSettings } from "./LibraryLocationSettings";
 import { CommandLineSettings } from "./CommandLineSettings";
 import { ProviderIcon, providerLabel } from "./ProviderIdentity";
@@ -804,6 +805,9 @@ export function Settings({
             )}
             <section>
               <PaperRefreshSettings open={open} />
+            </section>
+            <section>
+              <PaperTitleTranslationSettings />
             </section>
             <section>
               <LegacyAnnotationMigration />
