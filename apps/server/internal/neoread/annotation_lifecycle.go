@@ -155,6 +155,13 @@ const legacyAnnotationSQL = `(json_type(body,'$.location.sentenceLink')='object'
  (COALESCE(json_extract(body,'$.location.translation.sourceText'),'')='' OR EXISTS (
  SELECT 1 FROM json_each(body,'$.location.translation.ranges') r WHERE COALESCE(json_extract(r.value,'$.sourceText'),'')=''))))`
 
+const epubAnnotationOrderSQL = `COALESCE((json_extract(body,'$.location.type')='epub' AND
+ json_extract(body,'$.location.order') IS NULL AND
+ COALESCE(json_extract(body,'$.location.unresolved'),0)=0 AND
+ json_extract(body,'$.location.href')<>'' AND json_extract(body,'$.location.blockId')<>''),0)`
+
+const manualAnnotationMigrationSQL = "(COALESCE(" + legacyAnnotationSQL + ",0) OR " + epubAnnotationOrderSQL + ")"
+
 type annotationMigrationResult struct {
 	Migrated int `json:"migrated"`
 	Skipped  int `json:"skipped"`
@@ -163,7 +170,7 @@ type annotationMigrationResult struct {
 
 func (s *Server) migrateLegacyAnnotations(w http.ResponseWriter, r *http.Request) {
 	s.diagnosticEvent(slog.LevelInfo, "annotation.legacy_migration.start")
-	rows, err := s.Store.DB.QueryContext(r.Context(), `SELECT DISTINCT document_id FROM annotations a JOIN documents d ON d.id=a.document_id WHERE d.deleted_at='' AND `+legacyAnnotationSQL)
+	rows, err := s.Store.DB.QueryContext(r.Context(), `SELECT DISTINCT document_id FROM annotations a JOIN documents d ON d.id=a.document_id WHERE d.deleted_at='' AND `+manualAnnotationMigrationSQL)
 	if err != nil {
 		fail(w, 500, "无法读取旧版批注")
 		return
@@ -202,7 +209,10 @@ func (s *Server) migrateLegacyAnnotations(w http.ResponseWriter, r *http.Request
 }
 func (s *Server) migrateLegacyDocument(ctx context.Context, document string) (int, int, error) {
 	var pending int
-	if err := s.Store.DB.QueryRowContext(ctx, "SELECT count(*) FROM annotations WHERE document_id=? AND "+legacyAnnotationSQL, document).Scan(&pending); err != nil {
+	var hasLegacy, hasMissingOrder bool
+	if err := s.Store.DB.QueryRowContext(ctx, `SELECT count(*),COALESCE(max(COALESCE(`+legacyAnnotationSQL+`,0)),0),
+		COALESCE(max(`+epubAnnotationOrderSQL+`),0) FROM annotations WHERE document_id=? AND `+manualAnnotationMigrationSQL, document).
+		Scan(&pending, &hasLegacy, &hasMissingOrder); err != nil {
 		return 0, 0, err
 	}
 	if pending == 0 {
@@ -218,34 +228,44 @@ func (s *Server) migrateLegacyDocument(ctx context.Context, document string) (in
 		return 0, pending, nil
 	}
 	defer s.annotationMu.Unlock()
-	if !s.translationMu.TryLock() {
-		return 0, pending, nil
+	var source translationInput
+	var translations []TranslationBlock
+	if hasLegacy && s.translationMu.TryLock() {
+		defer s.translationMu.Unlock()
+		input, err := s.readTranslationSource(document)
+		if err == nil {
+			source = input
+			translations, err = s.visibleTranslations(document, source)
+			if err != nil {
+				return 0, 0, err
+			}
+		}
 	}
-	defer s.translationMu.Unlock()
-	source, err := s.readTranslationSource(document)
-	if err != nil {
-		return 0, pending, nil
-	}
-	translations, err := s.visibleTranslations(document, source)
-	if err != nil {
-		return 0, 0, err
+	var lookup epubOrderLookup
+	if hasMissingOrder {
+		lookup = s.epubAnnotationOrderLookup(document)
 	}
 	tx, err := s.Store.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT body FROM annotations WHERE document_id=? AND "+legacyAnnotationSQL, document)
+	rows, err := tx.QueryContext(ctx, `SELECT id,body,COALESCE(`+legacyAnnotationSQL+`,0),`+epubAnnotationOrderSQL+
+		` FROM annotations WHERE document_id=? AND EXISTS (SELECT 1 FROM documents WHERE id=? AND deleted_at='') AND `+manualAnnotationMigrationSQL, document, document)
 	if err != nil {
 		return 0, 0, err
 	}
-	var bodies []string
+	type candidate struct {
+		id, body      string
+		legacy, order bool
+	}
+	var candidates []candidate
 	for rows.Next() {
-		var body string
-		if err = rows.Scan(&body); err != nil {
+		var item candidate
+		if err = rows.Scan(&item.id, &item.body, &item.legacy, &item.order); err != nil {
 			break
 		}
-		bodies = append(bodies, body)
+		candidates = append(candidates, item)
 	}
 	if err == nil {
 		err = rows.Err()
@@ -255,34 +275,46 @@ func (s *Server) migrateLegacyDocument(ctx context.Context, document string) (in
 		return 0, 0, err
 	}
 	migrated, skipped := 0, 0
-	for _, body := range bodies {
+	for _, item := range candidates {
 		if err := ctx.Err(); err != nil {
 			return 0, 0, err
 		}
-		var original Annotation
-		if err := json.Unmarshal([]byte(body), &original); err != nil {
-			return 0, 0, err
-		}
 		var replacements []Annotation
-		valid := true
-		for _, part := range splitLegacyAnnotation(original, source) {
-			recovered, keep, ready := recoverTranslationAnnotation(ctx, part, source, translations)
-			if !keep || !ready {
-				valid = false
-				break
-			}
-			replacements = append(replacements, recovered)
-		}
-		if !valid || len(replacements) == 1 && jsonText(replacements[0]) == body {
-			skipped++
-			continue
-		}
-		for _, item := range replacements {
-			if _, err := tx.ExecContext(ctx, "INSERT INTO annotations(id,document_id,body) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body", item.ID, document, jsonText(item)); err != nil {
+		if item.legacy && source != nil {
+			replacements, err = migrateLegacyAnnotation(ctx, item.body, source, translations)
+			if err != nil {
 				return 0, 0, err
 			}
 		}
-		migrated++
+		if len(replacements) > 0 {
+			for _, replacement := range replacements {
+				if _, err := tx.ExecContext(ctx, "INSERT INTO annotations(id,document_id,body) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body", replacement.ID, document, jsonText(replacement)); err != nil {
+					return 0, 0, err
+				}
+				if item.order && lookup != nil {
+					if _, err := backfillEPUBAnnotationOrder(ctx, tx, replacement.ID, replacement.Location, lookup); err != nil {
+						return 0, 0, err
+					}
+				}
+			}
+			migrated++
+			continue
+		}
+		if item.order && lookup != nil {
+			var original struct{ Location json.RawMessage }
+			if err := json.Unmarshal([]byte(item.body), &original); err != nil {
+				return 0, 0, err
+			}
+			updated, err := backfillEPUBAnnotationOrder(ctx, tx, item.id, original.Location, lookup)
+			if err != nil {
+				return 0, 0, err
+			}
+			if updated {
+				migrated++
+				continue
+			}
+		}
+		skipped++
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, 0, err
@@ -291,4 +323,23 @@ func (s *Server) migrateLegacyDocument(ctx context.Context, document string) (in
 		s.publishAnnotationChange(document)
 	}
 	return migrated, skipped, nil
+}
+
+func migrateLegacyAnnotation(ctx context.Context, body string, source translationInput, translations []TranslationBlock) ([]Annotation, error) {
+	var original Annotation
+	if err := json.Unmarshal([]byte(body), &original); err != nil {
+		return nil, err
+	}
+	var replacements []Annotation
+	for _, part := range splitLegacyAnnotation(original, source) {
+		recovered, keep, ready := recoverTranslationAnnotation(ctx, part, source, translations)
+		if !keep || !ready {
+			return nil, nil
+		}
+		replacements = append(replacements, recovered)
+	}
+	if len(replacements) == 1 && jsonText(replacements[0]) == body {
+		return nil, nil
+	}
+	return replacements, nil
 }
