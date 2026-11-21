@@ -68,6 +68,9 @@ importers:
       '@neoread/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      parse5:
+        specifier: 7.3.0
+        version: 7.3.0
       react:
         specifier: ^19.2.0
         version: 19.3.0

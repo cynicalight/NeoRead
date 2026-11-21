@@ -1,6 +1,7 @@
 /// <reference types="chrome" />
-import { detectPage, type Candidate, type Detection } from "./detect";
-import { cnkiPageError, isCNKIURL } from "./download";
+import { detectPage, withPDFTitle, type Candidate, type Detection } from "./detect";
+import { cnkiPageError, ConnectorError, isCNKIURL } from "./download";
+import { isScienceDirectPDFLocation, scienceDirectArticleURL, scienceDirectDownloadURL } from "./scienceDirect";
 const cleanDate = (value: unknown) => {
   const match = String(value || "").match(
     /^(\d{4})(?:[-/](\d{1,2})(?:[-/](\d{1,2}))?)?/,
@@ -11,20 +12,140 @@ const cleanDate = (value: unknown) => {
         .join("-")
     : "";
 };
+
+// Serialized by Chrome. Only operate the article's own PDF dropdown on Save;
+// never click a download link, generic button, or publisher verification UI.
+async function readPDFMenu(source: string): Promise<string | null> {
+  const expected = new URL(source);
+  if (location.protocol !== "https:" || location.hostname.replace(/^www\./, "") !== "sciencedirect.com" ||
+      location.port || location.pathname.replace(/\/$/, "").replace("/abs/pii/", "/pii/") !== expected.pathname)
+    return null;
+  const button = document.querySelector<HTMLElement>(
+    'button#pdfLink, a#pdfLink[href="#"], #pdfLink[role="button"]:not([href])',
+  );
+  if (!button || button.matches(":disabled,[aria-disabled=true]") ||
+      button.closest("form, [hidden], [aria-hidden=true], #recommendations, .related-articles")) return null;
+  const href = () => document.querySelector<HTMLAnchorElement>(".PdfDropDownMenu a[href]")?.href || null;
+  const open = href();
+  if (open || button.getAttribute("aria-expanded") === "true") return open;
+  try {
+    button.click();
+    if (!href()) await new Promise<void>(resolve => {
+      const observer = new MutationObserver(() => { if (href()) finish(); });
+      const timer = setTimeout(finish, 400);
+      function finish() { observer.disconnect(); clearTimeout(timer); resolve(); }
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] });
+    });
+    return href();
+  } finally {
+    if (button.isConnected && (button.getAttribute("aria-expanded") === "true" || href()))
+      document.body.click();
+  }
+}
+
+// Older desktop versions require a nonempty, single-line title on every import.
+function importTitle(title: string, url: URL): string {
+  return (title.replace(/[\p{Cc}\s]+/gu, " ").trim() ||
+    url.pathname.split("/").pop() || url.hostname || "PDF").slice(0, 300);
+}
+
 export async function prepareCandidate(
   candidate: Candidate,
 ): Promise<Candidate> {
-  if (
-    candidate.pdfUrl === candidate.sourceUrl &&
-    (!candidate.snapshot || /\.pdf(?:$|[?#])/i.test(candidate.sourceUrl))
-  )
+  const source = new URL(candidate.sourceUrl);
+  const publisherSource = scienceDirectArticleURL(source.href);
+  if (publisherSource) {
+    let latest: Detection | undefined;
+    if (candidate.tabId !== undefined) {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: candidate.tabId },
+        func: detectPage,
+      });
+      latest = results[0]?.result as Detection | undefined;
+    } else if (candidate.scienceDirectAccess) {
+      latest = { kind: "single", items: [candidate] };
+    } else {
+      // A search result is only a pointer; read its own detail page for the
+      // access notice, authoritative citation, and safe article snapshot.
+      const response = await fetch(publisherSource, {
+        credentials: "include",
+        redirect: "error",
+      });
+      if (!response.ok) throw Error(`ScienceDirect 页面读取失败 (${response.status})；请在浏览器中打开原文后重试`);
+      const finalURL = response.url || publisherSource;
+      if (scienceDirectArticleURL(finalURL) === publisherSource)
+        latest = detectPage(await response.text(), finalURL);
+    }
+    const article = latest?.kind === "single" ? latest.items[0] : undefined;
+    if (!article || scienceDirectArticleURL(article.sourceUrl) !== publisherSource ||
+        !article.scienceDirectAccess)
+      throw Error("无法确认是这篇 ScienceDirect 论文，请在浏览器中打开原文后重试");
+    if (article.scienceDirectAccess === "denied")
+      throw new ConnectorError(
+        "sciencedirect-access-denied",
+        "ScienceDirect 页面未提供本篇 PDF 下载，请在原网页查看全文获取选项",
+      );
+
+    const title = importTitle(article.title, source);
+    let { scienceDirectPublishedPDF, ...articleData } = article;
+    if (!scienceDirectPublishedPDF && candidate.tabId !== undefined) {
+      const frames = await chrome.scripting.executeScript({
+        target: { tabId: candidate.tabId }, func: readPDFMenu, args: [publisherSource],
+      });
+      scienceDirectPublishedPDF = frames[0]?.result || undefined;
+    }
     return {
-      ...candidate,
+      ...articleData,
+      sourceUrl: publisherSource,
+      pdfUrl: scienceDirectDownloadURL(publisherSource)!,
+      ...(scienceDirectPublishedPDF && isScienceDirectPDFLocation(scienceDirectPublishedPDF, publisherSource)
+        ? { scienceDirectPublishedPDF }
+        : {}),
+      title,
       metadata: {
-        ...candidate.metadata,
-        title: candidate.title.slice(0, 300),
+        ...article.metadata,
+        url: publisherSource,
+        title,
+        date: cleanDate(article.metadata.date),
       },
+      ...(candidate.tabId === undefined ? {} : { tabId: candidate.tabId }),
     };
+  }
+  const arxivPDF = source.hostname === "arxiv.org"
+    ? source.pathname.match(/^\/pdf\/(\d{4}\.\d{4,5}(?:v\d+)?|[a-z.-]+\/\d{7}(?:v\d+)?)(?:\.pdf)?$/i)?.[1]
+    : undefined;
+  if (
+    arxivPDF ||
+    (candidate.pdfUrl === candidate.sourceUrl &&
+      (!candidate.snapshot || /\.pdf$/i.test(source.pathname)))
+  ) {
+    let title = candidate.title.trim();
+    if (arxivPDF && (!title || title === "PDF" || title === source.href ||
+        /^(?:arxiv:)?(?:\d{4}\.\d{4,5})(?:v\d+)?(?:\.pdf)?$/i.test(title) ||
+        title === source.pathname.split("/").pop())) {
+      title = `arXiv:${arxivPDF}`;
+      try {
+        const res = await fetch(`https://arxiv.org/abs/${arxivPDF}`, {
+          credentials: "omit",
+          signal: AbortSignal.timeout(4000),
+        });
+        if (res.ok) {
+          const page = new DOMParser().parseFromString(await res.text(), "text/html");
+          title = page.querySelector<HTMLMetaElement>('meta[name="citation_title"]')?.content.trim() || title;
+        }
+      } catch {
+        // The identifier is sufficient to import when abstract metadata is unavailable.
+      }
+    }
+    const normalized = withPDFTitle({ ...candidate, pdfUrl: candidate.sourceUrl, title });
+    title = importTitle(normalized.title, source);
+    return {
+      ...normalized,
+      snapshot: "",
+      title,
+      metadata: { ...normalized.metadata, title },
+    };
+  }
   if (isCNKIURL(candidate.sourceUrl)) {
     if (candidate.tabId !== undefined) {
       const results = await chrome.scripting.executeScript({
@@ -237,6 +358,7 @@ export async function prepareCandidate(
     snapshot = "";
     snapshotWarnings.push("网页快照超过 10 MB，未保存快照");
   }
+  metadata.title = importTitle(String(metadata.title || ""), source);
   return {
     ...candidate,
     title: String(metadata.title),

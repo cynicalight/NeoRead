@@ -1,9 +1,25 @@
 /// <reference types="chrome" />
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { detectPage, type Candidate, type Detection } from "./detect";
+import {
+  detectPage,
+  pdfTabCandidate,
+  withPDFTitle,
+  type Candidate,
+  type Detection,
+} from "./detect";
 import { prepareCandidate } from "./prepare";
 import { TagPicker } from "./TagPicker";
+import { ScienceDirectProgress } from "./ScienceDirectProgress";
+import type { ScienceDirectPending } from "./scienceDirectResume";
+import { scienceDirectViewerArticle } from "./scienceDirect";
+
+function isScienceDirectTab(value?: string) {
+  if (!value?.startsWith("https://")) return false;
+  const host = new URL(value).hostname;
+  return host === "www.sciencedirect.com" || host === "sciencedirect.com" ||
+    host === "pdf.sciencedirectassets.com";
+}
 const bridge = "http://127.0.0.1:17841";
 const outdatedAppMessage = "请重启 pnpm desktop，更新本机分类和标签接口";
 function App() {
@@ -20,6 +36,8 @@ function App() {
   >("neutral");
   const [outcomes, setOutcomes] = useState<{ ok: boolean; text: string }[]>([]);
   const [busy, setBusy] = useState(false);
+  const [verification, setVerification] = useState<{ tabId: number; pending: ScienceDirectPending }>();
+  const [viewerTabId, setViewerTabId] = useState<number>();
   const [largeConfirmation, setLargeConfirmation] = useState<{
     resolve: (library: "papers" | "books") => void;
   }>();
@@ -71,20 +89,26 @@ function App() {
           currentWindow: true,
         });
         if (!tab?.id) throw Error("无法读取当前标签页");
-        if (tab.url?.toLowerCase().includes(".pdf")) {
-          setItems([
-            {
-              title: tab.title || "PDF",
-              sourceUrl: tab.url,
-              pdfUrl: tab.url,
-              metadata: {
-                title: tab.title || "PDF",
-                url: tab.url,
-                itemType: "journal",
-              },
-              snapshot: "",
-            },
-          ]);
+        const task = await chrome.runtime.sendMessage({ type: "sciencedirect-status", tabId: tab.id });
+        if (task?.pending) {
+          setVerification({ tabId: tab.id, pending: task.pending });
+          return;
+        }
+        // A signed viewer address or tab title must never enter the bibliography.
+        const source = tab.url && scienceDirectViewerArticle(tab.url);
+        if (source) {
+          const title = source.slice(source.lastIndexOf("/") + 1);
+          setItems([{ title, sourceUrl: source, pdfUrl: "", snapshot: "",
+            metadata: { itemType: "journal", url: source, title } }]);
+          setViewerTabId(tab.id);
+          setSelected([0]);
+          return;
+        }
+        const publisherTab = isScienceDirectTab(tab.url);
+        if (publisherTab && tab.url && new URL(tab.url).hostname === "pdf.sciencedirectassets.com")
+          throw Error("此 ScienceDirect 文件地址中没有可识别的论文编号。");
+        if (tab.url?.toLowerCase().includes(".pdf") && !publisherTab) {
+          setItems([pdfTabCandidate(tab.url, tab.title || "PDF")]);
           setSelected([0]);
           return;
         }
@@ -96,7 +120,9 @@ function App() {
         if (!detection?.items.length) throw Error("未识别到论文");
         setItems(
           detection.items.map((item) =>
-            detection.kind === "single" ? { ...item, tabId: tab.id } : item,
+            detection.kind === "single"
+              ? { ...withPDFTitle({ ...item, title: item.title || tab.title || "" }), tabId: tab.id }
+              : item,
           ),
         );
         setSelected(detection.items.map((_, i) => i));
@@ -105,22 +131,10 @@ function App() {
           active: true,
           currentWindow: true,
         });
-        if (tab?.url && /^https?:\/\//.test(tab.url)) {
+        if (tab?.url && /^https?:\/\//.test(tab.url) && !isScienceDirectTab(tab.url)) {
           // Chrome's built-in PDF viewer does not allow page script injection.
           // The worker validates the PDF signature before sending anything to NeoRead.
-          setItems([
-            {
-              title: tab.title || "PDF",
-              sourceUrl: tab.url,
-              pdfUrl: tab.url,
-              metadata: {
-                title: tab.title || "PDF",
-                url: tab.url,
-                itemType: "journal",
-              },
-              snapshot: "",
-            },
-          ]);
+          setItems([pdfTabCandidate(tab.url, tab.title || "PDF")]);
           setSelected([0]);
           setMessage("无法读取页面内容；如果当前标签页是 PDF，仍可尝试收录。");
           setMessageTone("neutral");
@@ -148,17 +162,20 @@ function App() {
       if (!allowed) throw Error("需要网站访问权限才能读取论文页面和 PDF");
       for (const index of selected) {
         const item = items[index];
+        let label = item.title.trim() || item.sourceUrl;
         setMessage(
-          `正在收录 ${success + failures.length + 1}/${selected.length}：${item.title}`,
+          `正在收录 ${success + failures.length + 1}/${selected.length}：${label}`,
         );
         setMessageTone("neutral");
         try {
-          const prepared = await prepareCandidate(item);
+          const prepared = viewerTabId === undefined ? await prepareCandidate(item) : item;
+          label = prepared.title;
           const request = {
             type: "save",
             candidate: prepared,
             folders: folder ? [folder] : [],
             tags,
+            viewerTabId,
           };
           let result = (await chrome.runtime.sendMessage(request)) as {
             ok: boolean;
@@ -166,7 +183,13 @@ function App() {
             code?: string;
             pages?: number;
             warnings?: string[];
+            document?: { title: string };
+            pending?: ScienceDirectPending;
           };
+          if (viewerTabId !== undefined && result.pending) {
+            setVerification({ tabId: viewerTabId, pending: result.pending });
+            return;
+          }
           if (result.code === "large-paper") {
             const library = await new Promise<"papers" | "books">((resolve) =>
               setLargeConfirmation({ resolve }),
@@ -180,20 +203,20 @@ function App() {
           }
           if (result.ok) {
             success++;
-            completed.push({ ok: true, text: `✓ ${item.title}` });
+            completed.push({ ok: true, text: `✓ ${result.document?.title || label}` });
             if (prepared.snapshotWarnings?.length)
               warnings.push(
-                `${item.title}：${prepared.snapshotWarnings.join("；")}`,
+                `${label}：${prepared.snapshotWarnings.join("；")}`,
               );
             if (result.warnings?.length)
-              warnings.push(`${item.title}：${result.warnings.join("；")}`);
+              warnings.push(`${label}：${result.warnings.join("；")}`);
           } else {
-            const failure = `${item.title}：${result.error || "失败"}`;
+            const failure = `${label}：${result.error || "失败"}`;
             failures.push(failure);
             completed.push({ ok: false, text: `✕ ${failure}` });
           }
         } catch (error) {
-          const failure = `${item.title}：${(error as Error).message}`;
+          const failure = `${label}：${(error as Error).message}`;
           failures.push(failure);
           completed.push({ ok: false, text: `✕ ${failure}` });
         }
@@ -210,6 +233,7 @@ function App() {
       setBusy(false);
     }
   }
+  if (verification) return <ScienceDirectProgress tabId={verification.tabId} initial={verification.pending} />;
   if (largeConfirmation)
     return (
       <main>
@@ -255,9 +279,10 @@ function App() {
                   }
                 />
                 <span>
-                  <strong>{item.title}</strong>
+                  <strong>{item.title.trim() || item.sourceUrl}</strong>
                   <small>
-                    {item.pdfUrl ? "已发现 PDF" : "将尝试在论文页面查找 PDF"}
+                    {viewerTabId !== undefined ? "从当前标签页收录 PDF" :
+                      item.pdfUrl ? "已发现 PDF" : "将尝试在论文页面查找 PDF"}
                   </small>
                 </span>
               </label>

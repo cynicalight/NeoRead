@@ -6,6 +6,7 @@
     "build": "node build.mjs"
   },
   "dependencies": {
+    "parse5": "7.3.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "@neoread/ui": "workspace:*"

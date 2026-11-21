@@ -6,35 +6,61 @@ import {
   downloadPDF,
   readCNKIPage,
 } from "./download";
+import { scienceDirectArticleURL } from "./scienceDirect";
+import { citationForPII, findPublishedCopy } from "./publishedCopy";
+import { createScienceDirectResume, type ImportResult } from "./scienceDirectResume";
 // Remove a rule left by an interrupted service worker before handling requests.
 const ready = clearCNKIRequestRule().then(
   () => null,
   () => "无法初始化知网下载规则，请重新加载插件",
 );
 const bridge = "http://127.0.0.1:17841";
-type Result = {
-  ok: boolean;
-  error?: string;
-  code?: string;
-  pages?: number;
-  warnings?: string[];
-  document?: { id: string; title: string };
-};
 async function save(
   candidate: Candidate,
   folders: string[],
   tags: string[],
   allowLarge = false,
   library: "papers" | "books" = "papers",
-): Promise<Result> {
+  attempt?: { pdfUrl: string; signal: AbortSignal; repositoryOnly?: boolean },
+): Promise<ImportResult> {
   const { secret } = await chrome.storage.local.get("secret");
   if (!secret)
     return { ok: false, error: "请先打开 NeoRead 后重新打开插件" };
-  const blob = await downloadPDF(candidate);
+  attempt?.signal.throwIfAborted();
+  let blob: Blob | undefined;
+  let copyURL: string | undefined;
+  let metadata = candidate.metadata;
+  if (!attempt?.repositoryOnly) {
+    try {
+      blob = attempt
+        ? await downloadPDF({ ...candidate, pdfUrl: attempt.pdfUrl }, { visibleScienceDirectPDF: true, signal: attempt.signal })
+        : await downloadPDF(candidate);
+    } catch (error) {
+      if (!scienceDirectArticleURL(candidate.sourceUrl) || !(error instanceof ConnectorError) ||
+          !["sciencedirect-browser-required", "pdf-network", "pdf-http"].includes(error.code)) throw error;
+    }
+  }
+  if (!blob) {
+    attempt?.signal.throwIfAborted();
+    if (attempt && !metadata.doi) {
+      // Viewer tasks retain the canonical article URL, never the CDN query.
+      const pii = candidate.sourceUrl.slice(candidate.sourceUrl.lastIndexOf("/") + 1);
+      const citation = await citationForPII(pii, attempt.signal);
+      if (citation) metadata = { ...metadata, doi: citation.doi, title: citation.title || candidate.title };
+    }
+    attempt?.signal.throwIfAborted();
+    const doi = metadata.doi;
+    const copy = typeof doi === "string" && doi ? await findPublishedCopy(doi, attempt?.signal) : null;
+    if (!copy) return { ok: false, code: "pdf-unavailable",
+      error: "未取得本篇 PDF，也未找到可核实的公开出版版。请从论文页重新打开 PDF，或导入已下载的文件。" };
+    blob = copy.blob;
+    copyURL = copy.url;
+  }
+  attempt?.signal.throwIfAborted();
   const form = new FormData();
   form.append("library", library);
   form.append("pdf", blob, "paper.pdf");
-  form.append("metadata", JSON.stringify(candidate.metadata));
+  form.append("metadata", JSON.stringify(metadata));
   form.append("sourceUrl", candidate.sourceUrl);
   form.append("snapshot", candidate.snapshot);
   form.append("tags", JSON.stringify(tags));
@@ -46,6 +72,7 @@ async function save(
       method: "POST",
       headers: { Authorization: `Bearer ${secret}` },
       body: form,
+      signal: attempt?.signal,
     });
   } catch {
     return {
@@ -57,7 +84,9 @@ async function save(
     .json()
     .catch(() => ({ error: `收录失败 (${response.status})` }));
   return response.ok
-    ? { ok: true, document: data.document, warnings: data.warnings }
+    ? { ok: true, document: data.document, warnings: copyURL
+        ? [...(data.warnings ?? []), `PDF 来源：公开仓储的出版版（${copyURL}）`]
+        : data.warnings }
     : {
         ok: false,
         error: data.error || "收录失败",
@@ -65,8 +94,19 @@ async function save(
         pages: data.pages,
       };
 }
+const scienceDirect = createScienceDirectResume((request, attempt) =>
+  save(
+    request.candidate,
+    request.folders,
+    request.tags,
+    request.allowLarge,
+    request.library,
+    attempt,
+  ),
+);
+
 chrome.runtime.onMessage.addListener(
-  (message: unknown, _sender, sendResponse) => {
+  (message: unknown, sender, sendResponse) => {
     const m = message as {
       type?: string;
       url?: string;
@@ -76,7 +116,33 @@ chrome.runtime.onMessage.addListener(
       tags?: string[];
       allowLarge?: boolean;
       library?: "papers" | "books";
+      tabId?: number;
+      viewerTabId?: number;
     };
+    if (sender.id !== chrome.runtime.id ||
+        sender.url !== chrome.runtime.getURL("popup.html"))
+      return;
+    if (
+      m?.type === "sciencedirect-status" ||
+      m?.type === "sciencedirect-resume" ||
+      m?.type === "sciencedirect-dismiss"
+    ) {
+      const tabId = m.tabId;
+      if (typeof tabId !== "number" || !Number.isSafeInteger(tabId) || tabId < 0)
+        return;
+      const operation = m.type === "sciencedirect-status"
+        ? scienceDirect.status(tabId)
+        : m.type === "sciencedirect-dismiss"
+          ? scienceDirect.dismiss(tabId)
+          : scienceDirect.resume(tabId, {
+              allowLarge: m.allowLarge === true,
+              library: m.library === "papers" || m.library === "books" ? m.library : undefined,
+            });
+      void operation.then(sendResponse, () =>
+        sendResponse({ ok: false, error: "无法恢复收录，请重新打开插件后重试" }),
+      );
+      return true;
+    }
     if (m?.type !== "save" && m?.type !== "cnki-page") return;
     void (async () => {
       const initializationError = await ready;
@@ -87,6 +153,18 @@ chrome.runtime.onMessage.addListener(
       }
       if (!m.candidate)
         throw new ConnectorError("invalid-request", "收录请求缺少论文信息");
+      if (m.viewerTabId !== undefined) {
+        const source = scienceDirectArticleURL(m.candidate.sourceUrl);
+        if (!source || !Number.isSafeInteger(m.viewerTabId) || m.viewerTabId < 0)
+          throw new ConnectorError("invalid-viewer", "无法确认当前标签页的论文编号");
+        await scienceDirect.begin({
+          candidate: m.candidate, folders: m.folders || [], tags: m.tags || [],
+          allowLarge: false, library: "papers",
+        }, source, m.viewerTabId).catch(() => {
+          throw new ConnectorError("viewer-changed", "无法在当前标签页开始收录，请重新打开插件");
+        });
+        return scienceDirect.resume(m.viewerTabId);
+      }
       return save(
         m.candidate,
         m.folders || [],

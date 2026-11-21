@@ -8,8 +8,37 @@ export type Candidate = {
   cajUrl?: string;
   tabId?: number;
   referrerUrl?: string;
+  scienceDirectAccess?: "article" | "denied";
+  // The article's live download link can be signed; never persist or upload it.
+  scienceDirectPublishedPDF?: string;
 };
 export type Detection = { items: Candidate[]; kind: "single" | "list" };
+
+export function withPDFTitle(candidate: Candidate): Candidate {
+  if (
+    candidate.sourceUrl !== candidate.pdfUrl ||
+    !candidate.title.includes("：") ||
+    !/[A-Za-z]/.test(candidate.title) ||
+    /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
+      candidate.title,
+    )
+  )
+    return candidate;
+  const title = candidate.title
+    .replace(/：(?=[A-Za-z])/g, ": ")
+    .replace(/：/g, ":");
+  return { ...candidate, title, metadata: { ...candidate.metadata, title } };
+}
+
+export function pdfTabCandidate(url: string, title: string): Candidate {
+  return withPDFTitle({
+    title,
+    sourceUrl: url,
+    pdfUrl: url,
+    metadata: { title, url, itemType: "journal" },
+    snapshot: "",
+  });
+}
 
 // Self-contained so Chrome can serialize this function for activeTab injection.
 export function detectPage(html?: string, url?: string): Detection {
@@ -34,6 +63,166 @@ export function detectPage(html?: string, url?: string): Detection {
     }
   };
   const text = (value: string) => value.replace(/\s+/g, " ").trim();
+  const publisher = "https://www.sciencedirect.com";
+  if (pageURL.hostname === "www.sciencedirect.com" || pageURL.hostname === "sciencedirect.com") {
+    if (
+      (pageURL.origin !== publisher && pageURL.origin !== "https://sciencedirect.com") ||
+      pageURL.username || pageURL.password
+    ) return { items: [], kind: "single" };
+    // This check also lives in scienceDirect.ts: Chrome serializes detectPage
+    // without module bindings, so it cannot call the shared helper.
+    const articleURL = (value: string) => {
+      if (!value) return "";
+      const u = new URL(value);
+      if ((u.origin !== publisher && u.origin !== "https://sciencedirect.com") ||
+          u.username || u.password) return "";
+      const pii = u.pathname.match(/^\/science\/article\/(?:abs\/)?pii\/(S[0-9X]{16}|B[0-9X]{19})\/?$/)?.[1];
+      return pii ? `${publisher}/science/article/pii/${pii}` : "";
+    };
+    if (/^\/search\/?$/.test(pageURL.pathname)) {
+      const items: Candidate[] = [];
+      const seen = new Set<string>();
+      for (const link of page.querySelectorAll("h2 a.result-list-title-link")) {
+        const sourceUrl = articleURL(absolute(link.getAttribute("href") || ""));
+        const title = text(link.textContent || "").slice(0, 300);
+        if (!sourceUrl || !title || seen.has(sourceUrl)) continue;
+        seen.add(sourceUrl);
+        items.push({
+          title,
+          sourceUrl,
+          pdfUrl: "",
+          metadata: { title, url: sourceUrl, itemType: "journal" },
+          snapshot: "",
+        });
+        if (items.length === 100) break;
+      }
+      return { items, kind: "list" };
+    }
+    const sourceUrl = articleURL(pageURL.href);
+    const canonical = page.querySelector('link[rel="canonical"]')?.getAttribute("href");
+    const citationPII = meta("citation_pii");
+    if (
+      !sourceUrl ||
+      (canonical && articleURL(absolute(canonical)) !== sourceUrl) ||
+      (citationPII && !sourceUrl.endsWith(`/${citationPII}`))
+    ) return { items: [], kind: "single" };
+    const title = text(
+      meta("citation_title") ||
+      page.querySelector("h1#title, article > h1")?.textContent ||
+      "",
+    ).slice(0, 300);
+    if (
+      !title ||
+      /^(?:just a moment|attention required|science\s*direct login)\b/i.test(page.title) ||
+      page.querySelector("#challenge-stage, #cf-challenge-running")
+    ) return { items: [], kind: "single" };
+
+    const denied = Array.from(page.querySelectorAll(
+      ".accessContent, .access-options-link-text, #check-access-popover",
+    )).some((node) => !node.closest("#recommendations, .related-articles"));
+    const publishedPDF = () => {
+      const pii = sourceUrl.slice(sourceUrl.lastIndexOf("/") + 1);
+      const path = `/science/article/pii/${pii}/pdfft`;
+      const values = [
+        page.querySelector("a#pdfLink")?.getAttribute("href"),
+        ...Array.from(page.querySelectorAll("a.accessbar-utility-link[href]"),
+          link => link.getAttribute("href")),
+        meta("citation_pdf_url"),
+        page.querySelector(".PdfEmbed > object")?.getAttribute("data"),
+        page.querySelector(".PdfDropDownMenu a[href]")?.getAttribute("href"),
+        page.querySelector("a.pdf-download-btn-link")?.getAttribute("href"),
+      ];
+      for (const value of values) {
+        if (!value || value.trim().startsWith("#")) continue;
+        const href = absolute(value);
+        if (!href) continue;
+        const link = new URL(href);
+        if (link.username || link.password) continue;
+        if (Array.from(link.searchParams.keys()).some((key) => /^__cf_chl_/i.test(key)))
+          continue;
+        // As with articleURL, mirror the shared check for the serialized function.
+        const publisherPDF = (link.origin === publisher || link.origin === "https://sciencedirect.com") &&
+          (link.pathname === path || link.pathname === `${path}/`);
+        const cdnPDF = link.origin === "https://pdf.sciencedirectassets.com" &&
+          link.pathname.match(/^\/\d+\/1-s2\.0-(?:S[0-9X]{16}|B[0-9X]{19})\/1-s2\.0-(S[0-9X]{16}|B[0-9X]{19})\/main\.pdf$/)?.[1] === pii;
+        if (!publisherPDF && !cdnPDF) continue;
+        // Prefer the canonical form when the published link is equivalent.
+        if (publisherPDF && (!link.search || link.search === "?download=true")) continue;
+        link.hash = "";
+        return link.href;
+      }
+    };
+    const scienceDirectPublishedPDF = denied ? undefined : publishedPDF();
+    const doi = meta("citation_doi").replace(/^doi:/i, "").trim();
+    const firstPage = meta("citation_firstpage");
+    const lastPage = meta("citation_lastpage");
+    const metadata = {
+      title,
+      url: sourceUrl,
+      itemType: "journal",
+      creators: Array.from(page.querySelectorAll<HTMLMetaElement>('meta[name="citation_author"]'))
+        .map((author) => ({ name: text(author.content) }))
+        .filter((author) => author.name),
+      date: meta("citation_publication_date") || meta("citation_date"),
+      venue: meta("citation_journal_title").slice(0, 500),
+      doi: /^10\.\d{4,9}\/\S+$/.test(doi) ? doi : "",
+      abstract: text(
+        meta("citation_abstract") ||
+        page.querySelector("#abstracts .abstract, #abstracts")?.textContent ||
+        "",
+      ).slice(0, 20000),
+      volume: meta("citation_volume"),
+      issue: meta("citation_issue"),
+      pages: firstPage && lastPage && firstPage !== lastPage ? `${firstPage}-${lastPage}` : firstPage,
+      publisher: meta("citation_publisher"),
+    };
+
+    // Rebuild readable structure from text nodes; never retain the site's
+    // attributes, signed links, download controls, forms or application data.
+    const main = page.querySelector("h1#title")?.closest("article, #article") ||
+      page.querySelector("main article, .Article, #article") ||
+      page.querySelector("main") || page.querySelector("article");
+    const snapshot = page.createElement("article");
+    const tags = /^(?:section|div|h[1-6]|p|blockquote|em|strong|b|i|sub|sup|br|code|pre|ul|ol|li|dl|dt|dd|table|caption|thead|tbody|tfoot|tr|th|td|figure|figcaption)$/;
+    const omit =
+      "script, style, template, noscript, iframe, object, embed, svg, form, button, input, select, textarea, nav, aside, " +
+      "[hidden], [aria-hidden='true'], [role='button'], #pdfLink, .PdfDropDownMenu, .PdfEmbed, .pdf-download-btn-link, " +
+      ".accessbar, .accessContent, .access-options-link-text, #check-access-popover, #recommendations, .related-articles";
+    const transient = /__cf_chl_|\/cdn-cgi\/challenge-platform\/|\/pdfft\?|https?:\/\/pdf\.sciencedirectassets\.com\//i;
+    const copyText = (from: Element, to: Element) => {
+      for (const node of from.childNodes) {
+        if (node.nodeType === 3) {
+          const value = node.textContent || "";
+          if (!transient.test(value)) to.append(page.createTextNode(value));
+        } else if (node.nodeType === 1) {
+          const element = node as Element;
+          if (element.matches(omit) ||
+              (element.localName === "a" && transient.test(element.getAttribute("href") || "")))
+            continue;
+          if (tags.test(element.localName)) {
+            const child = page.createElement(element.localName);
+            copyText(element, child);
+            to.append(child);
+          } else {
+            copyText(element, to);
+          }
+        }
+      }
+    };
+    if (main && !denied) copyText(main, snapshot);
+    return {
+      kind: "single",
+      items: [{
+        title,
+        sourceUrl,
+        pdfUrl: denied ? "" : `${sourceUrl}/pdfft?download=true`,
+        metadata,
+        snapshot: snapshot.hasChildNodes() ? snapshot.outerHTML : "",
+        scienceDirectAccess: denied ? "denied" : "article",
+        ...(scienceDirectPublishedPDF ? { scienceDirectPublishedPDF } : {}),
+      }],
+    };
+  }
   const authors = Array.from(
     page.querySelectorAll<HTMLMetaElement>('meta[name="citation_author"]'),
   )
