@@ -33,6 +33,7 @@ await rm(join(root, "dist"), { recursive: true, force: true });
 await build({
   absWorkingDir: root,
   entryPoints: [
+    "src/apple-ocr.ts",
     "src/main.ts",
     "src/repair-text.ts",
     "src/model.ts",
@@ -50,6 +51,26 @@ await build({
   outdir: join(root, "dist"),
   outExtension: { ".js": ".mjs" },
 });
+if (process.platform === "darwin") {
+  const arch = process.arch === "x64" ? "x86_64" : process.arch;
+  const result = spawnSync(
+    "xcrun",
+    [
+      "--sdk",
+      "macosx",
+      "swiftc",
+      "-target",
+      `${arch}-apple-macos12.0`,
+      "-O",
+      join(root, "native/apple-ocr.swift"),
+      "-o",
+      join(root, "dist/apple-ocr-helper"),
+    ],
+    { stdio: "inherit" },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error("Failed to compile Apple Vision OCR");
+}
 const models = join(root, "dist/models");
 await rm(models, { recursive: true, force: true });
 await mkdir(models, { recursive: true });

@@ -15,3 +15,13 @@ The export uses FP16 for the backbone, encoder and decoder, retains FP32 box
 decoding and reading-order postprocessing, and omits the mask/polygon head.
 NeoRead does not modify the exported weights and is not affiliated with or
 endorsed by PaddlePaddle.
+
+## Optional PP-OCRv5 ONNX models
+
+On request, NeoRead downloads the following unmodified Apache-2.0 artifacts
+published by PaddlePaddle. They are not included in the application installer.
+`LICENSE` applies to these artifacts as well.
+
+- `det.onnx`: [PP-OCRv5 mobile detection weights](https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det_onnx/blob/e6f4fa85f00e168c862bc462aebca69eef9b3d3d/inference.onnx).
+- `rec.onnx`: [PP-OCRv5 server recognition weights](https://huggingface.co/PaddlePaddle/PP-OCRv5_server_rec_onnx/blob/b70df217f4fd99d14f970bad092cebe7d74cc4d1/inference.onnx).
+- `rec.yml`: [matching recognition configuration and character dictionary](https://huggingface.co/PaddlePaddle/PP-OCRv5_server_rec_onnx/blob/b70df217f4fd99d14f970bad092cebe7d74cc4d1/inference.yml).
