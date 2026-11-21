@@ -6,7 +6,8 @@ import { PaperServiceSettings } from "./papers/PaperServiceSettings";
 import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
 import { TranslationPromptSettings } from "./TranslationPromptSettings";
 import { WebSearchSettings } from "./WebSearchSettings";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { OCRSettings } from "./OCRSettings";
 import {
   ChevronLeft,
   FileText,
@@ -119,10 +120,26 @@ const providerQuota = (
 export function Settings({
   open,
   onOpenChange,
+  section,
 }: {
   open: boolean;
   onOpenChange: (value: boolean) => void;
+  /** Opens on the given section, e.g. from a notification. */
+  section?: "ocr";
 }) {
+  const [tab, setTab] = useState("agent");
+  useLayoutEffect(() => {
+    if (open) setTab(section === "ocr" ? "reading" : "agent");
+  }, [open, section]);
+  useEffect(() => {
+    if (!open || section !== "ocr") return;
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById("settings-ocr");
+      target?.scrollIntoView({ block: "start" });
+      target?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, section]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [testing, setTesting] = useState<Map<string, "text" | "vision">>(
     new Map(),
@@ -754,7 +771,7 @@ export function Settings({
             Agent 连接、显示、阅读、诊断与{libraryModes[currentLibrary].label}
           </DialogDescription>
         </DialogHeader>
-        <Tabs defaultValue="agent" className="settings-tabs">
+        <Tabs value={tab} onValueChange={setTab} className="settings-tabs">
           <TabsList aria-label="设置分类" className="settings-nav">
             <TabsTrigger value="agent" data-tour="settings-agent-tab">
               <Bot />
@@ -1006,6 +1023,7 @@ export function Settings({
                 />
               </div>
             </section>
+            <OCRSettings open={open} />
             <section>
               <HighlightColorsEditor />
             </section>

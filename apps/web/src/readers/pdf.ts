@@ -372,11 +372,35 @@ export class PDFReaderAdapter implements ReaderAdapter {
   async search(query: string): Promise<SearchResult[]> {
     const results: SearchResult[] = [];
     if (!query.trim() || !this.pdf) return results;
+    const needle = query.trim().toLocaleLowerCase();
+    // OCR is not part of PDF.js's text layer. Its stored page coordinates
+    // remain valid even while that page is outside the rendered viewport.
+    const scanHits = new Map<number, SearchResult>();
+    for (const block of this.blockData) {
+      if (!block.ocr || scanHits.has(block.page)) continue;
+      const at = block.text.toLocaleLowerCase().indexOf(needle);
+      if (at < 0) continue;
+      scanHits.set(block.page, {
+        id: `${block.page}`,
+        blockId: block.id,
+        excerpt: searchExcerpt(block.text, at, at + query.trim().length),
+        location: {
+          type: "pdf",
+          page: block.page,
+          quote: query.trim(),
+          rects: [block.bounds],
+        },
+      });
+    }
     for (let page = 1; page <= this.pdf.numPages && !this.disposed; page++) {
+      const scan = scanHits.get(page);
+      if (scan) {
+        results.push(scan);
+        if (results.length >= 100) break;
+        continue;
+      }
       const text = await this.pageText(page);
-      const index = text
-        .toLocaleLowerCase()
-        .indexOf(query.trim().toLocaleLowerCase());
+      const index = text.toLocaleLowerCase().indexOf(needle);
       if (index >= 0)
         results.push({
           id: `${page}`,
