@@ -68,6 +68,8 @@ import { DocumentTabs, ReadingWorkspaces } from "./DocumentTabs";
 import { flushProgress } from "./progress";
 import { useProcessing } from "./ProcessingStatus";
 import { observeReparsedLayouts } from "./reparse-document";
+import { OCRHost } from "./OCRHost";
+import { refreshOCR, useOCRStore } from "./ocr";
 import { useUpdateProgress } from "./update-progress";
 import { applyDocumentTheme, useResolvedTheme } from "./appearance";
 import { LibraryFilterBar, LibraryTagFilters } from "./DocumentManagement";
@@ -82,6 +84,9 @@ import { trashWithUndo } from "./library-actions";
 import { filterDocuments, initialFilters } from "./library";
 import { GuideHost } from "./guide/GuideHost";
 import { SearchInput } from "./SearchInput";
+// Scan detection may finish without changing processing rows, so every poll
+// re-reads OCR notices; refreshOCR coalesces the requests.
+const pollOCR = () => void refreshOCR();
 const currentMode = () =>
   libraryMode(useReaderStore.getState().libraryPreferences);
 /** Whether a press landed on library space rather than a book or control. */
@@ -111,7 +116,7 @@ export function App() {
     },
   );
   const resolvedTheme = useResolvedTheme(theme);
-  const { jobs, error: processingError } = useProcessing();
+  const { jobs, error: processingError } = useProcessing(pollOCR);
   useEffect(() => observeReparsedLayouts(jobs), [jobs]);
   useUpdateProgress();
   const jobsById = useMemo(
@@ -119,6 +124,13 @@ export function App() {
     [jobs],
   );
   const [settings, setSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<"ocr">();
+  const ocrSettingsRequest = useOCRStore((s) => s.settingsRequest);
+  useEffect(() => {
+    if (!ocrSettingsRequest) return;
+    setSettingsSection("ocr");
+    setSettings(true);
+  }, [ocrSettingsRequest]);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [about, setAbout] = useState(false);
   const [guide, setGuide] = useState(false);
@@ -162,6 +174,7 @@ export function App() {
   const [nav, setNav] = useState(true);
   useShortcut("libraryLeft", () => setNav((value) => !value), !active);
   useShortcut("search", () => setCommand(true), !active);
+  useShortcut("settings", () => setSettings(true), !settings);
   const fileRef = useRef<HTMLInputElement>(null);
   const fileFolderRef = useRef("");
   useEffect(() => {
@@ -962,7 +975,15 @@ export function App() {
           job={jobs.find((job) => job.documentId === usageDocument?.id)}
           onClose={() => setUsageDocument(null)}
         />
-        <Settings open={settings} onOpenChange={setSettings} />
+        <Settings
+          open={settings}
+          section={settingsSection}
+          onOpenChange={(open) => {
+            setSettings(open);
+            if (!open) setSettingsSection(undefined);
+          }}
+        />
+        <OCRHost />
         <ImportPaperDialog
           open={importingPaper}
           onOpenChange={setImportingPaper}

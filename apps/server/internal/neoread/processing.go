@@ -54,24 +54,34 @@ type Processing struct {
 	Warning           string `json:"warning,omitempty"`
 	UpdatedAt         string `json:"updatedAt"`
 }
+type pdfPageBounds struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+type pdfOCRLine struct {
+	Text   string        `json:"text"`
+	Bounds pdfPageBounds `json:"bounds"`
+}
+
 type PDFBlock struct {
-	ID     string `json:"id"`
-	Page   int    `json:"page"`
-	Label  string `json:"label"`
-	Bounds struct {
-		X      float64 `json:"x"`
-		Y      float64 `json:"y"`
-		Width  float64 `json:"width"`
-		Height float64 `json:"height"`
-	} `json:"bounds"`
-	Text    string `json:"text"`
-	Image   string `json:"image,omitempty"`
-	Caption string `json:"caption,omitempty"`
+	ID       string        `json:"id"`
+	Page     int           `json:"page"`
+	Label    string        `json:"label"`
+	Bounds   pdfPageBounds `json:"bounds"`
+	Text     string        `json:"text"`
+	Image    string        `json:"image,omitempty"`
+	Caption  string        `json:"caption,omitempty"`
+	OCR      bool          `json:"ocr,omitempty"`
+	OCRLines []pdfOCRLine  `json:"ocrLines,omitempty"`
 }
 type layoutManifest struct {
 	// PDF document information (Title, Author, …) as read by PDF.js.
-	Metadata        map[string]any `json:"metadata"`
-	IncompletePages []int          `json:"incompletePages"`
+	Metadata             map[string]any `json:"metadata"`
+	ScanDetectionVersion int            `json:"scanDetectionVersion,omitempty"`
+	IncompletePages      []int          `json:"incompletePages"`
 	// ParsedPages lists the pages of a book parsed so far; empty means all.
 	ParsedPages []int      `json:"parsedPages,omitempty"`
 	Pages       int        `json:"pages"`
@@ -297,6 +307,9 @@ func (s *Server) documentBlocks(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		respond(w, 200, []PDFBlock{})
 		return
+	}
+	if from := cachedScanCandidate(manifest); from > 0 {
+		s.probeCachedScan(d, from)
 	}
 	blocks := []PDFBlock{}
 	for _, b := range manifest.Blocks {

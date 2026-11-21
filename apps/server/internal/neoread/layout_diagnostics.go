@@ -33,7 +33,7 @@ type layoutDiagnostic struct {
 func (e layoutDiagnostic) valid() bool {
 	return (e.OnnxVersion == "" || layoutVersion.MatchString(e.OnnxVersion)) && (e.NodeVersion == "" || layoutVersion.MatchString(e.NodeVersion)) &&
 		(e.ElectronVersion == "" || layoutVersion.MatchString(e.ElectronVersion)) &&
-		e.RSSBytes >= 0 && e.HeapUsedBytes >= 0 && e.ExternalBytes >= 0 && e.FreeMemoryBytes >= 0 && e.TotalMemoryBytes >= 0 && slices.Contains([]string{"canvas_load", "onnx_load", "worker_load", "pdfjs_load", "arguments", "output_prepare", "model_verify", "session_create", "pdf_read", "pdf_open", "pdf_metadata", "page_load", "page_render", "page_inference", "page_text", "page_output", "manifest_write", "complete"}, e.Stage) &&
+		e.RSSBytes >= 0 && e.HeapUsedBytes >= 0 && e.ExternalBytes >= 0 && e.FreeMemoryBytes >= 0 && e.TotalMemoryBytes >= 0 && slices.Contains([]string{"canvas_load", "onnx_load", "worker_load", "pdfjs_load", "arguments", "output_prepare", "model_verify", "session_create", "pdf_read", "pdf_open", "pdf_metadata", "page_load", "page_render", "page_inference", "page_text", "page_ocr", "page_output", "manifest_write", "complete"}, e.Stage) &&
 		slices.Contains([]string{"start", "failed"}, e.Status) && e.Page >= 0 && e.DurationMs >= 0 &&
 		slices.Contains([]string{"", "unknown", "Error", "TypeError", "RangeError", "SyntaxError", "PasswordException", "InvalidPDFException", "MissingPDFException", "UnknownErrorException"}, e.ErrorType) &&
 		slices.Contains([]string{"", "unknown", "ENOENT", "EACCES", "EPERM", "ENOSPC", "ENOMEM", "ERR_DLOPEN_FAILED", "MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND"}, e.ErrorCode) &&

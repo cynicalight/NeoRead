@@ -6,14 +6,19 @@ import { resolve, join, dirname } from "node:path";
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
 import { detectRegions } from "./detect";
-import { readingRegions, isAsset, type Region } from "./layout";
+import { readingRegions, isAsset, type ReadingRegion } from "./layout";
 import { extractTextSpans } from "./text";
 import { digest, model, resolveModel } from "./model";
 import { renderPage } from "./render-page";
+import { addScanText, hasScanImage, missingScanText } from "./scan-page";
+import type { TextSpan } from "./layout";
+import type { Canvas } from "@napi-rs/canvas";
+import { createAppleOCR } from "./apple-ocr";
+import { createPaddleOCR } from "./paddle-ocr";
 
 Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
 stage("pdfjs_load");
-const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+const { getDocument, OPS } = await import("pdfjs-dist/legacy/build/pdf.mjs");
 const require = createRequire(import.meta.url);
 const assets = dirname(require.resolve("pdfjs-dist/package.json"));
 const pdfRequire = createRequire(require.resolve("pdfjs-dist/package.json"));
@@ -27,13 +32,16 @@ const { values } = parseArgs({
     input: { type: "string" },
     output: { type: "string" },
     model: { type: "string" },
+    // The probe only reports evidence; it never performs OCR or writes output.
+    "scan-only": { type: "boolean", default: false },
     // Books parse one chapter at a time; omitted bounds cover the document.
     "from-page": { type: "string" },
     "to-page": { type: "string" },
     debug: { type: "boolean", default: false },
   },
 });
-if (!values.input || !values.output)
+const probe = values["scan-only"];
+if (!values.input || (!probe && !values.output))
   throw new Error(
     "Usage: --input PDF --output DIRECTORY [--from-page N] [--to-page N] [--model FILE] [--debug]",
   );
@@ -46,12 +54,14 @@ const pageBound = (value: string | undefined) => {
 const fromPage = pageBound(values["from-page"]),
   toPage = pageBound(values["to-page"]);
 const input = resolve(values.input),
-  output = resolve(values.output);
-stage("output_prepare");
-await mkdir(output, { recursive: true, mode: 0o700 });
-if ((await readdir(output)).length)
-  throw new Error("输出目录必须为空，避免覆盖已有解析稿或用户修订");
-await mkdir(join(output, "assets"), { recursive: true, mode: 0o700 });
+  output = resolve(values.output ?? ".");
+if (!probe) {
+  stage("output_prepare");
+  await mkdir(output, { recursive: true, mode: 0o700 });
+  if ((await readdir(output)).length)
+    throw new Error("输出目录必须为空，避免覆盖已有解析稿或用户修订");
+  await mkdir(join(output, "assets"), { recursive: true, mode: 0o700 });
+}
 stage("model_verify");
 const modelPath = await resolveModel(values.model && resolve(values.model));
 // Native initialization logs are classified by the parent into fixed diagnostic
@@ -77,12 +87,10 @@ const loading = getDocument({
   standardFontDataUrl: join(assets, "standard_fonts") + "/",
   wasmUrl: join(assets, "wasm") + "/",
 });
-interface Block extends Region {
+interface Block extends ReadingRegion {
   id: string;
   page: number;
-  text: string;
   image?: string;
-  caption?: string;
 }
 const blocks: Block[] = [];
 const warnings: string[] = [];
@@ -93,15 +101,27 @@ const timings: {
   regions: number;
   assets: number;
 }[] = [];
+const engine = process.env.NEOREAD_OCR_ENGINE;
+let recognizer:
+  | { recognize(canvas: Canvas): Promise<TextSpan[]>; close(): Promise<void> }
+  | undefined;
+let notified = false;
 const start = performance.now();
-try {
+async function processPages() {
   const pdf = await loading.promise;
   const first = fromPage ?? 1,
     last = Math.min(toPage ?? pdf.numPages, pdf.numPages);
   if (first > last) throw new Error("页码范围无效");
   stage("pdf_metadata");
   const metadata = await pdf.getMetadata();
-  for (let number = first; number <= last; number++) {
+  // Old, textless manifests have no scan evidence. Probe the front matter
+  // and interior without rewriting the user's existing manifest or notes.
+  const step = probe ? Math.max(1, Math.floor((last - first) / 7)) : 1;
+  for (
+    let number = first, sampled = 0;
+    number <= last && (!probe || sampled < 8);
+    number += step, sampled++
+  ) {
     const pageStart = performance.now();
     stage("page_load", number);
     const page = await pdf.getPage(number);
@@ -111,10 +131,62 @@ try {
     stage("page_inference", number);
     const regions = await detectRegions(session, canvas);
     stage("page_text", number);
-    const spans = await extractTextSpans(page, scale);
-    const { blocks: composed, unmatched } = readingRegions(regions, spans);
+    let spans = await extractTextSpans(page, scale);
+    const [x0, y0, x1, y1] = page.view;
+    const scanned =
+      missingScanText(regions, spans) &&
+      hasScanImage(await page.getOperatorList(), OPS, (x1 - x0) * (y1 - y0));
+    if (scanned && !notified) {
+      process.stdout.write(
+        JSON.stringify({ event: "scan", page: number, total: pdf.numPages }) +
+          "\n",
+      );
+      notified = true;
+    }
+    if (probe) {
+      page.cleanup();
+      if (scanned) break;
+      continue;
+    }
+    let recognized = false;
+    let ocrSpans: ReadonlySet<TextSpan> | undefined;
+    if (scanned && (engine === "system" || engine === "paddle")) {
+      stage("page_ocr", number);
+      if (!recognizer) {
+        if (engine === "system") {
+          recognizer = await createAppleOCR();
+        } else {
+          const directory = process.env.NEOREAD_OCR_MODEL_DIR;
+          if (!directory) throw new Error("未配置本地 OCR 模型目录");
+          recognizer = await createPaddleOCR(directory);
+        }
+      }
+      const pixels =
+        Math.max(canvas.width, canvas.height) < 1800
+          ? (await renderPage(page, 2000)).canvas
+          : canvas;
+      const lines = await recognizer.recognize(pixels);
+      recognized = lines.length > 0;
+      const merged = addScanText(spans, lines);
+      spans = merged.spans;
+      ocrSpans = merged.ocrSpans;
+    }
+    const { blocks: composed, unmatched } = readingRegions(
+      regions,
+      spans,
+      ocrSpans,
+    );
     const pageBlocks: Block[] = composed.map((region, i) => ({
       ...region,
+      ...(recognized && region.text
+        ? {
+            ocr: true,
+            text: region.text.replace(
+              /(\p{Script=Han}) +(?=\p{Script=Han})/gu,
+              "$1",
+            ),
+          }
+        : {}),
       id: `p${number}-b${i + 1}`,
       page: number,
     }));
@@ -202,9 +274,11 @@ try {
     );
     page.cleanup();
   }
+  if (probe) return;
   stage("manifest_write");
   const manifest = {
     schemaVersion: 1,
+    scanDetectionVersion: 1,
     textExtractionVersion: 2,
     inputSHA256: await digest(input),
     model,
@@ -247,7 +321,11 @@ try {
       peakRSSBytes: manifest.peakRSSBytes,
     }) + "\n",
   );
+}
+try {
+  await processPages();
 } finally {
+  await recognizer?.close();
   await loading.destroy();
   await session.release();
 }

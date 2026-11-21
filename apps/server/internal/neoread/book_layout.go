@@ -19,6 +19,10 @@ import (
 // Parse long chapters in bounded worker runs, continuing automatically.
 const bookLayoutPages = 30
 
+const layoutIdleTimeout = 30 * time.Minute
+
+var errLayoutIdle = errors.New("PDF 解析长时间无进展")
+
 type PageRange struct {
 	From int `json:"fromPage"`
 	To   int `json:"toPage"`
@@ -26,13 +30,18 @@ type PageRange struct {
 
 // runLayout parses the PDF into work. from and to bound a book chapter; zero
 // parses the whole document. A nil p runs without reporting page progress.
-func (s *Server) runLayout(ctx context.Context, d Document, work string, from, to int, p *Processing) (result error) {
+func (s *Server) runLayout(ctx context.Context, d Document, work string, from, to int, p *Processing) error {
+	return s.runLayoutWithIdleTimeout(ctx, d, work, from, to, p, layoutIdleTimeout)
+}
+
+func (s *Server) runLayoutWithIdleTimeout(ctx context.Context, d Document, work string, from, to int, p *Processing, idleTimeout time.Duration) (result error) {
 	runID := id()
 	started := time.Now()
 	lastStage := "prepare"
 	exitCode := -1
 	stderr := &layoutStderr{}
-	s.diagnosticEvent(slog.LevelInfo, "pdf.parse.start", "runId", runID, "documentId", d.ID, "fromPage", from, "toPage", to)
+	engine, modelDir := s.workerOCREnv()
+	s.diagnosticEvent(slog.LevelInfo, "pdf.parse.start", "runId", runID, "documentId", d.ID, "fromPage", from, "toPage", to, "ocrEngine", engine)
 	defer func() {
 		level := slog.LevelInfo
 		outcome := "complete"
@@ -56,15 +65,20 @@ func (s *Server) runLayout(ctx context.Context, d Document, work string, from, t
 	if err := os.RemoveAll(work); err != nil {
 		return errors.New("无法清理未完成的解析")
 	}
-	child, cancel := context.WithTimeout(ctx, 30*time.Minute)
-	defer cancel()
+	// A long scan can take hours while making steady page progress. Bound
+	// inactivity instead of total runtime, while retaining caller cancellation.
+	child, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	idle := time.AfterFunc(idleTimeout, func() { cancel(errLayoutIdle) })
+	defer idle.Stop()
 	args := []string{worker, "--input", s.Store.File(d), "--output", work}
 	if from > 0 {
 		args = append(args, "--from-page", strconv.Itoa(from), "--to-page", strconv.Itoa(to))
 	}
 	cmd := runtimeenv.CommandContext(child, node, args...)
 	// Disable ONNX telemetry before loading native modules to avoid its exit-time teardown crash.
-	cmd.Env = append(os.Environ(), "ELECTRON_RUN_AS_NODE=1", "NODE_USE_ENV_PROXY=1", "ORT_DISABLE_TELEMETRY=1")
+	cmd.Env = append(os.Environ(), "ELECTRON_RUN_AS_NODE=1", "NODE_USE_ENV_PROXY=1", "ORT_DISABLE_TELEMETRY=1",
+		"NEOREAD_OCR_ENGINE="+engine, "NEOREAD_OCR_MODEL_DIR="+modelDir)
 	cmd.WaitDelay = 3 * time.Second
 	cmd.Dir = s.Store.Root
 	cmd.Stderr = stderr
@@ -91,6 +105,7 @@ func (s *Server) runLayout(ctx context.Context, d Document, work string, from, t
 			if !event.valid() {
 				continue
 			}
+			idle.Reset(idleTimeout)
 			lastStage = event.Stage
 			level := slog.LevelInfo
 			if event.Status == "failed" {
@@ -105,7 +120,17 @@ func (s *Server) runLayout(ctx context.Context, d Document, work string, from, t
 				"externalBytes", event.ExternalBytes, "freeMemoryBytes", event.FreeMemoryBytes,
 				"totalMemoryBytes", event.TotalMemoryBytes)
 			continue
+		case "scan":
+			if event.validScan() {
+				idle.Reset(idleTimeout)
+				s.recordScan(runID, d.ID, event)
+			}
+			continue
 		case "page":
+			if event.Page < 1 || event.Total < event.Page {
+				continue
+			}
+			idle.Reset(idleTimeout)
 			if p == nil {
 				continue
 			}
@@ -119,19 +144,20 @@ func (s *Server) runLayout(ctx context.Context, d Document, work string, from, t
 			continue
 		}
 		if saveErr = s.Store.saveProcessing(*p); saveErr != nil {
-			cancel()
+			cancel(nil)
 			break
 		}
 	}
 	if scan.Err() != nil {
-		cancel()
+		cancel(nil)
 	}
 	err = cmd.Wait()
 	if cmd.ProcessState != nil {
 		exitCode = cmd.ProcessState.ExitCode()
 	}
-	if child.Err() == context.DeadlineExceeded {
+	if errors.Is(context.Cause(child), errLayoutIdle) {
 		lastStage = "timeout"
+		return errLayoutIdle
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()

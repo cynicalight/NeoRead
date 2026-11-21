@@ -12,6 +12,7 @@ import { PDFViewport } from "./pdf-viewport";
 import { PDFLocationHighlight } from "./pdf-location-highlight";
 import { PDFAnnotationLayer } from "./pdf-annotations";
 import { PDFLinkPreview } from "./pdf-link-preview";
+import { PDFOCRText } from "./pdf-ocr-text";
 import * as pdfjs from "pdfjs-dist";
 import {
   EventBus,
@@ -111,6 +112,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private pointer?: { x: number; y: number };
   private theme: ReaderTheme = defaultTheme;
   private figureLinks: PDFFigureLinks;
+  private ocrText: PDFOCRText;
   constructor(
     private container: HTMLElement,
     private events: ReaderEvents,
@@ -174,6 +176,12 @@ export class PDFReaderAdapter implements ReaderAdapter {
     });
     this.links.setViewer(this.viewer);
     this.viewport = new PDFViewport(container, this.viewer);
+    this.ocrText = new PDFOCRText(container, (page) => {
+      const dims = this.viewer.getPageView(page - 1)?.viewport?.rawDims as
+        | { pageWidth: number; pageHeight: number }
+        | undefined;
+      return dims && { width: dims.pageWidth, height: dims.pageHeight };
+    });
     this.bus.on("scalechanging", () => {
       if (!this.disposed && !this.resizingViewport)
         this.viewport.scaleChanged();
@@ -216,7 +224,9 @@ export class PDFReaderAdapter implements ReaderAdapter {
         this.blocks.repaint();
       },
     );
-    this.bus.on("textlayerrendered", () => {
+    this.bus.on("textlayerrendered", (event?: { pageNumber?: number }) => {
+      // Scan lines join the text layer before anything searches its text.
+      if (event?.pageNumber) this.ocrText.paint(event.pageNumber);
       this.navigation.repaint();
       this.figureLinks.repaint();
       this.locationHighlight.paint();
@@ -372,11 +382,35 @@ export class PDFReaderAdapter implements ReaderAdapter {
   async search(query: string): Promise<SearchResult[]> {
     const results: SearchResult[] = [];
     if (!query.trim() || !this.pdf) return results;
+    const needle = query.trim().toLocaleLowerCase();
+    // OCR is not part of PDF.js's text layer. Its stored page coordinates
+    // remain valid even while that page is outside the rendered viewport.
+    const scanHits = new Map<number, SearchResult>();
+    for (const block of this.blockData) {
+      if (!block.ocr || scanHits.has(block.page)) continue;
+      const at = block.text.toLocaleLowerCase().indexOf(needle);
+      if (at < 0) continue;
+      scanHits.set(block.page, {
+        id: `${block.page}`,
+        blockId: block.id,
+        excerpt: searchExcerpt(block.text, at, at + query.trim().length),
+        location: {
+          type: "pdf",
+          page: block.page,
+          quote: query.trim(),
+          rects: [block.bounds],
+        },
+      });
+    }
     for (let page = 1; page <= this.pdf.numPages && !this.disposed; page++) {
+      const scan = scanHits.get(page);
+      if (scan) {
+        results.push(scan);
+        if (results.length >= 100) break;
+        continue;
+      }
       const text = await this.pageText(page);
-      const index = text
-        .toLocaleLowerCase()
-        .indexOf(query.trim().toLocaleLowerCase());
+      const index = text.toLocaleLowerCase().indexOf(needle);
       if (index >= 0)
         results.push({
           id: `${page}`,
@@ -626,6 +660,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   setBlocks(blocks: PDFBlock[]) {
     this.blockData = blocks;
     this.blocks.setBlocks(blocks);
+    this.ocrText.setBlocks(blocks);
     this.figureLinks.repaint();
   }
   async focusReference(location: DocumentLocation, text: string) {

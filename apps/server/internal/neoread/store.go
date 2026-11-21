@@ -111,6 +111,7 @@ func OpenStore(root string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS processing_intervals(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,stage TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT);
  CREATE TABLE IF NOT EXISTS tag_boards(id TEXT PRIMARY KEY,name TEXT NOT NULL,tags TEXT NOT NULL,match TEXT NOT NULL CHECK(match IN ('all','any')));
  CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS ocr_scan_notices(document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,state INTEGER NOT NULL CHECK(state IN (0,1,2)));
  CREATE TABLE IF NOT EXISTS journal_rank_cache(name TEXT NOT NULL,key_hash TEXT NOT NULL,body TEXT NOT NULL,checked_at TEXT NOT NULL,PRIMARY KEY(name,key_hash));
  CREATE TABLE IF NOT EXISTS document_notes(document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,body TEXT NOT NULL,updated_at TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS document_relations(a TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,b TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,created_at TEXT NOT NULL,PRIMARY KEY(a,b),CHECK(a<b));

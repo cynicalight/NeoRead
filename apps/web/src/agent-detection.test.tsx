@@ -7,9 +7,11 @@ import { api } from "@neoread/api";
 import { Settings } from "./Settings";
 import { useReaderStore } from "./store";
 import type { LocalQuota } from "./useLocalQuota";
+import { readEmptyOCRStatus } from "./ocr-test-fixture";
 
 vi.mock("@neoread/api", () => ({
   api: {
+    ocr: () => readEmptyOCRStatus(),
     connectorStatus: vi.fn(async () => ({ available: true })),
     journalRankConfig: vi.fn(async () => ({
       enabled: true,

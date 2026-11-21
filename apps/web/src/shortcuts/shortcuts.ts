@@ -15,6 +15,7 @@ export const shortcutActions = [
   { id: "primaryLibrary", name: "首选书库", scope: "all", key: "f1" },
   { id: "secondaryLibrary", name: "第二书库", scope: "all", key: "f2" },
   { id: "search", name: "搜索", scope: "all", key: "f" },
+  { id: "settings", name: "打开设置", scope: "all", key: "," },
 ] as const;
 export type ShortcutId = (typeof shortcutActions)[number]["id"];
 export type Binding = { key: string; shift: boolean };
@@ -44,7 +45,7 @@ export function normalizeBindings(saved: unknown): Bindings {
       if (
         value &&
         typeof value.key === "string" &&
-        /^(?:[a-z0-9[\]]|f[12])$/.test(value.key) &&
+        /^(?:[a-z0-9,[\]]|f[12])$/.test(value.key) &&
         typeof value.shift === "boolean"
       )
         result[id] = value;
@@ -105,6 +106,8 @@ export function bindingFromEvent(
         ? "]"
         : undefined;
   if (bracket) return { key: bracket, shift: event.shiftKey };
+  if (event.code === "Comma" || event.key === ",")
+    return { key: ",", shift: event.shiftKey };
   if (!/^[a-z0-9]$/i.test(event.key)) return null;
   return { key: event.key.toLowerCase(), shift: event.shiftKey };
 }
@@ -156,7 +159,7 @@ export function useShortcut(
         (event.target instanceof Element &&
           event.target.closest("[data-neoread-floating-preview]")) ||
         document.querySelector(
-          '[role="dialog"]:not([data-neoread-floating-preview]), [role="alertdialog"]',
+          '[role="dialog"]:not([data-neoread-floating-preview], [data-neoread-library-detail]), [role="alertdialog"]',
         )
       )
         return;
@@ -180,6 +183,7 @@ export function forwardReaderShortcut(event: KeyboardEvent) {
       "search",
       "primaryLibrary",
       "secondaryLibrary",
+      "settings",
     ].some((id) => matches(event, id as ShortcutId))
   )
     return;
