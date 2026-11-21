@@ -35,6 +35,8 @@ vi.mock("@neoread/api", () => ({
     }),
     navigation: vi.fn(async () => ({ revision: 0, entries: {} })),
     messages: vi.fn(async () => []),
+    chatSessions: vi.fn(async () => []),
+    createChatSession: vi.fn(),
     blocks: vi.fn(async () => []),
     documentNote: vi.fn(async () => ({ body: "note", updatedAt: "" })),
     translations: vi.fn(async () => []),
@@ -317,3 +319,60 @@ it("activates the independent note tab separately from annotations", async () =>
   await act(async () => tab("批注").click());
   expect(note()?.getAttribute("data-active")).toBe("false");
 });
+
+it.each(["shortcut", "button"] as const)(
+  "creates and selects an Agent session with the primary provider via the %s",
+  async (entry) => {
+    const initial = {
+      id: "old-session",
+      documentId: doc.id,
+      title: "原会话",
+      provider: "api",
+      createdAt: "now",
+      updatedAt: "now",
+    };
+    const created = {
+      ...initial,
+      id: "new-session",
+      title: "新会话",
+      provider: "codex",
+    };
+    vi.mocked(api.aiConfig).mockImplementationOnce(async () => ({
+      ...(await api.aiConfig()),
+      primary: "codex",
+    }));
+    vi.mocked(api.chatSessions)
+      .mockResolvedValueOnce([initial])
+      .mockResolvedValueOnce([initial, created]);
+    vi.mocked(api.createChatSession).mockResolvedValueOnce(created);
+    await act(async () => render(0));
+    const labeledButton = (label: string) =>
+      host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+    if (entry === "shortcut") {
+      await act(async () => {
+        button("笔记").click();
+        if (labeledButton("Agent 与批注").getAttribute("aria-expanded") === "true")
+          labeledButton("Agent 与批注").click();
+      });
+      const press = () =>
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "n",
+            ctrlKey: true,
+            cancelable: true,
+          }),
+        );
+      await act(async () => {
+        expect(press()).toBe(false);
+        press();
+      });
+    } else {
+      if (labeledButton("Agent 与批注").getAttribute("aria-expanded") === "false")
+        await act(async () => labeledButton("Agent 与批注").click());
+      await act(async () => labeledButton("新建会话").click());
+    }
+    expect(api.createChatSession).toHaveBeenCalledExactlyOnceWith(doc.id, "codex");
+    expect(host.querySelector(".assistant-sidebar")?.getAttribute("data-open")).toBe("true");
+    expect(labeledButton("选择会话").textContent).toContain("新会话");
+  },
+);

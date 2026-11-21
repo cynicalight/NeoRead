@@ -5,6 +5,7 @@ import { documentTabCommand } from "@neoread/core";
 export const shortcutActions = [
   { id: "readerLeft", name: "阅读模式－左侧栏", scope: "reader", key: "l" },
   { id: "readerRight", name: "阅读模式－右侧栏", scope: "reader", key: "j" },
+  { id: "newAgentSession", name: "新建 Agent 对话", scope: "reader", key: "n" },
   {
     id: "returnLocation",
     name: "阅读模式－返回阅读位置",
@@ -117,7 +118,10 @@ export function bindingError(
   bindings: Bindings,
 ): string | null {
   // Keep editing, import, command palette and native window shortcuts available.
-  if ("acvxyzkoqwrhnt".includes(binding.key))
+  if (
+    "acvxyzkoqwrht".includes(binding.key) ||
+    (binding.key === "n" && (id !== "newAgentSession" || binding.shift))
+  )
     return "该组合键已用于文本编辑或应用、系统操作，请换一个。";
   const action = shortcutActions.find((item) => item.id === id)!;
   const conflict = shortcutActions.find(
@@ -179,6 +183,7 @@ export function forwardReaderShortcut(event: KeyboardEvent) {
     ![
       "readerLeft",
       "readerRight",
+      "newAgentSession",
       "returnLocation",
       "search",
       "primaryLibrary",

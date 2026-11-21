@@ -397,6 +397,8 @@ export function Workspace({
     id: string;
   }>({ documentId: doc.id, id: "" });
   const [sessionError, setSessionError] = useState("");
+  const [creatingSession, setCreatingSession] = useState(false);
+  const creatingSessionRef = useRef(false);
   const currentDocument = useRef(doc.id);
   currentDocument.current = doc.id;
   const sessions =
@@ -460,6 +462,25 @@ export function Workspace({
     [previewImage, renderBlockImage],
   );
   const composeInput = useRef<HTMLTextAreaElement>(null);
+  const createSession = async () => {
+    if (creatingSessionRef.current) return;
+    creatingSessionRef.current = true;
+    setCreatingSession(true);
+    setRight(true);
+    setRightTab("ai");
+    try {
+      const created = await api.createChatSession(doc.id, provider || "api");
+      await refreshSessions();
+      if (currentDocument.current !== doc.id) return;
+      selectSession(created.id);
+      requestAnimationFrame(() => composeInput.current?.focus());
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      creatingSessionRef.current = false;
+      setCreatingSession(false);
+    }
+  };
   const composerDrafts = useRef(
     new Map<
       string,
@@ -548,6 +569,7 @@ export function Workspace({
   );
   useShortcut("readerLeft", () => setLeft(!left), active);
   useShortcut("readerRight", () => setRight(!right), active);
+  useShortcut("newAgentSession", () => void createSession(), active);
   const bindings = useBindings();
   useShortcut(
     "returnLocation",
@@ -1627,8 +1649,8 @@ export function Workspace({
                   documentId={doc.id}
                   sessions={sessions}
                   current={currentSession}
-                  provider={provider}
-
+                  creating={creatingSession}
+                  onCreate={() => void createSession()}
                   onChange={selectSession}
                   onRefresh={refreshSessions}
                 />

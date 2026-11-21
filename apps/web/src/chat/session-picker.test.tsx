@@ -6,13 +6,11 @@ import type { DocumentChatSession } from "@neoread/core";
 import { SessionPicker } from "./SessionPicker";
 
 const mocks = vi.hoisted(() => ({
-  create: vi.fn(),
   update: vi.fn(),
   remove: vi.fn(),
 }));
 vi.mock("@neoread/api", () => ({
   api: {
-    createChatSession: mocks.create,
     updateChatSession: mocks.update,
     deleteChatSession: mocks.remove,
   },
@@ -30,50 +28,6 @@ afterEach(async () => {
   host.remove();
   vi.unstubAllGlobals();
 });
-it("creates using the updated settings choice rather than the current session's previous backend", async () => {
-  const current: DocumentChatSession = {
-    id: "old-session",
-    documentId: "doc",
-    title: "方法问题",
-    provider: "api",
-    createdAt: "now",
-    updatedAt: "now",
-  };
-  const onChange = vi.fn(),
-    onRefresh = vi.fn().mockResolvedValue(undefined);
-  const render = async (provider: string) => {
-    await act(async () =>
-      root.render(
-        <SessionPicker
-          documentId="doc"
-          sessions={[current]}
-          current={current}
-          provider={provider}
-          onChange={onChange}
-          onRefresh={onRefresh}
-        />,
-      ),
-    );
-  };
-  await render("api");
-  await render("codex");
-  mocks.create.mockResolvedValue({
-    ...current,
-    id: "new-session",
-    provider: "codex",
-  });
-  await act(async () =>
-    (
-      host.querySelector('[aria-label="新建会话"]') as HTMLButtonElement
-    ).click(),
-  );
-  expect(mocks.create).toHaveBeenCalledExactlyOnceWith("doc", "codex");
-  expect(onChange).toHaveBeenCalledExactlyOnceWith("new-session");
-  expect(mocks.update).not.toHaveBeenCalled();
-  expect(host.querySelector('[aria-label="会话后端"]')).toBeNull();
-  expect(host.querySelector('[aria-label="选择会话"]')).not.toBeNull();
-});
-
 it.each([
   "running",
   "completed",
@@ -106,7 +60,8 @@ it.each([
           documentId="doc"
           sessions={[current]}
           current={current}
-          provider="api"
+          creating={false}
+          onCreate={() => {}}
           onChange={() => {}}
           onRefresh={async () => {}}
         />,
@@ -144,7 +99,8 @@ it("deletes the current session after confirmation and switches to another one",
         documentId="doc"
         sessions={[first, second]}
         current={first}
-        provider="api"
+        creating={false}
+        onCreate={() => {}}
         onChange={onChange}
         onRefresh={onRefresh}
       />,
@@ -182,7 +138,8 @@ it("does not delete a running session", async () => {
         documentId="doc"
         sessions={[running]}
         current={running}
-        provider="api"
+        creating={false}
+        onCreate={() => {}}
         onChange={() => {}}
         onRefresh={async () => {}}
       />,

@@ -40,14 +40,16 @@ export function SessionPicker({
   documentId,
   sessions,
   current,
-  provider,
+  creating,
+  onCreate,
   onChange,
   onRefresh,
 }: {
   documentId: string;
   sessions: DocumentChatSession[];
   current?: DocumentChatSession;
-  provider: string;
+  creating: boolean;
+  onCreate: () => void;
   onChange: (id: string) => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -60,21 +62,6 @@ export function SessionPicker({
     setRenaming(false);
     setSaving(false);
   }, [current?.id]);
-  const create = async () => {
-    setSaving(true);
-    try {
-      const session = await api.createChatSession(
-        documentId,
-        provider || "api",
-      );
-      await onRefresh();
-      onChange(session.id);
-    } catch (error) {
-      toast.error((error as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
   const update = async (title: string) => {
     if (!current) return;
     setSaving(true);
@@ -190,8 +177,8 @@ export function SessionPicker({
           size="icon-xs"
           className="bg-background dark:hover:bg-muted disabled:text-muted-foreground disabled:opacity-100"
           aria-label="新建会话"
-          disabled={saving}
-          onClick={() => void create()}
+          disabled={saving || creating}
+          onClick={onCreate}
         >
           <Plus />
         </Button>

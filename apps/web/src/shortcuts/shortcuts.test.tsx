@@ -301,15 +301,18 @@ it("supports bare function keys, exact modifiers, persistence and conflicts", ()
   ).toContain("冲突");
 });
 
-it("forwards library function keys from EPUB frames and blocks them in dialogs", async () => {
+it.each([
+  ["首选书库", "primaryLibrary", { key: "F1" }],
+  ["新建 Agent 对话", "newAgentSession", { key: "n", ctrlKey: true }],
+] as const)("forwards %s from EPUB frames and blocks it in dialogs", async (_name, id, key) => {
   const run = vi.fn();
   function Harness() {
-    useShortcut("primaryLibrary", run);
+    useShortcut(id, run);
     return null;
   }
   await act(async () => root.render(<Harness />));
   const fire = () => {
-    const event = new KeyboardEvent("keydown", { key: "F1", cancelable: true });
+    const event = new KeyboardEvent("keydown", { ...key, cancelable: true });
     forwardReaderShortcut(event);
     return event;
   };
