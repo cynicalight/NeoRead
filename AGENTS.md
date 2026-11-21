@@ -40,6 +40,7 @@ For changes involving background tasks, external calls, parsing or protocols, pe
 - Push only when the user explicitly requests it. Do not amend or rewrite published history without explicit authorization. Report the commit hashes, scopes, and validation results.
 
 ## Release notes
+- 收到发版请求时使用[项目 release 技能](.agents/skills/release/SKILL.md)。只从 NeoRead Pro 私仓发起，公仓接收同版本安装包镜像，不单独打包、打 tag 或发布。
 - 准备公开源码版本时，更新 `docs/release-notes.json` 中的开源版说明。App 从该文件打包并离线显示当前版本的更新说明，不读取 GitHub Release 正文。
 - 使用与根目录 `package.json` 和 `apps/desktop/package.json` 一致的版本号作为键（不带 `v`）；保留已有版本，为新版本添加非空条目数组。
 - `0.x.y` 的更新说明按 `x` 系列累计：`x` 不变时，新版本的条目数组必须保留该系列此前的说明，再追加本次变更。例如 `0.6.1` 包含 `0.6.0` 的说明及 `0.6.1` 的新增说明，让跳过中间版本的用户也能看到完整更新内容。

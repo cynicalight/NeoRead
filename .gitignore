@@ -14,5 +14,8 @@ apps/desktop/staging/
 apps/processor/models/
 release/
 .claude/
-/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/release/
+/.agents/skills/release/*
+!/.agents/skills/release/SKILL.md
 docs/MAKE.epub
