@@ -759,6 +759,8 @@ export interface PDFBlock {
   label: string;
   bounds: { x: number; y: number; width: number; height: number };
   text: string;
+  /** This page has text recognized from its scanned image. */
+  ocr?: boolean;
   image?: string;
   caption?: string;
 }

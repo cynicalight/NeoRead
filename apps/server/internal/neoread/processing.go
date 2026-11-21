@@ -67,11 +67,13 @@ type PDFBlock struct {
 	Text    string `json:"text"`
 	Image   string `json:"image,omitempty"`
 	Caption string `json:"caption,omitempty"`
+	OCR     bool   `json:"ocr,omitempty"`
 }
 type layoutManifest struct {
 	// PDF document information (Title, Author, …) as read by PDF.js.
-	Metadata        map[string]any `json:"metadata"`
-	IncompletePages []int          `json:"incompletePages"`
+	Metadata             map[string]any `json:"metadata"`
+	ScanDetectionVersion int            `json:"scanDetectionVersion,omitempty"`
+	IncompletePages      []int          `json:"incompletePages"`
 	// ParsedPages lists the pages of a book parsed so far; empty means all.
 	ParsedPages []int      `json:"parsedPages,omitempty"`
 	Pages       int        `json:"pages"`
@@ -297,6 +299,9 @@ func (s *Server) documentBlocks(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		respond(w, 200, []PDFBlock{})
 		return
+	}
+	if from := cachedScanCandidate(manifest); from > 0 {
+		s.probeCachedScan(d, from)
 	}
 	blocks := []PDFBlock{}
 	for _, b := range manifest.Blocks {

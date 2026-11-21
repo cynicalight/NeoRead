@@ -2808,6 +2808,48 @@
                 },
             },
         },
+      "/api/ocr":
+        {
+          "get":
+            {
+              "description": "Read the local OCR engine, model installation progress, and pending scan notices without starting a download.",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "OCR status",
+                      "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OCRStatus" } } },
+                    },
+                  "default":
+                    {
+                      "description": "Error",
+                      "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } },
+                    },
+                },
+            },
+          "post":
+            {
+              "description": "Install the pinned OCR model or select a ready engine. A download does not switch the macOS default. Dismiss requires a documentId and permanently acknowledges that document's notice.",
+              "requestBody":
+                {
+                  "required": true,
+                  "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OCRAction" } } },
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Updated OCR status",
+                      "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OCRStatus" } } },
+                    },
+                  "default":
+                    {
+                      "description": "Error",
+                      "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } },
+                    },
+                },
+            },
+        },
       "/api/settings":
         {
           "get":
@@ -6826,6 +6868,39 @@
                 },
               "required": ["id", "installed", "authenticated", "status"],
             },
+          "OCRStatus":
+            {
+              "type": "object",
+              "required": ["systemAvailable", "engine", "modelState", "downloadedBytes", "totalBytes", "notices"],
+              "properties":
+                {
+                  "systemAvailable": { "type": "boolean" },
+                  "engine": { "type": "string", "enum": ["system", "paddle", "none"] },
+                  "modelState": { "type": "string", "enum": ["missing", "downloading", "ready", "failed"] },
+                  "downloadedBytes": { "type": "integer", "minimum": 0 },
+                  "totalBytes": { "type": "integer", "minimum": 0 },
+                  "notices":
+                    {
+                      "type": "array",
+                      "items":
+                        {
+                          "type": "object",
+                          "required": ["documentId", "title"],
+                          "properties": { "documentId": { "type": "string" }, "title": { "type": "string" } },
+                        },
+                    },
+                },
+            },
+          "OCRAction":
+            {
+              "type": "object",
+              "required": ["action"],
+              "properties":
+                {
+                  "action": { "type": "string", "enum": ["download", "use-system", "use-paddle", "dismiss"] },
+                  "documentId": { "type": "string", "description": "Required for dismiss." },
+                },
+            },
           "Settings": { "type": "object", "additionalProperties": true },
           "ChatStreamEvent":
             {
@@ -7139,6 +7214,7 @@
                   "kind": { "enum": ["selection", "section"] },
                   "image": { "type": "string" },
                   "caption": { "type": "string" },
+                  "ocr": { "type": "boolean", "description": "True if the block includes text recognized by OCR." },
                 },
               "required": ["id", "page", "label", "bounds", "text"],
             },
