@@ -40,12 +40,12 @@ For changes involving background tasks, external calls, parsing or protocols, pe
 - Push only when the user explicitly requests it. Do not amend or rewrite published history without explicit authorization. Report the commit hashes, scopes, and validation results.
 
 ## Release notes
-- 每次准备 release，必须同步更新 `docs/release-notes.json`，再构建安装包或创建发布标签。App 从该文件打包并离线显示当前版本的更新说明，不读取 GitHub Release 正文。
+- 准备公开源码版本时，更新 `docs/release-notes.json` 中的开源版说明。App 从该文件打包并离线显示当前版本的更新说明，不读取 GitHub Release 正文。
 - 使用与根目录 `package.json` 和 `apps/desktop/package.json` 一致的版本号作为键（不带 `v`）；保留已有版本，为新版本添加非空条目数组。
 - `0.x.y` 的更新说明按 `x` 系列累计：`x` 不变时，新版本的条目数组必须保留该系列此前的说明，再追加本次变更。例如 `0.6.1` 包含 `0.6.0` 的说明及 `0.6.1` 的新增说明，让跳过中间版本的用户也能看到完整更新内容。
 - `x` 变化时，新版本的条目数组重新开始，不继承上一系列的说明。例如 `0.7.0` 只包含 `0.7` 系列的说明，不再包含 `0.6.y` 的内容；JSON 中已有的历史版本键及其说明仍保留。
 - 每条说明包含中文 `title`，可选 `body`；仅在需要关联已有指南演示时填写有效的 `topic`。依据本次实际发布的变更编写用户可理解的说明，不把尚未包含在安装包中的功能写进去。
-- GitHub Release 说明与 App 内说明应保持内容一致。发版前运行 `node scripts/release-source.mjs`，确认版本号和当前版本说明通过校验。
+- 运行 `node scripts/release-source.mjs`，校验公开源码的版本号和当前版本说明。公开 GitHub Release 的二进制附件镜像官方 NeoRead Pro 安装包，不由公开源码构建；发版与源码归档边界见 [安装包与发版说明](docs/releasing.md)。
 
 ## Boundaries
 Bind Go to loopback only. Authenticate local API requests. Use the pinned Pi SDK for provider authorization and store credentials per NeoRead connection. Never import external CLI credentials. Document text is untrusted input; remove active content before displaying EPUB chapters. Run Pi workers in private temporary directories. Preserve user data. Do not commit `.neoread`, legacy `.reader`, binaries or node_modules. Exception: update the tracked `apps/cite-plugins/word/NeoRead.dotm` when its VBA source or ribbon changes; rebuild it with Word, verify the embedded VBA matches the source, and run the relevant Word regression tests before committing.

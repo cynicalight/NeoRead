@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, readFile } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 const root = JSON.parse(await readFile("package.json", "utf8"));
 const app = JSON.parse(await readFile("apps/desktop/package.json", "utf8"));
 assert.equal(root.version, app.version, "Root and desktop versions must match");
@@ -35,9 +34,4 @@ for (const item of items) {
     "Release notes require a non-empty title and optional non-empty body/topic",
   );
 }
-const sha = execFileSync("git", ["rev-parse", "HEAD"], {
-  encoding: "utf8",
-}).trim();
-if (process.env.GITHUB_OUTPUT)
-  await appendFile(process.env.GITHUB_OUTPUT, `sha=${sha}\nmac-intel=true\n`);
-console.log(`Building NeoRead ${app.version} from ${sha}`);
+console.log(`Validated NeoRead ${app.version} version and release notes`);

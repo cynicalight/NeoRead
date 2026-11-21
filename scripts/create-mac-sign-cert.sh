@@ -1,7 +1,7 @@
 #!/bin/sh
-# Creates the fixed self-signed certificate used to sign every macOS release.
-# Squirrel.Mac only installs updates signed by the same certificate as the
-# installed app: keep the output safe and never regenerate it for a release.
+# Creates a self-signed certificate for local macOS signing tests.
+# Squirrel.Mac requires a compatible signature: reuse the same certificate
+# for both test builds and keep the key and password offline.
 set -eu
 out=${1:?"usage: scripts/create-mac-sign-cert.sh <new-directory>"}
 if [ -e "$out" ]; then
@@ -39,8 +39,7 @@ printf '%s' "$password" >"$out/password.txt"
 "$openssl" x509 -in "$out/cert.pem" -noout -fingerprint -sha1
 cat <<EOF
 
-Created $out. Back up neoread-sign.p12 and password.txt offline, then store them as
-GitHub Actions secrets:
-  gh secret set NEOREAD_MAC_SIGN_P12 < "$out/neoread-sign.p12.base64"
-  gh secret set NEOREAD_MAC_SIGN_P12_PASSWORD < "$out/password.txt"
+Created $out. Back up neoread-sign.p12 and password.txt offline.
+For local packaging, pass the base64 file contents and password via
+NEOREAD_MAC_SIGN_P12 and NEOREAD_MAC_SIGN_P12_PASSWORD.
 EOF

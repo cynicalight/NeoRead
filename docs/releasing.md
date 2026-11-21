@@ -1,55 +1,29 @@
-# 安装包构建与发版
+# 公开发版、应用更新与本地打包
 
-NeoRead 使用 GitHub Actions 和 electron-builder，发布 GitHub Release 后自动生成以下文件：
+公开仓库继续维护 NeoRead 开源源码。新的 [GitHub 正式版](https://github.com/cynicalight/NeoRead/releases/latest)附带的是镜像的官方 **NeoRead Pro 安装包**，不是用本仓库源码构建的开源版安装包。
 
-| 文件                                 | 运行平台                   |
-| ------------------------------------ | -------------------------- |
-| `NeoRead-<version>-mac-arm64.dmg`     | Apple Silicon Mac          |
-| `NeoRead-<version>-mac-arm64.zip`     | Mac 应用内原地更新包       |
-| `NeoRead-<version>-mac-intel-x64.dmg` | Intel Mac                  |
-| `NeoRead-<version>-mac-intel-x64.zip` | Intel Mac 原地更新包       |
-| `NeoRead-<version>-win-x64.exe`       | Windows x64（NSIS）        |
-| `SHA256SUMS.txt`                     | 安装包的 SHA-256 校验值    |
+| Release 附件                    | 用途                         |
+| ------------------------------- | ---------------------------- |
+| `NeoRead-<version>-mac-arm64.dmg` | Apple Silicon Mac 安装       |
+| `NeoRead-<version>-mac-arm64.zip` | Apple Silicon Mac 应用内更新 |
+| `NeoRead-<version>-win-x64.exe`   | Windows x64 安装（NSIS）     |
+| `SHA256SUMS.txt`                 | 安装包和更新包的 SHA-256     |
 
-Intel Mac 使用 `macos-15-intel` 原生 runner。仅该构建固定 `onnxruntime-node@1.22.0`，以保留 `darwin-x64` 原生库；Apple Silicon 和 Windows 沿用锁定依赖。三种目标均运行包内检查。不构建 Windows ARM64 或 Linux 安装包。
+当前镜像尚不提供 Intel Mac 安装包或更新 ZIP，也不提供 Windows ARM64 或 Linux 安装包。仅发布 macOS 的版本不会附带 Windows 安装包。已有 Release 仍是历史版本；需要开源版的用户可以从公开源码运行或自行打包。
 
-当前没有 Apple 开发者证书。macOS 正式版使用仓库固定的自签名证书签名（见下文“macOS 签名证书”），不做 Apple 公证；Gatekeeper 不信任该证书，表现与 ad-hoc 签名相同。Windows 安装包没有 Authenticode 签名。系统可能阻止首次打开。macOS 可在确认下载来源后，在“系统设置 → 隐私与安全性”中允许该应用；Windows SmartScreen 可选择“更多信息 → 仍要运行”。组织设备策略可能禁止绕过。无需关闭系统整体安全保护。校验值用于检查文件完整性，不能替代开发者身份签名。
+## 公开发版
 
-## macOS 签名证书
+1. 通过 PR 维护公开源码；需要验证合并后的提交时，可手动运行 **CI**（`gh workflow run ci.yml --ref main`）。直接推送 `main`、推送标签或发布 Release 都不会自动触发公开 CI。公开 Actions 不构建或上传桌面安装包。
+2. 同一个版本的公开 Release 与 Pro 发布使用相同的 `v<version>` 标签名。公开标签只指向公开仓库历史中的提交，不指向 Pro 源码。GitHub 自动生成的 `Source code (zip)` 和 `Source code (tar.gz)` 只归档该标签的公开仓库内容，不包含 Pro 源码或作为附件提供的安装包。
+3. 公开正式版的说明标明附件来自官方 NeoRead Pro 发布，不是该公开提交的构建结果。待适用平台的安装包和 `SHA256SUMS.txt` 均就绪后，才将该正式版设为 **Latest**，供仍查询公开 Release 的旧客户端发现。公开 CI 不需要也不配置访问非公开源码或发布系统的凭据。
 
-Squirrel.Mac 只安装与当前应用出自同一证书的更新。所有正式版必须使用同一张自签名证书；丢失或更换证书后，已安装的版本无法原地更新，只能手动下载 DMG 一次。
+维护公开源码版本时，根目录与 `apps/desktop/package.json` 的版本应保持一致，并为该版本维护开源版的 `docs/release-notes.json`；可运行 `node scripts/release-source.mjs` 校验。不要移动已经发布的标签。
 
-首次启用时在本机执行一次，输出目录必须不存在：
+## 从旧开源版升级
 
-```sh
-scripts/create-mac-sign-cert.sh ~/neoread-mac-sign
-gh secret set NEOREAD_MAC_SIGN_P12 < ~/neoread-mac-sign/neoread-sign.p12.base64
-gh secret set NEOREAD_MAC_SIGN_P12_PASSWORD < ~/neoread-mac-sign/password.txt
-```
+支持公开 GitHub Release 更新通道的旧客户端，可在“关于 NeoRead → 检查更新”中检查正式版。如果镜像版本号更新且提供当前平台的附件和对应校验值，客户端可能会提示升级到 Pro。公开镜像不强制升级，也不保证所有旧版都能应用内安装。未收到提示、更新失败或 macOS 签名不兼容时，可从正式版页面手动下载安装包。建议升级前备份书库；要继续使用开源版，可以不安装 Pro。
 
-把 `neoread-sign.p12` 和 `password.txt` 离线备份后，可删除本机副本。证书有效期 20 年，CN 为 `NeoRead Self-Signed`。
-
-`apps/desktop/mac-sign.cjs` 是 electron-builder 的 `mac.sign` 钩子：electron-builder 照常生成签名参数，钩子把证书导入临时钥匙串，替换签名身份后逐个签名嵌套二进制，结束后删除临时钥匙串，不修改登录钥匙串或信任设置。证书无人验证时间戳，签名不请求 Apple 时间戳服务。没有证书时退回 ad-hoc 签名，适用于本地构建和手动试跑；带 Release tag 的构建缺少证书会直接失败，包内检查也会确认签名者为 `NeoRead Self-Signed`。证书只传给 macOS 构建任务。
-
-## 发版步骤
-
-1. 在独立 worktree/分支完成修改，将根目录 `package.json` 和 `apps/desktop/package.json` 的版本同步，例如都改为 `0.2.0`。提交后 merge 到 `main`。
-2. 推送 `main`，手动运行 **CI**（`gh workflow run ci.yml --ref main`），等待该提交的 Linux 和 Windows 检查全部通过。直接推送 `main` 不会自动触发 CI。首次启用时，可从 Actions 手动运行 **Release installers** 并留空 `release-tag`；它只保存安装包与校验值为 Actions artifacts，不创建或修改 Release。
-3. 在所需提交上创建 tag，例如 `v0.2.0`，并发布该 tag 对应的 GitHub Release。Release 所在提交必须包含本工作流。预发布版本可用 `0.2.0-beta.1` / `v0.2.0-beta.1`。
-4. **Release installers** 将 tag 解析为固定提交，核对版本，使用 Apple Silicon、Intel Mac 和 Windows x64 原生 runner 构建。同一源提交已经通过的 `main` CI 会直接复用；没有成功记录时，先调用与日常 CI 相同的检查流程。检查通过且所有目标构建成功后，统一上传安装包与校验值。
-5. 下载并做安装后的人工检查：打开应用，导入 EPUB/PDF，确认阅读、笔记保存及重新打开后恢复；退出后检查服务已停止。在设置中连接模型服务并验证 AI 功能。
-
-触发事件为 `release: published`，适用于正式版和预发布版。保存草稿、单独推送 tag 或修改 Release 描述不会触发。Release 页面会先发布，安装包稍后上传；任一构建失败时上传任务不会运行。GitHub 资产上传不是事务操作，上传过程中网络失败可能留下部分文件；修复后重新运行工作流会覆盖同名资产。不要移动已发布的 tag；代码修复请发布新版本。
-
-只发布 macOS 测试版时，在 Release 描述中加入 `<!-- neoread:mac-only -->`。工作流跳过 Windows，仍要求 Apple Silicon 与 Intel 各自的 DMG 和更新 ZIP。
-
-工作流使用仓库自动提供的 `GITHUB_TOKEN` 和上述两个 macOS 签名 secrets，无需 PAT。构建任务只有 `contents: read`，上传任务才有 `contents: write`。若以后由另一个工作流创建 Release，需要注意：默认 `GITHUB_TOKEN` 产生的事件通常不会触发新的工作流；应改为显式调用构建工作流，或调整发布入口。
-
-### 恢复已有 Release 的构建
-
-若已发布 tag 的应用源码无需修改，只需修复构建环境，可先将工作流修复合并到 `main`，再执行 `gh workflow run release.yml --ref main -f release-tag=v0.9.5`（替换为实际标签）。工作流检出固定提交，验证版本及已发布 Release，复用该提交的 CI，并按该标签支持的目标构建与上传；早于 0.14.0 的标签不新增 Intel。不要移动已发布的 tag；应用源码需要修改时应发布新版本。
-
-CI 为 Node 构建进程设置 4096 MiB 堆上限，避免 macOS runner 在 Vite 渲染资源块时触及默认约 2 GiB 的堆上限。该设置只属于构建环境。
+下载后可用 `SHA256SUMS.txt` 核对文件完整性；校验值不能替代开发者签名。以具体安装包的签名与系统提示为准，不需要关闭系统整体安全保护。
 
 ## 本地构建
 
@@ -63,7 +37,7 @@ pnpm package:dir  # 构建未封装应用，并检查包内运行时
 pnpm package      # 构建 DMG 或 NSIS 安装包，并执行相同检查
 ```
 
-产物在根目录 `release/`。脚本不上传任何文件。暂不支持交叉打包、Linux 安装包或 Windows ARM64。安装包目前使用默认 Electron 图标。
+产物在根目录 `release/`。脚本不上传任何文件，本地打包也不会生成官方 Pro 安装包。暂不支持交叉打包、Linux 安装包或 Windows ARM64。
 
 安装包包含 Electron、Go 服务、Web 资源、PDF 处理器的生产依赖及约 67 MB 的 PP-DocLayoutV3 FP16 版面权重。终端用户无需安装 Node.js、Go、Python 或 PaddlePaddle；首次版面解析即可离线运行。安装包附带 Pi worker，AI 翻译需要已配置且通过文本检测的连接。
 
@@ -71,9 +45,15 @@ pnpm package      # 构建 DMG 或 NSIS 安装包，并执行相同检查
 
 处理器构建先按 `apps/processor/model.json` 的固定 revision 获取权重，并核对 67,372,587 字节的大小和 SHA256。通过校验后才将临时文件发布到 `apps/processor/models/` 构建缓存；网络中断、大小或哈希不符会清理临时文件并停止构建；进程被强制终止时可能留下 `.part` 文件，但不会作为模型使用。已有缓存每次校验，损坏时需删除该缓存文件后重建；不静默覆盖。构建将当前模型和 `model-license/` 下的许可、来源说明复制到 `dist/models/`，打包时放入应用资源的 `processor/models/`，不放进 `app.asar`。权重、构建缓存和安装包均不进入 Git，Git 只管理模型规格、脚本与许可说明。
 
-构建机器首次需要联网，之后可复用已校验的缓存。GitHub Actions 按模型规格文件的哈希缓存权重。完全离线构建时，将环境变量 `NEOREAD_BUILD_LAYOUT_MODEL` 设为已有权重的绝对路径；该文件必须与固定模型的大小和 SHA256 一致，校验失败不会回退下载。`pnpm dev`、`pnpm desktop` 和单独的处理器构建使用同一流程；`pnpm install`、类型检查和普通单元测试不获取权重。
+构建机器首次需要联网，之后可复用已校验的缓存。完全离线构建时，将环境变量 `NEOREAD_BUILD_LAYOUT_MODEL` 设为已有权重的绝对路径；该文件必须与固定模型的大小和 SHA256 一致，校验失败不会回退下载。`pnpm dev`、`pnpm desktop` 和单独的处理器构建使用同一流程；`pnpm install`、类型检查和普通单元测试不获取权重。
 
 运行时从处理器旁的 `models/` 读取模型并核对完整性，不联网获取，也不在每个书库复制权重。缺失或损坏时解析失败，需要重新构建或安装应用。旧版书库里的模型缓存保留，但不再使用或自动删除。
+
+### 本地 macOS 签名
+
+本地打包默认使用 ad-hoc 签名。验证 Squirrel.Mac 原地更新时，可用 `scripts/create-mac-sign-cert.sh ~/neoread-mac-sign` 生成独立测试证书（输出目录必须不存在）；按脚本提示向本地打包进程提供证书和密码，给两次测试构建使用同一张证书。自签名不是可信开发者签名或 Apple 公证，也不能替代官方 Pro 安装包的签名。离线保管测试私钥和密码，不提交到仓库。
+
+`apps/desktop/mac-sign.cjs` 会将提供的证书导入临时钥匙串，由 electron-builder 签名应用及嵌套二进制后删除该钥匙串，不修改登录钥匙串或信任设置。
 
 ## 代理设置与连接检测
 
@@ -97,13 +77,13 @@ macOS 和 Windows 桌面版在“设置 → 诊断”提供三种模式，默认
 
 人工检查：分别在 Mac 和 Windows 打开“设置 → 诊断”，填写本机 Clash 的 HTTP / Mixed 端口，检测 ChatGPT，确认状态与路由；换成未监听的端口应失败。保存后确认应用仍能阅读，点击重启后确认地址与端口保留、阅读位置恢复，再测试实际 Agent / API 功能。切回跟随系统并重启，确认 Windows Clash 默认绕过列表仍可使用；关闭代理或切换直连后再次检测。ChatGPT 可能对无登录的检测请求返回 403，需要结合页面提示及实际功能判断。
 
-## 应用内更新
+## 旧开源版的应用内更新机制
 
 安装后的 NeoRead 会在启动 15 秒后检查是否已到每日检查时间。应用运行期间也会检查到期时间；应用关闭时不运行后台任务，下次启动会补查。检查时间保存在用户数据目录的 `update-state.json`，重启不会重置每日间隔。失败或 Release 安装包尚未上传完成时，至少间隔一小时再试。开发模式不访问 GitHub。
 
-更新来源为 `cynicalight/NeoRead` 的最新正式 GitHub Release。通过公开的 `/releases/latest` JSON 响应获取版本号，发现新版本后读取该版本的静态附件 `SHA256SUMS.txt` 来选择安装包，不调用 GitHub REST API，因此不占用匿名 REST API 每个来源 IP 每小时 60 次的查询额度。此入口仍可能遇到网络错误或 GitHub 的访问限制，手动检查失败时可打开发布页下载。仅提示比当前版本更新的正式版，不提示草稿、预发布版或旧版本。Release 必须同时提供当前平台（Apple Silicon Mac、Intel Mac 或 Windows x64）对应的安装包和 `SHA256SUMS.txt`。发布脚本先上传全部安装包，成功后再上传校验清单；清单尚未上传或缺少当前平台的安装包时稍后重试。在“关于 NeoRead”中可手动检查，手动检查不受每日间隔限制。
+更新来源为 `cynicalight/NeoRead` 的最新正式 GitHub Release。客户端通过公开的 `/releases/latest` JSON 响应获取版本号，发现新版本后读取该版本的静态附件 `SHA256SUMS.txt` 来选择安装包，不调用 GitHub REST API。它只提示比当前版本更新的正式版，不提示草稿、预发布版或旧版本；也必须在校验清单中找到当前平台的安装包。网络失败或缺少匹配附件时，可打开发布页查看可用下载。在“关于 NeoRead”中可手动检查，不受每日间隔限制。
 
-macOS 正式版优先原地更新：若当前应用由固定证书签名、Release 提供对应架构的 `mac-arm64.zip` 或 `mac-intel-x64.zip`，后台检查发现新版本时直接下载 zip，不弹窗、不显示进度（手动检查时显示进度；后台下载过程中手动检查也会显示剩余进度）。zip 同样核对 SHA-256，校验后在本机 loopback 上以随机路径临时提供给 Electron `autoUpdater`（Squirrel.Mac）。Squirrel 会再检查新应用的签名是否满足当前应用的指定要求（同一 bundle ID 与同一证书），通过后暂存，暂存完成后删除下载的 zip。随后提示“立即重启 / 稍后”：立即重启会照常保存阅读数据后退出并安装新版本；选择稍后时在下次退出 NeoRead 时安装。重启前再次检查同一版本不会重复下载。原地更新需要 NeoRead 所在目录可写；当前应用为 ad-hoc 签名（本地构建、旧版本）、Release 没有 zip，或下载、校验、Squirrel 任一步失败时，回退到下面的 DMG 流程。从 ad-hoc 签名的旧版本升级到首个固定证书版本，需要手动安装一次 DMG。
+macOS 原地更新需要可写的应用目录、匹配架构的更新 ZIP，以及新旧应用的 bundle ID 和签名满足 Squirrel.Mac 的要求。兼容时，客户端在后台下载 ZIP 并校验 SHA-256，通过本机 loopback 临时交给 Electron `autoUpdater`；系统检查签名、暂存后提示“立即重启 / 稍后”。立即重启会先保存阅读数据；稍后则在下次退出时安装。当前应用为 ad-hoc 签名、ZIP 缺失、签名不兼容或下载、校验、暂存失败时，回退到 DMG 流程（如有匹配的 DMG）。
 
 其他情况下发现更新后选择“下载安装包”，应用会通过 Electron 网络栈下载文件，使用已生效的 NeoRead 代理设置，并在本地核对 SHA-256。校验成功后：macOS 打开 DMG，请先退出 NeoRead，再将新 NeoRead 拖入 Applications 完成替换，应用不会自动退出；Windows 照常保存阅读数据并退出 NeoRead，Go 服务停止后，在 Electron `quit` 事件中以 `--updated /S --force-run` 静默运行 NSIS 安装程序。安装程序沿用上次的安装位置与安装模式（全体用户安装时会弹出 UAC），替换原安装目录后重新打开 NeoRead，书库在用户数据目录中不受影响。安装程序启动约 1.3 秒后会结束仍在运行的 NeoRead 进程，所以必须在退出流程结束后才启动它。保存失败时若选择“返回阅读”，安装会推迟到下次退出 NeoRead 时进行，安装后同样自动重新打开。Windows 静默安装不需要代码签名。下载文件保存在用户数据目录的 `updates/` 下；失败的下载会清理，进程被强制关闭可能留下 `.part` 文件。校验值确认文件与 Release 一致，不能替代开发者签名。
 
@@ -111,23 +91,22 @@ macOS 正式版优先原地更新：若当前应用由固定证书签名、Relea
 
 参见 [Electron 自动更新要求](https://www.electronjs.org/docs/latest/api/auto-updater)。
 
-人工检查：安装含此功能的包，打开“关于 NeoRead → 检查更新”；确认无更新时提示当前版本。随后发布更高版本且安装包上传完成后，再检查并下载；macOS（固定证书版本，位于 Applications）确认出现“已准备就绪”，选择“立即重启”后自动以新版本启动，选择“稍后”则退出再打开后为新版本；Windows 确认 NeoRead 退出后不显示安装向导，片刻后以新版本自动重新打开，开始菜单和桌面快捷方式仍然可用；全体用户安装的版本确认出现 UAC 提示，同意后同样完成更新。安装后版本变化，原书库和阅读位置仍保留。选择“稍后”应继续阅读；断网时手动检查应提示错误。自动检查与真实系统安装仍需人工验收。
+人工检查应用内升级时，用含更新功能的旧开源版在受支持平台上先打开独立测试书库，再检查高版本正式版是否被发现。验证手动下载、适用时的原地更新、升级后的版本和书库恢复；也验证缺失平台附件或断网时不会强制安装。未提供对应附件或签名不兼容的旧版本，不能视为支持自动安装。
 
 ## 自动检查的范围
 
-PR 和 `main` CI 只在 Ubuntu 上运行类型检查与 Go/前端测试，不构建应用或安装包。Release 和手动试跑固定源提交，按完整 SHA 查询本仓库 `ci.yml` 已成功的 push 检查；不复用其他提交、失败、未完成或 PR head 的记录。找不到可复用记录时先补跑同一检查流程，失败则停止发版。之后在原生 macOS ARM64 和 Windows x64 runner 上构建安装包并检查包内运行时，不重复跑整套测试。检查脚本先将整个应用复制到仓库以外的临时目录，再启动包内 Electron 的 Node 模式。这样可以避免漏装依赖时意外使用源码目录中的依赖。检查内容包括 PDF.js 渲染、原生 canvas 和真实 ONNX 推理。随后启动包内 Go 服务，检查 SQLite 初始化、loopback 绑定、API 鉴权和 Web 资源。macOS 还检查签名完整性，正式版要求签名者为固定证书。
+公开 PR 与手动 CI 保留 Ubuntu 的 TypeScript、Go 和共享测试，以及 Windows 的代理、命令行安装、书库迁移和附件检查。CI 验证公开源码，不打包桌面应用；部分检查会构建 Go 服务以运行测试。
 
-这些检查不启动 GUI，也不代替 DMG 挂载、Gatekeeper、Windows 安装/卸载、SmartScreen 以及真实用户文档的人工验收。校验生成脚本检查 DMG、zip 与 EXE 产物的命名、数量、文件头/尾和大小，再计算哈希。
+本地打包会将应用复制到仓库之外的临时目录，并启动包内 Electron 的 Node 模式，避免意外使用源码目录的依赖。检查 PDF.js 渲染、原生 canvas、真实 ONNX 推理，以及包内 Go 服务的 SQLite 初始化、loopback 绑定、API 鉴权和 Web 资源；macOS 还检查签名完整性。这些检查不启动 GUI，不代替 DMG 挂载、Gatekeeper、Windows 安装/卸载、SmartScreen 和真实用户文档的人工验收。
 
 版面检查使用包内真实 PP-DocLayoutV3 权重，核对大小、SHA256 和许可文件后，在全新的临时目录中启动完整 PDF 处理器。检查通过预加载脚本禁用 Node `fetch` 和 TCP 连接，不传入 `--model`，也不提供书库模型缓存；两页原创样例必须生成非空版面区域、正文、`paper.md` 和完整 `manifest.json`，并且不创建模型缓存目录。它验证包内模型加载和离线首次解析链路，不评价其他文档的版面准确率。
 
 ## 相关文件与依据
 
-- `.github/workflows/ci.yml`：单平台 PR/main 验证，也供发版补跑检查。
-- `.github/workflows/build.yml`：Mac 与 Windows 构建任务。
-- `.github/workflows/release.yml`：固定源提交、构建并上传安装包。
+- `.github/workflows/ci.yml`：公开 PR 与手动源码验证。
+- `scripts/release-source.mjs`：本地校验公开源码版本与内置更新说明。
 - `apps/desktop/builder.config.cjs`：安装包格式、资源路径和签名策略。
-- `apps/desktop/mac-sign.cjs`、`scripts/create-mac-sign-cert.sh`：macOS 固定证书签名与证书生成。
+- `apps/desktop/mac-sign.cjs`、`scripts/create-mac-sign-cert.sh`：本地 macOS 签名与测试证书生成。
 - `scripts/package.mjs`、`scripts/package-smoke.mjs`、`scripts/processor-smoke.mjs`：资源部署与包内运行验证。
-- [GitHub release 事件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)、[runner 平台](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)、[GITHUB_TOKEN 触发限制](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow)。
+- [GitHub Release 与源码归档](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)。
 - [electron-builder macOS 签名配置](https://www.electron.build/v26/docs/mac/)、[安装包资源配置](https://www.electron.build/v26/docs/configuration/)。

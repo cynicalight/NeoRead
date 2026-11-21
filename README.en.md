@@ -17,7 +17,7 @@ A local-first EPUB / PDF reader for books and papers, with side-by-side translat
 
 NeoRead treats EPUB and PDF as core document formats. It separates books and papers into two libraries and shares contents, search, bilingual reading, annotation, and chat tools across both. Documents, reading progress, and notes stay on your machine. The built-in Pi runtime supports ChatGPT, Claude, and Kimi Code account connections, provider API keys, and custom compatible endpoints.
 
-Download installers from [GitHub Releases](https://github.com/cynicalight/NeoRead/releases): DMG for Apple Silicon Macs and EXE for Windows x64. Intel Mac builds are paused and Linux installers are not provided; you can also run from source. Installers have no trusted developer certificate and may require approval in your system security settings. See the [packaging and release guide (Chinese)](docs/releasing.md) for the workflow and validation scope.
+New [stable GitHub releases](https://github.com/cynicalight/NeoRead/releases/latest) mirror official **NeoRead Pro** installers: a DMG (plus an in-app update ZIP) for Apple Silicon Macs and an EXE for Windows x64. The mirror does not currently provide Intel Mac or Linux installers. These binaries are not built from this repository. GitHub's source archives contain only the public source, which you can still run yourself. See the [packaging and release guide (Chinese)](docs/releasing.md) for upgrade requirements for older open-source versions.
 
 ## Features
 
@@ -181,7 +181,7 @@ The domain model centers on `Document`. PDF positions use page numbers and coord
 
 The current version primarily targets DRM-free, horizontal left-to-right reflowable EPUBs and PDFs with text. OCR, password entry for protected PDFs, PDF thumbnails, background PDF full-text indexing, cross-document AI retrieval, independent conversation management, Ollama, and reading statistics are not yet supported. Highlights are not created for complex PDF selections spanning multiple pages.
 
-Fixed-layout EPUBs, vertical text, RTL, complex footnotes, and large files need more testing with real documents. The desktop app handles macOS file-open events, but system file associations are not registered. Installers are built by CI without trusted developer signing or macOS notarization. See the [release and update guide (Chinese)](docs/releasing.md) for in-app update requirements.
+Fixed-layout EPUBs, vertical text, RTL, complex footnotes, and large files need more testing with real documents. The desktop app handles macOS file-open events, but system file associations are not registered.
 
 Next up:
 
