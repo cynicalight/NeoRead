@@ -18,11 +18,14 @@ function isActive(job: Processing) {
   );
 }
 
-export function useProcessing() {
+/** Polls processing while visible; `onPoll` runs after each successful read. */
+export function useProcessing(onPoll?: () => void) {
   const [jobs, setJobs] = useState<Processing[]>([]);
   const [error, setError] = useState("");
   const snapshot = useRef("[]");
   const lastError = useRef("");
+  const pollListener = useRef(onPoll);
+  pollListener.current = onPoll;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     let controller: AbortController | undefined;
@@ -44,6 +47,7 @@ export function useProcessing() {
         }
         interval = next.some(isActive) ? activePollMs : idlePollMs;
         reportError("");
+        pollListener.current?.();
       } catch (e) {
         if (signal.aborted) return;
         reportError((e as Error).message);

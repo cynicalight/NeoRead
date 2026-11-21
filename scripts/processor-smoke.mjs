@@ -47,6 +47,39 @@ await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
 assert.ok(canvas.toBuffer("image/png").length > 100);
 await task.destroy();
 
+if (process.platform === "darwin") {
+  const { createAppleOCR } = await import("./apple-ocr.mjs");
+  const scan = createCanvas(1000, 500);
+  const context = scan.getContext("2d");
+  const ocr = await createAppleOCR();
+  try {
+    for (const [text, font, y] of [
+      ["Readable scanned text", "Helvetica", 140],
+      ["人民生活幸福", "PingFang SC", 400],
+    ]) {
+      context.fillStyle = "white";
+      context.fillRect(0, 0, scan.width, scan.height);
+      context.fillStyle = "black";
+      context.font = `60px "${font}"`;
+      context.fillText(text, 100, y);
+      const spans = await ocr.recognize(scan);
+      const match = spans.find(({ text: actual }) =>
+        actual.replaceAll(/\s/g, "").includes(text.replaceAll(/\s/g, "")),
+      );
+      assert.ok(match, "Packaged Vision OCR did not recognize the sample text");
+      const { bounds } = match;
+      assert.ok(bounds.x > 0 && bounds.x + bounds.width <= 1);
+      assert.ok(bounds.height > 0 && bounds.width > 0);
+      assert.ok(bounds.y > y / scan.height - 0.2 && bounds.y < y / scan.height);
+      assert.ok(bounds.y + bounds.height <= 1);
+    }
+  } finally {
+    await ocr.close();
+  }
+} else {
+  assert.ok(!(await readdir(base)).includes("apple-ocr-helper"));
+}
+
 assert.equal(dirname(await resolveModel()), join(base, "models"));
 assert.match(
   await readFile(join(base, "models/LICENSE"), "utf8"),

@@ -193,6 +193,8 @@ export type PaperRefreshProgress =
   components["schemas"]["PaperRefreshProgress"];
 export type ChapterTranslationStatus =
   paths["/api/documents/{id}/translations/chapter-status"]["post"]["responses"]["200"]["content"]["application/json"];
+export type OCRStatus = components["schemas"]["OCRStatus"];
+export type OCRAction = components["schemas"]["OCRAction"];
 
 async function fetchMarkdownExport(
   id: string,
@@ -1033,6 +1035,12 @@ export const api = {
       `/api/cite/transactions/${encodeURIComponent(transaction)}/complete`,
       { method: "POST", body: JSON.stringify(result) },
     ),
+  ocr: () => request<OCRStatus>("/api/ocr"),
+  updateOCR: (payload: OCRAction) =>
+    request<OCRStatus>("/api/ocr", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   settings: () => request<Partial<ReaderTheme>>("/api/settings"),
   saveSettings: (theme: ReaderTheme) =>
     request<ReaderTheme>("/api/settings", {

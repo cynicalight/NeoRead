@@ -207,9 +207,9 @@ function spanText(spans: TextSpan[]) {
     .replace(/\s+/g, " ")
     .trim();
 }
-function joinLines(spans: TextSpan[]) {
+function joinLines(spans: TextSpan[], lines?: TextSpan[][]) {
   if (!spans.length) return "";
-  const lines = readingLines(spans);
+  lines ??= readingLines(spans);
   // Horizontal gaps become spaces at the region's median character width.
   const widths = spans
     .map((s) => s.bounds.width / Math.max(1, s.text.trim().length))
@@ -238,8 +238,19 @@ function joinLines(spans: TextSpan[]) {
 
 export interface ReadingRegion extends Region {
   text: string;
+  ocrLines?: TextSpan[];
   members?: number[];
   caption?: string;
+}
+
+function retainOcrLines(
+  block: ReadingRegion,
+  ordered: TextSpan[],
+  ocr: ReadonlySet<TextSpan>,
+) {
+  for (const span of ordered) {
+    if (ocr.has(span)) (block.ocrLines ??= []).push(span);
+  }
 }
 const mainCaption = /^(?:figure|fig\.?|table)\s*\d+[\s:.]/i;
 function union(boxes: Box[]): Box {
@@ -254,7 +265,11 @@ function union(boxes: Box[]): Box {
 }
 // Inline symbols remain in their paragraph. Group panels only when a nearby
 // numbered caption provides evidence that they belong to one figure.
-export function readingRegions(raw: Region[], spans: TextSpan[]) {
+export function readingRegions(
+  raw: Region[],
+  spans: TextSpan[],
+  ocr?: ReadonlySet<TextSpan>,
+) {
   const regions = raw.filter((r) => r.label !== "inline_formula");
   const assigned = assignText(regions, spans);
   const entries: ReadingRegion[] = regions.map((r, i) => ({
@@ -340,20 +355,52 @@ export function readingRegions(raw: Region[], spans: TextSpan[]) {
   const final = partitionText(composed, spans);
   const blocks = composed.flatMap((region, i): ReadingRegion[] => {
     const group = final.groups[i];
+    if (!group.length) return [{ ...region, text: "" }];
+    const lines = readingLines(group);
     // Assign spans before splitting so competing regions cannot claim a row twice.
     if (region.label === "content") {
-      const lines = readingLines(group);
-      if (lines.length > 1)
-        return lines.map((line) => ({
+      const split = lines.length > 1;
+      return lines.map((line) => {
+        const block: ReadingRegion = {
           ...region,
-          bounds: union(line.map((span) => span.bounds)),
+          bounds: split ? union(line.map((span) => span.bounds)) : region.bounds,
           text: spanText(line),
-        }));
-      return [{ ...region, text: lines[0] ? spanText(lines[0]) : "" }];
+        };
+        if (ocr) retainOcrLines(block, line, ocr);
+        return block;
+      });
     }
-    const text =
-      region.label === "algorithm" ? joinLines(group) : joinSpans(group);
-    return [{ ...region, text }];
+    if (region.label === "algorithm") {
+      const block: ReadingRegion = { ...region, text: joinLines(group, lines) };
+      if (ocr) retainOcrLines(block, lines.flat(), ocr);
+      return [block];
+    }
+    const ordered = lines.flat();
+    const block: ReadingRegion = { ...region, text: spanText(ordered) };
+    if (ocr) retainOcrLines(block, ordered, ocr);
+    return [block];
   });
-  return { blocks, unmatched: joinSpans(final.unmatched) };
+  if (!ocr || !final.unmatched.length)
+    return { blocks, unmatched: joinSpans(final.unmatched) };
+
+  // Give unassigned OCR lines real text blocks without renumbering composed
+  // blocks or repeating the same text in the unmatched Markdown section.
+  const native: TextSpan[] = [];
+  for (const line of readingLines(final.unmatched).flat()) {
+    if (!ocr.has(line)) {
+      native.push(line);
+      continue;
+    }
+    const text = line.text.replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    blocks.push({
+      label: "text",
+      confidence: 0,
+      order: blocks.length,
+      bounds: line.bounds,
+      text,
+      ocrLines: [line],
+    });
+  }
+  return { blocks, unmatched: spanText(native) };
 }

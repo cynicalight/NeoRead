@@ -67,6 +67,8 @@ type Server struct {
 	translationSubscribers map[string]map[chan TranslationBlock]struct{}
 	processingMu           sync.Mutex
 	bookLayout             bookLayoutState
+	ocrDownload            ocrDownload
+	ocrProbes              ocrProbes
 	processingControlMu    sync.Mutex
 	activeProcessing       map[string]*documentTask
 	blockedProcessing      map[string]bool
@@ -247,6 +249,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/libraries/{library}/folders", s.changeLibraryLabels("folders"))
 	mux.HandleFunc("GET /api/preferences/{key}", s.preferences)
 	mux.HandleFunc("PUT /api/preferences/{key}", s.savePreferences)
+	mux.HandleFunc("GET /api/ocr", s.getOCR)
+	mux.HandleFunc("POST /api/ocr", s.updateOCR)
 	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("startup") == "1" && len(s.startupSettings) > 0 {
 			respond(w, 200, s.startupSettings)
@@ -785,6 +789,9 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "无法读取文档")
 		return
 	}
+	if openedAt != nil && v.Progress == nil && v.Percentage == nil {
+		s.probeCachedScan(d, 0)
+	}
 	respond(w, 200, d)
 }
 func (s *Server) annotations(w http.ResponseWriter, r *http.Request) {
@@ -1039,4 +1046,5 @@ func (s *Server) Close() {
 	for _, task := range tasks {
 		<-task.done
 	}
+	s.ocrDownload.close()
 }

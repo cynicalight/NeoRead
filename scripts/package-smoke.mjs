@@ -39,23 +39,42 @@ try {
     );
     if (signature.error) throw signature.error;
     assert.equal(signature.status, 0, "Packaged signature is invalid");
+    const helper = join(resources, "processor/apple-ocr-helper");
+    const helperArch = spawnSync("lipo", ["-archs", helper], { encoding: "utf8" });
+    if (helperArch.error) throw helperArch.error;
+    assert.equal(helperArch.status, 0, helperArch.stderr);
+    assert.equal(
+      helperArch.stdout.trim(),
+      process.arch === "x64" ? "x86_64" : "arm64",
+      "Packaged Vision helper must match Electron's architecture",
+    );
+    const helperSignature = spawnSync(
+      "codesign",
+      ["--verify", "--strict", helper],
+      { stdio: "inherit" },
+    );
+    if (helperSignature.error) throw helperSignature.error;
+    assert.equal(helperSignature.status, 0, "Packaged Vision helper signature is invalid");
     if (process.env.RELEASE_TAG) {
-      const details = spawnSync("codesign", ["-dvv", dirname(app)], {
-        encoding: "utf8",
-      });
-      assert.equal(details.status, 0, details.stderr);
-      assert.match(
-        details.stderr,
-        /^Authority=NeoRead Self-Signed$/m,
-        "Release must be signed with the fixed NeoRead certificate",
-      );
+      for (const binary of [dirname(app), helper]) {
+        const details = spawnSync("codesign", ["-dvv", binary], {
+          encoding: "utf8",
+        });
+        if (details.error) throw details.error;
+        assert.equal(details.status, 0, details.stderr);
+        assert.match(
+          details.stderr,
+          /^Authority=NeoRead Self-Signed$/m,
+          "Release must be signed with the fixed NeoRead certificate",
+        );
+      }
     }
   }
   const native = spawnSync(electron, [join(resources, "processor/smoke.mjs")], {
     cwd: temporary,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     stdio: "inherit",
-    timeout: 60000,
+    timeout: windows ? 60_000 : 120_000,
   });
   if (native.error) throw native.error;
   assert.equal(native.status, 0, "Packaged native processor smoke failed");

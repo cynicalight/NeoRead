@@ -2528,6 +2528,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ocr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read the local OCR engine, model installation progress, and pending scan notices without starting a download. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OCR status */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OCRStatus"];
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** @description Install the pinned OCR model or select a ready engine. A download does not switch the macOS default. Dismiss requires a documentId and permanently acknowledges that document's notice. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OCRAction"];
+                };
+            };
+            responses: {
+                /** @description Updated OCR status */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OCRStatus"];
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings": {
         parameters: {
             query?: never;
@@ -5598,6 +5676,25 @@ export interface components {
             authenticated: boolean;
             status: string;
         };
+        OCRStatus: {
+            systemAvailable: boolean;
+            /** @enum {string} */
+            engine: "system" | "paddle" | "none";
+            /** @enum {string} */
+            modelState: "missing" | "downloading" | "ready" | "failed";
+            downloadedBytes: number;
+            totalBytes: number;
+            notices: {
+                documentId: string;
+                title: string;
+            }[];
+        };
+        OCRAction: {
+            /** @enum {string} */
+            action: "download" | "use-system" | "use-paddle" | "dismiss";
+            /** @description Required for dismiss. */
+            documentId?: string;
+        };
         Settings: {
             [key: string]: unknown;
         };
@@ -5711,21 +5808,30 @@ export interface components {
                 pagesTotal: number;
             };
         };
+        /** @description Rectangle in normalized displayed-page coordinates, measured from the top left. */
+        PDFPageBounds: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
         PDFBlock: {
             id: string;
             page: number;
             label: string;
-            bounds: {
-                x: number;
-                y: number;
-                width: number;
-                height: number;
-            };
+            bounds: components["schemas"]["PDFPageBounds"];
             text: string;
             /** @enum {unknown} */
             kind?: "selection" | "section";
             image?: string;
             caption?: string;
+            /** @description True if the block includes text recognized by OCR. */
+            ocr?: boolean;
+            /** @description OCR-only text lines in reading order. Absent from older parses and native blocks. */
+            ocrLines?: {
+                text: string;
+                bounds: components["schemas"]["PDFPageBounds"];
+            }[];
         };
         AICapability: {
             text: boolean;

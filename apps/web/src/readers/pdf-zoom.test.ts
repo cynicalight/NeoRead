@@ -17,6 +17,7 @@ vi.mock("pdfjs-dist", () => ({
       numPages: 10,
       getPage: async () => ({
         getViewport: () => ({ width: 750, height: 900 }),
+        getTextContent: async () => ({ items: [] }),
       }),
     }),
     destroy: vi.fn(),
@@ -128,6 +129,26 @@ afterEach(async () => {
   await adapter.destroy();
   document.body.replaceChildren();
   vi.unstubAllGlobals();
+});
+it("finds text on a scanned page and returns the paragraph bounds instead of a nonexistent native text range", async () => {
+  const bounds = { x: 0.4, y: 0.5, width: 0.3, height: 0.1 };
+  const block = {
+    id: "p3-b1",
+    page: 3,
+    label: "text",
+    text: "经济利润与会计利润",
+    bounds,
+    ocr: true,
+  };
+  adapter.setBlocks([block]);
+  expect(await adapter.search("会计")).toMatchObject([
+    {
+      blockId: block.id,
+      location: { type: "pdf", page: 3, rects: [bounds] },
+    },
+  ]);
+  adapter.setBlocks([]);
+  expect(await adapter.search("会计")).toEqual([]);
 });
 it.each(["+", "="])(
   "zooms the PDF with Cmd %s and consumes the browser shortcut",
