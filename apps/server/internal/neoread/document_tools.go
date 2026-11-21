@@ -57,6 +57,7 @@ type documentAgent struct {
 	historicalEvidence    map[string]documentEvidence
 	mu                    sync.Mutex
 	server                *Server
+	run                   *chatRun
 	corpus                *documentCorpus
 	ctx                   context.Context
 	provider              string
@@ -123,6 +124,9 @@ func (a *documentAgent) resetAttempt(provider string) {
 	a.turnRead = nil
 	a.documentChanged = false
 	a.needsCompaction = false
+	if a.run != nil {
+		a.run.beginReadSources(a.ID, a.corpus)
+	}
 }
 func (a *documentAgent) check(ctx context.Context) error {
 	if a.ctx.Err() != nil {
@@ -187,6 +191,7 @@ func (a *documentAgent) call(ctx context.Context, tool string, args json.RawMess
 		return r, nil
 	}
 	items := []any{}
+	var read []chatReadSourceProof
 	result := map[string]any{"corpusRevision": a.corpus.Revision, "coverage": a.toolCoverage(), "budget": a.readingBudget(), "items": []any{}, "truncated": false}
 	activity := func(message string) error {
 		if a.activity != nil {
@@ -335,6 +340,9 @@ func (a *documentAgent) call(ctx context.Context, tool string, args json.RawMess
 				a.evidenceTokens += estimateDocumentTokens(jsonText(modelDocumentEvidence(ev)))
 				a.Evidence = append(a.Evidence, ev)
 			}
+			if a.run != nil && !a.turnRead[ev.SourceID] {
+				read = append(read, ev.readSourceProof())
+			}
 			if a.turnRead != nil {
 				a.turnRead[ev.SourceID] = true
 			}
@@ -360,8 +368,14 @@ func (a *documentAgent) call(ctx context.Context, tool string, args json.RawMess
 	}
 	result["items"] = items
 	result["budget"] = a.readingBudget()
-	raw, _ := json.Marshal(result)
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
 	a.Traces = append(a.Traces, documentToolTrace{tool, append(json.RawMessage(nil), args...), raw})
+	if len(read) > 0 {
+		a.run.publishReadSources(a.ID, read)
+	}
 	return raw, nil
 }
 

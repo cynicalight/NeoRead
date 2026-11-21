@@ -100,7 +100,7 @@ import {
 import { toast } from "sonner";
 import { DocumentOverviewDialog } from "./DocumentOverview";
 import { ModelSelector } from "./ModelSelector";
-import { SourceReferences } from "./SourceReferences";
+import { LiveSourceReferences, SourceReferences } from "./SourceReferences";
 import { ChatSession } from "./chat/chat-session";
 import { getChatSession } from "./chat/session-registry";
 import { SessionPicker } from "./chat/SessionPicker";
@@ -1666,6 +1666,17 @@ export function Workspace({
                     >
                       {content}
                     </SourceReferences>
+                  )}
+                  renderPendingAnswer={(answer, content) => (
+                    <LiveSourceReferences
+                      documentId={doc.id}
+                      sessionId={session.sessionId}
+                      sources={answer.readSources}
+                      adapter={adapter}
+                      onNavigate={visitReference}
+                    >
+                      {content}
+                    </LiveSourceReferences>
                   )}
                   empty={
                     <div className="chat-empty">

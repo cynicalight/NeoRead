@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { ChatCitationNavigation } from "./chat/citations";
 import { ArrowUpRight, Loader2 } from "lucide-react";
 import type {
@@ -14,6 +20,98 @@ import {
   referenceLabel,
   type ReferenceCard,
 } from "./references";
+import type { LiveReadSources } from "./chat/chat-session";
+
+/**
+ * Citations of an unsaved answer link only to passages its current attempt has
+ * read. Each click asks the server for that passage again and navigates only
+ * when it is still valid and this answer, attempt and panel are still current.
+ */
+export function LiveSourceReferences({
+  documentId,
+  sessionId,
+  sources,
+  adapter,
+  onNavigate,
+  children,
+}: {
+  documentId: string;
+  sessionId?: string;
+  sources?: LiveReadSources;
+  adapter?: ReaderAdapter;
+  onNavigate: (location: DocumentLocation, text: string) => Promise<void>;
+  children: ReactNode;
+}) {
+  const [error, setError] = useState("");
+  const request = useRef<{ serial: number; abort?: AbortController }>({
+    serial: 0,
+  });
+  const runId = sources?.runId,
+    attemptId = sources?.attemptId;
+  useEffect(() => {
+    setError("");
+    const current = request.current;
+    return () => {
+      // Leaving the panel or starting another run/attempt drops late results.
+      current.serial++;
+      current.abort?.abort();
+      current.abort = undefined;
+    };
+  }, [documentId, sessionId, runId, attemptId, adapter]);
+  const latest = useRef({ adapter, onNavigate });
+  latest.current = { adapter, onNavigate };
+  const keys = sources?.keys;
+  const value = useMemo(() => {
+    if (!sessionId || !runId || !attemptId || !keys?.length) return;
+    return {
+      sourceIds: keys,
+      navigate: (source: string) => {
+        const current = request.current;
+        current.abort?.abort();
+        const controller = new AbortController();
+        const serial = ++current.serial;
+        current.abort = controller;
+        const live = () =>
+          serial === current.serial && !controller.signal.aborted;
+        setError("");
+        void (async () => {
+          try {
+            const reference = await api.liveReadSource(
+              documentId,
+              sessionId,
+              runId,
+              attemptId,
+              source,
+              controller.signal,
+            );
+            if (!live()) return;
+            const { adapter, onNavigate } = latest.current;
+            if (!adapter) throw new Error("阅读器尚未就绪，暂时无法跳转。");
+            if (!reference.location)
+              throw new Error("该来源缺少原文位置，无法跳转。");
+            await onNavigate(reference.location, reference.text);
+            if (live())
+              adapter.flashReference?.(reference.location, reference.text);
+          } catch (e) {
+            if (live()) setError((e as Error).message);
+          } finally {
+            if (current.abort === controller) current.abort = undefined;
+          }
+        })();
+      },
+    };
+  }, [documentId, sessionId, runId, attemptId, keys]);
+  return (
+    <ChatCitationNavigation.Provider value={value}>
+      {children}
+      {error && (
+        <p role="alert" className="reference-error">
+          {error}
+        </p>
+      )}
+    </ChatCitationNavigation.Provider>
+  );
+}
 
 export function SourceReferences({
   message,

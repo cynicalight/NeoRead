@@ -890,6 +890,18 @@ export const api = {
       `/api/documents/${id}/chat-sessions/${sessionId}/runs/${runId}/cancel`,
       { method: "POST", signal: AbortSignal.timeout(30_000) },
     ),
+  liveReadSource: (
+    id: string,
+    session: string,
+    run: string,
+    attempt: string,
+    source: string,
+    signal?: AbortSignal,
+  ) =>
+    request<SourceReference>(
+      `/api/documents/${encodeURIComponent(id)}/chat-sessions/${encodeURIComponent(session)}/runs/${encodeURIComponent(run)}/read-sources/${encodeURIComponent(attempt)}/${encodeURIComponent(source)}`,
+      { signal },
+    ),
   validateEvidence: (id: string, message: string, source: string) =>
     request<{ valid: boolean }>(
       `/api/documents/${encodeURIComponent(id)}/messages/${encodeURIComponent(message)}/sources/${encodeURIComponent(source)}`,
