@@ -159,6 +159,64 @@ it("expands a grouped crop to include full subfigure captions", () => {
   expect(blocks[0].bounds.width).toBeCloseTo(0.31);
 });
 
+it("keeps OCR geometry with final asset, caption, contents row and unmatched line assignment", () => {
+  const regions = decodeRegions(
+    [
+      3, 0.9, 15, 5, 40, 20, 0, 7, 0.9, 10, 21, 41, 25, 1, 7, 0.9, 15, 28, 40,
+      32, 2, 4, 0.9, 10, 35, 90, 60, 3,
+    ],
+    100,
+    100,
+  );
+  const span = (text: string, x: number, y: number, width: number) => ({
+    text,
+    bounds: { x, y, width, height: 0.02 },
+  });
+  const subcaption = span("(a) wide subcaption", 0.11, 0.22, 0.29);
+  const caption = span("Figure 1: main", 0.16, 0.29, 0.23);
+  const firstRow = span("Introduction", 0.1, 0.36, 0.2);
+  const firstNumber = span("1", 0.85, 0.36, 0.02);
+  const secondRow = span("System calls", 0.15, 0.5, 0.2);
+  const upperUnassigned = span("Outside every region", 0.6, 0.1, 0.25);
+  const lowerUnassigned = span("Still selectable", 0.15, 0.7, 0.25);
+  const nativeUnassigned = span("Native header", 0.16, 0.01, 0.23);
+  const ocr = [
+    lowerUnassigned,
+    secondRow,
+    firstNumber,
+    subcaption,
+    caption,
+    upperUnassigned,
+    firstRow,
+  ];
+  const spans = [nativeUnassigned, ...ocr];
+  const { blocks, unmatched } = readingRegions(regions, spans, new Set(ocr));
+  const withoutOcr = readingRegions(regions, spans);
+
+  expect(blocks.slice(0, 4).map((block) => block.text)).toEqual(
+    withoutOcr.blocks.map((block) => block.text),
+  );
+  expect(blocks.map((block) => block.ocrLines)).toEqual([
+    [subcaption],
+    [caption],
+    [firstRow, firstNumber],
+    [secondRow],
+    [upperUnassigned],
+    [lowerUnassigned],
+  ]);
+  expect(
+    blocks.slice(4).map(({ label, text, bounds }) => ({ label, text, bounds })),
+  ).toEqual(
+    [upperUnassigned, lowerUnassigned].map((line) => ({
+      label: "text",
+      text: line.text,
+      bounds: line.bounds,
+    })),
+  );
+  expect(unmatched).toBe(nativeUnassigned.text);
+  expect(withoutOcr.blocks.every((block) => !("ocrLines" in block))).toBe(true);
+});
+
 it("keeps the lines and indentation of algorithm blocks", () => {
   const region = (label: string, y: number) => ({
     label,

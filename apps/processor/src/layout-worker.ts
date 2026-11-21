@@ -6,7 +6,7 @@ import { resolve, join, dirname } from "node:path";
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
 import { detectRegions } from "./detect";
-import { readingRegions, isAsset, type Region } from "./layout";
+import { readingRegions, isAsset, type ReadingRegion } from "./layout";
 import { extractTextSpans } from "./text";
 import { digest, model, resolveModel } from "./model";
 import { renderPage } from "./render-page";
@@ -87,12 +87,10 @@ const loading = getDocument({
   standardFontDataUrl: join(assets, "standard_fonts") + "/",
   wasmUrl: join(assets, "wasm") + "/",
 });
-interface Block extends Region {
+interface Block extends ReadingRegion {
   id: string;
   page: number;
-  text: string;
   image?: string;
-  caption?: string;
 }
 const blocks: Block[] = [];
 const warnings: string[] = [];
@@ -151,6 +149,7 @@ async function processPages() {
       continue;
     }
     let recognized = false;
+    let ocrSpans: ReadonlySet<TextSpan> | undefined;
     if (scanned && (engine === "system" || engine === "paddle")) {
       stage("page_ocr", number);
       if (!recognizer) {
@@ -168,9 +167,15 @@ async function processPages() {
           : canvas;
       const lines = await recognizer.recognize(pixels);
       recognized = lines.length > 0;
-      spans = addScanText(spans, lines);
+      const merged = addScanText(spans, lines);
+      spans = merged.spans;
+      ocrSpans = merged.ocrSpans;
     }
-    const { blocks: composed, unmatched } = readingRegions(regions, spans);
+    const { blocks: composed, unmatched } = readingRegions(
+      regions,
+      spans,
+      ocrSpans,
+    );
     const pageBlocks: Block[] = composed.map((region, i) => ({
       ...region,
       ...(recognized && region.text

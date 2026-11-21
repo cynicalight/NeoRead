@@ -5808,16 +5808,18 @@ export interface components {
                 pagesTotal: number;
             };
         };
+        /** @description Rectangle in normalized displayed-page coordinates, measured from the top left. */
+        PDFPageBounds: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
         PDFBlock: {
             id: string;
             page: number;
             label: string;
-            bounds: {
-                x: number;
-                y: number;
-                width: number;
-                height: number;
-            };
+            bounds: components["schemas"]["PDFPageBounds"];
             text: string;
             /** @enum {unknown} */
             kind?: "selection" | "section";
@@ -5825,6 +5827,11 @@ export interface components {
             caption?: string;
             /** @description True if the block includes text recognized by OCR. */
             ocr?: boolean;
+            /** @description OCR-only text lines in reading order. Absent from older parses and native blocks. */
+            ocrLines?: {
+                text: string;
+                bounds: components["schemas"]["PDFPageBounds"];
+            }[];
         };
         AICapability: {
             text: boolean;

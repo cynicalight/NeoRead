@@ -54,20 +54,28 @@ type Processing struct {
 	Warning           string `json:"warning,omitempty"`
 	UpdatedAt         string `json:"updatedAt"`
 }
+type pdfPageBounds struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+type pdfOCRLine struct {
+	Text   string        `json:"text"`
+	Bounds pdfPageBounds `json:"bounds"`
+}
+
 type PDFBlock struct {
-	ID     string `json:"id"`
-	Page   int    `json:"page"`
-	Label  string `json:"label"`
-	Bounds struct {
-		X      float64 `json:"x"`
-		Y      float64 `json:"y"`
-		Width  float64 `json:"width"`
-		Height float64 `json:"height"`
-	} `json:"bounds"`
-	Text    string `json:"text"`
-	Image   string `json:"image,omitempty"`
-	Caption string `json:"caption,omitempty"`
-	OCR     bool   `json:"ocr,omitempty"`
+	ID       string        `json:"id"`
+	Page     int           `json:"page"`
+	Label    string        `json:"label"`
+	Bounds   pdfPageBounds `json:"bounds"`
+	Text     string        `json:"text"`
+	Image    string        `json:"image,omitempty"`
+	Caption  string        `json:"caption,omitempty"`
+	OCR      bool          `json:"ocr,omitempty"`
+	OCRLines []pdfOCRLine  `json:"ocrLines,omitempty"`
 }
 type layoutManifest struct {
 	// PDF document information (Title, Author, …) as read by PDF.js.

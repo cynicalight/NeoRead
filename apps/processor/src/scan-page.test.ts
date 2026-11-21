@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { addScanText, hasScanImage, missingScanText } from "./scan-page";
-import type { Region } from "./layout";
+import { readingRegions, type Region } from "./layout";
 
 const paragraph: Region = {
   label: "text",
@@ -22,7 +22,40 @@ it("considers scanned prose even with a selectable footer, but not a photograph 
   expect(missingScanText([{ ...paragraph, label: "image" }], [])).toBe(false);
   expect(missingScanText([], [])).toBe(false);
   expect(missingScanText([paragraph], [{ ...line, text: "供" }])).toBe(false);
-  expect(addScanText([number], [line, number])).toEqual([number, line]);
+});
+
+it("keeps OCR prose even if a native token overlaps, and suppresses whole native lines", () => {
+  const nativeToken = {
+    text: "供给",
+    bounds: { ...line.bounds, width: 0.1 },
+  };
+  const headerLeft = {
+    text: "Book",
+    bounds: { x: 0.2, y: 0.04, width: 0.1, height: 0.02 },
+  };
+  const headerRight = {
+    text: "Title",
+    bounds: { x: 0.33, y: 0.04, width: 0.1, height: 0.02 },
+  };
+  const header = {
+    text: "Book Title",
+    bounds: { ...headerLeft.bounds, width: 0.25 },
+  };
+  const bodyNumber = { ...number, bounds: { ...number.bounds, y: 0.3 } };
+  const footer = { ...paragraph, label: "footer", bounds: number.bounds };
+  const { spans, ocrSpans } = addScanText(
+    [headerRight, nativeToken, number, headerLeft],
+    [bodyNumber, header, line, { ...number }],
+  );
+  const { blocks, unmatched } = readingRegions(
+    [paragraph, footer],
+    spans,
+    ocrSpans,
+  );
+  expect(blocks[0].ocrLines).toEqual([line, bodyNumber]);
+  expect(blocks[1]).toMatchObject({ text: number.text });
+  expect(blocks[1]).not.toHaveProperty("ocrLines");
+  expect(unmatched).toBe(header.text);
 });
 
 it("distinguishes a full-page image in a rotated form from a small logo", () => {

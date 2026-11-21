@@ -71,25 +71,44 @@ export function hasScanImage(
   return false;
 }
 
-// OCR sometimes repeats a selectable page number/header. Preserve that
-// original text and its geometry rather than indexing the same line twice.
+// Match an entire OCR line, not a substring: a selectable page number or
+// fragment can overlap a longer scanned line whose remaining prose is needed.
 export function addScanText(native: TextSpan[], ocr: TextSpan[]) {
-  if (!native.length) return ocr;
-  return native.concat(
-    ocr.filter(
-      (o) =>
-        !native.some((n) => {
-          const overlap = intersection(n.bounds, o.bounds);
-          return (
-            overlap >
-              0.5 *
-                Math.min(
-                  n.bounds.width * n.bounds.height,
-                  o.bounds.width * o.bounds.height,
-                ) &&
-            o.text.replace(/\s/g, "").includes(n.text.replace(/\s/g, ""))
-          );
-        }),
-    ),
-  );
+  if (!ocr.length) return { spans: native, ocrSpans: undefined };
+  if (!native.length) return { spans: ocr, ocrSpans: new Set(ocr) };
+
+  const nativeLines = native
+    .map((span) => ({
+      bounds: span.bounds,
+      text: span.text.normalize("NFKC").replace(/\s/g, ""),
+      area: span.bounds.width * span.bounds.height,
+    }))
+    .sort((a, b) => a.bounds.x - b.bounds.x);
+  const ocrSpans = new Set<TextSpan>();
+  let spans = native;
+  for (const line of ocr) {
+    const text = line.text.normalize("NFKC").replace(/\s/g, "");
+    if (!text) continue;
+    const area = line.bounds.width * line.bounds.height;
+    let joined = "";
+    let duplicate = false;
+    for (const span of nativeLines) {
+      if (span.bounds.x >= line.bounds.x + line.bounds.width) break;
+      if (
+        intersection(span.bounds, line.bounds) <= 0.5 * Math.min(span.area, area)
+      )
+        continue;
+      // PDF.js may split the native header across multiple text items.
+      if (span.text === text) {
+        duplicate = true;
+        break;
+      }
+      joined += span.text;
+    }
+    if (duplicate || joined === text) continue;
+    if (!ocrSpans.size) spans = native.slice();
+    spans.push(line);
+    ocrSpans.add(line);
+  }
+  return { spans, ocrSpans: ocrSpans.size ? ocrSpans : undefined };
 }

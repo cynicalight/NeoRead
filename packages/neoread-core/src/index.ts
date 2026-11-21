@@ -761,6 +761,8 @@ export interface PDFBlock {
   text: string;
   /** This page has text recognized from its scanned image. */
   ocr?: boolean;
+  /** Recognized lines in reading order; bounds are relative to the displayed page. */
+  ocrLines?: { text: string; bounds: PDFBlock["bounds"] }[];
   image?: string;
   caption?: string;
 }

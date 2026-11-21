@@ -7190,6 +7190,19 @@
                   "updatedAt",
                 ],
             },
+          "PDFPageBounds":
+            {
+              "type": "object",
+              "description": "Rectangle in normalized displayed-page coordinates, measured from the top left.",
+              "properties":
+                {
+                  "x": { "type": "number" },
+                  "y": { "type": "number" },
+                  "width": { "type": "number" },
+                  "height": { "type": "number" },
+                },
+              "required": ["x", "y", "width", "height"],
+            },
           "PDFBlock":
             {
               "type": "object",
@@ -7198,23 +7211,27 @@
                   "id": { "type": "string" },
                   "page": { "type": "integer" },
                   "label": { "type": "string" },
-                  "bounds":
-                    {
-                      "type": "object",
-                      "properties":
-                        {
-                          "x": { "type": "number" },
-                          "y": { "type": "number" },
-                          "width": { "type": "number" },
-                          "height": { "type": "number" },
-                        },
-                      "required": ["x", "y", "width", "height"],
-                    },
+                  "bounds": { "$ref": "#/components/schemas/PDFPageBounds" },
                   "text": { "type": "string" },
                   "kind": { "enum": ["selection", "section"] },
                   "image": { "type": "string" },
                   "caption": { "type": "string" },
                   "ocr": { "type": "boolean", "description": "True if the block includes text recognized by OCR." },
+                  "ocrLines":
+                    {
+                      "type": "array",
+                      "description": "OCR-only text lines in reading order. Absent from older parses and native blocks.",
+                      "items":
+                        {
+                          "type": "object",
+                          "required": ["text", "bounds"],
+                          "properties":
+                            {
+                              "text": { "type": "string" },
+                              "bounds": { "$ref": "#/components/schemas/PDFPageBounds" },
+                            },
+                        },
+                    },
                 },
               "required": ["id", "page", "label", "bounds", "text"],
             },
