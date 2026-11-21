@@ -119,6 +119,7 @@ export function DetailSheet({
         initialFocus={false}
         finalFocus={false}
         aria-label={label}
+        data-neoread-library-detail=""
         className="detail-sheet"
         style={
           current

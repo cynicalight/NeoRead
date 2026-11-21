@@ -174,6 +174,7 @@ export function App() {
   const [nav, setNav] = useState(true);
   useShortcut("libraryLeft", () => setNav((value) => !value), !active);
   useShortcut("search", () => setCommand(true), !active);
+  useShortcut("settings", () => setSettings(true), !settings);
   const fileRef = useRef<HTMLInputElement>(null);
   const fileFolderRef = useRef("");
   useEffect(() => {

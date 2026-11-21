@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
+import { DetailSheet } from "../DetailSheet";
 import { GuideDialog } from "../guide/GuideDialog";
 import { ShortcutPanel } from "./ShortcutPanel";
 import {
@@ -319,6 +320,75 @@ it("forwards library function keys from EPUB frames and blocks them in dialogs",
   expect(fire().defaultPrevented).toBe(false);
   dialog.remove();
   expect(run).toHaveBeenCalledTimes(1);
+});
+
+it("switches either library from its non-modal detail sheet, but not from a modal", async () => {
+  const switchLibrary = vi.fn();
+  function Harness({ label, modal }: { label: string; modal?: boolean }) {
+    useShortcut("primaryLibrary", () => switchLibrary("primary"));
+    useShortcut("secondaryLibrary", () => switchLibrary("secondary"));
+    return (
+      <>
+        <DetailSheet
+          open
+          label={label}
+          container={host}
+          onClose={() => {}}
+          saveWidth={() => {}}
+        >
+          <input aria-label="标题" />
+        </DetailSheet>
+        {modal && <div role="dialog" />}
+      </>
+    );
+  }
+  for (const [label, key, library] of [
+    ["图书详情", "F1", "primary"],
+    ["论文详情", "F2", "secondary"],
+  ]) {
+    await act(async () => root.render(<Harness label={label} />));
+    const input = host.querySelector<HTMLInputElement>(
+      `[aria-label="${label}"] input`,
+    )!;
+    input.focus();
+    const fire = () =>
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+      );
+    expect(fire()).toBe(false);
+    expect(switchLibrary).toHaveBeenLastCalledWith(library);
+    switchLibrary.mockClear();
+    await act(async () => root.render(<Harness label={label} modal />));
+    expect(fire()).toBe(true);
+    expect(switchLibrary).not.toHaveBeenCalled();
+  }
+});
+
+it("opens settings with Cmd or Ctrl plus comma, including from the reader frame", async () => {
+  const openSettings = vi.fn();
+  function Harness() {
+    useShortcut("settings", openSettings);
+    return null;
+  }
+  await act(async () => root.render(<Harness />));
+  const platform = vi.spyOn(navigator, "platform", "get");
+  for (const [name, modifier] of [
+    ["MacIntel", "metaKey"],
+    ["Win32", "ctrlKey"],
+  ]) {
+    platform.mockReturnValue(name);
+    const init = { key: ",", [modifier]: true, cancelable: true };
+    const shifted = new KeyboardEvent("keydown", { ...init, shiftKey: true });
+    expect(window.dispatchEvent(shifted)).toBe(true);
+    const key = new KeyboardEvent("keydown", init);
+    expect(window.dispatchEvent(key)).toBe(false);
+    const frameKey = new KeyboardEvent("keydown", { ...init, code: "Comma" });
+    forwardReaderShortcut(frameKey);
+    expect(frameKey.defaultPrevented).toBe(true);
+  }
+  expect(openSettings).toHaveBeenCalledTimes(4);
+  expect(normalizeBindings({ settings: { key: ",", shift: true } }).settings)
+    .toEqual({ key: ",", shift: true });
 });
 
 it("matches the return shortcut by the physical left bracket key", () => {
