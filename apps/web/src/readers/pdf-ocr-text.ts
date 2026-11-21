@@ -1,0 +1,154 @@
+import type { PDFBlock } from "@neoread/core";
+
+type Line = NonNullable<PDFBlock["ocrLines"]>[number];
+/** The unrotated page size in PDF points, as PDF.js lays out a text layer. */
+export interface PDFPageSize {
+  width: number;
+  height: number;
+}
+
+const fontFamily = "sans-serif";
+let measure: CanvasRenderingContext2D | null = null;
+/** Advance width per unit of font size. */
+function textWidth(text: string) {
+  measure ??= document.createElement("canvas").getContext("2d");
+  if (!measure) return 0;
+  measure.font = `100px ${fontFamily}`;
+  return measure.measureText(text).width / 100;
+}
+
+/**
+ * Converts a rectangle on the displayed page into the text layer's unrotated
+ * frame. PDF.js rotates the whole layer with `data-main-rotation`; each line
+ * turns back by the same angle so it reads horizontally on screen again.
+ */
+function place(bounds: Line["bounds"], rotation: number, page: PDFPageSize) {
+  const turned = rotation % 180 !== 0;
+  const [left, top] =
+    rotation === 90
+      ? [bounds.y, 1 - bounds.x]
+      : rotation === 180
+        ? [1 - bounds.x, 1 - bounds.y]
+        : rotation === 270
+          ? [1 - bounds.y, bounds.x]
+          : [bounds.x, bounds.y];
+  return {
+    left,
+    top,
+    width: bounds.width * (turned ? page.height : page.width),
+    height: bounds.height * (turned ? page.width : page.height),
+  };
+}
+
+/**
+ * Adds recognized scan lines to PDF.js's own text layer as transparent spans,
+ * so selection, copying and highlights treat them like native PDF text. Each
+ * span covers its recognized line box at every zoom level: the size uses the
+ * same CSS variables as PDF.js text, and the text is stretched to the box width.
+ */
+export class PDFOCRText {
+  private pages = new Map<number, Line[]>();
+  private painted = new WeakMap<
+    HTMLElement,
+    { lines: Line[]; rotation: number } & PDFPageSize
+  >();
+  constructor(
+    private host: HTMLElement,
+    private pageSize: (page: number) => PDFPageSize | undefined,
+  ) {}
+  setBlocks(blocks: PDFBlock[]) {
+    // DOM order is selection order: follow parsed reading order, keeping each
+    // block's lines together instead of interleaving columns by height.
+    const pages = new Map<number, Line[]>();
+    for (const block of blocks) {
+      for (const line of block.ocrLines ?? []) {
+        const { width, height } = line.bounds;
+        if (!line.text.trim() || !(width > 0) || !(height > 0)) continue;
+        const page = pages.get(block.page) ?? [];
+        page.push(line);
+        pages.set(block.page, page);
+      }
+    }
+    // A refetch of the same parse keeps each page's list, so its spans and any
+    // live selection on them survive.
+    for (const [page, lines] of pages) {
+      const previous = this.pages.get(page);
+      if (
+        previous?.length === lines.length &&
+        previous.every(
+          (line, i) =>
+            line.text === lines[i].text &&
+            line.bounds.x === lines[i].bounds.x &&
+            line.bounds.y === lines[i].bounds.y &&
+            line.bounds.width === lines[i].bounds.width &&
+            line.bounds.height === lines[i].bounds.height,
+        )
+      )
+        pages.set(page, previous);
+    }
+    if (!pages.size && !this.pages.size) return;
+    this.pages = pages;
+    for (const layer of this.host.querySelectorAll<HTMLElement>(
+      ".page[data-page-number] .textLayer",
+    ))
+      this.paintLayer(layer);
+  }
+  /** Called when PDF.js has rendered or rescaled one page's text layer. */
+  paint(page: number) {
+    // A page without lines has nothing to add; removals happen in setBlocks.
+    if (!this.pages.has(page)) return;
+    const layer = this.host.querySelector<HTMLElement>(
+      `.page[data-page-number="${page}"] .textLayer`,
+    );
+    if (layer) this.paintLayer(layer);
+  }
+  private paintLayer(layer: HTMLElement) {
+    // PDF.js appends this marker once its own text is in place.
+    const end = layer.querySelector(".endOfContent");
+    if (!end) return;
+    const page = Number(layer.closest<HTMLElement>(".page")!.dataset.pageNumber);
+    const lines = this.pages.get(page);
+    const size = lines && this.pageSize(page);
+    const rotation =
+      (((Number(layer.dataset.mainRotation) || 0) % 360) + 360) % 360;
+    const previous = this.painted.get(layer);
+    if (
+      size &&
+      previous?.lines === lines &&
+      previous.rotation === rotation &&
+      previous.width === size.width &&
+      previous.height === size.height &&
+      layer.querySelector("[data-ocr-line]")
+    )
+      return;
+    for (const old of layer.querySelectorAll("[data-ocr-line]")) old.remove();
+    if (!size || !lines) {
+      this.painted.delete(layer);
+      return;
+    }
+    this.painted.set(layer, { lines, rotation, ...size });
+    const fragment = document.createDocumentFragment();
+    for (const line of lines) {
+      const box = place(line.bounds, rotation, size);
+      const span = document.createElement("span");
+      span.dataset.ocrLine = "";
+      span.setAttribute("role", "presentation");
+      span.textContent = line.text;
+      span.style.left = `${box.left * 100}%`;
+      span.style.top = `${box.top * 100}%`;
+      span.style.fontFamily = fontFamily;
+      span.style.setProperty("--font-height", `${box.height}px`);
+      const natural = textWidth(line.text) * box.height;
+      if (natural > 0)
+        span.style.setProperty("--scale-x", `${box.width / natural}`);
+      if (rotation) span.style.setProperty("--rotate", `${-rotation}deg`);
+      // Like PDF.js line ends: copied text and sentence selection break here.
+      const br = document.createElement("br");
+      br.dataset.ocrLine = "";
+      br.setAttribute("role", "presentation");
+      fragment.append(span, br);
+    }
+    // Selection may temporarily move the marker; otherwise keep it last.
+    layer.insertBefore(fragment, end.parentElement === layer ? end : null);
+  }
+}

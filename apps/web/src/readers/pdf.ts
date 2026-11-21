@@ -12,6 +12,7 @@ import { PDFViewport } from "./pdf-viewport";
 import { PDFLocationHighlight } from "./pdf-location-highlight";
 import { PDFAnnotationLayer } from "./pdf-annotations";
 import { PDFLinkPreview } from "./pdf-link-preview";
+import { PDFOCRText } from "./pdf-ocr-text";
 import * as pdfjs from "pdfjs-dist";
 import {
   EventBus,
@@ -111,6 +112,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   private pointer?: { x: number; y: number };
   private theme: ReaderTheme = defaultTheme;
   private figureLinks: PDFFigureLinks;
+  private ocrText: PDFOCRText;
   constructor(
     private container: HTMLElement,
     private events: ReaderEvents,
@@ -174,6 +176,12 @@ export class PDFReaderAdapter implements ReaderAdapter {
     });
     this.links.setViewer(this.viewer);
     this.viewport = new PDFViewport(container, this.viewer);
+    this.ocrText = new PDFOCRText(container, (page) => {
+      const dims = this.viewer.getPageView(page - 1)?.viewport?.rawDims as
+        | { pageWidth: number; pageHeight: number }
+        | undefined;
+      return dims && { width: dims.pageWidth, height: dims.pageHeight };
+    });
     this.bus.on("scalechanging", () => {
       if (!this.disposed && !this.resizingViewport)
         this.viewport.scaleChanged();
@@ -216,7 +224,9 @@ export class PDFReaderAdapter implements ReaderAdapter {
         this.blocks.repaint();
       },
     );
-    this.bus.on("textlayerrendered", () => {
+    this.bus.on("textlayerrendered", (event?: { pageNumber?: number }) => {
+      // Scan lines join the text layer before anything searches its text.
+      if (event?.pageNumber) this.ocrText.paint(event.pageNumber);
       this.navigation.repaint();
       this.figureLinks.repaint();
       this.locationHighlight.paint();
@@ -650,6 +660,7 @@ export class PDFReaderAdapter implements ReaderAdapter {
   setBlocks(blocks: PDFBlock[]) {
     this.blockData = blocks;
     this.blocks.setBlocks(blocks);
+    this.ocrText.setBlocks(blocks);
     this.figureLinks.repaint();
   }
   async focusReference(location: DocumentLocation, text: string) {
