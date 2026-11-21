@@ -7,9 +7,11 @@ import { api, type PaperRefreshProgress } from "@neoread/api";
 import { toast } from "sonner";
 import { Settings } from "./Settings";
 import { useReaderStore } from "./store";
+import { readEmptyOCRStatus } from "./ocr-test-fixture";
 
 vi.mock("@neoread/api", () => ({
   api: {
+    ocr: () => readEmptyOCRStatus(),
     connectorStatus: vi.fn(async () => ({ available: true })),
     paperRefreshStatus: vi.fn(async () => ({
       status: "idle",

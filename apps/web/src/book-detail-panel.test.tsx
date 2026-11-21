@@ -7,10 +7,12 @@ import { api } from "@neoread/api";
 import { defaultTheme } from "@neoread/core";
 import { App } from "./App";
 import { useReaderStore } from "./store";
+import { readEmptyOCRStatus } from "./ocr-test-fixture";
 
 vi.mock("@neoread/api", () => ({
   RequestError: class extends Error {},
   api: {
+    ocr: () => readEmptyOCRStatus(),
     documents: vi.fn(),
     libraryPreferences: vi
       .fn()
