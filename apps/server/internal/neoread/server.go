@@ -76,6 +76,7 @@ type Server struct {
 	modelCache             map[string]modelCatalogEntry
 	modelLoads             map[string]*modelCatalogLoad
 	paperRefresh           paperRefreshState
+	paperTitleBackfill      atomic.Bool
 	scholarMu              sync.Mutex
 	scholar                *scholar.Client
 	journalRankMu          sync.Mutex
@@ -173,6 +174,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{id}/note-images", s.uploadNoteImage)
 	mux.HandleFunc("GET /api/note-images/{name}", s.downloadNoteImage)
 	mux.HandleFunc("POST /api/documents/{id}/metadata/lookup", s.lookupMetadata)
+	mux.HandleFunc("POST /api/libraries/papers/title-translations", s.backfillPaperTitles)
 	mux.HandleFunc("GET /api/processing", s.processingList)
 	mux.HandleFunc("POST /api/translate-selection", s.translateSelection)
 	mux.HandleFunc("GET /api/overviews", s.listOverviewStatuses)

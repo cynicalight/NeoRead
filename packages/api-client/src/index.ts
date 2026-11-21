@@ -984,6 +984,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(to === undefined ? { from } : { from, to }),
     }),
+  backfillPaperTitles: () =>
+    request<{ translated: number; failed: number }>(
+      "/api/libraries/papers/title-translations",
+      { method: "POST" },
+    ),
   libraryPreferences: () =>
     request<LibraryPreferences>("/api/preferences/library"),
   saveLibraryPreferences: (preferences: LibraryPreferences) =>
