@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,11 +16,14 @@ import (
 
 func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 	piTestRuntime(t)
-	s, _ := prepareConversationFixture(t)
+	s, a := prepareConversationFixture(t)
+	read := a.passageEvidence(0)
 	var models, searches atomic.Int32
 	var available atomic.Bool
 	resumedModel := make(chan struct{}, 1)
 	releaseResumed := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseResumed) }) }
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if continueTestModels(w, r) {
 			return
@@ -31,12 +36,22 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 			return
 		}
 		n := models.Add(1)
-		if n == 1 {
+		switch n {
+		case 1:
+			writeToolReply(w, "read_passage", jsonText(map[string]string{"blockId": read.BlockID}))
+			return
+		case 2:
+			if !strings.Contains(string(raw), read.BlockID) || !strings.Contains(string(raw), read.Text) {
+				t.Error("successful document read was not sent to the model")
+			}
 			writeToolReply(w, "web_search", `{"query":"public evidence"}`)
 			return
 		}
 		if !strings.Contains(string(raw), "SAVED TOOL RESULT") {
 			t.Error("successful tool result lost")
+		}
+		if !strings.Contains(string(raw), read.Text) {
+			t.Error("successful document read lost from the checkpoint")
 		}
 		if !available.Load() {
 			w.WriteHeader(502)
@@ -52,16 +67,17 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 		case <-r.Context().Done():
 			return
 		}
-		writeAPIReply(w, "依据[来源](https://example.org/saved)回答。")
+		writeAPIReply(w, "依据原文 ["+read.SourceID+"] 和[来源](https://example.org/saved)回答。")
 	}))
 	defer upstream.Close()
+	defer release()
 	config := configureContinueTestAPI(t, s, upstream.URL)
 	response := request(t, s, "POST", "/api/documents/doc/chat-sessions", strings.NewReader(`{"provider":"api"}`))
 	var chatSession ChatSession
 	if response.Code != 201 || json.Unmarshal(response.Body.Bytes(), &chatSession) != nil {
 		t.Fatal(response.Code, response.Body.String())
 	}
-	response = request(t, s, "POST", "/api/documents/doc/chat-sessions/"+chatSession.ID+"/chat", strings.NewReader(`{"provider":"api","prompt":"QUESTION-ONCE","context":"Original","webSearch":true}`))
+	response = request(t, s, "POST", "/api/documents/doc/chat-sessions/"+chatSession.ID+"/chat", strings.NewReader(`{"provider":"api","prompt":"QUESTION-ONCE","context":"","webSearch":true}`))
 	var run ChatRun
 	if response.Code != 202 || json.Unmarshal(response.Body.Bytes(), &run) != nil {
 		t.Fatal(response.Code, response.Body.String())
@@ -70,8 +86,33 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 	if failed.Status != "failed" || !failed.Resumable || failed.Checkpoint == nil || !failed.Checkpoint.CanContinue || searches.Load() != 1 {
 		t.Fatalf("failed=%+v models=%d searches=%d", failed.ChatRun, models.Load(), searches.Load())
 	}
-	if failed.Checkpoint.RunID != run.ID || !strings.Contains(string(failed.Checkpoint.Entries), "SAVED TOOL RESULT") {
+	if failed.Checkpoint.RunID != run.ID || !strings.Contains(string(failed.Checkpoint.Entries), "SAVED TOOL RESULT") || !failed.Checkpoint.TurnRead[read.SourceID] {
 		t.Fatal("durable tools/run identity missing")
+	}
+	var previousAttempt string
+	for _, event := range failed.Events {
+		if event.Event != "read_sources" {
+			continue
+		}
+		var frame chatReadSourcesEvent
+		if err := json.Unmarshal(event.Data, &frame); err != nil {
+			t.Fatal(err)
+		}
+		if len(frame.Keys) > 0 {
+			if frame.RunID != run.ID || frame.AttemptID == "" || !slices.Contains(frame.Keys, read.SourceID) || !slices.Contains(frame.Keys, read.BlockID) {
+				t.Fatalf("invalid checkpoint read frame: %+v", frame)
+			}
+			previousAttempt = frame.AttemptID
+		}
+	}
+	if previousAttempt == "" {
+		t.Fatal("failed attempt never published its document read")
+	}
+	runPath := "/api/documents/doc/chat-sessions/" + chatSession.ID + "/runs/" + run.ID
+	lookup := runPath + "/read-sources/"
+	oldSource := lookup + previousAttempt + "/" + read.SourceID
+	if out := request(t, s, "GET", oldSource, nil); out.Code != http.StatusNotFound {
+		t.Fatalf("failed attempt still accessible: %d %s", out.Code, out.Body.String())
 	}
 	history, _ := s.Store.chatHistory("doc", chatSession.ID)
 	if len(history) != 1 {
@@ -92,11 +133,11 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 	if err != nil || latest.Status != "interrupted" || !latest.Resumable {
 		t.Fatalf("restart lost continuation: %+v %v", latest, err)
 	}
-	replay := request(t, s, "GET", "/api/documents/doc/chat-sessions/"+chatSession.ID+"/runs/"+run.ID+"/events", nil)
+	replay := request(t, s, "GET", runPath+"/events", nil)
 	if !strings.Contains(replay.Body.String(), "event: error") {
 		t.Fatal("interrupted checkpoint replay lacks terminal event")
 	}
-	endpoint := "/api/documents/doc/chat-sessions/" + chatSession.ID + "/runs/" + run.ID + "/continue"
+	endpoint := runPath + "/continue"
 	originalUser := history[0]
 	altered := originalUser
 	altered.Content = "altered question"
@@ -149,7 +190,7 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 	}
 	beforeModels := models.Load()
 	available.Store(true)
-	response = request(t, s, "POST", "/api/documents/doc/chat-sessions/"+chatSession.ID+"/runs/"+run.ID+"/continue", nil)
+	response = request(t, s, "POST", endpoint, nil)
 	var continued ChatRun
 	if response.Code != 202 || json.Unmarshal(response.Body.Bytes(), &continued) != nil || continued.ID != run.ID {
 		t.Fatal(response.Code, response.Body.String())
@@ -162,16 +203,48 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 	if out := request(t, s, "POST", endpoint, nil); out.Code != 409 {
 		t.Fatalf("concurrent continue accepted: %d", out.Code)
 	}
-	close(releaseResumed)
+	if out := request(t, s, "GET", oldSource, nil); out.Code != http.StatusNotFound {
+		t.Fatalf("continuation reactivated the failed attempt: %d %s", out.Code, out.Body.String())
+	}
+	s.chatMu.Lock()
+	active := s.chatRuns[chatSession.ID]
+	s.chatMu.Unlock()
+	if active == nil {
+		t.Fatal("continuation is not active")
+	}
+	active.mu.Lock()
+	var resumedAttempt string
+	if active.readSources != nil {
+		resumedAttempt = active.readSources.scope.AttemptID
+	}
+	active.mu.Unlock()
+	if resumedAttempt == "" || resumedAttempt == previousAttempt {
+		t.Fatalf("continuation did not start with a fresh attempt: %q", resumedAttempt)
+	}
+	for _, key := range []string{read.SourceID, read.BlockID} {
+		if out := request(t, s, "GET", lookup+resumedAttempt+"/"+key, nil); out.Code != http.StatusOK {
+			t.Fatalf("checkpoint read not restored before completion: %d %s", out.Code, out.Body.String())
+		}
+	}
+	release()
 	done := awaitRunTest(t, s, continued)
 	if done.Status != "completed" || done.Resumable || searches.Load() != 1 || models.Load() != beforeModels+1 {
 		t.Fatalf("done=%+v models=%d searches=%d", done.ChatRun, models.Load(), searches.Load())
 	}
+	if done.ReadSourceScope == nil || done.ReadSourceScope.AttemptID != resumedAttempt {
+		t.Fatalf("continuation did not settle the restored attempt: %+v", done.ReadSourceScope)
+	}
+	if out := request(t, s, "GET", lookup+resumedAttempt+"/"+read.SourceID, nil); out.Code != http.StatusOK {
+		t.Fatalf("settled checkpoint read no longer accessible: %d %s", out.Code, out.Body.String())
+	}
+	if out := request(t, s, "GET", oldSource, nil); out.Code != http.StatusNotFound {
+		t.Fatalf("settled continuation reactivated the failed attempt: %d %s", out.Code, out.Body.String())
+	}
 	history, _ = s.Store.chatHistory("doc", chatSession.ID)
-	if len(history) != 2 || history[0].ID != run.UserMessageID || len(history[1].Tools) != 1 || len(history[1].WebSources) != 1 {
+	if len(history) != 2 || history[0].ID != run.UserMessageID || len(history[1].Tools) != 2 || history[1].Tools[0].Tool != "read_passage" || history[1].Tools[1].Tool != "web_search" || len(history[1].WebSources) != 1 {
 		t.Fatalf("saved history lost checkpoint or duplicated user: %+v", history)
 	}
-	response = request(t, s, "POST", "/api/documents/doc/chat-sessions/"+chatSession.ID+"/runs/"+run.ID+"/continue", nil)
+	response = request(t, s, "POST", endpoint, nil)
 	if response.Code != 409 {
 		t.Fatal("completed run continued", response.Code)
 	}

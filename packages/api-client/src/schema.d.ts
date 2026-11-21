@@ -5256,6 +5256,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{id}/chat-sessions/{session}/runs/{run}/read-sources/{attempt}/{source}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve a paragraph actually read by this run and attempt against the current document revision */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    session: string;
+                    run: string;
+                    attempt: string;
+                    source: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Verified original text and native reading position */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            sourceId?: string;
+                            blockId?: string;
+                            text: string;
+                            /** @enum {string} */
+                            kind?: "section";
+                            location: components["schemas"]["DocumentLocation"];
+                            contentHash?: string;
+                            corpusRevision?: string;
+                        };
+                    };
+                };
+                /** @description Unknown, superseded or stale source */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{id}/chat-sessions/{session}/runs/{run}/events": {
         parameters: {
             query?: never;
@@ -5700,6 +5760,14 @@ export interface components {
         };
         /** @description Decoded SSE event union for documentation and generated types only. Wire uses event: NAME and data: JSON lines; no envelope is transmitted. Append delta text verbatim. Only done confirms successful persistence. EOF is not completion. After error/done ignore late data. No automatic POST replay. */
         ChatStreamEvent: {
+            /** @constant */
+            event: "read_sources";
+            data: {
+                runId: string;
+                attemptId: string;
+                keys: string[];
+            };
+        } | {
             /** @constant */
             event: "reasoning";
             data: {

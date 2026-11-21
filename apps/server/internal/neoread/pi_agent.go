@@ -361,6 +361,8 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 			}
 		} else {
 			a.Mode = "retrieval"
+		}
+		if !req.Tools && in.Chat.piResume == nil {
 			if in.Chat.CurrentText == "" {
 				if selector := readingLocationSelector(in.Chat.ReadingLocation); len(selector) > 0 {
 					if _, err = a.call(ctx, "read_passage", selector); err != nil {
@@ -439,6 +441,17 @@ func streamPiChat(ctx context.Context, c APIConnection, req completionRequest, i
 		}
 		if cp := in.Chat.piResume; cp != nil && checkpointFingerprint != cp.DocumentFingerprint {
 			return GenerateResult{}, generationError(ErrorProtocol, "文档内容已改变，无法继续")
+		}
+	}
+	if cp := in.Chat.piResume; cp != nil && a != nil && a.run != nil {
+		var reads []chatReadSourceProof
+		for _, ev := range cp.Evidence {
+			if cp.TurnRead[ev.SourceID] && ev.PageImage == nil && ev.Revision == a.corpus.Revision {
+				reads = append(reads, ev.readSourceProof())
+			}
+		}
+		if len(reads) > 0 {
+			a.run.publishReadSources(a.ID, reads)
 		}
 	}
 	workerCanContinue := false

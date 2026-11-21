@@ -5904,6 +5904,40 @@
           }
         }
       },
+      "/api/documents/{id}/chat-sessions/{session}/runs/{run}/read-sources/{attempt}/{source}": {
+        "get": {
+          "summary": "Resolve a paragraph actually read by this run and attempt against the current document revision",
+          "parameters": [
+            { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } },
+            { "in": "path", "name": "session", "required": true, "schema": { "type": "string" } },
+            { "in": "path", "name": "run", "required": true, "schema": { "type": "string" } },
+            { "in": "path", "name": "attempt", "required": true, "schema": { "type": "string" } },
+            { "in": "path", "name": "source", "required": true, "schema": { "type": "string" } }
+          ],
+          "responses": {
+            "200": {
+              "description": "Verified original text and native reading position",
+              "content": { "application/json": { "schema": {
+                "type": "object",
+                "required": ["text", "location"],
+                "properties": {
+                  "sourceId": { "type": "string" },
+                  "blockId": { "type": "string" },
+                  "text": { "type": "string" },
+                  "kind": { "type": "string", "enum": ["section"] },
+                  "location": { "$ref": "#/components/schemas/DocumentLocation" },
+                  "contentHash": { "type": "string" },
+                  "corpusRevision": { "type": "string" }
+                }
+              } } }
+            },
+            "default": {
+              "description": "Unknown, superseded or stale source",
+              "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+            }
+          }
+        }
+      },
       "/api/documents/{id}/chat-sessions/{session}/runs/{run}/events":
         {
           "get":
@@ -6907,6 +6941,22 @@
               "description": "Decoded SSE event union for documentation and generated types only. Wire uses event: NAME and data: JSON lines; no envelope is transmitted. Append delta text verbatim. Only done confirms successful persistence. EOF is not completion. After error/done ignore late data. No automatic POST replay.",
               "oneOf":
                 [
+                  {
+                    "type": "object",
+                    "required": ["event", "data"],
+                    "properties": {
+                      "event": { "const": "read_sources" },
+                      "data": {
+                        "type": "object",
+                        "required": ["runId", "attemptId", "keys"],
+                        "properties": {
+                          "runId": { "type": "string" },
+                          "attemptId": { "type": "string" },
+                          "keys": { "type": "array", "items": { "type": "string" } }
+                        }
+                      }
+                    }
+                  },
                   {
                     "type": "object",
                     "required": ["event", "data"],

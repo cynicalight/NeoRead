@@ -29,20 +29,23 @@ type chatRunEvent struct {
 }
 type chatRunRecord struct {
 	ChatRun
-	Events     []chatRunEvent `json:"events"`
-	Checkpoint *piCheckpoint  `json:"piCheckpoint,omitempty"`
-	Input      *chatRunInput  `json:"input,omitempty"`
+	Events          []chatRunEvent       `json:"events"`
+	Checkpoint      *piCheckpoint        `json:"piCheckpoint,omitempty"`
+	Input           *chatRunInput        `json:"input,omitempty"`
+	ReadSourceScope *chatReadSourceScope `json:"readSourceScope,omitempty"`
 }
 type chatRun struct {
-	mu       sync.Mutex
-	record   chatRunRecord
-	events   []chatRunEvent
-	changed  chan struct{}
-	done     chan struct{}
-	settled  bool
-	terminal *chatRunEvent
-	cancel   context.CancelFunc
-	header   http.Header
+	ctx         context.Context
+	mu          sync.Mutex
+	record      chatRunRecord
+	events      []chatRunEvent
+	changed     chan struct{}
+	done        chan struct{}
+	settled     bool
+	terminal    *chatRunEvent
+	cancel      context.CancelFunc
+	header      http.Header
+	readSources *chatReadSources
 }
 
 func (r *chatRun) Header() http.Header { return r.header }
@@ -63,6 +66,10 @@ func (r *chatRun) send(event string, value any) error {
 		return generationError(ErrorProtocol, "运行已结束")
 	}
 	e := chatRunEvent{event, raw}
+	if event == "fallback" {
+		// Revoke the old scope before the fallback provider can emit output.
+		r.readSources = nil
+	}
 	if event == "done" || event == "error" {
 		r.terminal = &e
 		return nil
@@ -159,7 +166,7 @@ func (s *Server) startSessionChat(w http.ResponseWriter, r *http.Request, docume
 		fail(w, 500, "无法记录运行状态")
 		return
 	}
-	run := &chatRun{record: record, changed: make(chan struct{}), done: make(chan struct{}), cancel: cancel, header: http.Header{}}
+	run := &chatRun{ctx: ctx, record: record, changed: make(chan struct{}), done: make(chan struct{}), cancel: cancel, header: http.Header{}}
 	if s.chatRuns == nil {
 		s.chatRuns = map[string]*chatRun{}
 	}
@@ -211,6 +218,10 @@ func (s *Server) finishChatRun(ctx context.Context, run *chatRun) {
 	if run.record.Status == "completed" {
 		run.record.Checkpoint = nil
 		run.record.Input = nil
+		if run.readSources != nil && len(run.readSources.byKey) > 0 {
+			scope := run.readSources.scope
+			run.record.ReadSourceScope = &scope
+		}
 	}
 	run.record.FinishedAt = now()
 	run.record.Events = append(append([]chatRunEvent{}, run.events...), *terminal)
@@ -288,7 +299,8 @@ func (s *Server) sessionRunEvents(w http.ResponseWriter, r *http.Request) {
 	cursor := 0
 	for {
 		run.mu.Lock()
-		batch := append([]chatRunEvent(nil), run.events[cursor:]...)
+		// Events are immutable after append; the slice retains this batch across unlock.
+		batch := run.events[cursor:]
 		cursor = len(run.events)
 		settled, changed := run.settled, run.changed
 		run.mu.Unlock()

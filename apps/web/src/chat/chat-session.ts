@@ -19,6 +19,15 @@ export type ChatInput = {
   references: SourceReference[];
   attachments: ImageAttachment[];
 };
+/**
+ * Passages the current attempt of an unsaved answer has actually read. `keys`
+ * keeps its identity until it changes, so renderers can memoize on it.
+ */
+export type LiveReadSources = {
+  runId: string;
+  attemptId: string;
+  keys: readonly string[];
+};
 export type PendingAnswer = {
   tools?: ToolActivity[];
   reasoning?: string;
@@ -44,6 +53,7 @@ export type PendingAnswer = {
   reconnectable?: boolean;
   runStatusUnconfirmed?: boolean;
   continuationRejected?: boolean;
+  readSources?: LiveReadSources;
   controller: AbortController;
 };
 export type ChatSnapshot = {
@@ -277,6 +287,22 @@ export class ChatSession {
       if (!this.current(serial) || controller.signal.aborted || terminal)
         return;
       received = true;
+      if (event.event === "fallback") pending.readSources = undefined;
+      if (event.event === "read_sources") {
+        const { runId, attemptId, keys } = event.data;
+        if (pending.run && pending.run.id !== runId) return;
+        const current = pending.readSources;
+        if (current?.runId === runId && current.attemptId === attemptId) {
+          // The same attempt only grows; replays and repeats are idempotent.
+          const merged = new Set(current.keys);
+          for (const key of keys) merged.add(key);
+          if (merged.size === current.keys.length) return;
+          pending.readSources = { runId, attemptId, keys: [...merged] };
+        } else
+          pending.readSources = { runId, attemptId, keys: [...new Set(keys)] };
+        this.flush();
+        return;
+      }
       if (event.event === "tool") {
         const tools = [...(pending.tools ?? [])];
         const index = tools.findIndex((t) => t.id === event.data.id);
@@ -336,6 +362,8 @@ export class ChatSession {
         pending.activity = undefined;
         terminal = true;
         pending.phase = "incomplete";
+        // A failed or cancelled attempt no longer serves its read passages.
+        pending.readSources = undefined;
         pending.notice = this.io.latestRun
           ? "回答中断，正在检查可继续的进度…"
           : `${event.data.error}（回答未完成）`;
@@ -371,7 +399,10 @@ export class ChatSession {
         );
         pending.continuationRejected =
           continuing && error instanceof RequestError && error.status === 409;
-        if (pending.continuationRejected) pending.resumable = false;
+        if (pending.continuationRejected) {
+          pending.resumable = false;
+          pending.readSources = undefined;
+        }
         pending.phase = pending.continuationRejected
           ? "incomplete"
           : "unconfirmed";
@@ -386,6 +417,7 @@ export class ChatSession {
           pending.content = replacing.content;
           pending.draft = replacing.draft;
           pending.reasoning = replacing.reasoning;
+          pending.readSources = replacing.readSources;
         }
         this.flush();
         // Refresh checkpoint availability only after this attempt has ended.
@@ -407,6 +439,7 @@ export class ChatSession {
         t.status === "running" ? { ...t, status: "cancelled" } : t,
       );
       pending.phase = "cancelled";
+      pending.readSources = undefined;
       pending.notice =
         this.continuing === this.serial - 1
           ? "已取消继续。"
@@ -425,6 +458,7 @@ export class ChatSession {
       t.status === "running" ? { ...t, status: "cancelled" } : t,
     );
     pending.phase = "cancelled";
+    pending.readSources = undefined;
     pending.notice = "已停止；正在核对保存状态";
     const serial = this.serial;
     pending.controller.abort();

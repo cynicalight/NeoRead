@@ -72,6 +72,7 @@ export function AssistantPanel({
   onRegenerate,
   regenerateDisabled = false,
   renderAnswer = (_message, content) => content,
+  renderPendingAnswer = (_answer, content) => content,
 }: {
   session: ChatSession;
   empty: ReactNode;
@@ -80,6 +81,14 @@ export function AssistantPanel({
   onRegenerate: () => void;
   regenerateDisabled?: boolean;
   renderAnswer?: (message: Message, content: ReactNode) => ReactNode;
+  /**
+   * Wraps the current unsaved answer from its first render until it is saved,
+   * so the streaming renderer never remounts when read sources arrive.
+   */
+  renderPendingAnswer?: (
+    answer: PendingAnswer,
+    content: ReactNode,
+  ) => ReactNode;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const scroll = useChatScroll(state.pending?.key);
@@ -173,6 +182,8 @@ export function AssistantPanel({
                 {assistant ? (
                   message ? (
                     renderAnswer(message, markdown)
+                  ) : answer && answer === pending ? (
+                    renderPendingAnswer(answer, markdown)
                   ) : (
                     markdown
                   )

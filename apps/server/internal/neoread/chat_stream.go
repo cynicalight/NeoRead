@@ -136,7 +136,8 @@ func (s *Server) streamChat(ctx context.Context, cancel context.CancelFunc, w ht
 						return
 					}
 				} else {
-					in.Chat.Agent = &documentAgent{chat: in.Chat, sessionID: in.Chat.SessionID, server: s, corpus: corpus, ctx: ctx, ID: id(), activity: func(phase, tool, message string) error {
+					run, _ := w.(*chatRun)
+					in.Chat.Agent = &documentAgent{chat: in.Chat, sessionID: in.Chat.SessionID, server: s, corpus: corpus, ctx: ctx, ID: id(), run: run, activity: func(phase, tool, message string) error {
 						for _, step := range in.Chat.toolSnapshot() {
 							if step.Status == "running" && (step.Tool == tool || strings.HasSuffix(step.Tool, "/"+tool)) {
 								step.Target = message

@@ -2,16 +2,26 @@ import { createContext } from "react";
 import type { Link, PhrasingContent, Root, Text } from "mdast";
 import { SKIP, visit } from "unist-util-visit";
 
-// Navigation keys are saved citation keys: server-issued S labels, or the raw
-// blockId of a search_document passage cited directly.
+// Navigation keys are saved citation keys (server-issued S labels, or the raw
+// blockId of a search_document passage cited directly), or, before an answer
+// is saved, the keys of passages its current attempt has actually read.
+// Providers keep `sourceIds` referentially stable until the keys change.
 export const ChatCitationNavigation = createContext<
   | {
-      sourceIds: string[];
+      sourceIds: readonly string[];
       previews?: Record<string, { text: string; label: string }>;
       navigate: (sourceId: string) => void;
     }
   | undefined
 >(undefined);
+
+// Streaming re-parses the tail block on every reveal; build each key set once.
+const keySets = new WeakMap<readonly string[], ReadonlySet<string>>();
+export function citationKeySet(sourceIds: readonly string[]) {
+  let keys = keySets.get(sourceIds);
+  if (!keys) keySets.set(sourceIds, (keys = new Set(sourceIds)));
+  return keys;
+}
 
 // Keep paired native forms aligned with document_citations.go.
 // Block IDs (corpus revision prefix may start with a digit) come first so
@@ -65,13 +75,15 @@ function groupCitationLinks(parts: PhrasingContent[]): PhrasingContent[] {
   return grouped;
 }
 
-// Only saved, server-validated sources become links. Pending answers retain
-// readable labels until their message and evidence have been committed.
+const noKeys: readonly string[] = [];
+// Only known sources become links: saved, server-validated evidence, or
+// passages the current attempt has read (validated again on click). Other
+// answers retain readable labels.
 export function remarkChatCitations({
-  sourceIds = [],
+  sourceIds = noKeys,
   generating = false,
-}: { sourceIds?: string[]; generating?: boolean } = {}) {
-  const known = new Set(sourceIds);
+}: { sourceIds?: readonly string[]; generating?: boolean } = {}) {
+  const known = citationKeySet(sourceIds);
   return (tree: Root) => {
     visit(tree, (node, index, parent) => {
       if (node.type === "link" || node.type === "linkReference") return SKIP;

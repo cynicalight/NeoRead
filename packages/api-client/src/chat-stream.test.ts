@@ -65,6 +65,17 @@ describe("frozen SSE consumption", () => {
     );
     expect(events).toEqual([{ event: "done", data: { ok: true } }]);
   });
+  it("rejects a read-source grant without its attempt identity, even before a valid done", async () => {
+    const wire =
+      'event: read_sources\ndata: {"runId":"a","keys":["S1"]}\n\nevent: done\ndata: {"ok":true}\n\n';
+    await expect(
+      consumeChatStream(
+        stream([encode(wire)]),
+        new AbortController().signal,
+        () => {},
+      ),
+    ).rejects.toMatchObject({ kind: "protocol" });
+  });
   it.each([
     'event:delta\ndata: {"text":7}\n\n',
     "event:done\ndata: invalid\n\n",

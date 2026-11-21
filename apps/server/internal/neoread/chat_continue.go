@@ -164,13 +164,14 @@ func (s *Server) continueSessionRun(w http.ResponseWriter, r *http.Request) {
 	record.Status, record.Error, record.FinishedAt = "running", "", ""
 	record.Resumable = false
 	record.Events = []chatRunEvent{}
+	record.ReadSourceScope = nil
 	if _, err := s.Store.DB.Exec("UPDATE chat_runs SET body=? WHERE id=? AND session_id=?", jsonText(record), record.ID, session.ID); err != nil {
 		cancel()
 		finish()
 		fail(w, 500, "无法保存继续运行状态")
 		return
 	}
-	run := &chatRun{record: record, changed: make(chan struct{}), done: make(chan struct{}), cancel: cancel, header: http.Header{}}
+	run := &chatRun{ctx: ctx, record: record, changed: make(chan struct{}), done: make(chan struct{}), cancel: cancel, header: http.Header{}}
 	if s.chatRuns == nil {
 		s.chatRuns = map[string]*chatRun{}
 	}

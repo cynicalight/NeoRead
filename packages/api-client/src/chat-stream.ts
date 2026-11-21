@@ -3,6 +3,10 @@ import type { ToolActivity } from "@neoread/core";
 export type ChatStreamEvent =
   | { event: "tool"; data: ToolActivity }
   | {
+      event: "read_sources";
+      data: { runId: string; attemptId: string; keys: string[] };
+    }
+  | {
       event: "activity";
       data: {
         phase: "indexing" | "reading" | "writing";
@@ -29,6 +33,7 @@ const known = new Set([
   "status",
   "activity",
   "tool",
+  "read_sources",
   "delta",
   "reasoning",
   "draft",
@@ -56,6 +61,21 @@ export function decodeFrame(frame: string): ChatStreamEvent | undefined {
   }
   if (!parsed || typeof parsed !== "object")
     throw new ChatStreamError("AI 事件数据无效", "protocol");
+  if (event === "read_sources") {
+    const { runId, attemptId, keys } = parsed;
+    if (
+      typeof runId !== "string" ||
+      !runId ||
+      typeof attemptId !== "string" ||
+      !attemptId ||
+      !Array.isArray(keys) ||
+      !keys.every(
+        (key): key is string => typeof key === "string" && key.length > 0,
+      )
+    )
+      throw new ChatStreamError("原文来源事件字段无效", "protocol");
+    return { event, data: { runId, attemptId, keys } };
+  }
   const valid =
     event === "tool"
       ? typeof parsed.id === "string" &&
