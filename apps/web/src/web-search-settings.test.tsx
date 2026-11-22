@@ -142,6 +142,35 @@ it("switches to keyless Keenable without carrying a saved key to another address
   }
 });
 
+it("does not save a DeepSeek key to Keenable while the provider switch is pending", async () => {
+  const keenable: WebSearchConfig = {
+    provider: "keenable",
+    url: "https://api.keenable.ai",
+    hasKey: false,
+  };
+  const pending: Array<(ok: boolean) => void> = [];
+  const save = vi.fn(
+      () => new Promise<boolean>((resolve) => pending.push(resolve)),
+    ),
+    h = await harness(save, keenable);
+  try {
+    await act(async () => h.choose("DeepSeek").click());
+    expect(h.url().value).toBe("https://api.deepseek.com");
+    await h.type(h.password(), "deepseek-key");
+    await h.blur(h.password());
+    await act(async () => pending.shift()!(true));
+    await act(async () => pending.shift()!(true));
+    expect(save).toHaveBeenLastCalledWith({
+      provider: "deepseek",
+      url: "https://api.deepseek.com",
+      key: "deepseek-key",
+      hasKey: false,
+    });
+  } finally {
+    await h.close();
+  }
+});
+
 it("keeps Keenable on when its optional key is removed", async () => {
   const keyed: WebSearchConfig = {
     provider: "keenable",

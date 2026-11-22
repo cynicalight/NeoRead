@@ -84,6 +84,8 @@ export function WebSearchSettings({
   };
   const saveProvider = (next: WebSearchConfig["provider"]) => {
     setProvider(next);
+    // Queued key saves read this draft; never leave the other service's address.
+    setURL((current) => providerURL(next, current));
     providerPending.current++;
     void persist((latest) => {
       const url = providerURL(next, latest.url);
