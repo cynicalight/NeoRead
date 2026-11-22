@@ -1,6 +1,28 @@
-import type { PDFBlock } from "@neoread/core";
+import type { PDFBlock, PDFOCRPreviewPage } from "@neoread/core";
 
 type Line = NonNullable<PDFBlock["ocrLines"]>[number];
+
+function usableLine(line: Line) {
+  return !!line.text.trim() && line.bounds.width > 0 && line.bounds.height > 0;
+}
+
+function sameLines(left: Line[], right: Line[]) {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((line, i) => {
+        const other = right[i];
+        return (
+          line.text === other.text &&
+          line.bounds.x === other.bounds.x &&
+          line.bounds.y === other.bounds.y &&
+          line.bounds.width === other.bounds.width &&
+          line.bounds.height === other.bounds.height
+        );
+      }))
+  );
+}
+
 /** The unrotated page size in PDF points, as PDF.js lays out a text layer. */
 export interface PDFPageSize {
   width: number;
@@ -48,6 +70,8 @@ function place(bounds: Line["bounds"], rotation: number, page: PDFPageSize) {
  */
 export class PDFOCRText {
   private pages = new Map<number, Line[]>();
+  private previewPages = new Map<number, Line[]>();
+  private pending = new Set<HTMLElement>();
   private painted = new WeakMap<
     HTMLElement,
     { lines: Line[]; rotation: number } & PDFPageSize
@@ -62,66 +86,99 @@ export class PDFOCRText {
     const pages = new Map<number, Line[]>();
     for (const block of blocks) {
       for (const line of block.ocrLines ?? []) {
-        const { width, height } = line.bounds;
-        if (!line.text.trim() || !(width > 0) || !(height > 0)) continue;
+        if (!usableLine(line)) continue;
         const page = pages.get(block.page) ?? [];
         page.push(line);
         pages.set(block.page, page);
       }
     }
-    // A refetch of the same parse keeps each page's list, so its spans and any
-    // live selection on them survive.
-    for (const [page, lines] of pages) {
-      const previous = this.pages.get(page);
-      if (
-        previous?.length === lines.length &&
-        previous.every(
-          (line, i) =>
-            line.text === lines[i].text &&
-            line.bounds.x === lines[i].bounds.x &&
-            line.bounds.y === lines[i].bounds.y &&
-            line.bounds.width === lines[i].bounds.width &&
-            line.bounds.height === lines[i].bounds.height,
-        )
-      )
-        pages.set(page, previous);
-    }
     if (!pages.size && !this.pages.size) return;
     this.pages = pages;
+    this.repaintMountedLayers();
+  }
+
+  setPreview(pages: PDFOCRPreviewPage[] | null) {
+    if (pages) {
+      for (const { page, lines } of pages) {
+        const usable = lines.filter(usableLine);
+        if (!usable.length) continue;
+        this.previewPages.set(page, usable);
+        this.paint(page);
+      }
+    } else if (this.previewPages.size) {
+      this.previewPages.clear();
+      // Terminal transitions must not leave superseded text selectable.
+      this.repaintMountedLayers(false);
+    }
+  }
+
+  flushSelection() {
+    for (const layer of this.pending) {
+      if (this.host.contains(layer)) this.paintLayer(layer);
+      else this.pending.delete(layer);
+    }
+  }
+
+  private repaintMountedLayers(preserveSelection = true) {
     for (const layer of this.host.querySelectorAll<HTMLElement>(
       ".page[data-page-number] .textLayer",
     ))
-      this.paintLayer(layer);
+      this.paintLayer(layer, preserveSelection);
   }
   /** Called when PDF.js has rendered or rescaled one page's text layer. */
   paint(page: number) {
-    // A page without lines has nothing to add; removals happen in setBlocks.
-    if (!this.pages.has(page)) return;
+    if (!this.previewPages.has(page) && !this.pages.has(page)) return;
     const layer = this.host.querySelector<HTMLElement>(
       `.page[data-page-number="${page}"] .textLayer`,
     );
     if (layer) this.paintLayer(layer);
   }
-  private paintLayer(layer: HTMLElement) {
+  private paintLayer(layer: HTMLElement, preserveSelection = true) {
+    const page = Number(layer.closest<HTMLElement>(".page")!.dataset.pageNumber);
+    const lines = this.previewPages.get(page) ?? this.pages.get(page);
+    const previous = this.painted.get(layer);
+    if (!lines && !previous) return;
     // PDF.js appends this marker once its own text is in place.
     const end = layer.querySelector(".endOfContent");
-    if (!end) return;
-    const page = Number(layer.closest<HTMLElement>(".page")!.dataset.pageNumber);
-    const lines = this.pages.get(page);
+    if (!end) {
+      this.pending.delete(layer);
+      return;
+    }
     const size = lines && this.pageSize(page);
     const rotation =
       (((Number(layer.dataset.mainRotation) || 0) % 360) + 360) % 360;
-    const previous = this.painted.get(layer);
     if (
       size &&
-      previous?.lines === lines &&
+      lines &&
+      previous &&
       previous.rotation === rotation &&
       previous.width === size.width &&
       previous.height === size.height &&
+      sameLines(previous.lines, lines) &&
       layer.querySelector("[data-ocr-line]")
-    )
+    ) {
+      // Keep identical text nodes on refetch and on final publication.
+      previous.lines = lines;
+      this.pending.delete(layer);
       return;
-    for (const old of layer.querySelectorAll("[data-ocr-line]")) old.remove();
+    }
+    const old = layer.querySelectorAll("[data-ocr-line]");
+    const selection = preserveSelection && layer.ownerDocument.getSelection();
+    if (
+      old.length &&
+      selection &&
+      selection.rangeCount &&
+      !selection.isCollapsed
+    ) {
+      const range = selection.getRangeAt(0);
+      for (const node of old) {
+        if (!range.intersectsNode(node)) continue;
+        this.pending.add(layer);
+        return;
+      }
+    }
+    this.pending.delete(layer);
+    for (const node of old) node.remove();
     if (!size || !lines) {
       this.painted.delete(layer);
       return;

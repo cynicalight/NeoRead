@@ -168,6 +168,8 @@ function IconButton({
     </Tooltip>
   );
 }
+const noPDFBlocks: PDFBlock[] = [];
+
 export function Workspace({
   document: doc,
   active = true,
@@ -210,7 +212,11 @@ export function Workspace({
   const assistantFamily = theme.assistantFontFamily ?? "sans-serif";
   const linkTarget = useReaderStore((s) => s.linkTarget);
   const [annotationsLoaded, setAnnotationsLoaded] = useState(false);
-  const [blocks, setBlocks] = useState<PDFBlock[]>([]);
+  const [pdfLayout, setPDFLayout] = useState<{
+    blocks: PDFBlock[];
+    revision?: string;
+  }>();
+  const blocks = pdfLayout?.blocks ?? noPDFBlocks;
   const [adapter, setAdapter] = useState<ReaderAdapter>();
   const [readingToolbar, setReadingToolbar] = useState<HTMLDivElement | null>(
     null,
@@ -577,26 +583,39 @@ export function Workspace({
       void flushProgress().catch((e) => toast.error(e.message));
     };
   }, [doc.id, session]);
+  const reparseActive = !!processing?.reparseRun;
+  const pdfLayoutRevision = processing?.layoutRevision;
+  const bookPagesDone = processing?.bookLayout?.pagesDone;
+  // A full reparse never changes canonical blocks in place. Normal book
+  // chapter learning can still publish blocks without a new revision.
+  const suspendBlocks = reparseActive
+    ? !!pdfLayout
+    : processing?.phase === "learning" &&
+      (doc.library === "books" || !pdfLayoutRevision);
+  const bookStatus =
+    doc.library === "books" && !reparseActive ? processing?.status : undefined;
   useEffect(() => {
-    if (doc.type !== "pdf" || processing?.phase === "learning") return;
+    if (doc.type !== "pdf" || suspendBlocks) return;
     let alive = true;
     void api
       .blocks(doc.id)
       .then((value) => {
-        if (alive) setBlocks(value);
+        if (alive) setPDFLayout({ blocks: value, revision: pdfLayoutRevision });
       })
-      .catch((e) => toast.error(e.message));
+      .catch((e) => {
+        if (alive) toast.error(e.message);
+      });
     return () => {
       alive = false;
     };
   }, [
     doc.id,
     doc.type,
-    processing?.phase,
-    processing?.status,
-    processing?.layoutRevision,
+    suspendBlocks,
+    pdfLayoutRevision,
     // Book pages parsed in the background add blocks as they arrive.
-    processing?.bookLayout?.pagesDone,
+    bookPagesDone,
+    bookStatus,
   ]);
   const move = (next: DocumentLocation) => {
     void adapter?.goTo(next).catch((e) => toast.error(e.message));
@@ -1448,6 +1467,7 @@ export function Workspace({
                   theme={theme}
                   annotations={annotations}
                   blocks={blocks}
+                  blocksRevision={pdfLayout?.revision}
                   processing={processing}
                   toolbarHost={readingToolbar}
                   autoCenterHost={sourceAutoCenterToolbar}

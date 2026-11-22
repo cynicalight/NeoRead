@@ -53,15 +53,17 @@ const scan = (lines = ["Scanned line one", "Scanned line two"]): PDFBlock => ({
     bounds: { x: 0.1, y: 0.1 + i * 0.04, width: 0.5 + i * 0.1, height: 0.025 },
   })),
 });
-function renderTextLayer(rotation = 0) {
-  host.querySelector(".pdfViewer")!.innerHTML =
-    `<div class="page" data-page-number="1"><div class="textLayer" data-main-rotation="${rotation}"><span>Native header</span><br><div class="endOfContent"></div></div></div>`;
-  vi.spyOn(
-    host.querySelector(".page")!,
-    "getBoundingClientRect",
-  ).mockReturnValue(new DOMRect(20, 40, 600, 800));
-  viewer.bus!.dispatch("textlayerrendered", { pageNumber: 1 });
-  return host.querySelector<HTMLElement>(".textLayer")!;
+function renderTextLayer(rotation = 0, page = 1) {
+  host.querySelector(".pdfViewer")!.insertAdjacentHTML(
+    "beforeend",
+    `<div class="page" data-page-number="${page}"><div class="textLayer" data-main-rotation="${rotation}"><span>Native header</span><br><div class="endOfContent"></div></div></div>`,
+  );
+  const element = host.querySelector(`.page[data-page-number="${page}"]`)!;
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(20, 40, 600, 800),
+  );
+  viewer.bus!.dispatch("textlayerrendered", { pageNumber: page });
+  return element.querySelector<HTMLElement>(".textLayer")!;
 }
 const lines = () =>
   Array.from(host.querySelectorAll<HTMLElement>("span[data-ocr-line]"));
@@ -203,4 +205,54 @@ it("turns lines back upright on a rotated page", () => {
   expect(Number(first.style.getPropertyValue("--scale-x"))).toBeCloseTo(
     400 / 120,
   );
+});
+
+it("keeps live selection and native text as later OCR pages arrive and hand off", () => {
+  const first = renderTextLayer();
+  const native = first.firstElementChild;
+  const firstBlock = scan();
+  const secondBlock = { ...scan(["Next page"]), id: "next", page: 2 };
+  host.scrollTop = 48;
+  adapter.setOCRPreview([{ page: 1, lines: firstBlock.ocrLines! }]);
+
+  const selected = lines()[0];
+  const range = document.createRange();
+  range.setStart(selected.firstChild!, 0);
+  range.setEnd(selected.firstChild!, 7);
+  const nativeSelection = window.getSelection()!;
+  nativeSelection.addRange(range);
+
+  adapter.setOCRPreview([{ page: 2, lines: secondBlock.ocrLines! }]);
+  const next = renderTextLayer(90, 2);
+  viewer.bus!.dispatch("textlayerrendered", { pageNumber: 1 });
+  expect(next.querySelector("[data-ocr-line]")?.textContent).toBe("Next page");
+  expect(nativeSelection.toString()).toBe("Scanned");
+  expect(lines()[0]).toBe(selected);
+  expect(first.firstElementChild).toBe(native);
+  expect(host.scrollTop).toBe(48);
+
+  adapter.setBlocks([scan(), { ...scan(["Next page"]), id: "next", page: 2 }]);
+  adapter.setOCRPreview(null);
+  expect(lines()).toHaveLength(3);
+  expect(lines()[0]).toBe(selected);
+  expect(nativeSelection.toString()).toBe("Scanned");
+});
+
+it("defers replacing selected saved lines and restores them on preview cancellation", () => {
+  adapter.setBlocks([scan(["Saved OCR"])]);
+  renderTextLayer();
+  const saved = lines()[0];
+  const nativeSelection = window.getSelection()!;
+  const range = document.createRange();
+  range.selectNodeContents(saved);
+  nativeSelection.addRange(range);
+  adapter.setOCRPreview([{ page: 1, lines: scan(["New result"]).ocrLines! }]);
+  expect(lines()[0]).toBe(saved);
+  expect(nativeSelection.toString()).toBe("Saved OCR");
+
+  nativeSelection.removeAllRanges();
+  document.dispatchEvent(new Event("selectionchange"));
+  expect(lines()[0].textContent).toBe("New result");
+  adapter.setOCRPreview(null);
+  expect(lines().map((line) => line.textContent)).toEqual(["Saved OCR"]);
 });

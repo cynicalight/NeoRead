@@ -582,6 +582,8 @@ export interface ReaderAdapter {
   /** Whether most of a remembered viewport position is on screen again. */
   isNear?(location: DocumentLocation): boolean;
   setBlocks?(blocks: PDFBlock[]): void;
+  /** Merge completed preview pages into the text layer, or clear the preview with null. */
+  setOCRPreview?(pages: PDFOCRPreviewPage[] | null): void;
   setSearchBlocks?(blockIds: string[]): void;
   setEPUBBlocks?(blocks: EPUBReadingBlock[]): void;
   getEPUBChapters?(): EPUBChapter[];

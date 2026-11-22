@@ -106,14 +106,19 @@ const processing: Processing = {
   updatedAt: "",
 };
 let root: Root, host: HTMLDivElement;
-const render = (tick: number, theme = defaultTheme, document = doc) =>
+const render = (
+  tick: number,
+  theme = defaultTheme,
+  document = doc,
+  nextProcessing = processing,
+) =>
   root.render(
     <TooltipProvider>
       <Workspace
         key={document.id}
         document={document}
         theme={theme}
-        processing={{ ...processing, updatedAt: String(tick) }}
+        processing={{ ...nextProcessing, updatedAt: String(tick) }}
         onBack={() => {}}
         onSettings={() => {}}
       />
@@ -132,6 +137,38 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+});
+
+it("loads the saved blocks once and waits for publication during a PDF reparse", async () => {
+  await act(async () => render(0));
+  expect(api.blocks).toHaveBeenCalledTimes(1);
+  const originalBlocks = panels.reader!.blocks;
+  const reparse: Processing = {
+    ...processing,
+    phase: "learning",
+    status: "running",
+    reparseRun: "new-attempt",
+    pagesDone: 1,
+    pagesTotal: 5,
+  };
+  await act(async () => render(1, defaultTheme, doc, reparse));
+  await act(async () =>
+    render(2, defaultTheme, doc, { ...reparse, pagesDone: 3 }),
+  );
+  expect(api.blocks).toHaveBeenCalledTimes(1);
+  expect(panels.reader!.blocks).toBe(originalBlocks);
+  expect(panels.reader!.processing?.pagesDone).toBe(3);
+
+  // The server can publish before the following translation changes phase.
+  await act(async () =>
+    render(3, defaultTheme, doc, {
+      ...reparse,
+      reparseRun: undefined,
+      layoutRevision: "new-layout",
+    }),
+  );
+  expect(api.blocks).toHaveBeenCalledTimes(2);
+  expect(panels.reader!.blocksRevision).toBe("new-layout");
 });
 
 it.each([

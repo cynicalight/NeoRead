@@ -96,6 +96,7 @@ export function PDFReadingView({
   onReadingModeChange,
   annotations,
   blocks,
+  blocksRevision,
   processing,
   toolbarHost,
   autoCenterHost,
@@ -112,6 +113,7 @@ export function PDFReadingView({
   onReadingModeChange: (mode: ReadingMode) => void;
   annotations: Annotation[];
   blocks: PDFBlock[];
+  blocksRevision?: string;
   processing?: Processing;
   toolbarHost?: HTMLElement | null;
   /** Where the sync toggle renders; null hides it, undefined keeps it in the toolbar. */
@@ -134,6 +136,13 @@ export function PDFReadingView({
   const mode = readingMode === "reflow" ? "parallel" : readingMode;
   const paneMode = reflow ? "translation" : mode;
   const [syncEnabled, setSyncEnabled] = useState(true);
+  const sourceAnnotations = useMemo(
+    () =>
+      annotations.filter(
+        (a) => a.location.type !== "pdf" || !a.location.translation,
+      ),
+    [annotations],
+  );
   const layoutRevision = processing?.layoutRevision;
   const { translations: streamed, error } = useTranslations(
     doc.id,
@@ -141,10 +150,8 @@ export function PDFReadingView({
     active,
     layoutRevision,
   );
-  const [blockLayout, setBlockLayout] = useState({ blocks, layoutRevision });
-  if (blockLayout.blocks !== blocks) setBlockLayout({ blocks, layoutRevision });
   const translations =
-    blockLayout.layoutRevision === layoutRevision ? streamed : noTranslations;
+    blocksRevision === layoutRevision ? streamed : noTranslations;
   const [popup, setPopup] = useState<{ block: PDFBlock; rect: DOMRect }>();
   const [engine, setEngine] = useState<ReaderAdapter>();
   const [focusedBlock, setFocusedBlock] = useState<string>();
@@ -1262,10 +1269,10 @@ export function PDFReadingView({
               active={active}
               document={doc}
               theme={theme}
-              annotations={annotations.filter(
-                (a) => a.location.type !== "pdf" || !a.location.translation,
-              )}
+              annotations={sourceAnnotations}
               blocks={blocks}
+              blocksRevision={blocksRevision}
+              processing={processing}
               onReady={ready}
               events={{
                 ...events,

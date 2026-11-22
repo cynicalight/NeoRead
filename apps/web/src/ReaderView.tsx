@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   Annotation,
   PDFBlock,
   Document,
+  Processing,
   ReaderAdapter,
   ReaderEvents,
   ReaderTheme,
@@ -10,12 +11,18 @@ import type {
 } from "@neoread/core";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { PDFOCRPreview } from "./readers/pdf-ocr-preview";
+
+const noBlocks: PDFBlock[] = [];
+
 export function ReaderView({
   document: doc,
   active = true,
   theme,
   annotations,
-  blocks = [],
+  blocks = noBlocks,
+  blocksRevision,
+  processing,
   onReady,
   events,
 }: {
@@ -24,23 +31,37 @@ export function ReaderView({
   theme: ReaderTheme;
   annotations: Annotation[];
   blocks?: PDFBlock[];
+  blocksRevision?: string;
+  processing?: Processing;
   onReady: (adapter: ReaderAdapter, toc: TOCItem[]) => void;
   events: ReaderEvents;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const adapter = useRef<ReaderAdapter | null>(null);
+  const preview = useRef<PDFOCRPreview | undefined>(undefined);
   const latest = useRef({
     theme,
     annotations,
     blocks,
+    blocksRevision,
+    processing,
     events,
     onReady,
     active,
   });
-  latest.current = { theme, annotations, blocks, events, onReady, active };
+  latest.current = {
+    theme,
+    annotations,
+    blocks,
+    blocksRevision,
+    processing,
+    events,
+    onReady,
+    active,
+  };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  useEffect(() => {
+  useLayoutEffect(() => {
     let disposed = false;
     const container = document.createElement("div");
     container.className = "neoread-engine";
@@ -134,10 +155,18 @@ export function ReaderView({
       await engine.highlight(latest.current.annotations).catch((e) => {
         if (!disposed) toast.error(e.message);
       });
-      engine.setBlocks?.(latest.current.blocks);
       const toc = await engine.getTOC();
       if (disposed) return;
       adapter.current = engine;
+      engine.setBlocks?.(latest.current.blocks);
+      const applyPreview = engine.setOCRPreview?.bind(engine);
+      if (applyPreview) {
+        preview.current = new PDFOCRPreview(doc.id, applyPreview);
+        preview.current.update(
+          latest.current.processing,
+          latest.current.blocksRevision,
+        );
+      }
       latest.current.onReady(engine, toc);
       setLoading(false);
     };
@@ -150,6 +179,8 @@ export function ReaderView({
     return () => {
       disposed = true;
       adapter.current = null;
+      preview.current?.close();
+      preview.current = undefined;
       void pending
         .finally(async () => {
           await engine?.destroy();
@@ -167,9 +198,12 @@ export function ReaderView({
       ?.highlight(annotations)
       .catch((e) => toast.error(e.message));
   }, [annotations]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     adapter.current?.setBlocks?.(blocks);
   }, [blocks]);
+  useLayoutEffect(() => {
+    preview.current?.update(processing, blocksRevision);
+  }, [processing, blocksRevision]);
   return (
     <div
       className="neoread-stage"

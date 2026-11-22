@@ -24,6 +24,7 @@ import "pdfjs-dist/web/pdf_viewer.css";
 import type {
   Annotation,
   PDFBlock,
+  PDFOCRPreviewPage,
   Document,
   DocumentLocation,
   PDFLocation,
@@ -563,8 +564,10 @@ export class PDFReaderAdapter implements ReaderAdapter {
       this.pointer = { x: event.clientX, y: event.clientY };
       this.onSelection();
     }
+    this.ocrText.flushSelection();
   };
   private onSelectionChange = () => {
+    this.ocrText.flushSelection();
     if (!this.selecting) this.onSelection();
   };
   private onSelection = () => {
@@ -662,6 +665,9 @@ export class PDFReaderAdapter implements ReaderAdapter {
     this.blocks.setBlocks(blocks);
     this.ocrText.setBlocks(blocks);
     this.figureLinks.repaint();
+  }
+  setOCRPreview(pages: PDFOCRPreviewPage[] | null) {
+    this.ocrText.setPreview(pages);
   }
   async focusReference(location: DocumentLocation, text: string) {
     this.viewport.cancelAnimation();
