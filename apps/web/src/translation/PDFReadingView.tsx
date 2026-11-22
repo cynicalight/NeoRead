@@ -48,6 +48,7 @@ import { ReaderView } from "../ReaderView";
 import { overlap, ReadingSync } from "../readers/pdf-reading";
 import { animatePDFScroll } from "../readers/pdf-scroll";
 import { TranslationPanes } from "./TranslationPanes";
+import { useSettledSourceFollow } from "./useSettledSourceFollow";
 import { formulaNumbers } from "./formulaNumbers";
 import {
   ReflowSource,
@@ -191,6 +192,9 @@ export function PDFReadingView({
     control = useRef(new ReadingSync()),
     side = useRef<"source" | "translation">("source"),
     reading = useRef<PDFReadingAnchor | undefined>(undefined);
+  const settled = useSettledSourceFollow(
+    active && mode === "parallel" && !reflow && syncEnabled ? doc.id : undefined,
+  );
   const pendingRestore = useRef(true);
   const progressSeeded = useRef(false);
   // The page whose chapter the book toolbar describes. A click or jump pins
@@ -424,6 +428,7 @@ export function PDFReadingView({
     });
   };
   const focusBlock = (block: PDFBlock, origin: "source" | "translation") => {
+    settled.cancel();
     input(origin);
     const motion = explicitFocus.current;
     const operation = motion.operation;
@@ -507,6 +512,7 @@ export function PDFReadingView({
     );
   };
   const go = async (location: DocumentLocation) => {
+    settled.cancel();
     input(mode === "translation" || reflow ? "translation" : "source");
     const operation = explicitFocus.current.operation;
     if (location.type === "pdf") pinPage(location.page);
@@ -949,6 +955,7 @@ export function PDFReadingView({
     };
   }, []);
   const input = (active: typeof side.current) => {
+    if (active === "translation") settled.cancel();
     pendingRestore.current = false;
     reflowRestored.current = true;
     deferredFocus.cancel();
@@ -963,6 +970,7 @@ export function PDFReadingView({
   };
   const sourceSelection = (value: ReaderSelection | null) => {
     if (side.current !== "source") return;
+    if (value) settled.cancel();
     selection.current = value;
     events.selection(value);
   };
@@ -1252,6 +1260,7 @@ export function PDFReadingView({
         onResizeStart={() => engine?.cancelBlockFocus?.()}
         source={
           <div
+            ref={settled.source}
             className="translation-source"
             inert={mode === "translation" || reflow}
             onWheelCapture={() => input("source")}
@@ -1317,7 +1326,9 @@ export function PDFReadingView({
                     !state.current.reflow &&
                     syncEnabledRef.current
                   )
-                    followTranslation(anchor);
+                    settled.follow(() => {
+                      void followTranslation(anchor, undefined, { smooth: true });
+                    });
                 },
                 blockHover: (block) => {
                   if (mode === "parallel") hover("source", block?.id);
