@@ -3130,16 +3130,38 @@ kbd {
 .paper-nav-node[data-placement="after"]::after { bottom: 0; }
 .paper-nav-node > .nav-item.paper-nav-item {
   width: 100%;
-  padding-left: calc(12px + var(--depth, 0) * 14px + var(--gutter, 0px));
+  padding-left: calc(12px + var(--depth, 0) * 14px);
 }
+/* Expandable categories swap the trailing count for the toggle on hover. */
 .paper-nav-twisty.paper-nav-twisty {
   position: absolute;
   top: 8px;
-  left: calc(var(--depth, 0) * 14px);
+  right: 12px;
   z-index: 1;
   width: 16px;
   height: 16px;
   color: var(--muted-foreground);
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+.paper-nav-node:has(> .paper-nav-twisty) .nav-count {
+  min-width: 16px;
+  text-align: right;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+.paper-nav-node:is(:hover, :has(:focus-visible)) > .paper-nav-twisty {
+  opacity: 1;
+  transform: none;
+}
+.paper-nav-node:is(:hover, :has(:focus-visible)):has(> .paper-nav-twisty)
+  .nav-count {
+  opacity: 0;
+  transform: scale(0.8);
 }
 .paper-nav-twisty svg {
   transition: transform 150ms ease;
@@ -3148,7 +3170,9 @@ kbd {
   transform: rotate(90deg);
 }
 :root[data-reduced-motion="true"] {
-  .paper-nav-twisty svg {
+  .paper-nav-twisty.paper-nav-twisty,
+  .paper-nav-twisty svg,
+  .paper-nav-node .nav-count {
     transition: none;
   }
 }
@@ -3198,7 +3222,7 @@ kbd {
   align-items: center;
   gap: 10px;
   height: 32px;
-  padding-left: calc(12px + var(--depth, 0) * 14px + var(--gutter, 0px));
+  padding-left: calc(12px + var(--depth, 0) * 14px);
   color: var(--muted-foreground);
 }
 .paper-nav-edit input {

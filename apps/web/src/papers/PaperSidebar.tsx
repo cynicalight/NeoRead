@@ -382,7 +382,6 @@ export function PaperSidebar({
       (key) => key.startsWith("folder:") && withinCategory(name, key.slice(7)),
     );
   const tree = categoryTree(categories.filter((name) => !isHidden(name)));
-  const nested = tree.some((node) => node.children.length > 0);
   const categoryRow = (
     node: Pick<CategoryNode, "name" | "label" | "depth" | "children">,
     isPinned = false,
@@ -393,7 +392,6 @@ export function PaperSidebar({
     const expanded = open(name);
     const indent = {
       "--depth": isPinned ? 0 : node.depth,
-      "--gutter": nested && !isPinned ? "14px" : "0px",
     } as React.CSSProperties;
     if (renaming === name && !isPinned)
       return (
