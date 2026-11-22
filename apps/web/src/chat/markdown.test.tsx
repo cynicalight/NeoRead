@@ -50,3 +50,23 @@ describe("Markdown received source vs display", () => {
     expect(nearBottom(80, 200, 100)).toBe(true);
   });
 });
+
+describe("Chinese emphasis", () => {
+  it.each([false, true])(
+    "renders Chinese emphasis with punctuation (generating=%s)",
+    (generating) => {
+      const dom = new JSDOM(
+        render("这是**“核心概念”**的解释，**中文加粗**。`**原样**`", generating),
+      );
+      expect(
+        [...dom.window.document.querySelectorAll("strong")].map(
+          (n) => n.textContent,
+        ),
+      ).toEqual(["“核心概念”", "中文加粗"]);
+      expect(dom.window.document.querySelector("code")?.textContent).toBe(
+        "**原样**",
+      );
+      dom.window.close();
+    },
+  );
+});
