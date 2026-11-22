@@ -100,9 +100,8 @@ export class PDFOCRText {
   setPreview(pages: PDFOCRPreviewPage[] | null) {
     if (pages) {
       for (const { page, lines } of pages) {
-        const usable = lines.filter(usableLine);
-        if (!usable.length) continue;
-        this.previewPages.set(page, usable);
+        // A completed empty page still overrides the saved OCR for that page.
+        this.previewPages.set(page, lines.filter(usableLine));
         this.paint(page);
       }
     } else if (this.previewPages.size) {
@@ -127,7 +126,6 @@ export class PDFOCRText {
   }
   /** Called when PDF.js has rendered or rescaled one page's text layer. */
   paint(page: number) {
-    if (!this.previewPages.has(page) && !this.pages.has(page)) return;
     const layer = this.host.querySelector<HTMLElement>(
       `.page[data-page-number="${page}"] .textLayer`,
     );
@@ -137,16 +135,14 @@ export class PDFOCRText {
     const page = Number(layer.closest<HTMLElement>(".page")!.dataset.pageNumber);
     const lines = this.previewPages.get(page) ?? this.pages.get(page);
     const previous = this.painted.get(layer);
-    if (!lines && !previous) return;
-    // PDF.js appends this marker once its own text is in place.
-    const end = layer.querySelector(".endOfContent");
-    if (!end) {
-      this.pending.delete(layer);
-      return;
-    }
-    const size = lines && this.pageSize(page);
+    if (!lines?.length && !previous) return;
+    // Only insertion needs PDF.js's completion marker; stale OCR can already
+    // be removed from a layer that has not finished re-rendering.
+    const end = lines?.length ? layer.querySelector(".endOfContent") : null;
+    const size = end ? this.pageSize(page) : undefined;
     const rotation =
       (((Number(layer.dataset.mainRotation) || 0) % 360) + 360) % 360;
+    const old = layer.querySelectorAll("[data-ocr-line]");
     if (
       size &&
       lines &&
@@ -155,14 +151,13 @@ export class PDFOCRText {
       previous.width === size.width &&
       previous.height === size.height &&
       sameLines(previous.lines, lines) &&
-      layer.querySelector("[data-ocr-line]")
+      old.length === lines.length * 2
     ) {
       // Keep identical text nodes on refetch and on final publication.
       previous.lines = lines;
       this.pending.delete(layer);
       return;
     }
-    const old = layer.querySelectorAll("[data-ocr-line]");
     const selection = preserveSelection && layer.ownerDocument.getSelection();
     if (
       old.length &&
@@ -179,7 +174,7 @@ export class PDFOCRText {
     }
     this.pending.delete(layer);
     for (const node of old) node.remove();
-    if (!size || !lines) {
+    if (!end || !size || !lines) {
       this.painted.delete(layer);
       return;
     }

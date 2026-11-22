@@ -138,9 +138,6 @@ func readOCRPreviewPages(dir string, from, to int) ([]ocrPreviewPage, error) {
 	for offset := 0; offset <= to-from; offset++ {
 		page := from + offset
 		data, err := root.ReadFile(filepath.Join("preview", "pages", strconv.Itoa(page)+".json"))
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
 		if err != nil {
 			return nil, err
 		}

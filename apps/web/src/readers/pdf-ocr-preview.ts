@@ -81,8 +81,18 @@ export class PDFOCRPreview {
         const response = await api
           .ocrPreview(this.documentId, attempt.run, from, to, signal)
           .catch(() => undefined);
-        if (!response || signal.aborted) return;
-        this.apply(response.pages);
+        const pages = response?.pages;
+        // A completed range is all-or-nothing, including pages with no lines.
+        if (
+          signal.aborted ||
+          !Array.isArray(pages) ||
+          pages.length !== to - from + 1 ||
+          pages.some(
+            (page, i) => page?.page !== from + i || !Array.isArray(page.lines),
+          )
+        )
+          return;
+        this.apply(pages);
         attempt.loaded = to;
       }
     } finally {

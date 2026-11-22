@@ -15,6 +15,13 @@ const job = (
   layoutRevision,
 });
 
+const completed = (from: number, to = from) => ({
+  pages: Array.from({ length: to - from + 1 }, (_, i) => ({
+    page: from + i,
+    lines: [],
+  })),
+});
+
 function pauseRequest() {
   // ES2022 target: Promise.withResolvers is not in the repository's TS lib.
   let resolve!: (value: { pages: PDFOCRPreviewPage[] }) => void;
@@ -41,14 +48,14 @@ it("fetches only newly completed pages in sequential one-based batches", async (
   expect(request).not.toHaveBeenCalled();
 
   const first = pauseRequest();
-  request.mockResolvedValueOnce({ pages: [{ page: 33, lines: [] }] });
-  request.mockResolvedValueOnce({ pages: [{ page: 65, lines: [] }] });
+  request.mockResolvedValueOnce(completed(33, 64));
+  request.mockResolvedValueOnce(completed(65, 70));
   preview.update(job("run", 35));
   preview.update(job("run", 70));
   expect(request.mock.calls.map((call) => call.slice(0, 4))).toEqual([
     ["doc", "run", 1, 32],
   ]);
-  await first({ pages: [{ page: 1, lines: [] }] });
+  await first(completed(1, 32));
   await vi.waitFor(() => expect(apply).toHaveBeenCalledTimes(3));
   expect(request.mock.calls.map((call) => call.slice(0, 4))).toEqual([
     ["doc", "run", 1, 32],
@@ -58,6 +65,33 @@ it("fetches only newly completed pages in sequential one-based batches", async (
   expect(apply.mock.calls.map(([pages]) => pages[0].page)).toEqual([1, 33, 65]);
   preview.update(job("run", 70));
   expect(request).toHaveBeenCalledTimes(3);
+});
+
+it.each([
+  ["an empty batch", []],
+  ["a partial batch", [2]],
+  ["an out-of-order batch", [3, 2]],
+] as const)("does not skip completed pages after %s", async (_description, pageNumbers) => {
+  const apply = vi.fn();
+  const preview = new PDFOCRPreview("doc", apply);
+  const first = pauseRequest();
+  preview.update(job("run", 1));
+  await first(completed(1));
+
+  const partial = pauseRequest();
+  preview.update(job("run", 3));
+  await partial({ pages: pageNumbers.map((page) => ({ page, lines: [] })) });
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(apply.mock.calls).toEqual([[completed(1).pages]]);
+
+  const next = pauseRequest();
+  preview.update(job("run", 4));
+  expect(request.mock.calls[2].slice(0, 4)).toEqual(["doc", "run", 2, 4]);
+  await next(completed(2, 4));
+  expect(apply.mock.calls).toEqual([
+    [completed(1).pages],
+    [completed(2, 4).pages],
+  ]);
 });
 
 it("ignores a superseded run and all responses after closing the reader", async () => {
@@ -74,7 +108,7 @@ it("ignores a superseded run and all responses after closing the reader", async 
 
   preview.close();
   expect(request.mock.calls[1][4]?.aborted).toBe(true);
-  await next({ pages: [{ page: 2, lines: [] }] });
+  await next(completed(1, 2));
   expect(apply.mock.calls).toEqual([[null], [null]]);
 });
 

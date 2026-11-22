@@ -179,6 +179,10 @@ it("keeps one copy of the lines across repaints, recycled layers and late blocks
   // Another page's render leaves this page alone.
   viewer.bus!.dispatch("textlayerrendered", { pageNumber: 2 });
   expect(lines()[0]).toBe(painted[0]);
+  // Repair an incomplete OCR layer even when part of its old DOM survives.
+  lines()[0].nextElementSibling!.remove();
+  viewer.bus!.dispatch("textlayerrendered", { pageNumber: 1 });
+  expect(host.querySelectorAll("br[data-ocr-line]")).toHaveLength(2);
   // PDF.js clears a recycled page and renders its text layer again.
   const layer = host.querySelector<HTMLElement>(".textLayer")!;
   layer.replaceChildren();
@@ -255,4 +259,49 @@ it("defers replacing selected saved lines and restores them on preview cancellat
   expect(lines()[0].textContent).toBe("New result");
   adapter.setOCRPreview(null);
   expect(lines().map((line) => line.textContent)).toEqual(["Saved OCR"]);
+});
+
+it("keeps completed empty pages empty through zoom and restores saved OCR on cancel", () => {
+  adapter.setBlocks([scan(["Saved OCR"])]);
+  const layer = renderTextLayer();
+  const saved = lines()[0];
+  const native = layer.firstElementChild!;
+  const nativeSelection = window.getSelection()!;
+  const range = document.createRange();
+  range.selectNodeContents(saved);
+  nativeSelection.addRange(range);
+
+  adapter.setOCRPreview([{ page: 1, lines: [] }]);
+  expect(lines()[0]).toBe(saved);
+  expect(nativeSelection.toString()).toBe("Saved OCR");
+
+  nativeSelection.removeAllRanges();
+  document.dispatchEvent(new Event("selectionchange"));
+  expect(layer.querySelector("[data-ocr-line]")).toBeNull();
+  expect(layer.firstElementChild).toBe(native);
+
+  layer.closest(".page")!.remove();
+  const rerendered = renderTextLayer(90);
+  expect(rerendered.querySelector("[data-ocr-line]")).toBeNull();
+  range.selectNodeContents(rerendered.firstElementChild!);
+  nativeSelection.addRange(range);
+
+  adapter.setOCRPreview(null);
+  expect(lines().map((line) => line.textContent)).toEqual(["Saved OCR"]);
+  expect(nativeSelection.toString()).toBe("Native header");
+});
+
+it("removes cancelled preview text when a detached layer reappears", () => {
+  const layer = renderTextLayer();
+  adapter.setOCRPreview([{ page: 1, lines: scan(["Preview OCR"]).ocrLines! }]);
+  expect(lines()).toHaveLength(1);
+
+  const page = layer.closest(".page")!;
+  page.remove();
+  adapter.setOCRPreview(null);
+  host.querySelector(".pdfViewer")!.append(page);
+  viewer.bus!.dispatch("textlayerrendered", { pageNumber: 1 });
+
+  expect(layer.querySelector("[data-ocr-line]")).toBeNull();
+  expect(layer.textContent).toBe("Native header");
 });
