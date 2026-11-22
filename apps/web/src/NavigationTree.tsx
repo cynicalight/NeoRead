@@ -68,7 +68,7 @@ export function NavigationTree({
   visible?: boolean;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
-  const rowElements = useRef(new Map<string, HTMLElement>());
+  const followRow = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<DocumentNavigation>(emptyNavigation);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -77,9 +77,11 @@ export function NavigationTree({
   const revision = useRef(0);
   const queued = useRef<DocumentNavigation | undefined>(undefined);
   const saving = useRef<Promise<boolean> | undefined>(undefined);
+  const [savePending, setSavePending] = useState(false);
   const alive = useRef(true);
   const [orders, setOrders] = useState<Record<string, number[]>>({});
   const [resolving, setResolving] = useState(false);
+  const [ordering, setOrdering] = useState(type === "epub");
   const orderAbort = useRef<AbortController | undefined>(undefined);
   const ordersExact = useRef(false);
   const [renaming, setRenaming] = useState<string>();
@@ -120,6 +122,7 @@ export function NavigationTree({
     const controller = new AbortController();
     orderAbort.current = controller;
     ordersExact.current = false;
+    setOrdering(true);
     void epubNavigationOrders(
       documentId,
       outline,
@@ -135,7 +138,9 @@ export function NavigationTree({
       (e) => {
         if (!controller.signal.aborted) setError(e.message);
       },
-    );
+    ).finally(() => {
+      if (!controller.signal.aborted) setOrdering(false);
+    });
     return () => controller.abort();
   }, [documentId, type, outline, annotations, retry]);
   const tree = useMemo(
@@ -171,28 +176,37 @@ export function NavigationTree({
     if (item?.collapsed) followTarget = parent;
     parent = item?.parentId;
   }
+  const followPaused =
+    !panelVisible || disabled || selecting || !!renaming || !!dragging || savePending || ordering;
   useEffect(() => {
-    if (
-      !panelVisible ||
-      disabled ||
-      selecting ||
-      renaming ||
-      dragging ||
-      !followTarget
-    )
-      return;
-    const row = rowElements.current.get(followTarget);
     const scroll = viewport.current;
-    if (!row || !scroll) return;
-    const bounds = scroll.getBoundingClientRect();
-    const item = row.getBoundingClientRect();
-    const top = bounds.top + scroll.clientTop;
-    const bottom = top + scroll.clientHeight;
-    // Reveal the nearest visible ancestor without changing saved collapse state.
-    // A stable target leaves manual navigation scrolling alone within a section.
-    if (item.top < top) scroll.scrollTop += item.top - top;
-    else if (item.bottom > bottom) scroll.scrollTop += item.bottom - bottom;
-  }, [followTarget, panelVisible, disabled, selecting, renaming, dragging]);
+    if (followPaused || !followTarget || !scroll) return;
+    const reveal = () => {
+      const row = followRow.current;
+      const rows = row?.closest(".navigation-rows");
+      if (!row || !rows) return;
+      // The list padding reserves space for the overlaid tabs and toolbars.
+      const padding = getComputedStyle(rows);
+      const start = scroll.getBoundingClientRect().top + scroll.clientTop;
+      const top = start + (parseFloat(padding.paddingTop) || 0);
+      const bottom =
+        start + scroll.clientHeight - (parseFloat(padding.paddingBottom) || 0);
+      const item = row.getBoundingClientRect();
+      if (item.top < top) scroll.scrollTop += item.top - top;
+      else if (item.bottom > bottom) scroll.scrollTop += item.bottom - bottom;
+    };
+    reveal();
+    function afterExpand(event: TransitionEvent) {
+      if (
+        event.propertyName === "height" &&
+        event.target instanceof Element &&
+        event.target.matches(".navigation-children") &&
+        event.target.contains(followRow.current)
+      ) reveal();
+    }
+    scroll.addEventListener("transitionend", afterExpand);
+    return () => scroll.removeEventListener("transitionend", afterExpand);
+  }, [active, followTarget, followPaused]);
   const branches = flat.filter((item) => item.children.length > 0);
   function toggleAllCollapsed() {
     const collapsed = !allCollapsed;
@@ -214,8 +228,10 @@ export function NavigationTree({
     if (!loaded) return Promise.resolve(false);
     setState(next);
     queued.current = next;
+    setSavePending(true);
     saving.current ??= flush().finally(() => {
       saving.current = undefined;
+      if (alive.current) setSavePending(false);
     });
     return saving.current;
   }
@@ -341,10 +357,7 @@ export function NavigationTree({
           <ContextMenu>
             <ContextMenuTrigger
               render={<div />}
-              ref={(element) => {
-                if (element) rowElements.current.set(item.id, element);
-                else rowElements.current.delete(item.id);
-              }}
+              ref={item.id === followTarget ? followRow : undefined}
               className={`navigation-row ${selecting ? (checked.has(item.id) ? "multi-selected" : "") : active === item.id ? "selected" : ""} ${dropTarget === item.id ? (moveError ? "drop-invalid" : "drop-valid") : ""}`}
               style={{ paddingLeft: 8 + Math.min(depth, 12) * 14 }}
               tabIndex={0}

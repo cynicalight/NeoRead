@@ -539,14 +539,17 @@ const follow = (
   });
 it("reveals the current heading in both directions without changing the reading location", async () => {
   const scroll = followGeometry();
+  await follow({ type: "pdf", page: 25 }, false);
+  host.querySelector<HTMLElement>(".navigation-rows")!.style.padding =
+    "8px 0 14px";
   await follow({ type: "pdf", page: 25 });
-  expect(scroll().scrollTop).toBe(230);
+  expect(scroll().scrollTop).toBe(244);
   expect(
     host.querySelector(".navigation-row.selected .navigation-link")
       ?.textContent,
   ).toBe("Appendix20");
   await follow({ type: "pdf", page: 1 });
-  expect(scroll().scrollTop).toBe(10);
+  expect(scroll().scrollTop).toBe(2);
   expect(go).not.toHaveBeenCalled();
 });
 it("leaves manual browsing alone within a section and follows again after reopening", async () => {
@@ -569,6 +572,9 @@ it("reveals a collapsed ancestor without expanding it or writing navigation edit
   const scroll = followGeometry();
   await follow({ type: "pdf", page: 8 });
   expect(scroll().scrollTop).toBe(80);
+  scroll().scrollTop = 0;
+  await follow({ type: "pdf", page: 5 });
+  expect(scroll().scrollTop).toBe(80);
   expect(
     host
       .querySelector('[aria-label="展开 Methods"]')
@@ -576,6 +582,23 @@ it("reveals a collapsed ancestor without expanding it or writing navigation edit
   ).toBe("false");
   expect(mocks.save).not.toHaveBeenCalled();
   expect(go).not.toHaveBeenCalled();
+});
+it("waits for the pending outline edit before following a new chapter", async () => {
+  const scroll = followGeometry();
+  let finish!: (saved: DocumentNavigation) => void;
+  mocks.save.mockReturnValue(new Promise<DocumentNavigation>((resolve) => {
+    finish = resolve;
+  }));
+  await follow({ type: "pdf", page: 1 });
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="折叠 Methods"]')!.click(),
+  );
+  await follow({ type: "pdf", page: 25 });
+  expect(scroll().scrollTop).toBe(0);
+  await act(async () =>
+    finish({ revision: 1, entries: { methods: { collapsed: true } } }),
+  );
+  expect(scroll().scrollTop).toBe(230);
 });
 it("does not move the viewport while the user selects navigation entries", async () => {
   const scroll = followGeometry();
