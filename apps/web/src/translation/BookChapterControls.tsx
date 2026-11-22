@@ -20,6 +20,7 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
 } from "@neoread/ui/components/alert-dialog";
+import { ReaderTextReparseStatus, textReparseStatus } from "../ProcessingStatus";
 
 /**
  * Book translation controls bound to the reader's current chapter: translate,
@@ -27,6 +28,7 @@ import {
  */
 export function BookChapterControls({
   documentId,
+  format = "pdf",
   processing,
   status,
   stale = false,
@@ -35,6 +37,7 @@ export function BookChapterControls({
   onChange,
 }: {
   documentId: string;
+  format?: "pdf" | "epub";
   processing?: Processing;
   /** Counts of the current chapter; undefined while it is resolved. */
   status?: ChapterTranslationStatus;
@@ -65,10 +68,13 @@ export function BookChapterControls({
       Date.parse(saved.updatedAt) > Date.parse(processing.updatedAt))
       ? saved
       : processing;
+  const reparse = format === "pdf" ? textReparseStatus(job) : undefined;
+  const reparsing = !!reparse;
+  useEffect(() => setConfirming(false), [status?.key, reparsing]);
+  if (reparse) return <ReaderTextReparseStatus {...reparse} />;
   const phase = status
     ? chapterPhase(status, job?.enabled === true)
     : undefined;
-  useEffect(() => setConfirming(false), [status?.key]);
   const act = async (run: () => Promise<unknown>) => {
     const operation = ++serial.current;
     setBusy(true);

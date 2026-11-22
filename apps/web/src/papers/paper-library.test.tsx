@@ -770,6 +770,43 @@ it("tags a paper and collects it in a smart tag category", async () => {
 });
 
 it.each(["card", "table"] as const)(
+  "shows reparse pages in %s view even for a manual-translation paper",
+  async (layout) => {
+    jobs = new Map([
+      [
+        "a",
+        {
+          documentId: "a",
+          phase: "translating",
+          status: "running",
+          enabled: false,
+          manualTranslation: true,
+          reparseRun: "run",
+          pagesDone: 3,
+          pagesTotal: 20,
+          translationsDone: 10,
+          translationsTotal: 10,
+          detail: "",
+          updatedAt: "",
+        },
+      ],
+    ]);
+    await act(async () => {
+      useReaderStore.setState({
+        libraryPreferences: { mode: "papers", papers: { layout } },
+      });
+      root.render(<Harness />);
+    });
+    const status = row("Attention Is All You Need").querySelector(
+      layout === "card" ? ".cover-processing" : ".paper-title-processing",
+    );
+    expect(status?.textContent).toContain("文字解析中");
+    expect(status?.textContent).toContain("3 / 20 页");
+    expect(status?.textContent).not.toContain("翻译");
+  },
+);
+
+it.each(["card", "table"] as const)(
   "retries a failed translation in %s view without opening the paper or posting twice",
   async (layout) => {
     jobs = new Map([

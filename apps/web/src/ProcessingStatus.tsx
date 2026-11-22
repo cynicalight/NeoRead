@@ -11,6 +11,7 @@ const idlePollMs = 10_000;
 
 function isActive(job: Processing) {
   return (
+    !!job.reparseRun ||
     job.status === "queued" ||
     job.status === "running" ||
     job.bookLayout?.status === "queued" ||
@@ -75,6 +76,55 @@ export function useProcessing(onPoll?: () => void) {
   }, []);
   return { jobs, error };
 }
+
+interface TextReparseStatus {
+  label: string;
+  count?: string;
+  value: number | null;
+  active: boolean;
+}
+
+export function textReparseStatus(
+  job?: Processing,
+): TextReparseStatus | undefined {
+  if (job?.reparseRun) {
+    const count =
+      job.pagesTotal > 0 ? `${job.pagesDone} / ${job.pagesTotal} 页` : undefined;
+    return {
+      label: "文字解析中",
+      count,
+      value: count ? Math.min(100, (job.pagesDone / job.pagesTotal) * 100) : null,
+      active: true,
+    };
+  }
+  // Before the worker has a run token, the counters still describe the old layout.
+  if (
+    job?.status === "queued" &&
+    job.retranslating &&
+    job.detail === "等待重新解析版面"
+  ) {
+    return {
+      label: "等待文字解析",
+      value: null,
+      active: false,
+    };
+  }
+}
+
+export function ReaderTextReparseStatus({
+  label,
+  count,
+}: Pick<TextReparseStatus, "label" | "count">) {
+  return (
+    <div className="assistance-controls text-sm" role="status">
+      <span>
+        {label}
+        {count && ` ${count}`}
+      </span>
+    </div>
+  );
+}
+
 export function processingStages(job: Processing) {
   const learned = job.phase !== "learning";
   const translated = job.translating
@@ -163,6 +213,18 @@ export function CoverProcessing({
     const timer = setTimeout(() => setPhase(nextPhase), 750);
     return () => clearTimeout(timer);
   }, [leaving, nextPhase]);
+  const reparse = textReparseStatus(job);
+  if (reparse) {
+    return (
+      <CoverPageProgress
+        key="reparse"
+        {...reparse}
+        reparse
+        title={unavailable ? "暂时无法同步进度" : job.detail}
+        unavailable={unavailable}
+      />
+    );
+  }
   if (job.status === "paused")
     return job.bookLayout ? <CoverBookLayout layout={job.bookLayout} /> : null;
   if (phase === "ready")
@@ -338,37 +400,77 @@ function CoverBookLayout({
     ? Math.min(100, (layout.pagesDone / layout.pagesTotal) * 100)
     : null;
   return (
-    <div
-      className="cover-processing"
-      data-compact={false}
-      data-leaving={!active}
+    <CoverPageProgress
+      label={label}
+      count={
+        layout.pagesTotal > 0
+          ? `${layout.pagesDone} / ${layout.pagesTotal} 页`
+          : undefined
+      }
+      value={value}
+      active={layout.status === "running"}
+      done={!active}
       title={
         layout.status === "failed"
           ? "打开图书或重启应用后会重新解析"
           : undefined
       }
+    />
+  );
+}
+
+function CoverPageProgress({
+  label,
+  count,
+  value,
+  active,
+  done = false,
+  title,
+  reparse = false,
+  unavailable = false,
+}: {
+  label: string;
+  count?: string;
+  value: number | null;
+  active: boolean;
+  done?: boolean;
+  title?: string;
+  reparse?: boolean;
+  unavailable?: boolean;
+}) {
+  const shownCount = unavailable ? "离线" : count;
+  return (
+    <div
+      className="cover-processing"
+      data-compact={false}
+      data-leaving={done}
+      data-reparse={reparse || undefined}
+      title={title}
     >
       <div
         className="processing-step"
-        data-active={layout.status === "running"}
-        data-done={!active || undefined}
+        data-active={active && !unavailable}
+        data-done={done || undefined}
       >
         <div className="processing-step-heading" role="status">
-          {!active && <Check className="size-3 processing-complete-icon" />}
+          {done && <Check className="size-3 processing-complete-icon" />}
           <span className="processing-label">{label}</span>
-          {layout.pagesTotal > 0 && (
+          {shownCount && (
             <span className="processing-count">
-              <span className="processing-count-value" key={layout.pagesDone}>
-                {layout.pagesDone} / {layout.pagesTotal} 页
+              <span className="processing-count-value" key={shownCount}>
+                {shownCount}
               </span>
             </span>
           )}
         </div>
-        <Progress
-          aria-label={label}
-          value={value ?? (layout.status === "running" ? null : 0)}
-          className="processing-progress"
-        />
+        {(!reparse || active) && (
+          <Progress
+            aria-label={label}
+            getAriaValueText={reparse && shownCount ? () => shownCount : undefined}
+            value={value ?? (active && !unavailable ? null : 0)}
+            className="processing-progress"
+          />
+        )}
       </div>
     </div>
   );

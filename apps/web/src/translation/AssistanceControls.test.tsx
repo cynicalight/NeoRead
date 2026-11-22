@@ -224,6 +224,29 @@ it.each(["queued", "running"] as const)(
   },
 );
 
+it("shows PDF reparse pages before offering any whole-document translation action", async () => {
+  const reparse: Processing = {
+    ...paused,
+    enabled: true,
+    retranslating: true,
+    reparseRun: "run",
+    phase: "learning",
+    status: "running",
+    pagesDone: 6,
+    pagesTotal: 20,
+  };
+  await render(1, reparse);
+  expect(host.textContent).toBe("文字解析中 6 / 20 页");
+  expect(host.querySelector("button")).toBeNull();
+
+  await render(1, {
+    ...reparse,
+    reparseRun: undefined,
+    phase: "translating",
+  });
+  expect(host.textContent).toBe("暂停重译");
+});
+
 it("retries paper parsing without labelling it as translation", async () => {
   await render(1, {
     ...paused,

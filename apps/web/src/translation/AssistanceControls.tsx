@@ -15,6 +15,7 @@ import {
 } from "@neoread/ui/components/alert-dialog";
 import { toast } from "sonner";
 import { trackReparsePublication } from "../reparse-document";
+import { ReaderTextReparseStatus, textReparseStatus } from "../ProcessingStatus";
 
 type Action = "start" | "pause" | "resume";
 
@@ -56,6 +57,10 @@ export function AssistanceControls({
       serial.current++;
     };
   }, [documentId]);
+  const reparse = doc.type === "pdf" ? textReparseStatus(job) : undefined;
+  const reparsing = !!reparse;
+  useEffect(() => setConfirming(false), [reparsing]);
+  if (reparse) return <ReaderTextReparseStatus {...reparse} />;
   const complete = job?.status === "complete";
   const paperParsing =
     job?.phase === "learning" && !job.retranslating && !complete;

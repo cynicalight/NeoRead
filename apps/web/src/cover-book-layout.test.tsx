@@ -63,3 +63,41 @@ it("stays hidden for books parsed before the library opened", () => {
   render(book());
   expect(host.textContent).toBe("");
 });
+
+it("immediately replaces published layout status with this reparse's measured pages", () => {
+  const published = book({ status: "complete", pagesDone: 48, pagesTotal: 48 });
+  render(published);
+  render({
+    ...published,
+    phase: "translating",
+    status: "queued",
+    retranslating: true,
+    detail: "等待重新解析版面",
+    pagesDone: 48,
+    pagesTotal: 48,
+  });
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("等待文字解析");
+  expect(host.querySelector('[role="progressbar"]')).toBeNull();
+  const reparse: Processing = {
+    ...published,
+    phase: "translating",
+    status: "queued",
+    translating: { status: "complete", detail: "翻译完成" },
+    reparseRun: "new-run",
+    pagesDone: 0,
+    pagesTotal: 48,
+  };
+  render(reparse);
+  expect(host.querySelector('[role="status"]')?.textContent).toBe(
+    "文字解析中0 / 48 页",
+  );
+  render({ ...reparse, status: "running", pagesDone: 12 });
+  expect(host.querySelector('[role="status"]')?.textContent).toBe(
+    "文字解析中12 / 48 页",
+  );
+  expect(
+    host.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow"),
+  ).toBe("25");
+  render(published);
+  expect(host.textContent).toBe("");
+});

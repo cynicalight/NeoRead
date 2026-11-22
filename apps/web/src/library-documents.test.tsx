@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api } from "@neoread/api";
 import { toast } from "sonner";
-import type { Document } from "@neoread/core";
+import type { Document, Processing } from "@neoread/core";
 import { LibraryDocuments } from "./LibraryDocuments";
 import { doubleClickWindow } from "./DetailSheet";
 import { useReaderStore } from "./store";
@@ -14,6 +14,7 @@ vi.mock("@neoread/api", () => ({
     restoreDocument: vi.fn(),
     trash: vi.fn(async () => []),
     documents: vi.fn(async () => []),
+    overviewJobs: vi.fn(async () => []),
     processingUsage: vi.fn(),
     chatUsage: vi.fn(),
   },
@@ -23,7 +24,6 @@ vi.mock("@neoread/api", () => ({
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
-vi.mock("./ProcessingStatus", () => ({ CoverProcessing: () => null }));
 const docs: Document[] = ["Alpha", "Beta"].map((title, i) => ({
   id: String(i),
   title,
@@ -54,14 +54,20 @@ const open = vi.fn(),
   edit = vi.fn(),
   overview = vi.fn();
 let withDetail = false;
-function Harness() {
+function Harness({
+  jobs = [],
+  libraryView = "grid",
+}: {
+  jobs?: Processing[];
+  libraryView?: "grid" | "list";
+} = {}) {
   const documents = useReaderStore((s) => s.documents);
   const [active, setActive] = useState<string | null>(null);
   return (
     <LibraryDocuments
       documents={documents}
-      libraryView="grid"
-      jobs={[]}
+      libraryView={libraryView}
+      jobs={jobs}
       processingError=""
       openDocument={open}
       openDocuments={openMany}
@@ -115,6 +121,39 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   withDetail = false;
 });
+
+it.each(["grid", "list"] as const)(
+  "shows active PDF text parsing on the book in %s view",
+  async (libraryView) => {
+    await act(async () => {
+      useReaderStore.setState({ documents: [{ ...docs[0], type: "pdf" }] });
+      root.render(
+        <Harness
+          libraryView={libraryView}
+          jobs={[
+            {
+              documentId: docs[0].id,
+              phase: "translating",
+              status: "running",
+              reparseRun: "run",
+              pagesDone: 7,
+              pagesTotal: 48,
+              bookLayout: { status: "complete", pagesDone: 48, pagesTotal: 48 },
+              translationsDone: 81,
+              translationsTotal: 81,
+              detail: "",
+              updatedAt: "",
+            },
+          ]}
+        />,
+      );
+    });
+    expect(
+      host.querySelector('.book-cover-frame [role="status"]')?.textContent,
+    ).toBe("文字解析中7 / 48 页");
+  },
+);
+
 it("applies the existing author preference to books immediately", async () => {
   await act(async () => {
     useReaderStore.setState({

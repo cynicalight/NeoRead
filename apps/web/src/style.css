@@ -2682,6 +2682,10 @@ kbd {
   grid-column: 1;
   grid-row: 1 / span 5;
 }
+.book-list .cover-processing[data-reparse="true"] .processing-step-heading {
+  flex-wrap: wrap;
+  gap: 2px;
+}
 .book-list .book-cover {
   padding: 12px;
 }

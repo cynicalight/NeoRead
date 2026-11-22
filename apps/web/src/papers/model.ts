@@ -140,8 +140,9 @@ export const descendingSorts: ReadonlySet<PaperSort> = new Set([
 ]);
 const busy = (job?: Processing) =>
   !!job &&
-  job.enabled !== false &&
-  !["complete", "failed", "paused"].includes(job.status);
+  (!!job.reparseRun ||
+    (job.enabled !== false &&
+      !["complete", "failed", "paused"].includes(job.status)));
 
 /** Categories nest by "/": "ML/Vision" is inside "ML". */
 export const categoryParent = (name: string) => {

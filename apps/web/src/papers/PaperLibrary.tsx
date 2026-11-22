@@ -86,7 +86,7 @@ import {
 import { useReaderStore } from "../store";
 import { TrashView } from "../TrashView";
 import { BookCoverImage } from "../book-cover";
-import { CoverProcessing } from "../ProcessingStatus";
+import { CoverProcessing, textReparseStatus } from "../ProcessingStatus";
 import { useCardZoom } from "../useCardZoom";
 import { exportAnnotatedPDFWithToast } from "../annotated-pdf-export";
 import { trashWithUndo } from "../library-actions";
@@ -1408,6 +1408,23 @@ function PaperProcessing({ job }: { job?: Processing }) {
     retryLock.current = false;
     setRetrying(false);
   }, [job?.updatedAt]);
+  const reparse = textReparseStatus(job);
+  if (reparse) {
+    return (
+      <span className="paper-title-processing" role="status">
+        <span>{reparse.label}</span>
+        {reparse.count && <span>{reparse.count}</span>}
+        {reparse.active && (
+          <Progress
+            aria-label={reparse.label}
+            aria-valuetext={reparse.count}
+            value={reparse.value}
+            className="processing-progress"
+          />
+        )}
+      </span>
+    );
+  }
   if (job?.manualTranslation && !job.enabled && job.phase !== "learning") {
     return (
       <Button
@@ -1889,6 +1906,7 @@ function PaperRow({
                 <div data-row-action>
                   {job.manualTranslation &&
                   !job.enabled &&
+                  !textReparseStatus(job) &&
                   job.phase !== "learning" ? (
                     <span className="cover-analyze">
                       <PaperProcessing job={job} />
