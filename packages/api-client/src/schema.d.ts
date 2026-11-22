@@ -2858,6 +2858,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{id}/ocr-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read a range of up to 32 completed pages from the active PDF reparse. Empty lines mean the page has no OCR text. This provisional text layer does not replace the published layout. */
+        get: {
+            parameters: {
+                query: {
+                    run: string;
+                    from: number;
+                    to: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Pages in ascending order */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            pages: components["schemas"]["PDFOCRPreviewPage"][];
+                        };
+                    };
+                };
+                /** @description Invalid range or preview no longer available */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{id}/reparse": {
         parameters: {
             query?: never;
@@ -5903,6 +5956,8 @@ export interface components {
             readonly translationScopeKind?: "paragraph" | "chapter";
             /** @description Explicitly requested paragraph IDs processed by the existing translation lane without resuming unrelated paused work. */
             readonly translationBlocks?: string[];
+            /** @description Active PDF reparse attempt. pagesDone is the number of completed preview pages, not translation progress. */
+            readonly reparseRun?: string;
             /** @description Changes when a reparse publishes new source; readers reload source and translations. */
             readonly layoutRevision?: string;
             readonly autoTranslateMaxPages?: number;
@@ -5940,6 +5995,15 @@ export interface components {
             width: number;
             height: number;
         };
+        /** @description OCR-only text lines in reading order. */
+        PDFOCRLines: {
+            text: string;
+            bounds: components["schemas"]["PDFPageBounds"];
+        }[];
+        PDFOCRPreviewPage: {
+            page: number;
+            lines: components["schemas"]["PDFOCRLines"];
+        };
         PDFBlock: {
             id: string;
             page: number;
@@ -5952,11 +6016,7 @@ export interface components {
             caption?: string;
             /** @description True if the block includes text recognized by OCR. */
             ocr?: boolean;
-            /** @description OCR-only text lines in reading order. Absent from older parses and native blocks. */
-            ocrLines?: {
-                text: string;
-                bounds: components["schemas"]["PDFPageBounds"];
-            }[];
+            ocrLines?: components["schemas"]["PDFOCRLines"];
         };
         AICapability: {
             text: boolean;

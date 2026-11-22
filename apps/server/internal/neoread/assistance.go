@@ -23,6 +23,7 @@ func (s *Server) getAssistance(w http.ResponseWriter, r *http.Request) {
 			p = initialDocumentProcessing(d, "")
 		}
 	}
+	s.addPDFReparseProgress(&p)
 	respond(w, 200, p)
 }
 func (s *Server) setAssistance(w http.ResponseWriter, r *http.Request) {

@@ -99,17 +99,21 @@ func (s *Server) refreshRetranslationLayout(ctx context.Context, p *Processing) 
 			if fingerprintErr != nil {
 				return fingerprintErr
 			}
-			work := filepath.Join(filepath.Dir(dir), "retranslation-layout-work")
-			defer os.RemoveAll(work)
-			p.Detail = "正在重新解析全文版面"
-			if err = s.Store.saveProcessing(*p); err != nil {
-				return err
+			workRoot := s.pdfReparseWorkRoot(d.ID)
+			if err = os.RemoveAll(workRoot); err != nil {
+				return errors.New("无法清理未完成的重新解析")
 			}
 			finish, stageErr := s.startUsageStage(d.ID, "learning")
 			if stageErr != nil {
 				return stageErr
 			}
-			parseErr := s.runLayout(ctx, d, work, 0, 0, p)
+			preview := s.beginPDFReparse(ctx, d.ID)
+			work := filepath.Join(workRoot, preview.run)
+			defer func() {
+				s.endPDFReparse(d.ID, preview)
+				_ = os.RemoveAll(workRoot)
+			}()
+			parseErr := s.runLayoutWithIdleTimeout(ctx, d, work, 0, 0, nil, preview, layoutIdleTimeout)
 			if err = errors.Join(parseErr, finish()); err != nil {
 				return err
 			}
@@ -207,6 +211,14 @@ ON CONFLICT(document_id) DO UPDATE SET status='queued'`, p.DocumentID); err != n
 			return err
 		}
 		if _, err = tx.Exec("UPDATE document_processing SET phase=?,status=?,body=? WHERE document_id=?", prepared.Phase, prepared.Status, jsonText(prepared), d.ID); err != nil {
+			return err
+		}
+	} else if d.Type == "pdf" {
+		// Polling switches from the preview to the canonical layout as soon as
+		// this attempt ends, even if the next translation batch has not started.
+		if _, err = tx.Exec(`UPDATE document_processing SET body=json_set(body,
+			'$.layoutRevision', ?, '$.pagesDone', ?, '$.pagesTotal', ?, '$.updatedAt', ?)
+			WHERE document_id=?`, prepared.LayoutRevision, prepared.PagesDone, prepared.PagesTotal, now(), d.ID); err != nil {
 			return err
 		}
 	}

@@ -26,6 +26,7 @@ type Processing struct {
 	Enabled               bool   `json:"enabled"`
 	EPUBManual            bool   `json:"epubManual,omitempty"`
 	Retranslating         bool   `json:"retranslating,omitempty"`
+	ReparseRun            string `json:"reparseRun,omitempty"`
 	LayoutRevision        string `json:"layoutRevision,omitempty"`
 	// TranslationBlocks isolates explicit units from inactive full-document work.
 	TranslationBlocks    []string `json:"translationBlocks,omitempty"`
@@ -241,6 +242,7 @@ func (s *Server) processingList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		normalizeNoTextProcessing(&p)
+		s.addPDFReparseProgress(&p)
 		view := processingView{Processing: p}
 		if job, ok := books[p.DocumentID]; ok {
 			view.BookLayout = &job
@@ -273,6 +275,7 @@ func (s *Server) retryProcessing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.Status == "complete" || (p.Status == "running" && !hasFailedStage(p)) {
+		s.addPDFReparseProgress(&p)
 		respond(w, 200, p)
 		return
 	}

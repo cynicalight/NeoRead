@@ -725,6 +725,8 @@ export interface Processing {
   retranslating?: boolean;
   /** Changes when a reparse publishes new source; readers reload source and translations. */
   layoutRevision?: string;
+  /** Active PDF reparse attempt; pagesDone counts fully written preview pages. */
+  reparseRun?: string;
   autoTranslateMaxPages?: number;
   manualTranslation?: boolean;
   enabled?: boolean;
@@ -765,6 +767,10 @@ export interface PDFBlock {
   ocrLines?: { text: string; bounds: PDFBlock["bounds"] }[];
   image?: string;
   caption?: string;
+}
+export interface PDFOCRPreviewPage {
+  page: number;
+  lines: NonNullable<PDFBlock["ocrLines"]>;
 }
 export interface EPUBReadingBlock {
   image?: string;

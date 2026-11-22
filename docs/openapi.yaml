@@ -3116,6 +3116,29 @@
                 },
             },
         },
+      "/api/documents/{id}/ocr-preview":
+        {
+          "get":
+            {
+              "description": "Read a range of up to 32 completed pages from the active PDF reparse. Empty lines mean the page has no OCR text. This provisional text layer does not replace the published layout.",
+              "parameters":
+                [
+                  { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+                  { "name": "run", "in": "query", "required": true, "schema": { "type": "string" } },
+                  { "name": "from", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+                  { "name": "to", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+                ],
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Pages in ascending order",
+                      "content": { "application/json": { "schema": { "type": "object", "required": ["pages"], "properties": { "pages": { "type": "array", "items": { "$ref": "#/components/schemas/PDFOCRPreviewPage" } } } } } },
+                    },
+                  "default": { "description": "Invalid range or preview no longer available", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+                },
+            },
+        },
       "/api/documents/{id}/reparse":
         {
           "post":
@@ -7210,6 +7233,12 @@
                       "readOnly": true,
                       "description": "Explicitly requested paragraph IDs processed by the existing translation lane without resuming unrelated paused work.",
                     },
+                  "reparseRun":
+                    {
+                      "type": "string",
+                      "readOnly": true,
+                      "description": "Active PDF reparse attempt. pagesDone is the number of completed preview pages, not translation progress.",
+                    },
                   "layoutRevision":
                     {
                       "type": "string",
@@ -7307,6 +7336,29 @@
                 },
               "required": ["x", "y", "width", "height"],
             },
+          "PDFOCRLines":
+            {
+              "type": "array",
+              "description": "OCR-only text lines in reading order.",
+              "items":
+                {
+                  "type": "object",
+                  "required": ["text", "bounds"],
+                  "properties": {
+                    "text": { "type": "string" },
+                    "bounds": { "$ref": "#/components/schemas/PDFPageBounds" },
+                  },
+                },
+            },
+          "PDFOCRPreviewPage":
+            {
+              "type": "object",
+              "required": ["page", "lines"],
+              "properties": {
+                "page": { "type": "integer", "minimum": 1 },
+                "lines": { "$ref": "#/components/schemas/PDFOCRLines" },
+              },
+            },
           "PDFBlock":
             {
               "type": "object",
@@ -7321,21 +7373,7 @@
                   "image": { "type": "string" },
                   "caption": { "type": "string" },
                   "ocr": { "type": "boolean", "description": "True if the block includes text recognized by OCR." },
-                  "ocrLines":
-                    {
-                      "type": "array",
-                      "description": "OCR-only text lines in reading order. Absent from older parses and native blocks.",
-                      "items":
-                        {
-                          "type": "object",
-                          "required": ["text", "bounds"],
-                          "properties":
-                            {
-                              "text": { "type": "string" },
-                              "bounds": { "$ref": "#/components/schemas/PDFPageBounds" },
-                            },
-                        },
-                    },
+                  "ocrLines": { "$ref": "#/components/schemas/PDFOCRLines" },
                 },
               "required": ["id", "page", "label", "bounds", "text"],
             },

@@ -364,7 +364,7 @@ func TestLayoutTimeoutTracksInactivity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = s.runLayoutWithIdleTimeout(context.Background(), d, filepath.Join(s.Store.Root, "work"), 0, 0, nil, time.Second)
+			err = s.runLayoutWithIdleTimeout(context.Background(), d, filepath.Join(s.Store.Root, "work"), 0, 0, nil, nil, time.Second)
 			if !errors.Is(err, test.want) {
 				t.Fatalf("got %v, want %v", err, test.want)
 			}

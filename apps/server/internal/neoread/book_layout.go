@@ -31,11 +31,16 @@ type PageRange struct {
 // runLayout parses the PDF into work. from and to bound a book chapter; zero
 // parses the whole document. A nil p runs without reporting page progress.
 func (s *Server) runLayout(ctx context.Context, d Document, work string, from, to int, p *Processing) error {
-	return s.runLayoutWithIdleTimeout(ctx, d, work, from, to, p, layoutIdleTimeout)
+	return s.runLayoutWithIdleTimeout(ctx, d, work, from, to, p, nil, layoutIdleTimeout)
 }
 
-func (s *Server) runLayoutWithIdleTimeout(ctx context.Context, d Document, work string, from, to int, p *Processing, idleTimeout time.Duration) (result error) {
-	runID := id()
+func (s *Server) runLayoutWithIdleTimeout(ctx context.Context, d Document, work string, from, to int, p *Processing, preview *pdfReparse, idleTimeout time.Duration) (result error) {
+	var runID string
+	if preview != nil {
+		runID = preview.run
+	} else {
+		runID = id()
+	}
 	started := time.Now()
 	lastStage := "prepare"
 	exitCode := -1
@@ -79,6 +84,13 @@ func (s *Server) runLayoutWithIdleTimeout(ctx context.Context, d Document, work 
 	// Disable ONNX telemetry before loading native modules to avoid its exit-time teardown crash.
 	cmd.Env = append(os.Environ(), "ELECTRON_RUN_AS_NODE=1", "NODE_USE_ENV_PROXY=1", "ORT_DISABLE_TELEMETRY=1",
 		"NEOREAD_OCR_ENGINE="+engine, "NEOREAD_OCR_MODEL_DIR="+modelDir)
+	// Set an explicit value so an inherited environment cannot enable previews
+	// for imports, chapter workers, or background book parsing.
+	if preview != nil {
+		cmd.Env = append(cmd.Env, "NEOREAD_OCR_PREVIEW=1")
+	} else {
+		cmd.Env = append(cmd.Env, "NEOREAD_OCR_PREVIEW=0")
+	}
 	cmd.WaitDelay = 3 * time.Second
 	cmd.Dir = s.Store.Root
 	cmd.Stderr = stderr
@@ -131,6 +143,10 @@ func (s *Server) runLayoutWithIdleTimeout(ctx context.Context, d Document, work 
 				continue
 			}
 			idle.Reset(idleTimeout)
+			if preview != nil {
+				s.recordPDFReparseProgress(preview, event.Page, event.Total)
+				continue
+			}
 			if p == nil {
 				continue
 			}

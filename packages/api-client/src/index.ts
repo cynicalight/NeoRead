@@ -40,6 +40,7 @@ import type {
   Processing,
   ProcessingUsage,
   PDFBlock,
+  PDFOCRPreviewPage,
   AIConfig,
   AICapability,
   AgentModel,
@@ -601,6 +602,17 @@ export const api = {
     request<Processing>(`/api/documents/${encodeURIComponent(id)}/reparse`, {
       method: "POST",
     }),
+  ocrPreview: (
+    id: string,
+    run: string,
+    from: number,
+    to: number,
+    signal?: AbortSignal,
+  ) =>
+    request<{ pages: PDFOCRPreviewPage[] }>(
+      `/api/documents/${encodeURIComponent(id)}/ocr-preview?run=${encodeURIComponent(run)}&from=${from}&to=${to}`,
+      { signal },
+    ),
   process: (id: string) =>
     request<Processing>(`/api/documents/${id}/processing`, { method: "POST" }),
   blocks: (id: string, signal?: AbortSignal) =>

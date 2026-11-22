@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Exercise the subprocess boundary on every platform without a model download.
@@ -35,6 +36,30 @@ func init() {
 	_, _ = f.WriteString("parse\n")
 	_ = f.Close()
 	_ = os.MkdirAll(filepath.Join(out, "assets"), 0700)
+	if mode == "preview" || mode == "preview-fail" {
+		if os.Getenv("NEOREAD_OCR_PREVIEW") != "1" {
+			os.Exit(7)
+		}
+		pages := filepath.Join(out, "preview", "pages")
+		if os.MkdirAll(pages, 0700) != nil || os.WriteFile(filepath.Join(pages, "3.json.part"), []byte("["), 0600) != nil {
+			os.Exit(6)
+		}
+		if !waitReparseGate("start") {
+			os.Exit(5)
+		}
+		if atomicFile(filepath.Join(pages, "1.json"), []byte(`[{"text":"recognized","bounds":{"x":0.1,"y":0.2,"width":0.3,"height":0.4}}]`)) != nil ||
+			atomicFile(filepath.Join(pages, "2.json"), []byte(`[]`)) != nil {
+			os.Exit(4)
+		}
+		fmt.Println(`{"event":"page","page":1,"total":3}`)
+		fmt.Println(`{"event":"page","page":2,"total":3}`)
+		if !waitReparseGate("finish") || mode == "preview-fail" {
+			os.Exit(3)
+		}
+		if atomicFile(filepath.Join(pages, "3.json"), []byte(`[]`)) != nil {
+			os.Exit(4)
+		}
+	}
 	if mode == "fail" {
 		_ = os.WriteFile(filepath.Join(out, "manifest.json"), []byte("partial"), 0600)
 		os.Exit(3)
@@ -52,6 +77,18 @@ func init() {
 	_ = os.WriteFile(filepath.Join(out, "paper.md"), []byte("new paper\n[algorithm](assets/p1-b3.png)"), 0600)
 	fmt.Printf("{\"event\":\"page\",\"page\":%d,\"total\":%d}\n", m.Pages, m.Pages)
 	os.Exit(0)
+}
+
+func waitReparseGate(gate string) bool {
+	path := os.Getenv("NEOREAD_REPARSE_CALLS") + "." + gate
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
 }
 
 func reparseFixture(t *testing.T, m layoutManifest) string {

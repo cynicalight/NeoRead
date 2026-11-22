@@ -55,12 +55,17 @@ const fromPage = pageBound(values["from-page"]),
   toPage = pageBound(values["to-page"]);
 const input = resolve(values.input),
   output = resolve(values.output ?? ".");
+const previewPages =
+  !probe && process.env.NEOREAD_OCR_PREVIEW === "1"
+    ? join(output, "preview", "pages")
+    : undefined;
 if (!probe) {
   stage("output_prepare");
   await mkdir(output, { recursive: true, mode: 0o700 });
   if ((await readdir(output)).length)
     throw new Error("输出目录必须为空，避免覆盖已有解析稿或用户修订");
   await mkdir(join(output, "assets"), { recursive: true, mode: 0o700 });
+  if (previewPages) await mkdir(previewPages, { recursive: true, mode: 0o700 });
 }
 stage("model_verify");
 const modelPath = await resolveModel(values.model && resolve(values.model));
@@ -265,6 +270,12 @@ async function processPages() {
       regions: regions.length,
       assets: pageBlocks.filter((b) => b.image).length,
     });
+    if (previewPages) {
+      const path = join(previewPages, `${number}.json`);
+      const lines = pageBlocks.flatMap((block) => block.ocrLines ?? []);
+      await writeFile(`${path}.part`, JSON.stringify(lines), { mode: 0o600 });
+      await rename(`${path}.part`, path);
+    }
     process.stdout.write(
       JSON.stringify({
         event: "page",

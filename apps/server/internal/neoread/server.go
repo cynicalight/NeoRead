@@ -67,6 +67,8 @@ type Server struct {
 	translationSubscribers map[string]map[chan TranslationBlock]struct{}
 	processingMu           sync.Mutex
 	bookLayout             bookLayoutState
+	pdfReparseMu           sync.Mutex
+	pdfReparses            map[string]*pdfReparse
 	ocrDownload            ocrDownload
 	ocrProbes              ocrProbes
 	processingControlMu    sync.Mutex
@@ -161,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/import/zotero", s.importZotero)
 	mux.HandleFunc("POST /api/documents", s.importDocument)
 	mux.HandleFunc("POST /api/documents/{id}/reparse", s.reparseDocument)
+	mux.HandleFunc("GET /api/documents/{id}/ocr-preview", s.getOCRPreview)
 	mux.HandleFunc("POST /api/documents/resolve", s.resolveDocument)
 	mux.HandleFunc("GET /api/documents/{id}/navigation", s.documentNavigation)
 	mux.HandleFunc("PUT /api/documents/{id}/navigation", s.saveDocumentNavigation)
