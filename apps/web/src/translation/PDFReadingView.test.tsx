@@ -658,9 +658,18 @@ it.each([false, true])(
       source.dispatchEvent(
         new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
       );
+      source.dispatchEvent(new Event("scroll"));
+      fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.75 });
+      await new Promise(requestAnimationFrame);
+      expect(pane.scrollTop).toBe(400);
+      source.dispatchEvent(new Event("scroll"));
       fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.25 });
+      expect(pane.scrollTop).toBe(400);
+      // At the scroll limit another wheel tick need not move the viewport.
+      source.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+      source.dispatchEvent(new Event("scrollend"));
     });
-    expect(pane.scrollTop).toBeCloseTo(350);
+    await vi.waitFor(() => expect(pane.scrollTop).toBeCloseTo(350));
     await act(async () => {
       pane.dispatchEvent(new Event("scroll", { bubbles: true }));
       await new Promise(requestAnimationFrame);

@@ -598,14 +598,15 @@ it.each(["source", "translation"] as const)(
   },
 );
 
-it("smoothly retargets the translated midpoint and cancels following on user input", async () => {
+it("waits for the source scroll to end, then glides to its final midpoint", async () => {
   await click("对照");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   const pane = host.querySelector<HTMLElement>(".translation-document")!;
+  const source = host.querySelector(".translation-source")!.firstElementChild!;
   Object.defineProperty(pane, "clientHeight", { value: 400 });
   pane.getBoundingClientRect = () => new DOMRect(0, 0, 400, 400);
   const node = pane.querySelector<HTMLElement>(
-    '[data-translation-block="e-b"]',
+    '[data-translation-block="p1-b1"]',
   )!;
   node.getBoundingClientRect = () =>
     new DOMRect(0, 600 - pane.scrollTop, 400, 100);
@@ -613,22 +614,30 @@ it("smoothly retargets the translated midpoint and cancels following on user inp
   try {
     await act(async () => {
       fixture.events!.epubInteraction?.();
-      fixture.events!.epubReadingAnchor?.("e-b", 0.5);
+      source.dispatchEvent(new Event("scroll"));
+      fixture.events!.epubReadingAnchor?.("p1-b1", 0.5);
+      await vi.advanceTimersByTimeAsync(50);
+      source.dispatchEvent(new Event("scroll"));
+      fixture.events!.epubReadingAnchor?.("p1-b1", 0.75);
+      await vi.advanceTimersByTimeAsync(50);
     });
+    expect(pane.scrollTop).toBe(0);
     await act(async () => {
+      source.dispatchEvent(new Event("scrollend"));
       await vi.advanceTimersByTimeAsync(100);
     });
     expect(pane.scrollTop).toBeGreaterThan(0);
-    expect(pane.scrollTop).toBeLessThan(450);
+    expect(pane.scrollTop).toBeLessThan(475);
     await act(async () => {
-      fixture.events!.epubReadingAnchor?.("e-b", 0.75);
       await vi.advanceTimersByTimeAsync(300);
     });
     expect(pane.scrollTop).toBe(475);
     await act(async () => {
-      fixture.events!.epubReadingAnchor?.("e-b", 0.25);
+      source.dispatchEvent(new Event("scroll"));
+      fixture.events!.epubReadingAnchor?.("p1-b1", 0.25);
       await vi.advanceTimersByTimeAsync(100);
       pane.dispatchEvent(new Event("wheel", { bubbles: true }));
+      source.dispatchEvent(new Event("scrollend"));
     });
     const stopped = pane.scrollTop;
     await act(async () => {

@@ -56,6 +56,7 @@ import {
   translationBlockAction,
 } from "./translation-block-actions";
 import { useStableHandlers } from "./useStableHandlers";
+import { useSettledSourceFollow } from "./useSettledSourceFollow";
 
 import type { ReadingMode } from "./reading-mode";
 /** Scroll settling after a pinned jump or click does not move the anchor. */
@@ -180,6 +181,9 @@ export function EPUBReadingView({
   const syncTarget = useRef<EPUBLocation | undefined>(undefined);
   const pendingFollow = useRef<ReadingAnchor | undefined>(undefined);
   const sync = useRef(new ReadingSync());
+  const settled = useSettledSourceFollow(
+    active && mode === "parallel" && !reflow ? doc.id : undefined,
+  );
   const translationMotion = useRef(0);
   const scrollFrame = useRef(0);
   const modeFrame = useRef(0);
@@ -313,7 +317,6 @@ export function EPUBReadingView({
       pane.current?.querySelectorAll<HTMLElement>("[data-translation-block]") ??
         [],
     ).find((n) => n.dataset.translationBlock === id);
-  /** Scroll following sets the pane directly, as PDF does; jumps animate. */
   const follow = (id: string, fraction = 0.5, instant = false) => {
     if (live.current.reflow) return;
     const block = live.current.blocks.find((b) => b.id === id);
@@ -392,6 +395,7 @@ export function EPUBReadingView({
   const focusBlock = (id: string, origin: "source" | "translation") => {
     const block = live.current.blocks.find((b) => b.id === id);
     if (!block) return;
+    settled.cancel();
     input(origin);
     const motion = focusMotion.current;
     const operation = ++motion.operation;
@@ -432,6 +436,7 @@ export function EPUBReadingView({
     engine.current?.cancelBlockFocus?.();
   };
   const input = (origin: "source" | "translation") => {
+    if (origin === "translation") settled.cancel();
     cancelAnimationFrame(modeFrame.current);
     modeTarget.current = undefined;
     deferredFocus.cancel();
@@ -475,6 +480,7 @@ export function EPUBReadingView({
   };
   const go = async (location: DocumentLocation) => {
     if (location.type !== "epub") return;
+    settled.cancel();
     clear();
     input(
       live.current.mode === "translation" && !live.current.reflow
@@ -936,7 +942,7 @@ export function EPUBReadingView({
           updateLocation({ ...block.location, blockId: block.id });
           driftAnchor(blockAnchor(block));
           if (live.current.mode === "parallel" && !live.current.reflow)
-            follow(id, fraction, true);
+            settled.follow(() => follow(id, fraction));
         },
         selection: (value) => {
           if (live.current.mode === "translation" && !live.current.reflow)
@@ -947,6 +953,7 @@ export function EPUBReadingView({
           selection.current = value;
           live.current.events.selection(value);
           if (value?.location.type === "epub") {
+            settled.cancel();
             const [block] = epubBlocksAt(value.location, live.current.blocks);
             if (block) {
               const location = { ...block.location, blockId: block.id };
@@ -1026,6 +1033,7 @@ export function EPUBReadingView({
         }
         source={
           <div
+            ref={settled.source}
             className={`translation-source${reflow ? " epub-reflow" : ""}`}
             data-reflow-mode={reflow ? "parallel" : undefined}
             style={
