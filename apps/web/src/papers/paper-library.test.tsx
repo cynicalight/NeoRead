@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import type { Document, Processing } from "@neoread/core";
 import { updateLibraryPreferences, useReaderStore } from "../store";
 import { PaperLibrary } from "./PaperLibrary";
+import { deleteCategory, renameCategory } from "./actions";
 import { doubleClickWindow } from "../DetailSheet";
 import { PaperSidebar } from "./PaperSidebar";
 import { usePaperUI } from "./state";
@@ -518,6 +519,7 @@ it("renames a category everywhere through the library endpoint", async () => {
     "papers",
     "ML",
     "Machine learning",
+    expect.anything(),
   );
 });
 
@@ -556,6 +558,7 @@ it("shows subcategories under their parent and renames only the leaf", async () 
     "papers",
     "ML/Vision",
     "ML/CV",
+    expect.objectContaining({ categories: ["ML", "ML/CV"] }),
   );
   const twisty = host.querySelector<HTMLButtonElement>(
     '[aria-label="折叠“ML”"]',
@@ -2953,4 +2956,53 @@ it("does not persist a later preference snapshot containing a rejected folder mo
   });
   expect(api.saveLibraryPreferences).not.toHaveBeenCalled();
   expect(useReaderStore.getState().libraryPreferences).toEqual(before);
+});
+
+it("queues a category rename behind a pending folder move", async () => {
+  let finish!: () => void;
+  vi.mocked(api.changeLibraryFolder).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve({ changed: 1 });
+      }),
+  );
+  let moving!: Promise<void>, renaming!: Promise<boolean>;
+  await act(async () => {
+    moving = updateLibraryPreferences(
+      { papers: { categories: ["AI", "AI/ML"] } },
+      { from: "ML", to: "AI/ML" },
+    );
+    renaming = renameCategory("AI/ML", "AI/Renamed");
+  });
+  expect(api.changeLibraryFolder).toHaveBeenCalledOnce();
+  await act(async () => {
+    finish();
+    await moving;
+    expect(await renaming).toBe(true);
+  });
+  expect(api.changeLibraryFolder).toHaveBeenLastCalledWith(
+    "papers",
+    "AI/ML",
+    "AI/Renamed",
+    expect.objectContaining({
+      categories: expect.arrayContaining(["AI", "AI/Renamed"]),
+    }),
+  );
+  expect(api.saveLibraryPreferences).not.toHaveBeenCalled();
+});
+
+it("deletes a category and its tree in one folder request", async () => {
+  await act(async () => {
+    useReaderStore.getState().setLibraryPreferences({
+      papers: { categories: ["ML", "ML/Vision", "AI"] },
+    });
+    await deleteCategory("ML");
+  });
+  expect(api.changeLibraryFolder).toHaveBeenCalledExactlyOnceWith(
+    "papers",
+    "ML",
+    undefined,
+    expect.objectContaining({ categories: ["AI"] }),
+  );
+  expect(api.saveLibraryPreferences).not.toHaveBeenCalled();
 });

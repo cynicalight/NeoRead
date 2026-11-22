@@ -299,7 +299,7 @@ let pendingFolderMove: Promise<void> | undefined;
 /** Apply locally at once; writes are serialized so the last change wins. */
 export function updateLibraryPreferences(
   patch: Partial<LibraryPreferences>,
-  move?: { from: string; to: string },
+  move?: { from: string; to?: string },
 ) {
   const state = useReaderStore.getState();
   const next = { ...state.libraryPreferences, ...patch };

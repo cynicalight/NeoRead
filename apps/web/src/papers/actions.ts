@@ -200,15 +200,16 @@ export async function renameCategory(from: string, to: string) {
     toast.error(`已有名为“${to}”的分类`);
     return false;
   }
+  // Same queued, atomic path as dragging: a rename may follow a pending move.
   try {
-    await api.changeLibraryFolder("papers", from, to);
+    await updateLibraryPreferences(
+      { papers: renameCategoryPreferences(paperPrefs(), categories, from, to) },
+      { from, to },
+    );
   } catch (e) {
     toast.error((e as Error).message);
     return false;
   }
-  await savePaperPreferences((prefs) =>
-    renameCategoryPreferences(prefs, categories, from, to),
-  );
   followCategory(from, to);
   await refreshLibrary().catch(() => {});
   return true;
@@ -248,14 +249,14 @@ export async function dropPaperCategory(
 export async function deleteCategory(name: string) {
   const categories = paperCategories(paperPrefs(), papers());
   try {
-    await api.changeLibraryFolder("papers", name);
+    await updateLibraryPreferences(
+      { papers: removeCategoryPreferences(paperPrefs(), categories, name) },
+      { from: name },
+    );
   } catch (e) {
     toast.error((e as Error).message);
     return;
   }
-  await savePaperPreferences((prefs) =>
-    removeCategoryPreferences(prefs, categories, name),
-  );
   followCategory(name);
   await refreshLibrary().catch(() => {});
 }

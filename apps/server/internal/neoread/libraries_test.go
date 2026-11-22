@@ -333,6 +333,23 @@ func TestMovePaperSubtreeWithPreferences(t *testing.T) {
 	if got := patchMembership(`["AI/ML/Vision","Other"]`, `["AI/ML/Vision","Other","New"]`); got != 200 {
 		t.Fatal(got)
 	}
+	folder := func(body string) int {
+		return request(t, s, "POST", "/api/libraries/papers/folders", strings.NewReader(body)).Code
+	}
+	if got := folder(`{"from":"AI/ML","to":"AI/ml","paperPreferences":{"categories":["AI","AI/ml","AI/ml/Vision"]}}`); got != 200 {
+		t.Fatalf("case-only rename returned %d", got)
+	}
+	if doc, err := s.Store.Document(d.ID); err != nil || strings.Join(doc.Folders, ",") != "AI/ml/Vision,Other,New" {
+		t.Fatal(doc.Folders, err)
+	}
+	if got := folder(`{"from":"AI/ml","paperPreferences":{"categories":["AI"]}}`); got != 200 {
+		t.Fatalf("delete returned %d", got)
+	}
+	doc, err := s.Store.Document(d.ID)
+	prefs := request(t, s, "GET", "/api/preferences/library", nil).Body.String()
+	if err != nil || strings.Join(doc.Folders, ",") != "Other,New" || strings.Contains(prefs, "AI/ml") {
+		t.Fatal(doc.Folders, prefs, err)
+	}
 }
 
 func TestShortcutPreferences(t *testing.T) {

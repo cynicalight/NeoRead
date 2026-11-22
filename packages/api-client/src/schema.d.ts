@@ -4541,7 +4541,7 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        /** @description When moving a paper folder, persist updated paper library preferences in the same transaction. */
+                        /** @description When renaming, moving or deleting (omit to) a paper folder, persist updated paper library preferences in the same transaction. */
                         paperPreferences?: {
                             [key: string]: unknown;
                         };

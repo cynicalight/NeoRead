@@ -254,7 +254,8 @@ func (s *Store) changeLabels(library, column, from, to string, paperPreferences 
 		}
 		next, hit := []string{}, false
 		for _, tag := range tags {
-			if paperPreferences != nil {
+			// Tags inside from are moving; any other tag at to is a collision.
+			if _, moving := tagSuffix(tag, from); paperPreferences != nil && to != "" && !moving {
 				if _, occupied := tagSuffix(tag, to); occupied {
 					rows.Close()
 					return 0, errFolderCollision
@@ -338,8 +339,10 @@ func (s *Server) changeLibraryLabel(w http.ResponseWriter, r *http.Request, colu
 		fail(w, 400, "请指定名称")
 		return
 	}
+	// A move may only change case, but never nest a folder inside itself; an empty to deletes.
 	_, recursive := tagSuffix(to, from)
-	if v.PaperPreferences != nil && (recursive || !validImportFolder(from) || library != "papers" || column != "folders" || !validImportFolder(to) || v.PaperPreferences[0] != '{') {
+	recursive = recursive && !strings.EqualFold(to, from)
+	if v.PaperPreferences != nil && (recursive || !validImportFolder(from) || library != "papers" || column != "folders" || (to != "" && !validImportFolder(to)) || v.PaperPreferences[0] != '{') {
 		fail(w, 400, "无效的论文分类移动")
 		return
 	}
