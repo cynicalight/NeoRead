@@ -229,6 +229,18 @@ func webSearchService(conn APIConnection) string {
 	return "DeepSeek"
 }
 
+// webRequest routes one tool operation to the configured search service.
+func (c *chatInput) webRequest(ctx context.Context, conn APIConnection, path, target string) ([]byte, error) {
+	if conn.Protocol == "keenable" {
+		return keenableWebRequest(ctx, conn, path, target, c.webTransport)
+	}
+	payload := map[string]any{"url": target}
+	if path == "search" {
+		payload = map[string]any{"query": target, "count": 5, "need_content": false}
+	}
+	return deepSeekWebRequest(ctx, conn, path, payload, c.webTransport)
+}
+
 func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name string, args json.RawMessage) (result json.RawMessage, err error) {
 	if !c.WebSearch || !isWebTool(name) || !validSearchConnection(conn) {
 		return nil, generationError(ErrorPermission, "本轮没有授权网页工具")
@@ -302,13 +314,7 @@ func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name st
 		return json.RawMessage(jsonText(map[string]any{"error": e.Error(), "message": "The request failed. Explain the limitation; do not claim that a page was read."})), nil
 	}
 	if name == "web_search" {
-		var data []byte
-		var e error
-		if conn.Protocol == "keenable" {
-			data, e = keenableWebRequest(requestCtx, conn, "search", q.Query, c.webTransport)
-		} else {
-			data, e = deepSeekWebRequest(requestCtx, conn, "search", map[string]any{"query": q.Query, "count": 5, "need_content": false}, c.webTransport)
-		}
+		data, e := c.webRequest(requestCtx, conn, "search", q.Query)
 		if e != nil {
 			return failed(e)
 		}
@@ -319,8 +325,8 @@ func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name st
 				Summary string `json:"summary"`
 				Snippet string `json:"snippet"`
 				Date    string `json:"date"`
-				// Keenable: snippet and published_at (a string or null).
-				PublishedAt any `json:"published_at"`
+				// Keenable uses published_at; null decodes as an empty string.
+				PublishedAt string `json:"published_at"`
 			} `json:"results"`
 		}
 		if json.Unmarshal(data, &response) != nil || response.Results == nil {
@@ -333,8 +339,8 @@ func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name st
 				text = r.Snippet
 			}
 			date := r.Date
-			if published, ok := r.PublishedAt.(string); ok && date == "" {
-				date = published
+			if date == "" {
+				date = r.PublishedAt
 			}
 			s := c.addWebSource(WebSource{URL: r.URL, Title: r.Title, Text: text, Kind: "search", PublishedAt: date})
 			if s.ID != "" {
@@ -347,13 +353,7 @@ func (c *chatInput) callWebTool(ctx context.Context, conn APIConnection, name st
 	if e := validateWebTarget(requestCtx, q.URL); e != nil {
 		return failed(e)
 	}
-	var data []byte
-	var e error
-	if conn.Protocol == "keenable" {
-		data, e = keenableWebRequest(requestCtx, conn, "fetch", q.URL, c.webTransport)
-	} else {
-		data, e = deepSeekWebRequest(requestCtx, conn, "fetch", map[string]string{"url": q.URL}, c.webTransport)
-	}
+	data, e := c.webRequest(requestCtx, conn, "fetch", q.URL)
 	if e != nil {
 		return failed(e)
 	}
