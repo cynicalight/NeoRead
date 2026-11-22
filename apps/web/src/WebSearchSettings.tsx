@@ -5,6 +5,7 @@ import { Input } from "@neoread/ui/components/input";
 import { Tabs, TabsList, TabsTrigger } from "@neoread/ui/components/tabs";
 
 const defaultURL = "https://api.deepseek.com";
+const keenableURL = "https://api.keenable.ai";
 const defaults: WebSearchConfig = {
   provider: "",
   url: defaultURL,
@@ -12,6 +13,14 @@ const defaults: WebSearchConfig = {
 };
 const normalizeURL = (url: string) =>
   url.trim().replace(/\/+$/, "") || defaultURL;
+// Keenable has a fixed address. A saved key stays with its address, so switching
+// between services never sends one service's key to the other.
+const providerURL = (provider: WebSearchConfig["provider"], url: string) =>
+  provider === "keenable"
+    ? keenableURL
+    : provider === "deepseek" && normalizeURL(url) === keenableURL
+      ? defaultURL
+      : url;
 
 export function WebSearchSettings({
   value,
@@ -75,8 +84,18 @@ export function WebSearchSettings({
   };
   const saveProvider = (next: WebSearchConfig["provider"]) => {
     setProvider(next);
+    // Queued key saves read this draft; never leave the other service's address.
+    setURL((current) => providerURL(next, current));
     providerPending.current++;
-    void persist((latest) => ({ ...latest, provider: next })).then(() => {
+    void persist((latest) => {
+      const url = providerURL(next, latest.url);
+      return {
+        ...latest,
+        provider: next,
+        url,
+        hasKey: latest.hasKey && normalizeURL(latest.url) === normalizeURL(url),
+      };
+    }).then(() => {
       if (!--providerPending.current) setProvider(saved.current.provider);
     });
   };
@@ -115,7 +134,7 @@ export function WebSearchSettings({
             value={provider || "off"}
             className="ml-auto w-1/2 min-w-fit"
             onValueChange={(next) => {
-              if (next === "off" || next === "deepseek")
+              if (next === "off" || next === "deepseek" || next === "keenable")
                 saveProvider(next === "off" ? "" : next);
             }}
           >
@@ -126,9 +145,12 @@ export function WebSearchSettings({
               <TabsTrigger value="deepseek" disabled={disabled}>
                 DeepSeek
               </TabsTrigger>
+              <TabsTrigger value="keenable" disabled={disabled}>
+                Keenable
+              </TabsTrigger>
             </TabsList>
           </Tabs>
-          {provider && (
+          {provider === "deepseek" && (
             <>
               <label htmlFor={`${id}-url`} className="text-sm">
                 API 地址
@@ -146,6 +168,10 @@ export function WebSearchSettings({
                 spellCheck={false}
                 placeholder={defaultURL}
               />
+            </>
+          )}
+          {provider && (
+            <>
               <label htmlFor={`${id}-key`} className="text-sm">
                 API Key
               </label>
@@ -163,7 +189,9 @@ export function WebSearchSettings({
                 placeholder={
                   value?.hasKey && !addressChanged
                     ? "已保存，留空保持不变"
-                    : "填写此搜索服务的 API Key"
+                    : provider === "keenable"
+                      ? "可选，用于提高限额"
+                      : "填写此搜索服务的 API Key"
                 }
               />
             </>
@@ -171,11 +199,13 @@ export function WebSearchSettings({
         </div>
         {provider && (
           <p className="text-xs leading-5 text-muted-foreground">
-            {needsNewKey
-              ? "地址已更改，填写此服务的 API Key 后自动保存。"
-              : !value?.hasKey && !key
-                ? "填写搜索 API Key 后自动启用。"
-                : "支持 DeepSeek Search / Fetch 协议，聊天模型与搜索服务分别配置。"}
+            {provider === "keenable"
+              ? "Keenable 无需 API Key 即可搜索和读取网页，Key 仅用于提高限额。"
+              : needsNewKey
+                ? "地址已更改，填写此服务的 API Key 后自动保存。"
+                : !value?.hasKey && !key
+                  ? "填写搜索 API Key 后自动启用。"
+                  : "支持 DeepSeek Search / Fetch 协议，聊天模型与搜索服务分别配置。"}
           </p>
         )}
         {value?.hasKey && (
@@ -186,12 +216,16 @@ export function WebSearchSettings({
               size="sm"
               disabled={disabled}
               onClick={() => {
+                // Keenable works without a key, so removing its optional key
+                // keeps search on through the keyless endpoints.
+                const next = provider === "keenable" ? "keenable" : "";
                 setKey("");
-                setProvider("");
+                setProvider(next);
                 providerPending.current++;
                 void persist((latest) => ({
                   ...latest,
-                  provider: "",
+                  provider: next,
+                  url: providerURL(next, latest.url),
                   key: undefined,
                   hasKey: false,
                 })).then(() => {

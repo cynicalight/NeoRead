@@ -10,7 +10,10 @@ const value: WebSearchConfig = {
   url: "https://search.example/v1",
   hasKey: true,
 };
-async function harness(save: (config: WebSearchConfig) => Promise<boolean>) {
+async function harness(
+  save: (config: WebSearchConfig) => Promise<boolean>,
+  initial = value,
+) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("PointerEvent", MouseEvent);
   const host = document.createElement("div");
@@ -18,7 +21,7 @@ async function harness(save: (config: WebSearchConfig) => Promise<boolean>) {
   const root = createRoot(host);
   await act(async () =>
     root.render(
-      <WebSearchSettings value={value} disabled={false} onSave={save} />,
+      <WebSearchSettings value={initial} disabled={false} onSave={save} />,
     ),
   );
   const choose = (label: string) =>
@@ -109,6 +112,85 @@ it("auto-saves a changed address only with a replacement key, retains failed edi
       key: undefined,
       hasKey: false,
     });
+  } finally {
+    await h.close();
+  }
+});
+
+it("switches to keyless Keenable without carrying a saved key to another address", async () => {
+  const save = vi.fn(async () => true),
+    h = await harness(save);
+  try {
+    await act(async () => h.choose("Keenable").click());
+    expect(save).toHaveBeenLastCalledWith({
+      ...value,
+      provider: "keenable",
+      url: "https://api.keenable.ai",
+      hasKey: false,
+    });
+    expect(h.url()).toBeNull();
+    expect(h.host.textContent).toContain("无需 API Key");
+    await act(async () => h.choose("DeepSeek").click());
+    expect(save).toHaveBeenLastCalledWith({
+      ...value,
+      provider: "deepseek",
+      url: "https://api.deepseek.com",
+      hasKey: false,
+    });
+  } finally {
+    await h.close();
+  }
+});
+
+it("does not save a DeepSeek key to Keenable while the provider switch is pending", async () => {
+  const keenable: WebSearchConfig = {
+    provider: "keenable",
+    url: "https://api.keenable.ai",
+    hasKey: false,
+  };
+  const pending: Array<(ok: boolean) => void> = [];
+  const save = vi.fn(
+      () => new Promise<boolean>((resolve) => pending.push(resolve)),
+    ),
+    h = await harness(save, keenable);
+  try {
+    await act(async () => h.choose("DeepSeek").click());
+    expect(h.url().value).toBe("https://api.deepseek.com");
+    await h.type(h.password(), "deepseek-key");
+    await h.blur(h.password());
+    await act(async () => pending.shift()!(true));
+    await act(async () => pending.shift()!(true));
+    expect(save).toHaveBeenLastCalledWith({
+      provider: "deepseek",
+      url: "https://api.deepseek.com",
+      key: "deepseek-key",
+      hasKey: false,
+    });
+  } finally {
+    await h.close();
+  }
+});
+
+it("keeps Keenable on when its optional key is removed", async () => {
+  const keyed: WebSearchConfig = {
+    provider: "keenable",
+    url: "https://api.keenable.ai",
+    hasKey: true,
+  };
+  const save = vi.fn(async () => true),
+    h = await harness(save, keyed);
+  try {
+    await act(async () =>
+      [...h.host.querySelectorAll("button")]
+        .find((button) => button.textContent === "移除搜索密钥")!
+        .click(),
+    );
+    expect(save).toHaveBeenCalledExactlyOnceWith({
+      ...keyed,
+      key: undefined,
+      hasKey: false,
+    });
+    expect(h.choose("Keenable").getAttribute("aria-selected")).toBe("true");
   } finally {
     await h.close();
   }

@@ -2,21 +2,25 @@
 
 在「设置 → Agent → 联网搜索」配置，聊天输入框不再提供单轮开关。设置持久保存在本机书库的 AI 连接配置中，切换文档、切换会话和重启应用后保持。
 
-「搜索 API」可选关闭或 DeepSeek。选择 DeepSeek 即保存服务类型，再填写独立的搜索地址和 Key，地址与 Key 在失焦或回车时自动保存。默认地址为 `https://api.deepseek.com`，也可以使用采用相同协议的兼容服务。
+「搜索 API」可选关闭、DeepSeek 或 Keenable。选择 DeepSeek 即保存服务类型，再填写独立的搜索地址和 Key，地址与 Key 在失焦或回车时自动保存。默认地址为 `https://api.deepseek.com`，也可以使用采用相同协议的兼容服务。
+
+选择 Keenable 即可使用，无需 Key。地址固定为 `https://api.keenable.ai`，不显示地址输入框；可选填写 Key 以提高限额（未填写时每个 IP 每秒 10 次、每小时 1000 次）。切换搜索服务时已保存的 Key 不会带到另一个地址。
 
 配置对后续问题生效。重新生成保留原问题的联网权限，并受当前设置约束。启用联网后，如需搜索原先未获联网授权的问题，应重新发送。
 
 ## 支持范围
 
-各 Pi 模型连接共用同一搜索设置。使用自定义 API 模型时，联网工具需要通过工具调用检测。Go 将搜索请求发到配置的地址。根地址追加 `/v1/tools/search` 或 `/v1/tools/fetch`，已以 `/v1` 结尾的地址追加 `/tools/search` 或 `/tools/fetch`。独立搜索 Key 由 Go 使用。
+各 Pi 模型连接共用同一搜索设置。使用自定义 API 模型时，联网工具需要通过工具调用检测。Go 将搜索请求发到配置的地址。根地址追加 `/v1/tools/search` 或 `/v1/tools/fetch`，已以 `/v1` 结尾的地址追加 `/tools/search` 或 `/tools/fetch`。Keenable 未填写 Key 时使用 `POST /v1/search/public` 和 `GET /v1/fetch/public`，填写 Key 后使用 `/v1/search` 和 `/v1/fetch` 并发送 `X-API-Key`；请求均带 `X-Keenable-Title: NeoRead`。独立搜索 Key 由 Go 使用。
 
 开启联网的请求失败时不自动切换到另一个后端，避免用户收到未执行联网却被当作搜索结果的回答。
 
+Keenable 参考：[API 文档](https://docs.keenable.ai)。
+
 DeepSeek 参考：[Search & Fetch 指南](https://api-docs.deepseek.com/zh-cn/guides/search/)、[Search](https://api-docs.deepseek.com/zh-cn/api/search/)、[Fetch](https://api-docs.deepseek.com/zh-cn/api/fetch/)。这两项是独立工具 API，未向 Chat Completions 请求添加未经支持的 `enable_search` 参数。
 
-DeepSeek Fetch 明确返回内容不存在时，执行记录显示“此网址无法读取”，不会加入已读来源。临时服务或响应格式失败显示“暂未取得结果”；模型可使用已有资料或其他来源继续，不能声称已读取失败的网页。认证、余额及权限错误继续显示可操作提示。
+DeepSeek Fetch 明确返回内容不存在（或 Keenable Fetch 返回 404 `page_not_found`）时，执行记录显示“此网址无法读取”，不会加入已读来源。临时服务或响应格式失败显示“暂未取得结果”；模型可使用已有资料或其他来源继续，不能声称已读取失败的网页。认证、余额及权限错误继续显示可操作提示。
 
-直接搜索服务只对明确的临时 HTTP 状态（408、429、500、502、503、504）最多尝试三次，默认等待 1 秒和 2 秒，并遵守更长的 `Retry-After`。所有尝试共用两分钟工具时限和相同请求体。网络异常、读取失败及格式错误不自动重放；取消立即传播。诊断事件 `web.tool.retry` 和 `web.tool.deferred` 不记录密钥、查询词或上游正文。
+直接搜索服务只对明确的临时 HTTP 状态（408、429、500、502、503、504）最多尝试三次，默认等待 1 秒和 2 秒，并遵守更长的 `Retry-After`。所有尝试共用两分钟工具时限和相同请求体。网络异常、读取失败及格式错误不自动重放；取消立即传播。诊断事件 `web.tool.retry` 和 `web.tool.deferred` 带固定的 `service` 字段（DeepSeek 或 Keenable），不记录密钥、查询词或上游正文。
 
 ## 执行记录与来源
 
@@ -32,11 +36,11 @@ Pi 的工具桥接调用经 Go 转为 `tool` SSE 事件。工具状态和进度�
 
 联网授权受保存的搜索设置控制，并保存在用户问题的 `webSearch` 字段中。请求省略此字段时采用当前设置；显式 false 可关闭本轮；显式 true 不能越过设置中已关闭的权限。不接受文档内容或模型输出修改权限。关闭时停止注册 Pi 网页工具，已保存的网页资料仍可查看。
 
-DeepSeek 只收到必要查询词或指定 URL，不发送整篇文档及聊天历史。Fetch 请求在本机检查协议、凭据、localhost、内网和链路本地 IP，包括 DNS 解析结果；实际网页抓取由 DeepSeek 执行，远端抓取和跳转策略仍由其安全策略负责。Search/Fetch API 目标由用户在设置中明确指定，不跟随 API HTTP 重定向。搜索服务要求 HTTPS，本机兼容服务可使用 HTTP。更改服务地址时必须重新填写 Key；同一地址留空才可保留原 Key，移除密钥同时关闭搜索 API。配置返回值仅含 hasKey，不回传 Key。错误展示不包含原始上游响应体。
+DeepSeek 或 Keenable 只收到必要查询词或指定 URL，不发送整篇文档及聊天历史。Fetch 请求在本机检查协议、凭据、localhost、内网和链路本地 IP，包括 DNS 解析结果；实际网页抓取由所选搜索服务执行，远端抓取和跳转策略仍由其安全策略负责。Search/Fetch API 目标由用户在设置中明确指定，不跟随 API HTTP 重定向。搜索服务要求 HTTPS，本机兼容服务可使用 HTTP。更改服务地址时必须重新填写 Key；同一地址留空才可保留原 Key。移除 DeepSeek 密钥同时关闭搜索 API；移除 Keenable 的可选 Key 后改用无 Key 接口。配置返回值仅含 hasKey，不回传 Key。错误展示不包含原始上游响应体。
 
 ## 验证与人工检查
 
-自动化覆盖配置保存、旧配置读取、密钥隔离、DeepSeek 请求协议、权限关闭、来源快照保存、预算提醒、重定向、取消和限流。Pi worker 使用本地模型响应替身。
+自动化覆盖配置保存、旧配置读取、密钥隔离、DeepSeek 与 Keenable 请求协议（含重试和 404 不可用结果）、权限关闭、来源快照保存、预算提醒、重定向、取消和限流。Pi worker 使用本地模型响应替身。
 
 开发预览：启动 Web 开发服务，打开 `/__web-search`。这是合成示例；可切换明暗、执行状态并调整面板宽度，检查展开/收起、链接、长文本换行和减少动态效果。同时展示联网设置表单（只保存当前预览内的合成状态，不会修改实际配置）。项目不使用浏览器自动化进行视觉验收。
 
