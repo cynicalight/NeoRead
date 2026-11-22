@@ -1,7 +1,6 @@
 package neoread
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -142,29 +141,55 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 		return piEvent{}, generationError(ErrorConfiguration, "无法启动 pi 运行时")
 	}
 	failure.Phase, failure.ReasonCode = "worker_stream", "worker_interrupted"
+	frames := newPiOutputReader(output)
+	slog.InfoContext(ctx, "pi.worker.start", "runId", runID, "operation", operation, "pid", cmd.Process.Pid)
 	// Reap on every exit, including malformed output and canceled tools.
 	waited := false
 	defer func() {
-		input.Close()
-		cancel()
 		if !waited {
+			cancel()
+			_ = input.Close()
+			_ = output.Close()
+			<-frames.done
 			_ = cmd.Wait()
 		}
 	}()
 	encoder := json.NewEncoder(input)
-	if err = encoder.Encode(map[string]any{"type": operation, "input": request}); err != nil {
+	send := func(kind string, value any) error {
+		started := time.Now()
+		slog.InfoContext(ctx, "pi.worker.send", "runId", runID, "operation", operation, "kind", kind, "phase", "start")
+		err := encoder.Encode(value)
+		level := slog.LevelInfo
+		errorCode := ErrorKind("")
+		if err != nil {
+			errorCode = ErrorProtocol
+			level = slog.LevelError
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				err = ctxErr
+				errorCode = errorKind(ctxErr)
+				if ctxErr == context.Canceled {
+					level = slog.LevelInfo
+				}
+			}
+		}
+		slog.Log(ctx, level, "pi.worker.send", "runId", runID, "operation", operation, "kind", kind, "phase", "finish", "durationMs", time.Since(started).Milliseconds(), "errorCode", errorCode)
+		return err
+	}
+	if err = send(operation, map[string]any{"type": operation, "input": request}); err != nil {
 		return piEvent{}, err
 	}
-	reader := bufio.NewReader(output)
 	var complete piEvent
 	seen := map[string]bool{}
 	checkpoints := map[string]bool{}
 	for {
-		line, readErr := reader.ReadBytes('\n')
+		line, readErr := frames.next(ctx)
 		if readErr == io.EOF && len(line) == 0 {
 			break
 		}
 		if readErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return piEvent{}, ctxErr
+			}
 			return piEvent{}, reject("event_incomplete", "pi 输出读取失败或事件未完成")
 		}
 		var e piEvent
@@ -179,7 +204,7 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			seen[e.ID] = true
 			if len(e.Args) > 4096 {
 				content := []any{map[string]string{"type": "text", "text": `{"error":"invalid_arguments","message":"Tool arguments exceed the size limit. Use shorter arguments or available evidence."}`}}
-				if err = encoder.Encode(map[string]any{"type": "toolResult", "runId": runID, "id": e.ID, "content": content}); err != nil {
+				if err = send("toolResult", map[string]any{"type": "toolResult", "runId": runID, "id": e.ID, "content": content}); err != nil {
 					return piEvent{}, err
 				}
 				continue
@@ -188,7 +213,7 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			if callErr != nil {
 				return piEvent{}, callErr
 			}
-			if err = encoder.Encode(map[string]any{"type": "toolResult", "runId": runID, "id": e.ID, "content": content}); err != nil {
+			if err = send("toolResult", map[string]any{"type": "toolResult", "runId": runID, "id": e.ID, "content": content}); err != nil {
 				return piEvent{}, err
 			}
 		case "checkpoint":
@@ -202,7 +227,7 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			if err = event(e); err != nil {
 				return piEvent{}, err
 			}
-			if err = encoder.Encode(map[string]any{"type": "checkpointAck", "runId": runID, "id": e.ID}); err != nil {
+			if err = send("checkpointAck", map[string]any{"type": "checkpointAck", "runId": runID, "id": e.ID}); err != nil {
 				return piEvent{}, err
 			}
 		case "complete":
@@ -259,6 +284,9 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			return piEvent{}, reject("unexpected_event", "pi 返回了未知事件")
 		}
 	}
+	// Wait closes StdoutPipe; only call it after the reader has drained it.
+	<-frames.done
+	_ = input.Close()
 	err = cmd.Wait()
 	waited = true
 	if ctx.Err() != nil {
