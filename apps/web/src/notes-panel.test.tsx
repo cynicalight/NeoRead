@@ -135,6 +135,71 @@ it("lists records in reading order", () => {
   ]);
 });
 
+it.each([
+  {
+    action: "resolved",
+    next: annotations.map((a) =>
+      a.id === "q-open" ? { ...a, resolved: true } : a,
+    ),
+    expected: ["第 1 页", "Why?"],
+  },
+  {
+    action: "answered",
+    next: annotations.map((a) =>
+      a.id === "q-open" ? { ...a, answerId: "m1" } : a,
+    ),
+    expected: ["第 1 页", "Why?"],
+  },
+  {
+    action: "deleted",
+    next: annotations.filter((a) => a.id !== "q-open"),
+    expected: ["第 1 页"],
+  },
+])(
+  "can clear the pending filter after the last question is $action",
+  async ({ next, expected }) => {
+    await act(async () => button("问题").click());
+    await act(async () => button("只看待回答").click());
+    expect(cards()).toEqual(["Why?"]);
+
+    await act(async () =>
+      root.render(
+        <NotesPanel
+          document={paper({ id: "p" })}
+          annotations={next}
+          messages={messages}
+          deleting={new Set()}
+          answering={new Set()}
+          {...handlers}
+        />,
+      ),
+    );
+    expect(cards()).toEqual([]);
+    expect(button("只看待回答（0）")?.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(host.querySelector(".notes-empty")?.textContent).toBe(
+      "暂无待回答的问题",
+    );
+
+    await act(async () => button("全部").click());
+    expect(cards()).toHaveLength(next.length);
+    await act(async () => button("问题").click());
+    await act(async () => button("只看待回答（0）").click());
+    expect(cards()).toEqual(expected);
+    expect(button("只看待回答")).toBeUndefined();
+  },
+);
+
+it("toggles the pending filter while an open question exists", async () => {
+  await act(async () => button("问题").click());
+  await act(async () => button("只看待回答").click());
+  expect(cards()).toEqual(["Why?"]);
+  expect(button("只看待回答（1）").getAttribute("aria-pressed")).toBe("true");
+  await act(async () => button("只看待回答").click());
+  expect(cards()).toEqual(["第 1 页", "Why?"]);
+});
+
 it("shows each highlight's saved color on its quote", async () => {
   const colored = [
     mark({ id: "yellow", quote: "yellow", color: "#e6b94c" }),
