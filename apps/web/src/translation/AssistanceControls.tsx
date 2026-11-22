@@ -57,7 +57,7 @@ export function AssistanceControls({
       serial.current++;
     };
   }, [documentId]);
-  const reparse = doc.type === "pdf" ? textReparseStatus(job) : undefined;
+  const reparse = textReparseStatus(job);
   const reparsing = !!reparse;
   useEffect(() => setConfirming(false), [reparsing]);
   if (reparse) return <ReaderTextReparseStatus {...reparse} />;

@@ -17,7 +17,7 @@ const maxOCRPreviewPages = 32
 // retried, but a new worker must never inherit the previous preview or count.
 type pdfReparse struct {
 	ctx                   context.Context
-	run                   string
+	run, layoutRun        string
 	pagesDone, pagesTotal int // guarded by pdfReparseMu
 }
 
@@ -25,8 +25,8 @@ func (s *Server) pdfReparseWorkRoot(documentID string) string {
 	return filepath.Join(s.Store.Root, "cache", documentID, "retranslation-layout-work")
 }
 
-func (s *Server) beginPDFReparse(ctx context.Context, documentID string) *pdfReparse {
-	preview := &pdfReparse{ctx: ctx, run: id()}
+func (s *Server) beginPDFReparse(ctx context.Context, documentID, layoutRun string) *pdfReparse {
+	preview := &pdfReparse{ctx: ctx, run: id(), layoutRun: layoutRun}
 	s.pdfReparseMu.Lock()
 	defer s.pdfReparseMu.Unlock()
 	if s.pdfReparses == nil {
@@ -54,16 +54,23 @@ func (s *Server) recordPDFReparseProgress(preview *pdfReparse, page, total int) 
 	}
 }
 
-func (s *Server) addPDFReparseProgress(p *Processing) {
-	if !p.Retranslating || p.Status != "running" {
+func (s *Server) addPDFReparseStatus(p *Processing, pendingRun string) {
+	if pendingRun == "" || !p.Retranslating || !p.Enabled || (p.Status != "queued" && p.Status != "running") {
+		return
+	}
+	// A claimed lane may still be waiting for the layout lock, and an
+	// interrupted lane has no active preview until the next worker starts.
+	p.ReparseStatus = "queued"
+	if p.Status != "running" {
 		return
 	}
 	s.pdfReparseMu.Lock()
 	defer s.pdfReparseMu.Unlock()
 	preview := s.pdfReparses[p.DocumentID]
-	if preview == nil || preview.ctx.Err() != nil {
+	if preview == nil || preview.layoutRun != pendingRun || preview.ctx.Err() != nil {
 		return
 	}
+	p.ReparseStatus = "running"
 	p.ReparseRun = preview.run
 	p.PagesDone, p.PagesTotal = preview.pagesDone, preview.pagesTotal
 	p.Detail = "正在重新解析全文版面"

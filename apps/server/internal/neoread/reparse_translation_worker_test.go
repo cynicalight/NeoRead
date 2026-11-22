@@ -128,6 +128,9 @@ func TestReparseWorkerLeavesEPUBIdleWithoutPriorTranslations(t *testing.T) {
 			var paragraphs atomic.Int32
 			defer reparseTranslationProvider(t, s, &paragraphs)()
 			p := queueReparseForTest(t, s, d.ID)
+			if p.ReparseStatus != "" || p.ReparseRun != "" {
+				t.Fatalf("EPUB got PDF reparse state: %+v", p)
+			}
 			p.EPUBManual = false
 			if err = s.Store.saveProcessing(p); err != nil {
 				t.Fatal(err)

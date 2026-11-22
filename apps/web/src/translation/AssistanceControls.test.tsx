@@ -229,7 +229,7 @@ it("shows PDF reparse pages before offering any whole-document translation actio
     ...paused,
     enabled: true,
     retranslating: true,
-    reparseRun: "run",
+    reparseStatus: "running",
     phase: "learning",
     status: "running",
     pagesDone: 6,
@@ -241,7 +241,7 @@ it("shows PDF reparse pages before offering any whole-document translation actio
 
   await render(1, {
     ...reparse,
-    reparseRun: undefined,
+    reparseStatus: undefined,
     phase: "translating",
   });
   expect(host.textContent).toBe("暂停重译");

@@ -26,6 +26,7 @@ type Processing struct {
 	Enabled               bool   `json:"enabled"`
 	EPUBManual            bool   `json:"epubManual,omitempty"`
 	Retranslating         bool   `json:"retranslating,omitempty"`
+	ReparseStatus         string `json:"reparseStatus,omitempty"`
 	ReparseRun            string `json:"reparseRun,omitempty"`
 	LayoutRevision        string `json:"layoutRevision,omitempty"`
 	// TranslationBlocks isolates explicit units from inactive full-document work.
@@ -217,13 +218,49 @@ func (s *Store) enqueueDocument(d Document) error {
 	}
 	return e
 }
+
+// Read processing and its pending layout from the same snapshot. LayoutReady
+// separates a reparse from any translation still queued for that restart.
+const processingResponseQuery = `SELECT p.body, COALESCE(json_extract(r.options,'$.layoutRun'),'')
+FROM document_processing p JOIN documents d ON d.id=p.document_id
+LEFT JOIN translation_restarts r ON r.document_id=p.document_id AND d.type='pdf'
+ AND d.deleted_at='' AND p.phase='translating' AND p.status IN ('queued','running')
+ AND COALESCE(json_extract(r.options,'$.layoutReady'),0)=0`
+
+func (s *Server) scanProcessingResponse(scan func(...any) error) (Processing, error) {
+	var p Processing
+	var body, pendingRun string
+	if err := scan(&body, &pendingRun); err != nil {
+		return p, err
+	}
+	if err := json.Unmarshal([]byte(body), &p); err != nil {
+		return p, err
+	}
+	normalizeNoTextProcessing(&p)
+	s.addPDFReparseStatus(&p, pendingRun)
+	return p, nil
+}
+
+func (s *Server) processingResponse(id string) (Processing, error) {
+	return s.scanProcessingResponse(s.Store.DB.QueryRow(processingResponseQuery+" WHERE p.document_id=?", id).Scan)
+}
+
+func (s *Server) respondProcessing(w http.ResponseWriter, status int, id string) {
+	p, err := s.processingResponse(id)
+	if err != nil {
+		fail(w, 500, "无法读取处理状态")
+		return
+	}
+	respond(w, status, p)
+}
+
 func (s *Server) processingList(w http.ResponseWriter, r *http.Request) {
 	books, e := s.Store.bookLayoutJobs()
 	if e != nil {
 		fail(w, 500, "无法读取解析进度")
 		return
 	}
-	rows, e := s.Store.DB.Query("SELECT body FROM document_processing ORDER BY rowid DESC")
+	rows, e := s.Store.DB.Query(processingResponseQuery + " ORDER BY p.rowid DESC")
 	if e != nil {
 		fail(w, 500, "无法读取解析进度")
 		return
@@ -235,14 +272,11 @@ func (s *Server) processingList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []processingView{}
 	for rows.Next() {
-		var b string
-		var p Processing
-		if rows.Scan(&b) != nil || json.Unmarshal([]byte(b), &p) != nil {
+		p, err := s.scanProcessingResponse(rows.Scan)
+		if err != nil {
 			fail(w, 500, "解析进度损坏")
 			return
 		}
-		normalizeNoTextProcessing(&p)
-		s.addPDFReparseProgress(&p)
 		view := processingView{Processing: p}
 		if job, ok := books[p.DocumentID]; ok {
 			view.BookLayout = &job
@@ -275,8 +309,7 @@ func (s *Server) retryProcessing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.Status == "complete" || (p.Status == "running" && !hasFailedStage(p)) {
-		s.addPDFReparseProgress(&p)
-		respond(w, 200, p)
+		s.respondProcessing(w, 200, d.ID)
 		return
 	}
 	p.Status = "queued"
@@ -290,12 +323,7 @@ func (s *Server) retryProcessing(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "无法继续处理")
 		return
 	}
-	latest, err := s.Store.processing(d.ID)
-	if err != nil {
-		fail(w, 500, "无法读取处理状态")
-		return
-	}
-	respond(w, 200, latest)
+	s.respondProcessing(w, 200, d.ID)
 }
 func (s *Server) documentBlocks(w http.ResponseWriter, r *http.Request) {
 	d, e := s.Store.Document(r.PathValue("id"))

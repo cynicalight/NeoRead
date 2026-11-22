@@ -107,7 +107,7 @@ func (s *Server) refreshRetranslationLayout(ctx context.Context, p *Processing) 
 			if stageErr != nil {
 				return stageErr
 			}
-			preview := s.beginPDFReparse(ctx, d.ID)
+			preview := s.beginPDFReparse(ctx, d.ID, options.LayoutRun)
 			work := filepath.Join(workRoot, preview.run)
 			defer func() {
 				s.endPDFReparse(d.ID, preview)

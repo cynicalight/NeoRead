@@ -71,13 +71,11 @@ async function render(
   status?: ChapterTranslationStatus,
   processing = job,
   title?: string,
-  format?: "pdf" | "epub",
 ) {
   await act(async () =>
     root.render(
       <BookChapterControls
         documentId="book"
-        format={format}
         processing={processing}
         status={status}
         title={title}
@@ -187,7 +185,7 @@ it("shows no stale page counts while a PDF reparse is queued and keeps EPUB chap
     phase: "translating",
     status: "queued",
     retranslating: true,
-    detail: "等待重新解析版面",
+    reparseStatus: "queued",
     pagesDone: 12,
     pagesTotal: 12,
   };
@@ -195,14 +193,18 @@ it("shows no stale page counts while a PDF reparse is queued and keeps EPUB chap
   await render(chapter, queued);
   expect(host.textContent).toBe("等待文字解析");
   expect(button()).toBeNull();
-  await render(chapter, queued, undefined, "epub");
+  await render(chapter, {
+    ...queued,
+    reparseStatus: undefined,
+    detail: "等待重新解析版面",
+  });
   expect(button().getAttribute("aria-label")).toBe("翻译完成：第一章");
 });
 
 it("shows live PDF reparse pages instead of stale chapter translation", async () => {
   const reparse: Processing = {
     ...job,
-    reparseRun: "run",
+    reparseStatus: "running",
     status: "running",
     pagesDone: 2,
     pagesTotal: 12,

@@ -72,7 +72,7 @@ it("immediately replaces published layout status with this reparse's measured pa
     phase: "translating",
     status: "queued",
     retranslating: true,
-    detail: "等待重新解析版面",
+    reparseStatus: "queued",
     pagesDone: 48,
     pagesTotal: 48,
   });
@@ -81,9 +81,9 @@ it("immediately replaces published layout status with this reparse's measured pa
   const reparse: Processing = {
     ...published,
     phase: "translating",
-    status: "queued",
+    status: "running",
     translating: { status: "complete", detail: "翻译完成" },
-    reparseRun: "new-run",
+    reparseStatus: "running",
     pagesDone: 0,
     pagesTotal: 48,
   };

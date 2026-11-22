@@ -781,7 +781,7 @@ it.each(["card", "table"] as const)(
           status: "running",
           enabled: false,
           manualTranslation: true,
-          reparseRun: "run",
+          reparseStatus: "running",
           pagesDone: 3,
           pagesTotal: 20,
           translationsDone: 10,

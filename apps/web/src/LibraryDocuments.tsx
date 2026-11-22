@@ -336,8 +336,7 @@ export function LibraryDocuments({
                 !jobs.some(
                   (j) =>
                     j.documentId === doc.id &&
-                    (!!j.reparseRun ||
-                      j.status === "running" ||
+                    (j.status === "running" ||
                       j.status === "queued" ||
                       (!!j.bookLayout && j.bookLayout.status !== "complete")),
                 ) ? (

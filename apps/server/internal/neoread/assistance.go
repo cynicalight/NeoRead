@@ -16,14 +16,13 @@ func (s *Server) getAssistance(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "文档不存在")
 		return
 	}
-	p, e := s.Store.processing(d.ID)
+	p, e := s.processingResponse(d.ID)
 	if e != nil {
 		p = initialProcessing(d.ID)
 		if d.Type == "epub" {
 			p = initialDocumentProcessing(d, "")
 		}
 	}
-	s.addPDFReparseProgress(&p)
 	respond(w, 200, p)
 }
 func (s *Server) setAssistance(w http.ResponseWriter, r *http.Request) {
@@ -151,8 +150,7 @@ func (s *Server) setAssistance(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "无法保存辅助阅读设置")
 		return
 	}
-	p, _ = s.Store.processing(d.ID)
-	respond(w, 200, p)
+	s.respondProcessing(w, 200, d.ID)
 }
 func (s *Server) finishProcessingTask(id string, t *documentTask) {
 	if t == nil {

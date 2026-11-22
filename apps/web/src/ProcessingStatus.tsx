@@ -11,7 +11,6 @@ const idlePollMs = 10_000;
 
 function isActive(job: Processing) {
   return (
-    !!job.reparseRun ||
     job.status === "queued" ||
     job.status === "running" ||
     job.bookLayout?.status === "queued" ||
@@ -84,31 +83,24 @@ interface TextReparseStatus {
   active: boolean;
 }
 
+function pageProgress({
+  pagesDone,
+  pagesTotal,
+}: Pick<Processing, "pagesDone" | "pagesTotal">) {
+  if (pagesTotal <= 0) return { count: undefined, value: null };
+  return {
+    count: `${pagesDone} / ${pagesTotal} 页`,
+    value: Math.min(100, (pagesDone / pagesTotal) * 100),
+  };
+}
+
 export function textReparseStatus(
   job?: Processing,
 ): TextReparseStatus | undefined {
-  if (job?.reparseRun) {
-    const count =
-      job.pagesTotal > 0 ? `${job.pagesDone} / ${job.pagesTotal} 页` : undefined;
-    return {
-      label: "文字解析中",
-      count,
-      value: count ? Math.min(100, (job.pagesDone / job.pagesTotal) * 100) : null,
-      active: true,
-    };
-  }
-  // Before the worker has a run token, the counters still describe the old layout.
-  if (
-    job?.status === "queued" &&
-    job.retranslating &&
-    job.detail === "等待重新解析版面"
-  ) {
-    return {
-      label: "等待文字解析",
-      value: null,
-      active: false,
-    };
-  }
+  if (job?.reparseStatus === "running")
+    return { label: "文字解析中", active: true, ...pageProgress(job) };
+  if (job?.reparseStatus === "queued")
+    return { label: "等待文字解析", active: false, value: null };
 }
 
 export function ReaderTextReparseStatus({
@@ -127,6 +119,7 @@ export function ReaderTextReparseStatus({
 
 export function processingStages(job: Processing) {
   const learned = job.phase !== "learning";
+  const pages = pageProgress(job);
   const translated = job.translating
     ? job.translating.status === "complete"
     : job.phase === "ready";
@@ -141,14 +134,8 @@ export function processingStages(job: Processing) {
       icon: ScanLine,
       done: learned,
       active: !learned && job.status === "running",
-      value: learned
-        ? 100
-        : job.pagesTotal
-          ? Math.min(100, (job.pagesDone / job.pagesTotal) * 100)
-          : null,
-      count: job.pagesTotal
-        ? `${job.pagesDone} / ${job.pagesTotal} 页`
-        : "解析正文与版面",
+      value: learned ? 100 : pages.value,
+      count: pages.count ?? "解析正文与版面",
     },
     {
       key: "translating",
@@ -396,18 +383,10 @@ function CoverBookLayout({
   }, [active]);
   if (!visible) return null;
   const label = bookLayoutLabels[layout.status];
-  const value = layout.pagesTotal
-    ? Math.min(100, (layout.pagesDone / layout.pagesTotal) * 100)
-    : null;
   return (
     <CoverPageProgress
       label={label}
-      count={
-        layout.pagesTotal > 0
-          ? `${layout.pagesDone} / ${layout.pagesTotal} 页`
-          : undefined
-      }
-      value={value}
+      {...pageProgress(layout)}
       active={layout.status === "running"}
       done={!active}
       title={

@@ -767,7 +767,6 @@ export function EPUBReadingView({
     <div className="translation-toolbar">
       <BookChapterControls
         documentId={doc.id}
-        format="epub"
         processing={processing}
         status={chapterStatus}
         stale={chapterStale}

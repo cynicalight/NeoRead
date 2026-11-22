@@ -727,6 +727,8 @@ export interface Processing {
   retranslating?: boolean;
   /** Changes when a reparse publishes new source; readers reload source and translations. */
   layoutRevision?: string;
+  /** Queue or active worker state for a PDF reparse, separate from translation. */
+  reparseStatus?: "queued" | "running";
   /** Active PDF reparse attempt; pagesDone counts fully written preview pages. */
   reparseRun?: string;
   autoTranslateMaxPages?: number;

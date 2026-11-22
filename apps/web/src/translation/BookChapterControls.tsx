@@ -28,7 +28,6 @@ import { ReaderTextReparseStatus, textReparseStatus } from "../ProcessingStatus"
  */
 export function BookChapterControls({
   documentId,
-  format = "pdf",
   processing,
   status,
   stale = false,
@@ -37,7 +36,6 @@ export function BookChapterControls({
   onChange,
 }: {
   documentId: string;
-  format?: "pdf" | "epub";
   processing?: Processing;
   /** Counts of the current chapter; undefined while it is resolved. */
   status?: ChapterTranslationStatus;
@@ -68,7 +66,7 @@ export function BookChapterControls({
       Date.parse(saved.updatedAt) > Date.parse(processing.updatedAt))
       ? saved
       : processing;
-  const reparse = format === "pdf" ? textReparseStatus(job) : undefined;
+  const reparse = textReparseStatus(job);
   const reparsing = !!reparse;
   useEffect(() => setConfirming(false), [status?.key, reparsing]);
   if (reparse) return <ReaderTextReparseStatus {...reparse} />;

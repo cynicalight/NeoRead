@@ -174,16 +174,11 @@ func (s *Server) requestReparseAndTranslation(w http.ResponseWriter, r *http.Req
 		fail(w, 409, "无法开始重新翻译："+err.Error())
 		return
 	}
-	p, err = s.Store.processing(d.ID)
-	if err != nil {
-		fail(w, 500, "无法读取翻译任务")
-		return
-	}
 	status := http.StatusOK
 	if !requireProvider {
 		status = http.StatusAccepted
 	}
-	respond(w, status, p)
+	s.respondProcessing(w, status, d.ID)
 }
 
 func (s *Server) queueRetranslation(p Processing, m translationInput, options translationRunOptions) error {

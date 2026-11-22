@@ -135,7 +135,7 @@ it.each(["grid", "list"] as const)(
               documentId: docs[0].id,
               phase: "translating",
               status: "running",
-              reparseRun: "run",
+              reparseStatus: "running",
               pagesDone: 7,
               pagesTotal: 48,
               bookLayout: { status: "complete", pagesDone: 48, pagesTotal: 48 },

@@ -7233,6 +7233,13 @@
                       "readOnly": true,
                       "description": "Explicitly requested paragraph IDs processed by the existing translation lane without resuming unrelated paused work.",
                     },
+                  "reparseStatus":
+                    {
+                      "type": "string",
+                      "enum": ["queued", "running"],
+                      "readOnly": true,
+                      "description": "Current PDF reparse stage. Omitted for paused, failed, or completed reparses and for translation-only work.",
+                    },
                   "reparseRun":
                     {
                       "type": "string",

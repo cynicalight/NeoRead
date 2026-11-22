@@ -140,7 +140,7 @@ export const descendingSorts: ReadonlySet<PaperSort> = new Set([
 ]);
 const busy = (job?: Processing) =>
   !!job &&
-  (!!job.reparseRun ||
+  (!!job.reparseStatus ||
     (job.enabled !== false &&
       !["complete", "failed", "paused"].includes(job.status)));
 

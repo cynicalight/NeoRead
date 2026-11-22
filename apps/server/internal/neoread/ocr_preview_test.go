@@ -34,7 +34,7 @@ func waitPreviewProgress(t *testing.T, s *Server, done <-chan struct{}, pages in
 	defer timeout.Stop()
 	for {
 		p := previewProcessing(t, s)
-		if p.ReparseRun != "" && p.PagesDone == pages {
+		if p.ReparseStatus == "running" && p.ReparseRun != "" && p.PagesDone == pages {
 			return p
 		}
 		select {
@@ -62,8 +62,11 @@ func TestPDFReparsePreviewTracksOnlyTheActiveAttempt(t *testing.T) {
 	fresh.Blocks = append([]PDFBlock(nil), old.Blocks...)
 	fresh.Blocks[0].Text = "New canonical text."
 	queued := queueReparseForTest(t, s, "doc")
-	if queued.ReparseRun != "" || queued.PagesDone != old.Pages {
-		t.Fatalf("queue response should not claim an active preview: %+v", queued)
+	if queued.ReparseStatus != "queued" || queued.ReparseRun != "" || queued.PagesDone != old.Pages {
+		t.Fatalf("queue response should show the pending reparse without an active preview: %+v", queued)
+	}
+	if p := previewProcessing(t, s); p.ReparseStatus != "queued" || p.ReparseRun != "" {
+		t.Fatalf("polling did not show the pending reparse: %+v", p)
 	}
 
 	// Only the registered attempt may be read, including after another server
@@ -87,7 +90,10 @@ func TestPDFReparsePreviewTracksOnlyTheActiveAttempt(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan struct{})
 			var runErr error
-			p := previewProcessing(t, s)
+			p, err := s.Store.processing("doc")
+			if err != nil {
+				t.Fatal(err)
+			}
 			go func() {
 				defer close(done)
 				runErr = s.processTranslation(ctx, &p)
@@ -100,6 +106,17 @@ func TestPDFReparsePreviewTracksOnlyTheActiveAttempt(t *testing.T) {
 			run := waiting.ReparseRun
 			if waiting.PagesTotal != 0 || run == previousRun || waiting.Status != "running" {
 				t.Fatalf("attempt inherited stale progress: %+v", waiting)
+			}
+			for _, endpoint := range []struct{ method, path string }{
+				{"GET", "/api/documents/doc/assistance"},
+				{"POST", "/api/documents/doc/processing"},
+			} {
+				response := request(t, s, endpoint.method, endpoint.path, nil)
+				var current Processing
+				if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &current) != nil ||
+					current.ReparseStatus != "running" || current.ReparseRun != run {
+					t.Fatalf("%s %s did not expose the active attempt: %d %s", endpoint.method, endpoint.path, response.Code, response.Body.String())
+				}
 			}
 			assertStatus := func(server *Server, path string, want int) {
 				t.Helper()
@@ -128,8 +145,8 @@ func TestPDFReparsePreviewTracksOnlyTheActiveAttempt(t *testing.T) {
 			}
 			restarted := NewServer(s.Store, s.Token, "")
 			assertStatus(restarted, path, 404)
-			if p := previewProcessing(t, restarted); p.ReparseRun != "" || p.PagesDone != old.Pages {
-				t.Fatalf("a new server inherited preview state: %+v", p)
+			if p := previewProcessing(t, restarted); p.ReparseStatus != "queued" || p.ReparseRun != "" || p.PagesDone != old.Pages {
+				t.Fatalf("a server with no local worker exposed active preview state: %+v", p)
 			}
 
 			// The process is waiting on the finish gate while holding bookLayoutLock.
@@ -166,8 +183,12 @@ func TestPDFReparsePreviewTracksOnlyTheActiveAttempt(t *testing.T) {
 			}
 			<-done
 			assertStatus(s, path, 404)
-			if got := previewProcessing(t, s); got.ReparseRun != "" {
-				t.Fatalf("terminal attempt leaked its run: %+v", got)
+			wantReparse := ""
+			if mode == "interrupt" {
+				wantReparse = "queued"
+			}
+			if got := previewProcessing(t, s); got.ReparseStatus != wantReparse || got.ReparseRun != "" {
+				t.Fatalf("terminal attempt exposed the wrong reparse state: %+v", got)
 			}
 			if _, err := os.Stat(s.pdfReparseWorkRoot("doc")); !os.IsNotExist(err) {
 				t.Fatal("attempt's temporary preview was not removed", err)
@@ -193,12 +214,60 @@ func TestPDFReparsePreviewTracksOnlyTheActiveAttempt(t *testing.T) {
 				}
 				if mode == "preview-fail" {
 					response := request(t, s, "POST", "/api/documents/doc/processing", nil)
-					if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &p) != nil || p.Status != "queued" || p.ReparseRun != "" {
+					if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &p) != nil ||
+						p.Status != "queued" || p.ReparseStatus != "queued" || p.ReparseRun != "" {
 						t.Fatalf("retry did not queue a clean attempt: %d %s", response.Code, response.Body.String())
 					}
 				}
 			}
 			previousRun = run
 		})
+	}
+}
+
+func TestPDFReparseStatusFollowsDurableQueueAndLayoutCheckpoint(t *testing.T) {
+	s, _, old := completedTranslationFixture(t)
+	prepareReparseDocument(t, s)
+	if _, err := s.Store.DB.Exec("UPDATE documents SET library='papers' WHERE id='doc'"); err != nil {
+		t.Fatal(err)
+	}
+	queueReparseForTest(t, s, "doc")
+	p, err := s.Store.processing("doc")
+	if err != nil || p.ReparseStatus != "" || p.ReparseRun != "" {
+		t.Fatalf("wire-only fields were persisted: %+v %v", p, err)
+	}
+	p.Status, p.Translating.Status = "running", "running"
+	if err = s.Store.saveProcessing(p); err != nil {
+		t.Fatal(err)
+	}
+	if p := previewProcessing(t, s); p.Status != "running" || p.ReparseStatus != "queued" || p.ReparseRun != "" {
+		t.Fatalf("claimed lane without a preview was not shown as queued: %+v", p)
+	}
+	restarted := NewServer(s.Store, s.Token, "")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	restarted.StartProcessing(ctx)()
+	if p := previewProcessing(t, restarted); p.Status != "queued" || p.ReparseStatus != "queued" || p.ReparseRun != "" {
+		t.Fatalf("restart did not recover a queued reparse: %+v", p)
+	}
+	if p := assistanceRequest(t, restarted, "pause"); p.Status != "paused" || p.ReparseStatus != "" || p.ReparseRun != "" {
+		t.Fatalf("a paused reparse still appeared queued: %+v", p)
+	}
+	if p := assistanceRequest(t, restarted, "resume"); p.Status != "queued" || p.ReparseStatus != "queued" || p.ReparseRun != "" {
+		t.Fatalf("resume did not restore the queued reparse: %+v", p)
+	}
+
+	p, err = s.Store.processing("doc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.AutoTranslateMaxPages = nil
+	reparseFixture(t, old)
+	if err = restarted.refreshRetranslationLayout(t.Context(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if p := previewProcessing(t, restarted); p.Status != "queued" || !p.Retranslating || p.LayoutRevision == "" ||
+		p.ReparseStatus != "" || p.ReparseRun != "" {
+		t.Fatalf("queued translation was mislabeled after the layout became ready: %+v", p)
 	}
 }

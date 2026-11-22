@@ -5956,6 +5956,11 @@ export interface components {
             readonly translationScopeKind?: "paragraph" | "chapter";
             /** @description Explicitly requested paragraph IDs processed by the existing translation lane without resuming unrelated paused work. */
             readonly translationBlocks?: string[];
+            /**
+             * @description Current PDF reparse stage. Omitted for paused, failed, or completed reparses and for translation-only work.
+             * @enum {string}
+             */
+            readonly reparseStatus?: "queued" | "running";
             /** @description Active PDF reparse attempt. pagesDone is the number of completed preview pages, not translation progress. */
             readonly reparseRun?: string;
             /** @description Changes when a reparse publishes new source; readers reload source and translations. */
