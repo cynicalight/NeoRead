@@ -106,6 +106,9 @@ const adapter = {
   getContext: vi.fn(async () => ""),
   destroy: vi.fn(async () => {}),
   focusBlock: vi.fn(async () => {}),
+  captureSourceZoom: vi.fn(),
+  restoreSourceZoom: vi.fn(),
+  discardSourceZoom: vi.fn(),
   flashReference: vi.fn(),
   cancelBlockFocus: vi.fn(),
   followBlock: vi.fn(async () => {}),
@@ -1912,6 +1915,7 @@ it("captures an outgoing reflow scroll before its animation frame and centers th
   pane.querySelector<HTMLElement>(
     '[data-reflow-block="p3-b1"]',
   )!.getBoundingClientRect = () => new DOMRect(0, 250, 600, 200);
+  vi.mocked(adapter.restoreSourceZoom!).mockReturnValueOnce(false);
   await act(async () => {
     pane.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 100 }));
     pane.dispatchEvent(new Event("scroll", { bubbles: true }));
@@ -1924,6 +1928,7 @@ it("captures an outgoing reflow scroll before its animation frame and centers th
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
   });
+  expect(adapter.restoreSourceZoom).toHaveBeenCalledWith("paragraph");
   expect(adapter.followBlock).toHaveBeenLastCalledWith({
     blockId: later.id,
     fraction: 0.5,
@@ -2249,6 +2254,79 @@ it.each([
   },
 );
 
+it("captures zoom before leaving source and restores it after source geometry commits", async () => {
+  vi.useFakeTimers();
+  try {
+    for (let i = 0; i < 3; i++) {
+      await click("对照");
+      expect(adapter.captureSourceZoom).toHaveBeenCalledTimes(i + 1);
+      await act(async () => vi.advanceTimersByTimeAsync(600));
+      await click("原文");
+      expect(adapter.restoreSourceZoom).toHaveBeenCalledTimes(i);
+      await act(async () => vi.advanceTimersByTimeAsync(600));
+      expect(adapter.restoreSourceZoom).toHaveBeenCalledTimes(i + 1);
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("does not save source zoom when switching with synchronization disabled", async () => {
+  await click("取消同步效果");
+  await click("对照");
+  expect(adapter.captureSourceZoom).not.toHaveBeenCalled();
+});
+
+it("cancels a queued source restore when the mode reverses, including a translation detour", async () => {
+  vi.useFakeTimers();
+  try {
+    await click("对照");
+    await click("原文");
+    await click("对照");
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.restoreSourceZoom).not.toHaveBeenCalled();
+    await click("译文");
+    await click("原文");
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.restoreSourceZoom).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it.each(["wheel", "pointerdown", "keydown"] as const)(
+  "drops a queued source restore after %s input before source geometry commits",
+  async (type) => {
+    vi.useFakeTimers();
+    try {
+      await click("对照");
+      await act(async () => vi.advanceTimersByTimeAsync(600));
+      await click("原文");
+      // The restore waits two frames for the source pane to expand. Input in
+      // that window owns the new center and zoom.
+      const source = host.querySelector(".translation-source")!;
+      await act(async () =>
+        source.dispatchEvent(
+          type === "wheel"
+            ? new WheelEvent(type, { bubbles: true, deltaY: 80 })
+            : type === "keydown"
+              ? new KeyboardEvent(type, { bubbles: true, key: "ArrowDown" })
+              : new MouseEvent(type, { bubbles: true }),
+        ),
+      );
+      vi.mocked(adapter.setTheme).mockClear();
+      vi.mocked(adapter.followBlock!).mockClear();
+      await act(async () => vi.advanceTimersByTimeAsync(600));
+      expect(adapter.restoreSourceZoom).not.toHaveBeenCalled();
+      expect(adapter.discardSourceZoom).toHaveBeenCalledOnce();
+      expect(adapter.setTheme).not.toHaveBeenCalled();
+      expect(adapter.followBlock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
 it.each(["reflow", "translation"] as const)(
   "restores %s from page coordinates when reparsing replaced the saved paragraph ID",
   async (mode) => {
@@ -2325,3 +2403,102 @@ it.each(["unparsed", "decoration", "empty"] as const)(
     }
   },
 );
+
+it("does not overwrite an exact source viewport restore with fitting or paragraph following", async () => {
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.2 }),
+  );
+  await click("对照");
+  vi.useFakeTimers();
+  try {
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    vi.mocked(adapter.restoreSourceZoom!).mockReturnValueOnce(true);
+    vi.mocked(adapter.followBlock!).mockClear();
+    vi.mocked(adapter.setTheme).mockClear();
+    await click("原文");
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.followBlock).not.toHaveBeenCalled();
+    expect(adapter.setTheme).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("follows the paragraph without refitting when only the source zoom was restored", async () => {
+  await act(async () =>
+    fixture.events!.readingAnchor?.({ blockId: "p1-b1", fraction: 0.2 }),
+  );
+  await click("对照");
+  vi.useFakeTimers();
+  try {
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    vi.mocked(adapter.restoreSourceZoom!).mockReturnValueOnce(false);
+    vi.mocked(adapter.followBlock!).mockClear();
+    vi.mocked(adapter.setTheme).mockClear();
+    await click("原文");
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.setTheme).not.toHaveBeenCalled();
+    expect(adapter.followBlock).toHaveBeenCalledWith(
+      expect.objectContaining({ blockId: "p1-b1" }),
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("preserves the new reading center after manual input in parallel mode", async () => {
+  await click("对照");
+  await act(async () =>
+    host
+      .querySelector(".translation-source")!
+      .dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 80 })),
+  );
+  vi.useFakeTimers();
+  try {
+    await click("原文");
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.restoreSourceZoom).toHaveBeenCalledWith("current");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("keeps the queued source restore when OCR blocks arrive before it runs", async () => {
+  await click("对照");
+  vi.useFakeTimers();
+  try {
+    vi.mocked(adapter.restoreSourceZoom!).mockReturnValueOnce(true);
+    await click("原文");
+    await renderView(defaultTheme, [
+      {
+        id: "p2-scan",
+        page: 2,
+        label: "text",
+        text: "Recognized paragraph.",
+        bounds: { x: 0.1, y: 0.3, width: 0.5, height: 0.2 },
+      },
+    ]);
+    expect(adapter.restoreSourceZoom).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.restoreSourceZoom).toHaveBeenCalledExactlyOnceWith("saved");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("lets an explicit jump supersede the queued source viewport restore", async () => {
+  await click("对照");
+  vi.useFakeTimers();
+  try {
+    await click("原文");
+    const target = { type: "pdf" as const, page: 3, y: 0.6 };
+    await act(async () => fixture.ready!.goTo(target));
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(adapter.goTo).toHaveBeenCalledExactlyOnceWith(target);
+    expect(adapter.discardSourceZoom).toHaveBeenCalledOnce();
+    expect(adapter.restoreSourceZoom).not.toHaveBeenCalled();
+    expect(events.location).toHaveBeenLastCalledWith(target, expect.any(Number));
+  } finally {
+    vi.useRealTimers();
+  }
+});

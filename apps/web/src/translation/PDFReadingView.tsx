@@ -181,6 +181,11 @@ export function PDFReadingView({
     );
   };
   const previousMode = useRef<ReadingMode>(readingMode);
+  const sourceView = useRef<{
+    anchor: PDFReadingAnchor | undefined;
+    changedFrom?: "source" | "translation";
+  }>(undefined);
+  const sourceReturnOperation = useRef<number>(undefined);
   const syncEnabledRef = useRef(syncEnabled);
   syncEnabledRef.current = syncEnabled;
   const explicitFocus = useRef({
@@ -511,9 +516,12 @@ export function PDFReadingView({
       })[0]
     );
   };
-  const go = async (location: DocumentLocation) => {
+  const startJump = () => {
     settled.cancel();
     input(mode === "translation" || reflow ? "translation" : "source");
+  };
+  const go = async (location: DocumentLocation) => {
+    startJump();
     const operation = explicitFocus.current.operation;
     if (location.type === "pdf") pinPage(location.page);
     if (location.type !== "pdf") return;
@@ -583,8 +591,8 @@ export function PDFReadingView({
     if (block && pane.current)
       flashReflowReference(pane.current, block.id, location.quote || text);
   };
-  const actions = useRef({ go, focus, flash });
-  actions.current = { go, focus, flash };
+  const actions = useRef({ go, focus, flash, startJump });
+  actions.current = { go, focus, flash, startJump };
   useEffect(() => {
     if (!root.current || !engine) return;
     return installCitationHover(
@@ -723,8 +731,11 @@ export function PDFReadingView({
           return (l: DocumentLocation) => actions.current.focus(l);
         if (key === "next" || key === "previous")
           return () => {
-            if (!state.current.blocks.length)
-              return state.current.reflow ? Promise.resolve() : target[key]();
+            if (!state.current.blocks.length) {
+              if (state.current.reflow) return Promise.resolve();
+              actions.current.startJump();
+              return target[key]();
+            }
             const block = state.current.blocks.find(
               (b) => b.id === reading.current?.blockId,
             );
@@ -811,7 +822,13 @@ export function PDFReadingView({
       readingMode === "translation" || readingMode === "reflow"
         ? "translation"
         : "source",
+      true,
     );
+    if (!active && sourceReturnOperation.current !== undefined) {
+      engine?.discardSourceZoom?.();
+      sourceView.current = undefined;
+      sourceReturnOperation.current = undefined;
+    }
     cancelAnimationFrame(scrollFrame.current);
     scrollFrame.current = 0;
     pendingRestore.current = true;
@@ -849,18 +866,51 @@ export function PDFReadingView({
     void engine.focusSentences?.("", []);
     const anchor = reading.current;
     const operation = explicitFocus.current.operation;
+    // Late parsed blocks can restart this effect before the two layout frames
+    // finish. Keep the original operation until the return actually runs.
+    if (readingMode !== "source") sourceReturnOperation.current = undefined;
+    else if (layoutChanged && sourceView.current)
+      sourceReturnOperation.current = operation;
+    const sourceOperation = sourceReturnOperation.current;
+    const restoringSource = sourceOperation !== undefined;
     const restore = async () => {
       if (!pendingRestore.current) return;
       if (reflow) {
         restoreReflow();
         return;
       }
-      if (layoutChanged) {
-        // Use the same preference path as the 适宽 button, including clearing
-        // temporary passage zoom and saving this document's zoom preference.
-        events.zoom?.("width");
-        await engine.setTheme({ ...state.current.theme, zoom: "width" });
-        if (cancelled || operation !== explicitFocus.current.operation) return;
+      let restored: boolean | undefined;
+      if (layoutChanged || restoringSource) {
+        if (restoringSource && sourceView.current) {
+          const saved = sourceView.current;
+          sourceView.current = undefined;
+          restored = engine.restoreSourceZoom?.(
+            !saved.changedFrom
+              ? "saved"
+              : saved.changedFrom === "translation" && anchor
+                ? "paragraph"
+                : "current",
+          );
+          if (restored) {
+            // The viewport already owns the position. Do not replace it with
+            // an anchor produced by automatic following in the other mode.
+            const current = saved.changedFrom ? anchor : saved.anchor;
+            reading.current = current;
+            pendingRestore.current = false;
+            const block = blocks.find((block) => block.id === current?.blockId);
+            if (block && current) {
+              pinPage(block.page);
+              publishReading(current);
+            }
+            return;
+          }
+        }
+        if (restored === undefined) {
+          // Keep the usual fit-width path when there was no source snapshot.
+          events.zoom?.("width");
+          await engine.setTheme({ ...state.current.theme, zoom: "width" });
+          if (cancelled || operation !== explicitFocus.current.operation) return;
+        }
       }
       if (anchor && !blocks.some((block) => block.id === anchor.blockId))
         return;
@@ -898,11 +948,17 @@ export function PDFReadingView({
         if (!cancelled) toast.error(e.message);
       });
     let frame = 0;
-    if (layoutChanged) {
+    if (layoutChanged || restoringSource) {
       frame = requestAnimationFrame(() => {
         frame = requestAnimationFrame(() => {
-          if (!cancelled && operation === explicitFocus.current.operation)
+          if (cancelled) return;
+          if (restoringSource) sourceReturnOperation.current = undefined;
+          if ((sourceOperation ?? operation) === explicitFocus.current.operation)
             apply();
+          else if (restoringSource && sourceView.current) {
+            engine.discardSourceZoom?.();
+            sourceView.current = undefined;
+          }
         });
       });
     } else apply();
@@ -954,7 +1010,15 @@ export function PDFReadingView({
       window.removeEventListener("pointercancel", release);
     };
   }, []);
-  const input = (active: typeof side.current) => {
+  const input = (active: typeof side.current, automatic = false) => {
+    if (!automatic && sourceView.current) {
+      if (readingMode !== "source") sourceView.current.changedFrom = active;
+      else if (sourceReturnOperation.current !== undefined) {
+        // Drop the snapshot before another mode change can cancel the frame.
+        engine?.discardSourceZoom?.();
+        sourceView.current = undefined;
+      }
+    }
     if (active === "translation") settled.cancel();
     pendingRestore.current = false;
     reflowRestored.current = true;
@@ -1070,8 +1134,19 @@ export function PDFReadingView({
     });
   };
   const changeMode = (value: ReadingMode) => {
+    if (value === readingMode) return;
+    if (
+      readingMode === "source" &&
+      syncEnabledRef.current &&
+      engine &&
+      !sourceView.current
+    ) {
+      sourceView.current = { anchor: reading.current };
+      engine.captureSourceZoom?.();
+    }
     input(
       value === "translation" || value === "reflow" ? "translation" : "source",
+      true,
     );
     cancelAnimationFrame(scrollFrame.current);
     engine?.cancelBlockFocus?.();
@@ -1084,7 +1159,7 @@ export function PDFReadingView({
     syncEnabledRef.current = enabled;
     setSyncEnabled(enabled);
     // Stop pending follow animations before changing the synchronization policy.
-    input(side.current);
+    input(side.current, true);
     engine?.cancelBlockFocus?.();
     const anchor = reading.current;
     if (!enabled || mode !== "parallel" || !anchor) return;
