@@ -375,3 +375,32 @@ it("keeps the tab mounted until its close animation finishes when motion is enab
     vi.useRealTimers();
   }
 });
+
+it("drags equal-width document tabs into both end slots without remounting readers", async () => {
+  const drag = async (startX: number, endX: number) => {
+    const tabs = host.querySelectorAll<HTMLElement>(".document-tab");
+    tabs.forEach((tab, i) =>
+      Object.defineProperties(tab, {
+        offsetWidth: { configurable: true, value: 100 },
+        offsetLeft: { configurable: true, value: 100 * i },
+      }),
+    );
+    const tab = host.querySelector('[data-tab-id="a"] .document-tab-trigger')!;
+    await act(async () => {
+      tab.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, clientX: startX }),
+      );
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: endX }));
+      window.dispatchEvent(new MouseEvent("pointerup"));
+    });
+  };
+  await drag(50, 250);
+  expect(useReaderStore.getState().tabIds).toEqual(["b", "c", "a"]);
+  await drag(250, 50);
+  expect(useReaderStore.getState().theme.readingSession?.documentIds).toEqual([
+    "a",
+    "b",
+    "c",
+  ]);
+  expect(fixture.unmounts).toEqual([]);
+});

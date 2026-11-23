@@ -12,6 +12,8 @@ import {
   useReaderStore,
 } from "../store";
 import {
+  categoryDrop,
+  type CategoryPlacement,
   cleanCategory,
   paperCategories,
   removeCategoryPreferences,
@@ -62,7 +64,10 @@ export async function patchPapers(changes: [Document, Patch][]) {
   let message = "";
   for (const [doc, patch] of changes) {
     try {
-      await api.update(doc.id, patch);
+      await api.update(
+        doc.id,
+        patch.folders ? { ...patch, expectedFolders: doc.folders } : patch,
+      );
     } catch (e) {
       failed++;
       message = (e as Error).message;
@@ -195,32 +200,63 @@ export async function renameCategory(from: string, to: string) {
     toast.error(`已有名为“${to}”的分类`);
     return false;
   }
+  // Same queued, atomic path as dragging: a rename may follow a pending move.
   try {
-    await api.changeLibraryFolder("papers", from, to);
+    await updateLibraryPreferences(
+      { papers: renameCategoryPreferences(paperPrefs(), categories, from, to) },
+      { from, to },
+    );
   } catch (e) {
     toast.error((e as Error).message);
     return false;
   }
-  await savePaperPreferences((prefs) =>
-    renameCategoryPreferences(prefs, categories, from, to),
-  );
   followCategory(from, to);
   await refreshLibrary().catch(() => {});
   return true;
+}
+
+export async function dropPaperCategory(
+  from: string,
+  target: string,
+  placement: CategoryPlacement,
+) {
+  const categories = paperCategories(paperPrefs(), papers());
+  try {
+    const move = categoryDrop(categories, from, target, placement);
+    const prefs =
+      from === move.path
+        ? { ...paperPrefs() }
+        : renameCategoryPreferences(paperPrefs(), categories, from, move.path);
+    prefs.categories = move.categories;
+    if (placement === "inside")
+      prefs.collapsed = prefs.collapsed?.filter(
+        (name) => name.toLowerCase() !== target.toLowerCase(),
+      );
+    await updateLibraryPreferences(
+      { papers: prefs },
+      from === move.path ? undefined : { from, to: move.path },
+    );
+    if (from !== move.path) {
+      followCategory(from, move.path);
+      await refreshLibrary();
+    }
+  } catch (error) {
+    toast.error((error as Error).message);
+  }
 }
 
 /** Delete a category and its subcategories; their papers stay. */
 export async function deleteCategory(name: string) {
   const categories = paperCategories(paperPrefs(), papers());
   try {
-    await api.changeLibraryFolder("papers", name);
+    await updateLibraryPreferences(
+      { papers: removeCategoryPreferences(paperPrefs(), categories, name) },
+      { from: name },
+    );
   } catch (e) {
     toast.error((e as Error).message);
     return;
   }
-  await savePaperPreferences((prefs) =>
-    removeCategoryPreferences(prefs, categories, name),
-  );
   followCategory(name);
   await refreshLibrary().catch(() => {});
 }
