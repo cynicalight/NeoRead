@@ -84,6 +84,7 @@ import { trashWithUndo } from "./library-actions";
 import { filterDocuments, initialFilters } from "./library";
 import { GuideHost } from "./guide/GuideHost";
 import { SearchInput } from "./SearchInput";
+import { openExternalLink } from "./reading-links";
 // Scan detection may finish without changing processing rows, so every poll
 // re-reads OCR notices; refreshOCR coalesces the requests.
 const pollOCR = () => void refreshOCR();
@@ -1007,9 +1008,26 @@ export function App() {
               <DialogTitle>关于 NeoRead</DialogTitle>
               <DialogDescription>一千万以内最好的阅读器</DialogDescription>
             </DialogHeader>
-            <dl className="flex items-center justify-between text-sm">
-              <dt className="text-muted-foreground">版本</dt>
-              <dd>{version}</dd>
+            <dl className="space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <dt className="text-muted-foreground">版本</dt>
+                <dd>{version}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt className="text-muted-foreground">官网</dt>
+                <dd>
+                  <a
+                    href="https://neoread.app"
+                    className="underline-offset-4 hover:underline"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      openExternalLink("https://neoread.app");
+                    }}
+                  >
+                    neoread.app
+                  </a>
+                </dd>
+              </div>
             </dl>
             {window.neoreadDesktop?.checkForUpdates && (
               <Button
