@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -114,8 +115,13 @@ func TestAPIProfilesRefreshCatalogOnSwitch(t *testing.T) {
 			{ID: "first", Name: "First", URL: upstream.URL, Key: "fixture-first-secret"},
 			{ID: "second", Name: "Second", URL: upstream.URL, Key: "fixture-second-secret"},
 		},
-		Models: map[string]string{"api": "custom-old", "codex": "codex-model"},
-		APIModels: []string{"custom-old"},
+		Models:             map[string]string{"api": "custom-old", "codex": "codex-model"},
+		TranslationModels:  map[string]string{"api": "custom-old"},
+		VisionModels:       map[string]string{"api": "custom-old"},
+		Efforts:            map[string]map[string]string{"api": {"custom-old": "low"}},
+		TranslationEfforts: map[string]map[string]string{"api": {"custom-old": "medium"}},
+		VisionEfforts:      map[string]map[string]string{"api": {"custom-old": "high"}},
+		APIModels:          []string{"custom-old"},
 	}
 	putAPIProfiles(t, s, config, http.StatusOK)
 	for i, id := range []string{"first", "second", "first"} {
@@ -127,8 +133,15 @@ func TestAPIProfilesRefreshCatalogOnSwitch(t *testing.T) {
 		if err != nil || len(models) == 0 || models[0].ID != "catalog-only-"+id || calls.Load() != int32(i+1) {
 			t.Fatalf("wrong catalog for %s, fetches = %d, error = %v", id, calls.Load(), err)
 		}
-		if i > 0 && (len(models) != 1 || saved.Models["api"] != "" || saved.Models["codex"] != "codex-model") {
-			t.Fatal("switch retained another endpoint's models or touched another agent")
+		if len(models) != 2 || models[1].ID != "custom-old" || !models[1].Custom ||
+			!slices.Equal(saved.APIModels, []string{"custom-old"}) {
+			t.Fatal("switch dropped the manually added model")
+		}
+		if saved.Models["api"] != "custom-old" || saved.Models["codex"] != "codex-model" ||
+			saved.TranslationModels["api"] != "custom-old" || saved.VisionModels["api"] != "custom-old" ||
+			saved.Efforts["api"]["custom-old"] != "low" || saved.TranslationEfforts["api"]["custom-old"] != "medium" ||
+			saved.VisionEfforts["api"]["custom-old"] != "high" {
+			t.Fatal("switch changed model or effort choices")
 		}
 	}
 	data, err := os.ReadFile(filepath.Join(s.Store.Root, "ai-connections.json"))

@@ -118,16 +118,6 @@ func (c *AIConfig) mergeAPIProfiles(old AIConfig) error {
 		return errors.New("所选 API 连接模板不存在")
 	}
 	c.activateAPIProfile(active)
-	if old.ActiveAPIProfile != "" && (c.ActiveAPIProfile != old.ActiveAPIProfile || resolveAPIEndpoint(c.API) != resolveAPIEndpoint(old.API)) {
-		// Model IDs and efforts belong to the current endpoint, not a template.
-		c.APIModels = []string{}
-		delete(c.Models, "api")
-		delete(c.TranslationModels, "api")
-		delete(c.VisionModels, "api")
-		delete(c.Efforts, "api")
-		delete(c.TranslationEfforts, "api")
-		delete(c.VisionEfforts, "api")
-	}
 	return nil
 }
 
