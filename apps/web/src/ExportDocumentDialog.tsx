@@ -10,6 +10,7 @@ import {
 import { api } from "@neoread/api";
 import { Button } from "@neoread/ui/components/button";
 import { Toggle } from "@neoread/ui/components/toggle";
+import { Separator } from "@neoread/ui/components/separator";
 import { Checkbox } from "@neoread/ui/components/checkbox";
 import {
   Dialog,
@@ -35,17 +36,21 @@ import {
 } from "./document-export";
 
 const targetLabels = {
-  annotations: "批注",
-  paperNote: "论文笔记",
   original: "原文",
   translation: "译文",
+  annotations: "批注",
+  paperNote: "笔记",
   chat: "Agent 对话",
 } satisfies Record<ExportTarget, string>;
+const sourceRow: ExportTarget[] = ["original", "translation"];
+const noteRow: ExportTarget[] = ["annotations", "paperNote", "chat"];
 const formatLabels = {
-  markdown: "Markdown",
   pdf: "PDF",
+  markdown: "Markdown",
   zip: "含图ZIP",
 } satisfies Record<ExportFormat | "zip", string>;
+const pressedStyle =
+  "flex-1 aria-pressed:border-emerald-300 aria-pressed:bg-emerald-100 aria-pressed:text-emerald-900 dark:aria-pressed:border-emerald-500/40 dark:aria-pressed:bg-emerald-500/20 dark:aria-pressed:text-emerald-200";
 type DialogFormat = keyof typeof formatLabels;
 const isSource = (target: ExportTarget): target is "original" | "translation" =>
   target === "original" || target === "translation";
@@ -316,7 +321,7 @@ export function ExportDocumentDialog({
               const markdown = await notesFor([selection], true);
               delivery = await exportMarkdownFile(
                 markdown,
-                `${fileTitle(doc.title)}-${targetLabels[selection]}`,
+                `${fileTitle(doc.title)}-${selection === "paperNote" ? "论文笔记" : targetLabels[selection]}`,
                 format,
                 controller.signal,
               );
@@ -374,29 +379,32 @@ export function ExportDocumentDialog({
         <DialogHeader>
           <DialogTitle>导出</DialogTitle>
         </DialogHeader>
-        <div
-          className="grid grid-cols-2 gap-2"
-          role="group"
-          aria-label="导出内容"
-        >
-          {(Object.keys(targetLabels) as ExportTarget[]).map((selection) => (
-            <Toggle
-              key={selection}
-              variant="outline"
-              pressed={targets.includes(selection)}
-              disabled={!!busy}
-              onPressedChange={(pressed) =>
-                setTargets((current) =>
-                  pressed
-                    ? [...current, selection]
-                    : current.filter((item) => item !== selection),
-                )
-              }
-              className="flex-1 aria-pressed:border-emerald-300 aria-pressed:bg-emerald-100 aria-pressed:text-emerald-900 dark:aria-pressed:border-emerald-500/40 dark:aria-pressed:bg-emerald-500/20 dark:aria-pressed:text-emerald-200"
+        <div className="flex flex-col gap-2" role="group" aria-label="导出内容">
+          {[sourceRow, noteRow].map((row) => (
+            <div
+              key={row[0]}
+              className={row.length === 2 ? "grid grid-cols-2 gap-2" : "grid grid-cols-3 gap-2"}
             >
-              {targets.includes(selection) && <Check aria-hidden="true" />}
-              {targetLabels[selection]}
-            </Toggle>
+              {row.map((selection) => (
+                <Toggle
+                  key={selection}
+                  variant="outline"
+                  pressed={targets.includes(selection)}
+                  disabled={!!busy}
+                  onPressedChange={(pressed) =>
+                    setTargets((current) =>
+                      pressed
+                        ? [...current, selection]
+                        : current.filter((item) => item !== selection),
+                    )
+                  }
+                  className={pressedStyle}
+                >
+                  {targets.includes(selection) && <Check aria-hidden="true" />}
+                  {targetLabels[selection]}
+                </Toggle>
+              ))}
+            </div>
           ))}
         </div>
         {targets.includes("annotations") && (
@@ -469,8 +477,9 @@ export function ExportDocumentDialog({
             )}
           </div>
         )}
+        <Separator />
         <div
-          className="flex flex-wrap gap-2"
+          className="grid grid-cols-3 gap-2"
           role="group"
           aria-label="导出格式"
         >
@@ -487,7 +496,7 @@ export function ExportDocumentDialog({
                     : current.filter((item) => item !== format),
                 )
               }
-              className="flex-1 aria-pressed:border-emerald-300 aria-pressed:bg-emerald-100 aria-pressed:text-emerald-900 dark:aria-pressed:border-emerald-500/40 dark:aria-pressed:bg-emerald-500/20 dark:aria-pressed:text-emerald-200"
+              className={pressedStyle}
             >
               {formats.includes(format) && <Check aria-hidden="true" />}
               {formatLabels[format]}

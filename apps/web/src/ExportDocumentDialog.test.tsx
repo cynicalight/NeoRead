@@ -83,7 +83,7 @@ const selectFormat = async (label: string) => {
       await act(async () => button(format).click());
 };
 const selectTarget = async (label: string) => {
-  for (const target of ["批注", "论文笔记", "Agent 对话", "原文", "译文"])
+  for (const target of ["批注", "笔记", "Agent 对话", "原文", "译文"])
     if (
       (button(target).getAttribute("aria-pressed") === "true") !==
       (target === label)
@@ -150,7 +150,7 @@ it("keeps only the four annotation kinds and separates original and translation"
     "按 Markdown 默认字号",
   ])
     expect(document.body.textContent).not.toContain(text);
-  expect(button("论文笔记")).toBeTruthy();
+  expect(button("笔记")).toBeTruthy();
   expect(button("原文")).toBeTruthy();
   expect(button("译文")).toBeTruthy();
 });
@@ -457,7 +457,7 @@ it("requires at least one content selection", async () => {
 
 it("downloads one archive for the selected original, translation, paper note, and annotation kinds", async () => {
   await mount();
-  for (const target of ["论文笔记", "批注", "译文"])
+  for (const target of ["笔记", "批注", "译文"])
     await act(async () => button(target).click());
   await act(async () =>
     document.querySelector<HTMLElement>('[aria-label="高亮"]')!.click(),
@@ -486,7 +486,7 @@ it("downloads one archive for the selected original, translation, paper note, an
 
 it("copies selected notes as plain Markdown without requesting an archive", async () => {
   await mount();
-  await selectTarget("论文笔记");
+  await selectTarget("笔记");
   await act(async () => button("批注").click());
   await selectFormat(archiveFormat);
   await act(async () => button("复制 Markdown").click());
@@ -508,7 +508,7 @@ it("reports a failed notes-only archive without a download and permits retry", a
   );
   await mount();
   await selectFormat(archiveFormat);
-  await exportTarget("论文笔记");
+  await exportTarget("笔记");
   expect(activeDialog().querySelector('[role="alert"]')?.textContent).toContain(
     "无法打包导出图片",
   );
