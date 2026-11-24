@@ -4286,9 +4286,12 @@ textarea.citation-preview {
   width: 10px;
   height: 10px;
 }
+/* Sized by the active tab's content, up to the former fixed height; longer
+   tabs scroll inside their panel. */
 .settings-dialog {
-  height: min(620px, 85vh);
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
+  max-height: min(620px, 85vh);
 }
 /* Panels scroll up under the nav into the same fading blur as the assistant
    sidebar header (::before surface + 16px blur, ::after 4px blur). */
