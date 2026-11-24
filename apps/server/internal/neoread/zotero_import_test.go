@@ -129,7 +129,7 @@ func TestZoteroMigrationRoundTrip(t *testing.T) {
 	}
 	var p Processing
 	json.Unmarshal([]byte(processingBody), &p)
-	if !p.Enabled || p.AutoTranslateMaxPages == nil || *p.AutoTranslateMaxPages != 50 {
+	if !p.Enabled || p.AutoTranslateMaxPages == nil || *p.AutoTranslateMaxPages != 0 {
 		t.Fatal("migration must use the default translation threshold")
 	}
 	// Curated NeoRead data, including removed imported annotations, survives a retry.

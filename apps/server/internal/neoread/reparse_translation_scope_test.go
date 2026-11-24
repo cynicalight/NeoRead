@@ -43,6 +43,7 @@ func TestReparsePublishesSourceThenWaitsForProviderConfiguration(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s, _, m := completedTranslationFixture(t)
 			prepareReparseDocument(t, s)
+			reparseSettings(t, s, `{"autoTranslateMaxPages":150}`)
 			reparseFixture(t, m)
 			if err := s.writeAIConfig(config); err != nil {
 				t.Fatal(err)

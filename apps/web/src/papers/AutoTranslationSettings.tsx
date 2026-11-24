@@ -8,8 +8,7 @@ export function AutoTranslationSettings({
   theme: ReaderTheme;
   setTheme: (patch: Partial<ReaderTheme>) => void;
 }) {
-  const limit =
-    theme.autoTranslateMaxPages ?? (theme.autoTranslatePDF === false ? 0 : 50);
+  const limit = theme.autoTranslateMaxPages ?? 0;
   return (
     <div className="mt-5 space-y-3 text-sm">
       <h4 className="font-medium">自动翻译</h4>

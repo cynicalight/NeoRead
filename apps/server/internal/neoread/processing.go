@@ -167,8 +167,7 @@ func (s *Store) recoverPausedPaperParsing() error {
 func importedProcessing(id, library, value string) Processing {
 	p := initialProcessing(id)
 	var settings struct {
-		AutoTranslatePDF      *bool `json:"autoTranslatePDF"`
-		AutoTranslateMaxPages *int  `json:"autoTranslateMaxPages"`
+		AutoTranslateMaxPages *int `json:"autoTranslateMaxPages"`
 	}
 	if library == "books" {
 		// Book chapters are parsed and translated when the reader asks.
@@ -177,13 +176,10 @@ func importedProcessing(id, library, value string) Processing {
 		aggregateProcessing(&p)
 		return p
 	}
-	limit := 50
-	if value != "" && json.Unmarshal([]byte(value), &settings) != nil {
-		limit = 0
-	} else if settings.AutoTranslateMaxPages != nil {
+	// Automatic translation spends model quota, so it stays off until the user sets a page limit.
+	limit := 0
+	if value != "" && json.Unmarshal([]byte(value), &settings) == nil && settings.AutoTranslateMaxPages != nil {
 		limit = *settings.AutoTranslateMaxPages
-	} else if settings.AutoTranslatePDF != nil && !*settings.AutoTranslatePDF {
-		limit = 0
 	}
 	p.AutoTranslateMaxPages = &limit
 	p.Enabled, p.Status, p.Detail = true, "queued", "等待解析 PDF"

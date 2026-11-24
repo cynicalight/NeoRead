@@ -29,7 +29,8 @@ func processingFixture(t *testing.T) (*Server, Processing) {
 		t.Fatal(e)
 	}
 	p, _ := store.processing("doc")
-	p.Enabled = true
+	// Translation lifecycle tests start from an explicitly enabled job, not the import threshold.
+	p.Enabled, p.AutoTranslateMaxPages = true, nil
 	p.Status = "queued"
 	if e = store.saveProcessing(p); e != nil {
 		t.Fatal(e)

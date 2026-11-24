@@ -66,6 +66,7 @@ func TestReparseWorkerHonorsPDFTranslationScope(t *testing.T) {
 			t.Run(library+"/missing="+jsonText(missing), func(t *testing.T) {
 				s, p, old := completedTranslationFixture(t)
 				prepareReparseDocument(t, s)
+				reparseSettings(t, s, `{"autoTranslateMaxPages":150}`)
 				if _, err := s.Store.DB.Exec("UPDATE documents SET library=? WHERE id='doc'", library); err != nil {
 					t.Fatal(err)
 				}

@@ -16,7 +16,7 @@ func TestPaperTranslationThreshold(t *testing.T) {
 		pages    int
 		manual   bool
 	}{
-		{"", 50, false}, {"", 51, true},
+		{"", 1, true},
 		{`{"autoTranslateMaxPages":0}`, 1, true},
 		{`{"autoTranslateMaxPages":10}`, 10, false},
 		{`{"autoTranslateMaxPages":10}`, 11, true},
