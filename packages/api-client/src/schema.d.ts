@@ -5996,6 +5996,15 @@ export interface components {
             key?: string;
             hasKey: boolean;
         };
+        APIProfile: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            protocol?: "openai" | "responses" | "anthropic" | "auto";
+            url: string;
+            key?: string;
+            hasKey: boolean;
+        };
         AgentModel: {
             /** @description Provider-reported context capacity; omitted when unavailable */
             contextWindow?: number;
@@ -6069,7 +6078,11 @@ export interface components {
             };
             /** @description Model IDs the user added beside the api endpoint's /models list. */
             apiModels?: string[];
-            /** @description OpenAI-compatible endpoint of the api agent. Its models are chosen in models and translationModels; model here is unused. */
+            /** @description Saved API connections without model settings. On PUT, an empty array deletes all profiles; a key omitted with hasKey true keeps the saved key for the same profile and base URL. */
+            apiProfiles?: components["schemas"]["APIProfile"][];
+            /** @description ID of the active connection. If the active profile is deleted, the first remaining profile is selected. */
+            activeAPIProfile?: string;
+            /** @description Active endpoint of the api agent. The server mirrors the selected profile here. Model settings are separate. */
             api: components["schemas"]["APIConnection"];
             textAPI: components["schemas"]["APIConnection"];
             imageAPI: components["schemas"]["APIConnection"];

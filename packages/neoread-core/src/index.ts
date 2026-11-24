@@ -827,6 +827,10 @@ export interface APIConnection {
   key?: string;
   hasKey: boolean;
 }
+export interface APIProfile extends Omit<APIConnection, "model"> {
+  id: string;
+  name: string;
+}
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export interface WebSearchConfig {
@@ -851,7 +855,10 @@ export interface AIConfig {
   visionEfforts?: Record<string, Record<string, ReasoningEffort>>;
   /** Model IDs the user added beside the API endpoint's /models list. */
   apiModels?: string[];
-  /** Endpoint of the "api" agent; its models are chosen per task above. */
+  /** Named connections; model settings are not stored with a profile. */
+  apiProfiles?: APIProfile[];
+  activeAPIProfile?: string;
+  /** Active connection mirrored by the server. Its models are chosen per task above. */
   api: APIConnection;
   textAPI: APIConnection;
   imageAPI: APIConnection;

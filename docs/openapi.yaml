@@ -7401,6 +7401,24 @@
                 },
               "required": ["url", "model", "hasKey"],
             },
+          "APIProfile":
+            {
+              "type": "object",
+              "properties":
+                {
+                  "id": { "type": "string" },
+                  "name": { "type": "string" },
+                  "protocol":
+                    {
+                      "type": "string",
+                      "enum": ["openai", "responses", "anthropic", "auto"],
+                    },
+                  "url": { "type": "string" },
+                  "key": { "type": "string", "writeOnly": true },
+                  "hasKey": { "type": "boolean" },
+                },
+              "required": ["id", "name", "url", "hasKey"],
+            },
           "AgentModel":
             {
               "type": "object",
@@ -7555,10 +7573,21 @@
                       "description": "Model IDs the user added beside the api endpoint's /models list.",
                       "items": { "type": "string" },
                     },
+                  "apiProfiles":
+                    {
+                      "type": "array",
+                      "description": "Saved API connections without model settings. On PUT, an empty array deletes all profiles; a key omitted with hasKey true keeps the saved key for the same profile and base URL.",
+                      "items": { "$ref": "#/components/schemas/APIProfile" },
+                    },
+                  "activeAPIProfile":
+                    {
+                      "type": "string",
+                      "description": "ID of the active connection. If the active profile is deleted, the first remaining profile is selected.",
+                    },
                   "api":
                     {
                       "$ref": "#/components/schemas/APIConnection",
-                      "description": "OpenAI-compatible endpoint of the api agent. Its models are chosen in models and translationModels; model here is unused.",
+                      "description": "Active endpoint of the api agent. The server mirrors the selected profile here. Model settings are separate.",
                     },
                   "textAPI": { "$ref": "#/components/schemas/APIConnection" },
                   "imageAPI": { "$ref": "#/components/schemas/APIConnection" },

@@ -154,6 +154,33 @@ beforeEach(() => {
   vi.mocked(api.aiConfig).mockImplementation(async () => config);
   listed = { "deepseek-flash": true, "deepseek-v4-pro": false };
   vi.mocked(api.saveAIConfig).mockImplementation(async (next) => {
+    if (next.apiProfiles) {
+      const apiProfiles = next.apiProfiles.map(({ key, ...profile }) => ({
+        ...profile,
+        hasKey: !!key || profile.hasKey,
+      }));
+      const active =
+        apiProfiles.find(({ id }) => id === next.activeAPIProfile) ??
+        apiProfiles[0];
+      const changed =
+        config.activeAPIProfile !== active?.id ||
+        config.api.url !== active?.url ||
+        config.api.protocol !== active?.protocol ||
+        !!next.apiProfiles.find(({ id }) => id === active?.id)?.key;
+      config = {
+        ...next,
+        api: {
+          url: active?.url ?? "",
+          protocol: active?.protocol,
+          model: "",
+          hasKey: active?.hasKey ?? false,
+        },
+        apiProfiles,
+        activeAPIProfile: active?.id,
+        capabilities: changed ? {} : next.capabilities,
+      };
+      return config;
+    }
     const { key, ...rest } = next.api;
     const changed = next.api.url !== config.api.url || !!key;
     config = {
@@ -259,13 +286,16 @@ it("saves the API endpoint and key, then tests the new connection", async () => 
   await submit();
   expect(api.saveAIConfig).toHaveBeenLastCalledWith(
     expect.objectContaining({
-      api: {
-        url: "https://api.deepseek.com",
-        protocol: "openai",
-        model: "",
-        key: "sk-test",
-        hasKey: false,
-      },
+      apiProfiles: [
+        {
+          id: expect.any(String),
+          name: "api.deepseek.com",
+          url: "https://api.deepseek.com",
+          protocol: "openai",
+          key: "sk-test",
+          hasKey: false,
+        },
+      ],
     }),
   );
   // Each listed model is checked on its own, text first, then vision.
@@ -279,6 +309,58 @@ it("saves the API endpoint and key, then tests the new connection", async () => 
   expect(toast.warning).not.toHaveBeenCalled();
   expect(input("API Key").value).toBe("");
   expect(input("API Key").placeholder).toBe("已保存，留空保持不变");
+}, 30_000);
+it("switches profiles in Settings without carrying the draft key or old models", async () => {
+  const alpha = {
+    id: "profile-alpha",
+    name: "Alpha",
+    url: "https://alpha.example",
+    protocol: "openai",
+    hasKey: true,
+  } as const;
+  const beta = {
+    id: "profile-beta",
+    name: "Beta",
+    url: "https://beta.example",
+    protocol: "responses",
+    hasKey: true,
+  } as const;
+  config.api = {
+    url: alpha.url,
+    protocol: alpha.protocol,
+    model: "",
+    hasKey: true,
+  };
+  config.apiProfiles = [alpha, beta];
+  config.activeAPIProfile = alpha.id;
+  listed = { "alpha-model": true };
+  await act(async () => root.render(<Settings open onOpenChange={() => {}} />));
+  await openAPI();
+  expect(host.querySelector(".api-model-list")?.textContent).toContain(
+    "alpha-model",
+  );
+  await type("API Key", "draft-key-for-alpha");
+  listed = { "beta-model": true };
+  await click('[aria-label="API 连接模板"]');
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((item) => item.textContent === "Beta")!;
+  await act(async () => {
+    option.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    option.click();
+  });
+  expect(config.activeAPIProfile).toBe(beta.id);
+  expect(api.saveAIConfig).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      activeAPIProfile: beta.id,
+      apiProfiles: [alpha, beta],
+    }),
+  );
+  expect(input("API Key").value).toBe("");
+  expect(input("Base URL").value).toBe(beta.url);
+  const models = host.querySelector(".api-model-list")?.textContent;
+  expect(models).toContain("beta-model");
+  expect(models).not.toContain("alpha-model");
 }, 30_000);
 it("selects the API agent from its card once a model passes", async () => {
   config.primary = "";

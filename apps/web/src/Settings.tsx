@@ -31,13 +31,12 @@ import { LibraryLocationSettings } from "./LibraryLocationSettings";
 import { CommandLineSettings } from "./CommandLineSettings";
 import { ProviderIcon, providerLabel } from "./ProviderIdentity";
 import { TaskModels } from "./TaskModels";
-import { APIAgentForm, APIModelForm } from "./APIAgentForm";
+import { APIProfilesForm, APIModelForm } from "./APIAgentForm";
 import { api } from "@neoread/api";
 import type {
   AICapability,
   AIConfig,
   AgentModel,
-  APIConnection,
   LibraryMode,
   JournalRankConfig,
   Provider,
@@ -149,6 +148,7 @@ export function Settings({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const checked = useRef(new Set<string>());
   const refreshing = useRef(false);
+  const [refreshingAPI, setRefreshingAPI] = useState(false);
   const refreshQueued = useRef(false);
   const [saving, setSaving] = useState(false);
   const pendingAgent = useRef<string | null>(null);
@@ -343,6 +343,7 @@ export function Settings({
       return;
     }
     refreshing.current = true;
+    setRefreshingAPI(true);
     // Reopening refreshes metadata silently; preserve the last confirmed UI.
     if (force) setLoading(true);
     try {
@@ -414,6 +415,7 @@ export function Settings({
       toast.error(String(e));
     } finally {
       refreshing.current = false;
+      setRefreshingAPI(false);
       setLoading(false);
       setProbed(true);
       setModelRefresh((n) => n + 1);
@@ -480,13 +482,37 @@ export function Settings({
     if (refreshAfter) await refresh();
     return true;
   };
-  const saveAPI = async (connection: APIConnection) => {
-    // A new address or key is a new connection: test its models again.
-    for (const key of checked.current)
-      if (key.startsWith('["api"')) checked.current.delete(key);
-    if (await saveConfig((latest) => ({ ...latest, api: connection }), false)) {
-      await refresh();
+  const saveAPIProfiles = async (
+    change: (
+      latest: Pick<AIConfig, "apiProfiles" | "activeAPIProfile">,
+    ) => Pick<AIConfig, "apiProfiles" | "activeAPIProfile">,
+    connectionChanged: boolean,
+  ) => {
+    if (refreshing.current) return false;
+    const saved = await saveConfig(
+      (latest) => ({
+        ...latest,
+        ...change({
+          apiProfiles: latest.apiProfiles,
+          activeAPIProfile: latest.activeAPIProfile,
+        }),
+      }),
+      false,
+    );
+    if (saved && connectionChanged) {
+      // Never show the previous endpoint's catalog or failed checks.
+      for (const key of checked.current)
+        if (key.startsWith('["api"')) checked.current.delete(key);
+      setErrors((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([key]) => !key.startsWith("api:")),
+        ),
+      );
+      setAPIModels([]);
+      setAPIModelsError("");
+      void refresh();
     }
+    return saved;
   };
   const saveAPIModels = async (change: (models: string[]) => string[]) => {
     await saveConfig((latest) => ({
@@ -1301,13 +1327,16 @@ export function Settings({
                         <div className="settings-panel" data-tour="api-details">
                           <section data-tour="api-form">
                             {config && (
-                              <APIAgentForm
-                                connection={config.api}
-                                disabled={saving || testing.size > 0}
-                                onSave={saveAPI}
+                              <APIProfilesForm
+                                config={config}
+                                disabled={
+                                  saving || refreshingAPI || testing.size > 0
+                                }
+                                onSave={saveAPIProfiles}
                               />
                             )}
                             {config &&
+                              config.api.url &&
                               providers.some(
                                 (p) => p.id === "api" && p.installed,
                               ) && (
