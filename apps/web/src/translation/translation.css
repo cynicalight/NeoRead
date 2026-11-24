@@ -312,7 +312,7 @@
   background: #e6b94c;
 }
 :root[data-theme="sepia"] .translation-note-indicator {
-  background: var(--brand-30);
+  background: color-mix(in srgb, #c2643e 30%, transparent);
 }
 :root[data-reduced-motion="true"] {
   .translation-document {
@@ -340,61 +340,32 @@
   box-shadow: 0 0 0 3px rgb(97 137 113 / 3%);
 }
 .translation-document [data-translation-block][data-search-hit] {
-  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  background: var(--primary-10);
 }
 
 .translation-document [data-translation-block][data-focused],
 .neoread-block-hover.neoread-block-focus,
 .neoread-block-hover[data-block-kind="text"],
 .translation-document [data-block-kind="text"][data-hovered] {
-  background: rgb(128 128 128 / 5%);
+  background: var(--primary-5);
   box-shadow: none;
 }
 .neoread-block-hover.neoread-block-focus,
 .neoread-block-hover[data-block-kind="text"] {
-  border: 0.5px solid rgb(128 128 128 / 22%);
+  border: 0.5px solid var(--primary-10);
 }
 .translation-document [data-translation-block][data-focused],
 .translation-document [data-block-kind="text"][data-hovered] {
-  outline: 0.5px solid rgb(128 128 128 / 22%);
-}
-:root[data-theme="sepia"] .neoread-block-hover[data-block-kind="text"],
-:root[data-theme="sepia"] .neoread-block-hover.neoread-block-focus,
-:root[data-theme="sepia"]
-  .translation-document
-  :is(
-    [data-translation-block][data-focused],
-    [data-block-kind="text"][data-hovered]
-  ) {
-  background: var(--brand-10);
-}
-:root[data-theme="sepia"] .neoread-block-hover[data-block-kind="text"],
-:root[data-theme="sepia"] .neoread-block-hover.neoread-block-focus {
-  border-color: var(--brand-10);
-}
-:root[data-theme="sepia"]
-  .translation-document
-  :is(
-    [data-translation-block][data-focused],
-    [data-block-kind="text"][data-hovered]
-  ) {
-  outline-color: var(--brand-10);
+  outline: 0.5px solid var(--primary-10);
 }
 
 .epub-reading,
 .pdf-reading {
-  --sentence-hover-background: rgb(128 128 128 / 22%);
-}
-.epub-reading[data-theme="sepia"],
-.pdf-reading[data-theme="sepia"] {
-  --sentence-hover-background: var(--brand-10);
+  --sentence-hover-background: var(--primary-10);
 }
 
 .neoread-sentence-hover-mark {
-  background: rgb(128 128 128 / 22%);
-}
-:root[data-theme="sepia"] .neoread-sentence-hover-mark {
-  background: var(--brand-10);
+  background: var(--primary-10);
 }
 
 .neoread-block-focus[data-fading] {

@@ -18,6 +18,7 @@ import { displayTitleTranslation, libraryTags } from "./library";
 import { toast } from "sonner";
 import { BookCoverImage } from "./book-cover";
 import { BookMenuItems, type BookMenuActions } from "./BookMenu";
+import { ExportDocumentDialog } from "./ExportDocumentDialog";
 import { updateLibraryPreferences, useReaderStore } from "./store";
 
 const bookFields: [PaperMetadataField, string, string?][] = [
@@ -46,7 +47,7 @@ export function BookDetail({
   onSelectTag,
 }: {
   doc: Document;
-  actions: BookMenuActions;
+  actions: Omit<BookMenuActions, "export">;
   open: (doc: Document) => void;
   favorite: (doc: Document) => void;
   pages?: number;
@@ -55,6 +56,7 @@ export function BookDetail({
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
   const [tagging, setTagging] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const documents = useReaderStore((s) => s.documents);
   const pinKey = `doc:${doc.id}`;
   const pinned = useReaderStore(
@@ -70,6 +72,13 @@ export function BookDetail({
   const percent = Math.round(doc.percentage * 100);
   return (
     <aside className="paper-detail book-detail" aria-label="图书详情">
+      {exporting && (
+        <ExportDocumentDialog
+          key={doc.id}
+          document={doc}
+          onClose={() => setExporting(false)}
+        />
+      )}
       {tagging && (
         <CategoryDialog
           kind="tag"
@@ -154,7 +163,11 @@ export function BookDetail({
               <MoreHorizontal />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
-              <BookMenuItems kind="dropdown" doc={doc} actions={actions} />
+              <BookMenuItems
+                kind="dropdown"
+                doc={doc}
+                actions={{ ...actions, export: () => setExporting(true) }}
+              />
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

@@ -10,15 +10,16 @@ it("persists a relay protocol override while retaining its saved key", async () 
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  const save = vi.fn(async () => {});
+  const save = vi.fn(async () => true);
   try {
     await act(async () =>
       root.render(
         <APIAgentForm
           disabled={false}
-          connection={{
+          profile={{
+            id: "profile-relay",
+            name: "Relay",
             url: "https://relay.example/v1",
-            model: "",
             hasKey: true,
           }}
           onSave={save}
@@ -37,8 +38,9 @@ it("persists a relay protocol override while retaining its saved key", async () 
     expect(submit.disabled).toBe(false);
     await act(async () => submit.click());
     expect(save).toHaveBeenCalledExactlyOnceWith({
+      id: "profile-relay",
+      name: "Relay",
       url: "https://relay.example/v1",
-      model: "",
       hasKey: true,
       protocol: "anthropic",
       key: undefined,
@@ -56,15 +58,16 @@ it("offers exactly the three wire protocols and saves Responses", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  const save = vi.fn(async () => {});
+  const save = vi.fn(async () => true);
   try {
     await act(async () =>
       root.render(
         <APIAgentForm
           disabled={false}
-          connection={{
+          profile={{
+            id: "profile-openai",
+            name: "OpenAI",
             url: "https://api.openai.com/v1",
-            model: "",
             hasKey: true,
             protocol: "auto",
           }}

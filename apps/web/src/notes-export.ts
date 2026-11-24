@@ -2,36 +2,19 @@ import {
   locationLabel,
   type Annotation,
   type Document,
+  type DocumentChatSession,
   type Message,
 } from "@neoread/core";
 import { documentOrder } from "./annotations";
 import { paperByline, paperLink } from "./papers/format";
 
-export type ExportPart =
+type ExportPart =
   | "info"
   | "paperNote"
   | "notes"
   | "highlights"
   | "questions"
-  | "bookmarks"
-  | "chat";
-export const exportParts: Record<ExportPart, string> = {
-  info: "论文信息",
-  paperNote: "论文笔记",
-  notes: "批注",
-  highlights: "划线",
-  questions: "问题与 AI 回答",
-  bookmarks: "书签",
-  chat: "AI 对话",
-};
-export const defaultExportParts: ExportPart[] = [
-  "info",
-  "paperNote",
-  "notes",
-  "highlights",
-  "questions",
-  "bookmarks",
-];
+  | "bookmarks";
 
 const quote = (text: string) =>
   text
@@ -49,7 +32,12 @@ const includes = (a: Annotation, parts: Set<ExportPart>) =>
 /** Markdown for Obsidian/Notion: chosen parts, annotations in reading order. */
 export function notesMarkdown(
   doc: Document,
-  data: { annotations: Annotation[]; messages: Message[]; paperNote: string },
+  data: {
+    annotations: Annotation[];
+    messages: Message[];
+    paperNote: string;
+    chat?: ChatExportSession[];
+  },
   chosen: ExportPart[],
   link?: (annotation: Annotation) => string,
   options: { includeTitle?: boolean } = {},
@@ -109,17 +97,37 @@ export function notesMarkdown(
         })
         .join("\n"),
     );
-  if (parts.has("chat") && data.messages.length)
-    out.push(
-      "## AI 对话",
-      data.messages
-        .map(
-          (m) =>
-            `**${m.role === "user" ? "我" : "AI"}：**\n\n${m.content.trim()}`,
-        )
-        .join("\n\n---\n\n"),
-    );
+  if (data.chat?.length) {
+    out.push("## Agent 对话");
+    for (const session of data.chat) {
+      const title = session.title.replace(/\s+/g, " ").trim();
+      const date = session.createdAt.slice(0, 10);
+      out.push(`### ${title}${date ? ` · ${date}` : ""}`);
+      out.push(session.messages.map(chatMessageMarkdown).join("\n\n---\n\n"));
+    }
+  }
   return out.join("\n\n") + "\n";
+}
+
+export type ChatExportSession = Pick<
+  DocumentChatSession,
+  "title" | "createdAt"
+> & {
+  messages: Message[];
+};
+
+function chatMessageMarkdown(message: Message) {
+  const content = message.content.trim();
+  const out = [`**${message.role === "user" ? "我" : "Agent"}：**`, content];
+  if (message.role === "assistant") {
+    // The server saves validated document references used in the answer.
+    for (const ref of message.references ?? []) {
+      const id = ref.sourceId ?? ref.blockId;
+      if (id && ref.text.trim())
+        out.push(`[${id}] ${locationLabel(ref.location)}\n\n${quote(ref.text)}`);
+    }
+  }
+  return out.join("\n\n");
 }
 
 /**
@@ -155,23 +163,4 @@ export function annotationDigest(
   return [`### 批注摘录 · ${date.toLocaleDateString("zh-CN")}`, ...lines].join(
     "\n",
   );
-}
-
-/** How many items each part would export, to show beside its checkbox. */
-export function exportCounts(data: {
-  annotations: Annotation[];
-  messages: Message[];
-  paperNote: string;
-}): Record<ExportPart, number> {
-  const kinds = (...k: Annotation["kind"][]) =>
-    data.annotations.filter((a) => k.includes(a.kind)).length;
-  return {
-    info: 1,
-    paperNote: data.paperNote.trim() ? 1 : 0,
-    notes: kinds("note"),
-    highlights: kinds("highlight", "underline"),
-    questions: kinds("question"),
-    bookmarks: kinds("bookmark"),
-    chat: data.messages.length,
-  };
 }

@@ -47,6 +47,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		UserMessageID   string          `json:"userMessageId"`
 		Provider        string          `json:"provider"`
 		Prompt          string          `json:"prompt"`
+		Skill           string          `json:"skill"`
 		Context         *string         `json:"context"`
 		ReadingLocation json.RawMessage `json:"readingLocation"`
 		References      json.RawMessage `json:"references"`
@@ -81,6 +82,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "阅读位置无效")
 		return
 	}
+	skill, ok := s.resolveRequestedSkill(w, r, req.Skill)
+	if !ok {
+		return
+	}
 	ctx, finish, err := s.beginDocumentTask(r.Context(), d.ID)
 	if err != nil {
 		fail(w, 409, "文档正在删除")
@@ -99,5 +104,5 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if req.WebSearch != nil {
 		search = []bool{*req.WebSearch}
 	}
-	s.chatDocument(w, r, d, req.Provider, req.Prompt, *req.Context, req.References, req.Attachments, req.ReadingLocation, req.UserMessageID, search...)
+	s.chatDocument(w, r, d, req.Provider, req.Prompt, *req.Context, req.References, req.Attachments, req.ReadingLocation, req.UserMessageID, skill, search...)
 }

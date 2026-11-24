@@ -21,6 +21,7 @@ import {
   redactLog,
   type DiagnosticEvent,
 } from "../../../packages/neoread-core/src/diagnostics";
+import { safeBrandColors } from "../../../packages/neoread-core/src/index";
 
 export const retention = {
   days: 7,
@@ -328,15 +329,18 @@ export class DiagnosticLogs {
   }
 }
 
-/** Safe scalar settings cached by the main process; no API keys, endpoint or text. */
+/** Safe appearance and scalar settings; no API keys, endpoint or text. */
 export function diagnosticSettings(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const safe: Record<string, unknown> = {};
   const v = value as Record<string, unknown>;
+  const brandColors = safeBrandColors(v.brandColors);
+  if (brandColors) safe.brandColors = brandColors;
   for (const key of [
     "appearance",
     "autoTranslatePDF",
     "linkTranslationAnnotations",
+    "sourceReflow",
     "textReflow",
     "translationFontFamily",
     "translationFontSize",

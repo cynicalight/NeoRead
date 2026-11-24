@@ -11,6 +11,7 @@ it("passes only bounded appearance values through the preload argument", () => {
     systemLightMode: "sepia",
     systemDarkContrast: "soft",
     mode: "dark",
+    brandColors: { black: "#00Aa11", light: "#12", unknown: "#112233" },
     prompt: "private settings",
   });
   expect(startupAppearanceFromArguments(["electron", argument])).toEqual({
@@ -19,6 +20,7 @@ it("passes only bounded appearance values through the preload argument", () => {
     systemLightMode: "sepia",
     systemDarkContrast: "soft",
     mode: "dark",
+    brandColors: { black: "#00Aa11" },
   });
   expect(argument).not.toContain("private");
   expect(

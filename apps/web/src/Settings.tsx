@@ -20,6 +20,7 @@ import {
   Monitor,
   Pencil,
   RefreshCw,
+  RotateCcw,
   TriangleAlert,
   X,
 } from "lucide-react";
@@ -31,16 +32,17 @@ import { LibraryLocationSettings } from "./LibraryLocationSettings";
 import { CommandLineSettings } from "./CommandLineSettings";
 import { ProviderIcon, providerLabel } from "./ProviderIdentity";
 import { TaskModels } from "./TaskModels";
-import { APIAgentForm, APIModelForm } from "./APIAgentForm";
+import { APIProfilesForm, APIModelForm } from "./APIAgentForm";
 import { api } from "@neoread/api";
-import type {
-  AICapability,
-  AIConfig,
-  AgentModel,
-  APIConnection,
-  LibraryMode,
-  JournalRankConfig,
-  Provider,
+import {
+  validBrandColor,
+  type AICapability,
+  type AIConfig,
+  type AgentModel,
+  type LibraryMode,
+  type JournalRankConfig,
+  type Provider,
+  type ReaderTheme,
 } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
 import { cn } from "@neoread/ui/lib/utils";
@@ -85,6 +87,7 @@ import {
 } from "./papers/columns";
 import { openExternalLink } from "./reading-links";
 import { AppearancePicker } from "./AppearancePicker";
+import { themeBrandColor, useResolvedTheme } from "./appearance";
 import { AgentDeck, type DeckItem } from "./AgentDeck";
 import { recentAgentCalls } from "./agentUsage";
 // Checks run automatically for this many API models; the rest on demand.
@@ -119,6 +122,57 @@ const providerQuota = (
             : "下次重置时间未知")),
   };
 };
+
+function BrandColorSetting({
+  theme,
+  setTheme,
+}: {
+  theme: ReaderTheme;
+  setTheme: (patch: Partial<ReaderTheme>) => void;
+}) {
+  const { mode, defaultColor, customColor } = themeBrandColor(
+    useResolvedTheme(theme),
+  );
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3">
+      <label htmlFor="brand-color" className="text-sm font-medium">
+        品牌色
+      </label>
+      <div className="flex items-center gap-2">
+        {customColor && (
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="pointer-coarse:size-11"
+            aria-label="恢复默认品牌色"
+            title="恢复默认品牌色"
+            onClick={() => {
+              const brandColors = { ...theme.brandColors };
+              delete brandColors[mode];
+              setTheme({ brandColors });
+            }}
+          >
+            <RotateCcw aria-hidden="true" />
+          </Button>
+        )}
+        <Input
+          key={mode}
+          id="brand-color"
+          type="color"
+          value={customColor ?? defaultColor}
+          className="h-8 w-9 cursor-pointer p-[3px] pointer-coarse:size-11"
+          onChange={(event) => {
+            const color = event.currentTarget.value;
+            if (validBrandColor(color))
+              setTheme({ brandColors: { ...theme.brandColors, [mode]: color } });
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function Settings({
   open,
   onOpenChange,
@@ -149,6 +203,7 @@ export function Settings({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const checked = useRef(new Set<string>());
   const refreshing = useRef(false);
+  const [refreshingAPI, setRefreshingAPI] = useState(false);
   const refreshQueued = useRef(false);
   const [saving, setSaving] = useState(false);
   const pendingAgent = useRef<string | null>(null);
@@ -343,6 +398,7 @@ export function Settings({
       return;
     }
     refreshing.current = true;
+    setRefreshingAPI(true);
     // Reopening refreshes metadata silently; preserve the last confirmed UI.
     if (force) setLoading(true);
     try {
@@ -414,6 +470,7 @@ export function Settings({
       toast.error(String(e));
     } finally {
       refreshing.current = false;
+      setRefreshingAPI(false);
       setLoading(false);
       setProbed(true);
       setModelRefresh((n) => n + 1);
@@ -480,13 +537,37 @@ export function Settings({
     if (refreshAfter) await refresh();
     return true;
   };
-  const saveAPI = async (connection: APIConnection) => {
-    // A new address or key is a new connection: test its models again.
-    for (const key of checked.current)
-      if (key.startsWith('["api"')) checked.current.delete(key);
-    if (await saveConfig((latest) => ({ ...latest, api: connection }), false)) {
-      await refresh();
+  const saveAPIProfiles = async (
+    change: (
+      latest: Pick<AIConfig, "apiProfiles" | "activeAPIProfile">,
+    ) => Pick<AIConfig, "apiProfiles" | "activeAPIProfile">,
+    connectionChanged: boolean,
+  ) => {
+    if (refreshing.current) return false;
+    const saved = await saveConfig(
+      (latest) => ({
+        ...latest,
+        ...change({
+          apiProfiles: latest.apiProfiles,
+          activeAPIProfile: latest.activeAPIProfile,
+        }),
+      }),
+      false,
+    );
+    if (saved && connectionChanged) {
+      // Never show the previous endpoint's catalog or failed checks.
+      for (const key of checked.current)
+        if (key.startsWith('["api"')) checked.current.delete(key);
+      setErrors((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([key]) => !key.startsWith("api:")),
+        ),
+      );
+      setAPIModels([]);
+      setAPIModelsError("");
+      void refresh();
     }
+    return saved;
   };
   const saveAPIModels = async (change: (models: string[]) => string[]) => {
     await saveConfig((latest) => ({
@@ -791,18 +872,11 @@ export function Settings({
               <FileText />
               诊断
             </TabsTrigger>
-            <TabsTrigger value="prompts">
-              <Pencil />
-              常用 prompt
-            </TabsTrigger>
             <TabsTrigger value="papers">
               <Library />
               {libraryModes[currentLibrary].label}
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="prompts" className="settings-panel" keepMounted>
-            <CustomPromptSettings />
-          </TabsContent>
           <TabsContent
             value="diagnostics"
             className="settings-panel"
@@ -871,6 +945,7 @@ export function Settings({
                 setTheme={setTheme}
                 layout="settings"
               />
+              <BrandColorSetting theme={theme} setTheme={setTheme} />
             </section>
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-3 text-sm">
@@ -1021,6 +1096,16 @@ export function Settings({
                   checked={theme.linkTranslationAnnotations !== false}
                   onCheckedChange={(checked) =>
                     setTheme({ linkTranslationAnnotations: !!checked })
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 text-sm">
+                <span>原文重排显示</span>
+                <Switch
+                  aria-label="原文重排显示"
+                  checked={theme.sourceReflow === true}
+                  onCheckedChange={(checked) =>
+                    setTheme({ sourceReflow: !!checked })
                   }
                 />
               </div>
@@ -1291,13 +1376,16 @@ export function Settings({
                         <div className="settings-panel" data-tour="api-details">
                           <section data-tour="api-form">
                             {config && (
-                              <APIAgentForm
-                                connection={config.api}
-                                disabled={saving || testing.size > 0}
-                                onSave={saveAPI}
+                              <APIProfilesForm
+                                config={config}
+                                disabled={
+                                  saving || refreshingAPI || testing.size > 0
+                                }
+                                onSave={saveAPIProfiles}
                               />
                             )}
                             {config &&
+                              config.api.url &&
                               providers.some(
                                 (p) => p.id === "api" && p.installed,
                               ) && (
@@ -1517,6 +1605,7 @@ export function Settings({
                 }
               />
             )}
+            <CustomPromptSettings />
           </TabsContent>
         </Tabs>
       </DialogContent>

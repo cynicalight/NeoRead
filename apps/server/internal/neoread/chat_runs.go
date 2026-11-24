@@ -97,7 +97,7 @@ func (s *Store) readChatRun(sessionID, runID string) (chatRunRecord, error) {
 	}
 	return run, err
 }
-func (s *Server) startSessionChat(w http.ResponseWriter, r *http.Request, document Document, config AIConfig, user Message, images [][]byte, text string) {
+func (s *Server) startSessionChat(w http.ResponseWriter, r *http.Request, document Document, config AIConfig, user Message, images [][]byte, text string, skill *chatSkill) {
 	s.chatMu.Lock()
 	sessionID := r.PathValue("session")
 	session, err := s.Store.chatSession(document.ID, sessionID)
@@ -142,7 +142,7 @@ func (s *Server) startSessionChat(w http.ResponseWriter, r *http.Request, docume
 		return
 	}
 	stamp := now()
-	record := chatRunRecord{ChatRun: ChatRun{ID: id(), SessionID: sessionID, DocumentID: document.ID, UserMessageID: user.ID, Provider: config.Primary, Status: "running", StartedAt: stamp}, Events: []chatRunEvent{}, Input: &chatRunInput{QuestionKey: chatRunQuestionKey(user), Text: text, Images: images, ConfigKey: chatRunConfigKey(config)}}
+	record := chatRunRecord{ChatRun: ChatRun{ID: id(), SessionID: sessionID, DocumentID: document.ID, UserMessageID: user.ID, Provider: config.Primary, Status: "running", StartedAt: stamp}, Events: []chatRunEvent{}, Input: &chatRunInput{QuestionKey: chatRunQuestionKey(user), Text: text, Images: images, Skill: user.Skill, ConfigKey: chatRunConfigKey(config)}}
 	tx, err := s.Store.DB.BeginTx(ctx, nil)
 	if err != nil {
 		abandon()
@@ -172,7 +172,8 @@ func (s *Server) startSessionChat(w http.ResponseWriter, r *http.Request, docume
 	}
 	s.chatRuns[sessionID] = run
 	s.chatMu.Unlock()
-	chat := &chatInput{WebAPI: searchAPIConnection(config), WebSearch: user.WebSearch, server: s, SessionID: sessionID, DocumentID: document.ID, Title: document.Title, Summary: document.Metadata.Abstract, Question: user.Content, CurrentText: text, History: history, ReadingLocation: user.ReadingLocation}
+	s.logSkillAttachment(ctx, skill)
+	chat := &chatInput{WebAPI: searchAPIConnection(config), WebSearch: user.WebSearch, server: s, SessionID: sessionID, DocumentID: document.ID, Title: document.Title, Summary: document.Metadata.Abstract, Question: user.Content, CurrentText: text, History: history, ReadingLocation: user.ReadingLocation, Skill: skill}
 	chat.piRunID = record.ID
 	chat.piCheckpoint = func(cp *piCheckpoint) error { return s.checkpointChat(run, cp) }
 	chat.piInvalidateCheckpoint = func() { s.invalidateChatCheckpoint(run) }

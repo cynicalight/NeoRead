@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,8 @@ func chatMessages(t *testing.T, s *Server) []Message {
 
 func TestChatRegenerationReusesQuestionWithCurrentModel(t *testing.T) {
 	piTestRuntime(t)
+	home := localSkillTestHome(t)
+	skillPath := writeLocalSkillTestFile(t, filepath.Join(home, ".agents", "skills", "review", "SKILL.md"), "---\nname: review\n---\nORIGINAL-SKILL-BODY")
 	s, _ := prepareConversationFixture(t)
 	models := []string{}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +41,9 @@ func TestChatRegenerationReusesQuestionWithCurrentModel(t *testing.T) {
 		}
 		models = append(models, payload.Model)
 		if len(models) == 1 {
+			if !strings.Contains(jsonText(payload.Messages), "ORIGINAL-SKILL-BODY") {
+				t.Error("first request omitted selected skill")
+			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"unfinished answer\"}}]}\n\n")
 			return
@@ -45,11 +51,14 @@ func TestChatRegenerationReusesQuestionWithCurrentModel(t *testing.T) {
 		if strings.Count(jsonText(payload.Messages), "RETRY-QUESTION") != 1 || strings.Contains(jsonText(payload.Messages), "unfinished answer") {
 			t.Error("retry duplicated the question or retained failed output", jsonText(payload.Messages))
 		}
+		if !strings.Contains(jsonText(payload.Messages), "UPDATED-SKILL-BODY") || strings.Contains(jsonText(payload.Messages), "ORIGINAL-SKILL-BODY") {
+			t.Error("regeneration did not re-resolve the selected skill")
+		}
 		writeConversationReply(w, "complete answer", "")
 	}))
 	defer upstream.Close()
 	configureDocumentAPI(t, s, upstream.URL)
-	body := `{"provider":"api","prompt":"RETRY-QUESTION","context":"original source","references":[],"readingLocation":{"type":"epub","href":"a.xhtml","progression":0},"userMessageId":"11111111111111111111111111111111"}`
+	body := `{"provider":"api","prompt":"RETRY-QUESTION","context":"original source","references":[],"readingLocation":{"type":"epub","href":"a.xhtml","progression":0},"userMessageId":"11111111111111111111111111111111","skill":"review"}`
 	first := request(t, s, "POST", "/api/documents/doc/chat", strings.NewReader(body))
 	if !strings.Contains(first.Body.String(), "event: error") {
 		t.Fatal("expected interrupted generation", first.Body.String())
@@ -58,6 +67,14 @@ func TestChatRegenerationReusesQuestionWithCurrentModel(t *testing.T) {
 	if len(before) != 1 || before[0].Role != "user" {
 		t.Fatal("failed answer persisted", before)
 	}
+	if before[0].Skill != "review" || before[0].Context != "original source" || strings.Contains(jsonText(before), "SKILL-BODY") {
+		t.Fatalf("skill selection was not persisted separately: %+v", before)
+	}
+	changedSkill := strings.Replace(body, `,"skill":"review"`, "", 1)
+	if out := request(t, s, "POST", "/api/documents/doc/chat", strings.NewReader(changedSkill)); out.Code != 409 {
+		t.Fatal("retry accepted a different skill selection", out.Code, out.Body.String())
+	}
+	writeLocalSkillTestFile(t, skillPath, "---\nname: review\n---\nUPDATED-SKILL-BODY")
 	config := s.aiConfig()
 	config.Models["api"] = "replacement-model"
 	config.APIModels = append(config.APIModels, "replacement-model")

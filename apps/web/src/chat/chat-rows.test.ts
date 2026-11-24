@@ -12,6 +12,7 @@ it("keeps local user/answer row identity during persistence replacement and the 
       provider: "codex",
       prompt: "question",
       context: "",
+      skill: "review",
       readingLocation: { type: "pdf", page: 5 },
       references: [],
       attachments: [],
@@ -30,6 +31,7 @@ it("keeps local user/answer row identity during persistence replacement and the 
     "request-1-user",
     "request-1",
   ]);
+  expect(chatRows(state)[0].message?.skill).toBe("review");
   expect(chatRows(state)[0].message?.readingLocation).toEqual({
     type: "pdf",
     page: 5,

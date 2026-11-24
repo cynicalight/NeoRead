@@ -63,11 +63,13 @@ type AIConfig struct {
 	VisionEfforts map[string]map[string]string `json:"visionEfforts,omitempty"`
 	// API is the endpoint of the "api" agent; API.Model is unused. APIModels
 	// are model IDs the user added beside the endpoint's /models list.
-	API          APIConnection         `json:"api"`
-	APIModels    []string              `json:"apiModels"`
-	TextAPI      APIConnection         `json:"textAPI"`
-	ImageAPI     APIConnection         `json:"imageAPI"`
-	Capabilities map[string]Capability `json:"capabilities"`
+	API              APIConnection         `json:"api"`
+	APIModels        []string              `json:"apiModels"`
+	APIProfiles      []APIProfile          `json:"apiProfiles,omitempty"`
+	ActiveAPIProfile string                `json:"activeAPIProfile,omitempty"`
+	TextAPI          APIConnection         `json:"textAPI"`
+	ImageAPI         APIConnection         `json:"imageAPI"`
+	Capabilities     map[string]Capability `json:"capabilities"`
 }
 type savedConfig struct {
 	Config       AIConfig          `json:"config"`
@@ -154,6 +156,7 @@ func (s *Server) readAIConfig() AIConfig {
 		c.Capabilities[k] = v
 	}
 	s.migrateRetiredAPI(&c)
+	c.migrateAPIProfile()
 	return c
 }
 func (s *Server) writeAIConfig(c AIConfig) error {
@@ -256,6 +259,13 @@ func publicConfig(c AIConfig) AIConfig {
 	if c.API.URL != "" {
 		c.API.Protocol = resolveAPIEndpoint(c.API).Protocol
 	}
+	c.APIProfiles = slices.Clone(c.APIProfiles)
+	for i := range c.APIProfiles {
+		profile := &c.APIProfiles[i]
+		profile.Protocol = resolveAPIEndpoint(profile.connection()).Protocol
+		profile.HasKey = profile.Key != ""
+		profile.Key = ""
+	}
 	c.TextAPI.HasKey = c.TextAPI.Key != ""
 	c.TextAPI.Key = ""
 	c.ImageAPI.HasKey = c.ImageAPI.Key != ""
@@ -313,6 +323,7 @@ func (s *Server) getAIConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		AIConfig
+		API       *APIConnection `json:"api"`
 		WebSearch *struct {
 			WebSearchConfig
 			// Ignore the retired switch in requests from older clients.
@@ -397,10 +408,6 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.APIModels = added
-	// 设置页回显的是旧配置推断出的协议；地址和协议未变时保留旧值，避免使模型检测结果失效。
-	if (old.API.Protocol == "" || old.API.Protocol == "auto") && c.API.URL == old.API.URL && c.API.Protocol == resolveAPIEndpoint(old.API).Protocol {
-		c.API.Protocol = old.API.Protocol
-	}
 	// Omitted keys preserve secrets; hasKey=false plus empty key explicitly clears one.
 	if c.TextAPI.Key == "" && c.TextAPI.HasKey {
 		c.TextAPI.Key = old.TextAPI.Key
@@ -408,23 +415,16 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 	if c.ImageAPI.Key == "" && c.ImageAPI.HasKey {
 		c.ImageAPI.Key = old.ImageAPI.Key
 	}
-	c.API.URL = strings.TrimSpace(c.API.URL)
-	if c.API.Key == "" && c.API.HasKey {
-		if old.API.Key != "" && resolveAPIEndpoint(c.API).Base != resolveAPIEndpoint(old.API).Base {
-			fail(w, 400, "API 地址已更改，请重新填写 API Key")
-			return
-		}
-		c.API.Key = old.API.Key
+	c.API = old.API
+	if body.API != nil {
+		c.API = *body.API
 	}
-	c.API.Key = strings.TrimSpace(c.API.Key)
-	c.API.Model = ""
-	c.API.HasKey = false
-	c.TextAPI.HasKey = false
-	c.ImageAPI.HasKey = false
-	if e := validateAgentAPI(c.API); e != nil {
-		fail(w, 400, e.Error())
+	if err := c.mergeAPIProfiles(old); err != nil {
+		fail(w, 400, err.Error())
 		return
 	}
+	c.TextAPI.HasKey = false
+	c.ImageAPI.HasKey = false
 	for _, a := range []APIConnection{c.TextAPI, c.ImageAPI} {
 		if e := validateAPI(a); e != nil {
 			fail(w, 400, e.Error())
@@ -443,6 +443,11 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 	if e := s.writeAIConfig(c); e != nil {
 		fail(w, 500, "无法保存连接配置")
 		return
+	}
+	if c.ActiveAPIProfile != old.ActiveAPIProfile && c.ActiveAPIProfile != "" {
+		s.modelMu.Lock()
+		delete(s.modelCache, apiCatalogKey(c.API))
+		s.modelMu.Unlock()
 	}
 	respond(w, 200, publicConfig(c))
 	if c.WebSearch != nil {

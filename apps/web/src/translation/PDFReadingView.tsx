@@ -127,6 +127,7 @@ export function PDFReadingView({
   const { swapped, sourceWidth } = readerLayout(theme.readerLayout);
   // The PDF engine stays mounted, hidden, for outline, search and navigation.
   const reflow = theme.textReflow === true;
+  const sourceOnly = reflow && readingMode === "source";
   const blockSelector = reflow
     ? "[data-reflow-block]"
     : "[data-translation-block]";
@@ -180,7 +181,7 @@ export function PDFReadingView({
       origin === "translation",
     );
   };
-  const previousMode = useRef<ReadingMode>(readingMode);
+  const previousPaneMode = useRef(paneMode);
   const sourceView = useRef<{
     anchor: PDFReadingAnchor | undefined;
     changedFrom?: "source" | "translation";
@@ -297,7 +298,7 @@ export function PDFReadingView({
     blocks,
     translations,
     annotations,
-    theme.linkTranslationAnnotations !== false,
+    !sourceOnly && theme.linkTranslationAnnotations !== false,
     mode,
     events,
     searchQuery,
@@ -818,12 +819,7 @@ export function PDFReadingView({
     progressSeeded.current = true;
   }, [blocks, doc.id]);
   useLayoutEffect(() => {
-    input(
-      readingMode === "translation" || readingMode === "reflow"
-        ? "translation"
-        : "source",
-      true,
-    );
+    input(paneMode === "translation" ? "translation" : "source", true);
     if (!active && sourceReturnOperation.current !== undefined) {
       engine?.discardSourceZoom?.();
       sourceView.current = undefined;
@@ -832,6 +828,7 @@ export function PDFReadingView({
     cancelAnimationFrame(scrollFrame.current);
     scrollFrame.current = 0;
     pendingRestore.current = true;
+    reflowRestored.current = false;
     if (reading.current)
       reading.current = { ...reading.current, fraction: 0.5 };
     engine?.cancelBlockFocus?.();
@@ -844,21 +841,16 @@ export function PDFReadingView({
       explicitFocus.current.operation++;
       engine?.cancelBlockFocus?.();
     };
-  }, [readingMode, active]);
+  }, [readingMode, paneMode, active, doc.id]);
   // Wait for the saved paragraph before restoring reflow progress.
   const reflowRestored = useRef(false);
-  useLayoutEffect(() => {
-    reflowRestored.current = false;
-  }, [doc.id, reflow]);
   useLayoutEffect(() => {
     if (!engine || !active) return;
     hoverOwner.current = undefined;
     paragraphHover.current?.clear();
     engine.hoverBlock?.(null);
-    const previous = previousMode.current;
-    previousMode.current = readingMode;
-    const layoutChanged =
-      (previous === "reflow" ? "translation" : previous) !== paneMode;
+    const layoutChanged = previousPaneMode.current !== paneMode;
+    previousPaneMode.current = paneMode;
     let cancelled = false;
     selection.current = null;
     events.selection(null);
@@ -868,7 +860,7 @@ export function PDFReadingView({
     const operation = explicitFocus.current.operation;
     // Late parsed blocks can restart this effect before the two layout frames
     // finish. Keep the original operation until the return actually runs.
-    if (readingMode !== "source") sourceReturnOperation.current = undefined;
+    if (paneMode !== "source") sourceReturnOperation.current = undefined;
     else if (layoutChanged && sourceView.current)
       sourceReturnOperation.current = operation;
     const sourceOperation = sourceReturnOperation.current;
@@ -967,7 +959,7 @@ export function PDFReadingView({
       cancelAnimationFrame(frame);
       engine.hoverBlock?.(null);
     };
-  }, [readingMode, engine, active, reflow, blocks]);
+  }, [readingMode, paneMode, engine, active, reflow, blocks, doc.id]);
   const restoreReflow = () => {
     if (
       !active ||
@@ -1046,12 +1038,10 @@ export function PDFReadingView({
     const range = selected.getRangeAt(0);
     if (reflow) {
       const source = reflowSourceSelection(pane.current, range, blocks);
-      const target = captureTranslationSelection(
-        pane.current,
-        range,
-        blocks,
-        translations,
-      )?.selection;
+      const target = sourceOnly
+        ? undefined
+        : captureTranslationSelection(pane.current, range, blocks, translations)
+            ?.selection;
       const value =
         source && target
           ? {
@@ -1136,7 +1126,7 @@ export function PDFReadingView({
   const changeMode = (value: ReadingMode) => {
     if (value === readingMode) return;
     if (
-      readingMode === "source" &&
+      paneMode === "source" &&
       syncEnabledRef.current &&
       engine &&
       !sourceView.current
@@ -1145,7 +1135,11 @@ export function PDFReadingView({
       engine.captureSourceZoom?.();
     }
     input(
-      value === "translation" || value === "reflow" ? "translation" : "source",
+      value === "translation" ||
+        value === "reflow" ||
+        (value === "source" && theme.sourceReflow === true)
+        ? "translation"
+        : "source",
       true,
     );
     cancelAnimationFrame(scrollFrame.current);
@@ -1221,12 +1215,12 @@ export function PDFReadingView({
     doc.id,
     bookChapter,
     `${processing?.updatedAt ?? ""}|${blocks.length}|${chapterRevision}`,
-    active && book,
+    active && book && !sourceOnly,
   );
   const toolbar = (
     <div className="translation-toolbar">
       {autoCenterHost === undefined && autoCenterButton}
-      {book ? (
+      {book && !sourceOnly && (
         <BookChapterControls
           documentId={doc.id}
           processing={processing}
@@ -1245,8 +1239,13 @@ export function PDFReadingView({
           }}
           onChange={refreshChapter}
         />
-      ) : (
-        <AssistanceControls document={doc} processing={processing} />
+      )}
+      {!book && (
+        <AssistanceControls
+          document={doc}
+          processing={processing}
+          showTranslation={!sourceOnly}
+        />
       )}
       <Tabs
         value={readingMode}
@@ -1422,6 +1421,7 @@ export function PDFReadingView({
                     events.blockAction?.(block, action);
                     return;
                   }
+                  if (reflow) return;
                   const button = root.current?.querySelector<HTMLElement>(
                     `[data-block-id="${block.id}"] [data-block-action="translate"]`,
                   );
@@ -1447,7 +1447,7 @@ export function PDFReadingView({
               className="translation-document"
               ref={pane}
               tabIndex={0}
-              aria-label="论文译文"
+              aria-label={sourceOnly ? "PDF 原文" : "论文译文"}
               onScroll={() => {
                 hover("translation");
                 translatedScroll();
@@ -1501,23 +1501,27 @@ export function PDFReadingView({
               onKeyUp={translatedSelection}
               onClick={(event) => overlay.current?.click(event.nativeEvent)}
               style={{
-                ...(reflow && {
-                  "--reflow-source-font": sourceFont(theme.fontFamily),
-                  "--reflow-source-size": `${theme.fontSize / (theme.translationFontSize ?? 1)}em`,
-                  "--reflow-source-weight":
-                    theme.fontWeight === "bold" ? 600 : 400,
-                }),
-                fontSize: `${theme.translationFontSize ?? 1}rem`,
-                fontFamily: translationFont(theme.translationFontFamily),
-                fontWeight:
-                  (theme.translationFontWeight ??
-                    defaultTheme.translationFontWeight) === "bold"
+                ...(reflow &&
+                  !sourceOnly && {
+                    "--reflow-source-font": sourceFont(theme.fontFamily),
+                    "--reflow-source-size": `${theme.fontSize / (theme.translationFontSize ?? 1)}em`,
+                    "--reflow-source-weight":
+                      theme.fontWeight === "bold" ? 600 : 400,
+                  }),
+                fontSize: `${sourceOnly ? theme.fontSize : (theme.translationFontSize ?? 1)}rem`,
+                fontFamily: sourceOnly
+                  ? sourceFont(theme.fontFamily)
+                  : translationFont(theme.translationFontFamily),
+                fontWeight: sourceOnly
+                  ? (theme.fontWeight === "bold" ? 600 : 400)
+                  : (theme.translationFontWeight ??
+                      defaultTheme.translationFontWeight) === "bold"
                     ? 600
                     : undefined,
                 lineHeight: theme.lineHeight,
               }}
             >
-              {error && <p role="alert">{error}</p>}
+              {!sourceOnly && error && <p role="alert">{error}</p>}
               {!visibleBlocks.length && (
                 <p role="status">
                   {doc.library === "books" && !reflow
@@ -1531,6 +1535,7 @@ export function PDFReadingView({
                   block={block}
                   translation={byId.get(block.id)}
                   reflow={reflow}
+                  showTranslation={!sourceOnly}
                   focused={focusedBlock === block.id}
                   searchHit={searchHits.has(block.id)}
                   annotated={annotatedIds.has(block.id)}
@@ -1547,7 +1552,7 @@ export function PDFReadingView({
         }
       />
       <Popover
-        open={!!popup}
+        open={!reflow && !!popup}
         onOpenChange={(open) => {
           if (!open) setPopup(undefined);
         }}
@@ -1613,6 +1618,7 @@ const PDFTranslationRow = memo(function PDFTranslationRow({
   block,
   translation,
   reflow,
+  showTranslation,
   focused,
   searchHit,
   annotated,
@@ -1626,6 +1632,7 @@ const PDFTranslationRow = memo(function PDFTranslationRow({
   block: PDFBlock;
   translation?: TranslationBlock;
   reflow: boolean;
+  showTranslation: boolean;
   focused: boolean;
   searchHit: boolean;
   annotated: boolean;
@@ -1648,6 +1655,7 @@ const PDFTranslationRow = memo(function PDFTranslationRow({
       imageTheme={imageTheme}
       retry={retry}
       paused={paused}
+      showTranslation={showTranslation}
     />
   );
   const indicator = annotated && (
@@ -1668,7 +1676,11 @@ const PDFTranslationRow = memo(function PDFTranslationRow({
       >
         <div className="translation-body">
           {showsOriginal(block) ? (
-            <div data-translation-block={block.id}>{text}</div>
+            <div
+              data-translation-block={showTranslation ? block.id : undefined}
+            >
+              {text}
+            </div>
           ) : (
             <TranslationText
               {...text.props}
@@ -1679,7 +1691,6 @@ const PDFTranslationRow = memo(function PDFTranslationRow({
                   onCitation={events.citation}
                 />
               }
-              showTranslation
               markTranslation
             />
           )}

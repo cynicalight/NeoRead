@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { Annotation } from "@neoread/core";
+import type { Annotation, DocumentChatSession, Message } from "@neoread/core";
 import { api } from "@neoread/api";
 import { copyText } from "./chat/clipboard";
 import { readPaperNote } from "./paper-note-state";
@@ -16,7 +16,8 @@ vi.mock("@neoread/api", () => ({
     exportTranslation: vi.fn(),
     exportMarkdownArchive: vi.fn(),
     annotations: vi.fn(),
-    messages: vi.fn(),
+    chatSessions: vi.fn(),
+    sessionMessages: vi.fn(),
   },
 }));
 vi.mock("./chat/clipboard", () => ({ copyText: vi.fn() }));
@@ -47,6 +48,24 @@ const annotations: Annotation[] = (
   color: "#fff",
   createdAt: "",
 }));
+const sessions: DocumentChatSession[] = ["标准对话", "另一场对话"].map(
+  (title, i) => ({
+    id: `session-${i}`,
+    title,
+    documentId: doc.id,
+    provider: "api",
+    createdAt: "2026-11-24T10:00:00Z",
+    updatedAt: "2026-11-24T10:00:00Z",
+  }),
+);
+const chatMessage = (sessionId: string, content: string): Message => ({
+  id: `message-${sessionId}`,
+  documentId: doc.id,
+  sessionId,
+  content,
+  role: "assistant",
+  createdAt: "2026-11-24T10:10:00Z",
+});
 let root: Root, host: HTMLDivElement;
 const close = vi.fn();
 const activeDialog = () =>
@@ -64,7 +83,7 @@ const selectFormat = async (label: string) => {
       await act(async () => button(format).click());
 };
 const selectTarget = async (label: string) => {
-  for (const target of ["批注", "论文笔记", "原文", "译文"])
+  for (const target of ["批注", "笔记", "Agent 对话", "原文", "译文"])
     if (
       (button(target).getAttribute("aria-pressed") === "true") !==
       (target === label)
@@ -81,7 +100,6 @@ const mount = async (load = false) =>
       <ExportDocumentDialog
         document={doc}
         annotations={load ? undefined : annotations}
-        messages={load ? undefined : []}
         onClose={close}
       />,
     ),
@@ -100,7 +118,8 @@ beforeEach(() => {
   vi.mocked(exportTranslatedPDF).mockResolvedValue({ delivery: "download" });
   vi.mocked(api.exportTranslation).mockResolvedValue(new Blob(["译文"]));
   vi.mocked(api.annotations).mockResolvedValue(annotations);
-  vi.mocked(api.messages).mockResolvedValue([]);
+  vi.mocked(api.chatSessions).mockResolvedValue(sessions);
+  vi.mocked(api.sessionMessages).mockResolvedValue([]);
   vi.mocked(readPaperNote).mockResolvedValue(`![paper](${imagePath})`);
   vi.mocked(copyText).mockResolvedValue(true);
   vi.mocked(api.exportMarkdownArchive).mockResolvedValue(new Blob(["archive"]));
@@ -131,7 +150,7 @@ it("keeps only the four annotation kinds and separates original and translation"
     "按 Markdown 默认字号",
   ])
     expect(document.body.textContent).not.toContain(text);
-  expect(button("论文笔记")).toBeTruthy();
+  expect(button("笔记")).toBeTruthy();
   expect(button("原文")).toBeTruthy();
   expect(button("译文")).toBeTruthy();
 });
@@ -158,6 +177,57 @@ it.each(["Markdown", "PDF"])(
     expect(close).toHaveBeenCalledOnce();
   },
 );
+
+it.each(["Markdown", "PDF"])("exports only the selected Agent sessions as %s", async (format) => {
+  vi.mocked(api.sessionMessages).mockImplementation(async (_, id) => [
+    chatMessage(id, `回答来自 ${id}`),
+  ]);
+  await mount();
+  await selectTarget("Agent 对话");
+  await selectFormat(format);
+  const checks = [
+    ...activeDialog().querySelectorAll<HTMLElement>('[role="checkbox"]'),
+  ];
+  expect(checks.map((check) => check.getAttribute("aria-checked"))).toEqual([
+    "true",
+    "true",
+  ]);
+  await act(async () => checks[0].click());
+  await act(async () => checks[1].click());
+  expect(button("导出").disabled).toBe(true);
+  await act(async () => checks[1].click());
+  await act(async () => button("导出").click());
+  expect(api.sessionMessages).toHaveBeenCalledExactlyOnceWith(
+    doc.id,
+    sessions[1].id,
+    expect.any(AbortSignal),
+  );
+  expect(exportMarkdownFile).toHaveBeenCalledExactlyOnceWith(
+    expect.stringContaining("### 另一场对话 · 2026-11-24\n\n**Agent：**\n\n回答来自 session-1"),
+    "论文-Agent 对话",
+    format === "PDF" ? "pdf" : "markdown",
+    expect.any(AbortSignal),
+  );
+  expect(vi.mocked(exportMarkdownFile).mock.calls[0][0]).not.toContain("标准对话");
+});
+
+it("resolves a question's answer from a non-default session", async () => {
+  const answer = chatMessage(sessions[1].id, "另一场对话中的回答");
+  vi.mocked(api.annotations).mockResolvedValue(
+    annotations.map((mark) =>
+      mark.kind === "question" ? { ...mark, answerId: answer.id } : mark,
+    ),
+  );
+  vi.mocked(api.sessionMessages).mockImplementation(async (_, id) =>
+    id === sessions[1].id ? [answer] : [],
+  );
+  await mount(true);
+  await exportTarget("批注");
+  expect(api.sessionMessages).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(exportMarkdownFile).mock.calls[0][0]).toContain(
+    "**AI 答：**\n\n另一场对话中的回答",
+  );
+});
 it("disables annotation formats when no kinds are selected", async () => {
   await mount();
   await selectTarget("批注");
@@ -302,10 +372,6 @@ it("exports all selected contents in both formats with one action", async () => 
     doc.id,
     expect.any(AbortSignal),
   );
-  expect(api.messages).toHaveBeenCalledExactlyOnceWith(
-    doc.id,
-    expect.any(AbortSignal),
-  );
   expect(api.exportTranslation).toHaveBeenCalledOnce();
   expect(exportTranslatedPDF).toHaveBeenCalledOnce();
   expect(close).toHaveBeenCalledOnce();
@@ -391,7 +457,7 @@ it("requires at least one content selection", async () => {
 
 it("downloads one archive for the selected original, translation, paper note, and annotation kinds", async () => {
   await mount();
-  for (const target of ["论文笔记", "批注", "译文"])
+  for (const target of ["笔记", "批注", "译文"])
     await act(async () => button(target).click());
   await act(async () =>
     document.querySelector<HTMLElement>('[aria-label="高亮"]')!.click(),
@@ -420,7 +486,7 @@ it("downloads one archive for the selected original, translation, paper note, an
 
 it("copies selected notes as plain Markdown without requesting an archive", async () => {
   await mount();
-  await selectTarget("论文笔记");
+  await selectTarget("笔记");
   await act(async () => button("批注").click());
   await selectFormat(archiveFormat);
   await act(async () => button("复制 Markdown").click());
@@ -442,7 +508,7 @@ it("reports a failed notes-only archive without a download and permits retry", a
   );
   await mount();
   await selectFormat(archiveFormat);
-  await exportTarget("论文笔记");
+  await exportTarget("笔记");
   expect(activeDialog().querySelector('[role="alert"]')?.textContent).toContain(
     "无法打包导出图片",
   );

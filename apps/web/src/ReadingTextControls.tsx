@@ -82,8 +82,8 @@ export function ReadingTextControls({
   // Reflowed PDF text renders its source like EPUB text, so it takes the same
   // source font settings.
   const reflowed = docType === "epub" || theme.textReflow === true;
-  // PDF source mode shows only the page canvas, which has no text layout.
-  const showLayout = docType === "epub" || readingMode !== "source";
+  // The PDF page canvas is the only mode without a text layout.
+  const showLayout = reflowed || readingMode !== "source";
   // Translation-only PDF reading hides the page, so its zoom has no effect.
   const showSource = docType === "epub" || readingMode !== "translation";
   return (

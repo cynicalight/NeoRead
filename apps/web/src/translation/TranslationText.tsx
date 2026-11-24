@@ -294,7 +294,7 @@ function TranslationContent({
             number={formulaNumber}
           />
         </Suspense>
-        {preservedFailure}
+        {showTranslation && preservedFailure}
       </>
     );
   }
@@ -302,7 +302,7 @@ function TranslationContent({
     return (
       <div>
         <FormulaRow number={formulaNumber}>{formulaFallback}</FormulaRow>
-        {block.image && (
+        {showTranslation && block.image && (
           <div className="translation-formula-status" role="status">
             {translation?.status === "failed" ? (
               <>

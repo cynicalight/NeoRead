@@ -182,7 +182,12 @@ function ControlledPDFReadingView({
   const [readingMode, setReadingMode] = useState<ReadingMode>(initialMode);
   fixture.setReadingMode = setReadingMode;
   const theme = useMemo(
-    () => ({ ...props.theme, textReflow: readingMode === "reflow" }),
+    () => ({
+      ...props.theme,
+      textReflow:
+        readingMode === "reflow" ||
+        (readingMode === "source" && props.theme.sourceReflow === true),
+    }),
     [props.theme, readingMode],
   );
   return (
@@ -1289,6 +1294,46 @@ it("offers exactly four controlled modes with bilingual content only in reflow",
   expect(host.querySelector(".translation-document")).toBeNull();
 });
 
+it("shows only the parsed source in PDF original mode and retains its anchor across reflow modes", async () => {
+  const theme = { ...defaultTheme, sourceReflow: true };
+  const later = {
+    id: "p2-b1",
+    page: 2,
+    label: "text",
+    text: "Another paragraph.",
+    bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.3 },
+  };
+  await renderView(theme, [later]);
+  const pane = host.querySelector(".translation-document");
+  expect(pane?.getAttribute("aria-label")).toBe("PDF 原文");
+  expect(pane?.querySelector("[data-reflow-source]")?.textContent).toBe(
+    "First sentence. Second sentence.",
+  );
+  expect(pane?.querySelector("[data-translation-block]")).toBeNull();
+  expect(pane?.textContent).not.toMatch(/第一句|翻译此段/);
+  expect(host.querySelector(".translation-source")?.hasAttribute("inert")).toBe(
+    true,
+  );
+
+  await act(async () =>
+    fixture.ready!.goTo({ type: "pdf", page: 2, reflowBlockId: later.id }),
+  );
+  for (const label of ["重排", "原文"]) {
+    await click(label);
+    expect(host.querySelector(".translation-document")).toBe(pane);
+    expect(pane?.querySelector("[data-translation-block]")?.textContent).toBe(
+      label === "重排" ? "第一句。第二句。" : undefined,
+    );
+    expect(events.location).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 2, reflowBlockId: later.id }),
+      expect.any(Number),
+    );
+  }
+  expect(adapter.setTheme).not.toHaveBeenCalled();
+  await renderView(defaultTheme, [later]);
+  expect(host.querySelector(".translation-document")).toBeNull();
+});
+
 const modeLabels = ["原文", "对照", "重排", "译文"];
 it.each(
   modeLabels.flatMap((from) =>
@@ -1309,39 +1354,43 @@ it.each(
     expect(adapter.destroy).not.toHaveBeenCalled();
   },
 );
-it("selects reflowed source text as a PDF source mark", async () => {
-  await renderReflowView(defaultTheme);
-  const sentence = host.querySelector('[data-source-sentence="1"]')!;
-  const range = document.createRange();
-  range.selectNodeContents(sentence);
-  Object.assign(range, {
-    getBoundingClientRect: () => new DOMRect(0, 0, 100, 20),
-  });
-  window.getSelection()!.removeAllRanges();
-  window.getSelection()!.addRange(range);
-  await act(async () =>
-    sentence.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
-  );
-  expect(events.selection).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      text: "Second sentence.",
-      location: {
-        type: "pdf",
-        page: 1,
-        quote: "Second sentence.",
-        sourceAnchors: [
-          expect.objectContaining({
-            blockId: "p1-b1",
-            source: "Second sentence.",
-          }),
-        ],
-      },
-    }),
-  );
-  expect(fixture.ready!.getSelection()?.location).not.toHaveProperty(
-    "translation",
-  );
-});
+it.each(["reflow", "source"] as const)(
+  "selects reflowed source text as a PDF source mark in %s",
+  async (mode) => {
+    if (mode === "reflow") await renderReflowView(defaultTheme);
+    else await renderView({ ...defaultTheme, sourceReflow: true });
+    const sentence = host.querySelector('[data-source-sentence="1"]')!;
+    const range = document.createRange();
+    range.selectNodeContents(sentence);
+    Object.assign(range, {
+      getBoundingClientRect: () => new DOMRect(0, 0, 100, 20),
+    });
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    await act(async () =>
+      sentence.dispatchEvent(new MouseEvent("pointerup", { bubbles: true })),
+    );
+    expect(events.selection).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        text: "Second sentence.",
+        location: {
+          type: "pdf",
+          page: 1,
+          quote: "Second sentence.",
+          sourceAnchors: [
+            expect.objectContaining({
+              blockId: "p1-b1",
+              source: "Second sentence.",
+            }),
+          ],
+        },
+      }),
+    );
+    expect(fixture.ready!.getSelection()?.location).not.toHaveProperty(
+      "translation",
+    );
+  },
+);
 it("keeps both sides of a selection spanning reflowed paragraphs", async () => {
   const second: PDFBlock = {
     id: "p1-b2",

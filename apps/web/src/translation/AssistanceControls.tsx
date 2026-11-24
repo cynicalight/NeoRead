@@ -25,9 +25,11 @@ type Action = "start" | "pause" | "resume";
 export function AssistanceControls({
   document: doc,
   processing,
+  showTranslation = true,
 }: {
   document: Document;
   processing?: Processing;
+  showTranslation?: boolean;
 }) {
   const documentId = doc.id;
   const [saved, setSaved] = useState<Processing>();
@@ -59,6 +61,7 @@ export function AssistanceControls({
   const complete = job?.status === "complete";
   const paperParsing =
     job?.phase === "learning" && !job.retranslating && !complete;
+  if (!showTranslation && !paperParsing) return null;
   const parsingPending = paperParsing && job.status !== "failed";
   const [action, label]: [Action, string] =
     job?.enabled && (job.status === "failed" || job.status === "paused")
@@ -110,7 +113,7 @@ export function AssistanceControls({
           }
         }}
       >
-        {parsingPending ? (
+        {paperParsing ? (
           <FileSearch />
         ) : finished ? (
           <Check aria-hidden="true" />

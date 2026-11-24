@@ -29,6 +29,7 @@ export interface BookMenuActions {
   overview: (doc: Document) => void;
   usage: (doc: Document) => void;
   move?: (doc: Document, library: LibraryMode) => void;
+  export: (doc: Document) => void;
   trash: (doc: Document) => void;
 }
 
@@ -67,6 +68,10 @@ export function BookMenuItems({
             : "在文件夹中显示"}
         </K.Item>
       )}
+      <K.Item onClick={() => actions.export(doc)}>
+        <FileDown />
+        导出…
+      </K.Item>
       {doc.type === "pdf" && (
         <K.Item onClick={() => void exportAnnotatedPDFWithToast(doc)}>
           <FileDown />
