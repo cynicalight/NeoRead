@@ -444,8 +444,10 @@ export interface ReaderTheme {
   /** "sans-serif", "serif" or an installed font family name. */
   translationFontFamily?: string;
   linkTranslationAnnotations?: boolean;
-  /** Source and translation paragraphs alternate in one reflowed text column. */
+  /** The active reading mode uses a reflowed text column. */
   textReflow?: boolean;
+  /** Show only reflowed source text in PDF original mode. */
+  sourceReflow?: boolean;
   /** Clicking a paragraph centers and outlines it, with or without reflow. */
   blockFocus?: boolean;
   translationFontWeight?: "normal" | "bold";
@@ -485,6 +487,7 @@ export const defaultTheme: ReaderTheme = {
   translationFontWeight: "bold",
   linkTranslationAnnotations: true,
   textReflow: false,
+  sourceReflow: false,
   blockFocus: true,
   epubFlow: "scroll",
 };

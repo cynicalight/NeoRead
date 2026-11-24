@@ -1025,6 +1025,16 @@ export function Settings({
                 />
               </div>
               <div className="flex items-center justify-between gap-4 text-sm">
+                <span>原文重排显示</span>
+                <Switch
+                  aria-label="原文重排显示"
+                  checked={theme.sourceReflow === true}
+                  onCheckedChange={(checked) =>
+                    setTheme({ sourceReflow: !!checked })
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 text-sm">
                 <span>点击段落聚焦</span>
                 <Switch
                   aria-label="点击段落聚焦"

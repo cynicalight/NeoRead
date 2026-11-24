@@ -337,6 +337,7 @@ export function diagnosticSettings(value: unknown): Record<string, unknown> {
     "appearance",
     "autoTranslatePDF",
     "linkTranslationAnnotations",
+    "sourceReflow",
     "textReflow",
     "translationFontFamily",
     "translationFontSize",

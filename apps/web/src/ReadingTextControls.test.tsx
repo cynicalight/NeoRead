@@ -40,13 +40,17 @@ const labels = (node: HTMLElement) =>
     e.getAttribute("aria-label"),
   );
 
-it("gives reflowed PDF source the font, weight and size controls", () => {
-  const node = render({ textReflow: true });
-  expect(labels(node)).toEqual(
-    expect.arrayContaining(["原文字体", "原文加粗", "译文字体"]),
-  );
-  expect(node.textContent).not.toContain("缩放");
-});
+it.each(["parallel", "source"] as const)(
+  "gives reflowed PDF source the font, weight and size controls in %s mode",
+  (mode) => {
+    const node = render({ textReflow: true }, mode);
+    expect(labels(node)).toEqual(
+      expect.arrayContaining(["原文字体", "原文加粗", "译文字体"]),
+    );
+    expect(node.textContent).not.toContain("缩放");
+    expect(node.textContent).toContain("版面");
+  },
+);
 
 it.each([true, false])(
   "keeps margin and line height in the layout section (reflow=%s)",

@@ -202,7 +202,11 @@ export function Workspace({
     setTheme,
     onZoom,
   } = useDocumentTheme(sharedTheme, doc, active);
-  const reflow = readingMode === "reflow";
+  const sourceReflow =
+    doc.type === "pdf" &&
+    readingMode === "source" &&
+    documentTheme.sourceReflow === true;
+  const reflow = readingMode === "reflow" || sourceReflow;
   const theme = useMemo(
     () => ({ ...documentTheme, textReflow: reflow }),
     [documentTheme, reflow],
@@ -1555,16 +1559,18 @@ export function Workspace({
                 <IconButton label="引用到对话" onClick={addQuote}>
                   <Quote />
                 </IconButton>
-                <IconButton
-                  label="划词翻译"
-                  onClick={() => {
-                    setTranslationSelection(selection);
-                    setSelection(null);
-                    adapter?.clearSelection();
-                  }}
-                >
-                  <Languages />
-                </IconButton>
+                {!sourceReflow && (
+                  <IconButton
+                    label="划词翻译"
+                    onClick={() => {
+                      setTranslationSelection(selection);
+                      setSelection(null);
+                      adapter?.clearSelection();
+                    }}
+                  >
+                    <Languages />
+                  </IconButton>
+                )}
               </SelectionToolbar>
             )}
           </div>
@@ -1862,7 +1868,7 @@ export function Workspace({
 
       <SelectionTranslation
         key={doc.id}
-        selection={active ? translationSelection : null}
+        selection={active && !sourceReflow ? translationSelection : null}
         onClose={() => setTranslationSelection(null)}
       />
       <AnnotationHoverCard
