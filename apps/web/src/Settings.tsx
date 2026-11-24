@@ -872,18 +872,11 @@ export function Settings({
               <FileText />
               诊断
             </TabsTrigger>
-            <TabsTrigger value="prompts">
-              <Pencil />
-              常用 prompt
-            </TabsTrigger>
             <TabsTrigger value="papers">
               <Library />
               {libraryModes[currentLibrary].label}
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="prompts" className="settings-panel" keepMounted>
-            <CustomPromptSettings />
-          </TabsContent>
           <TabsContent
             value="diagnostics"
             className="settings-panel"
@@ -1612,6 +1605,7 @@ export function Settings({
                 }
               />
             )}
+            <CustomPromptSettings />
           </TabsContent>
         </Tabs>
       </DialogContent>
