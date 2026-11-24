@@ -56,7 +56,8 @@ func readTranslationInput(t *testing.T, r *http.Request) translationTestInput {
 		return translationTestInput{}
 	}
 	var input translationTestInput
-	if err := json.Unmarshal([]byte(raw), &input); err != nil {
+	// The batch JSON is followed by a closing reminder; decode only the JSON value.
+	if err := json.NewDecoder(strings.NewReader(raw)).Decode(&input); err != nil {
 		t.Error(err)
 	}
 	return input

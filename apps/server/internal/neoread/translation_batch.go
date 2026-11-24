@@ -75,17 +75,20 @@ func translationPrompt(doc Document, m translationInput, batch translationBatch,
 		Batch       translationBatch `json:"batch"`
 	}{doc.Title, doc.Author, frontMatter, batch})
 	return `翻译输入 JSON 中 batch.paragraphs 列出的段落。
-只输出 JSONL，每段一行，顺序与输入一致，不输出说明、代码围栏或外层数组：
-{"blockId":"输入段落的 blockId","sentences":[{"source":"第一句原文","target":"第一句译文"},{"source":"第二句原文","target":"第二句译文"}]}
+只输出 JSONL，每段一行，顺序与输入一致，不输出说明、代码围栏或外层数组。以下两行只示范格式，blockId 为示意，不要输出示例行：
+{"blockId":"示例-多句段落","sentences":[{"source":"Functions are first-class objects.","target":"函数是一等对象。"},{"source":"You can assign them to variables.","target":"你可以把它们赋给变量。"},{"source":"You can also return them from other functions.","target":"也可以从其他函数中返回它们。"}]}
+{"blockId":"示例-代码","sentences":[{"source":"let total = sum(1, 2)\nconsole.log(total)","target":"let total = sum(1, 2)\nconsole.log(total)"}]}
 1. 原样保留 blockId。每个输入段落恰好输出一行，不合并、不遗漏段落。
 2. 输入段落一般包含多个句子，必须按原文句子拆分：sentences 数组的每个元素对应原文的一句，多句段落返回包含多个元素的数组，不能把整段放进一个元素。sentences 按原文顺序完整覆盖该段。只有一句的段落，或代码等无法分句的内容，才只有一个元素。一句原文的译文可以写成多句中文，放在同一元素的 target 中。
-3. ` + sourceRule + `
-4. target 中的行内数学使用 $...$ KaTeX，不用 Unicode 数学斜体或上下标代替。相邻公式间保留空格，如 $x$ $^{25}$，禁止 $x$$^{25}$。保留符号含义，不猜测不确定的公式。普通美元符号写成 \$。
-5. 保留术语、数值、代码和引用标记。图题只翻译图题，不补写图表内部内容。独立公式由其他任务处理，不要输出 $$ 公式块。
-6. 按 JSON 语法转义引号、反斜杠和换行，例如 \ll 写作 \\ll，\$ 写作 \\$。每完成一段立即输出换行，字符串内部换行使用 JSON 转义。
-7. title、author、frontMatter、contextBefore、contextAfter 仅供参考，不为它们额外输出译文。
+3. 每段独立判断句数，不沿用已输出行的格式：前面连续几段是标题、单句或代码而只有一个元素，不代表后面的段落也只输出一个元素。
+4. ` + sourceRule + `
+5. target 中的行内数学使用 $...$ KaTeX，不用 Unicode 数学斜体或上下标代替。相邻公式间保留空格，如 $x$ $^{25}$，禁止 $x$$^{25}$。保留符号含义，不猜测不确定的公式。普通美元符号写成 \$。
+6. 保留术语、数值、代码和引用标记。图题只翻译图题，不补写图表内部内容。独立公式由其他任务处理，不要输出 $$ 公式块。
+7. 按 JSON 语法转义引号、反斜杠和换行，例如 \ll 写作 \\ll，\$ 写作 \\$。每完成一段立即输出换行，字符串内部换行使用 JSON 转义。
+8. title、author、frontMatter、contextBefore、contextAfter 仅供参考，不为它们额外输出译文。
 ` + translationStyle(instructions) + `输入资料：
-` + string(data)
+` + string(data) + `
+输出前再次确认：逐段按原文句子拆分 sentences，多句段落必须输出多个元素，不能把整段放进一个元素。`
 }
 
 func translationStyle(instructions string) string {
