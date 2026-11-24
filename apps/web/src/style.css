@@ -4287,11 +4287,15 @@ textarea.citation-preview {
   height: 10px;
 }
 /* Sized by the active tab's content, up to the former fixed height; longer
-   tabs scroll inside their panel. */
+   tabs scroll inside their panel. The top edge stays where the tallest
+   dialog would start, so shorter tabs only raise the bottom edge. */
 .settings-dialog {
+  --settings-dialog-max: min(620px, 85vh);
   display: flex;
   flex-direction: column;
-  max-height: min(620px, 85vh);
+  max-height: var(--settings-dialog-max);
+  top: calc(50% - var(--settings-dialog-max) / 2);
+  --tw-translate-y: 0;
 }
 /* Panels scroll up under the nav into the same fading blur as the assistant
    sidebar header (::before surface + 16px blur, ::after 4px blur). */
