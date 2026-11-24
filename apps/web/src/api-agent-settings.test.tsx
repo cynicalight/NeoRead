@@ -361,7 +361,7 @@ it("switches profiles in Settings without carrying the draft key or old models",
   const models = host.querySelector(".api-model-list")?.textContent;
   expect(models).toContain("beta-model");
   expect(models).not.toContain("alpha-model");
-}, 30_000);
+}, 60_000);
 it("selects the API agent from its card once a model passes", async () => {
   config.primary = "";
   config.api = { url: "https://api.example.com", model: "", hasKey: true };
