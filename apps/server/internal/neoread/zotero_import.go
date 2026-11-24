@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -89,10 +90,11 @@ func (s *Server) scanZotero(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) importZotero(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ScanID     string `json:"scanId"`
-		EntryID    string `json:"entryId"`
-		Library    string `json:"library"`
-		AllowLarge bool   `json:"allowLarge"`
+		ScanID        string `json:"scanId"`
+		EntryID       string `json:"entryId"`
+		Library       string `json:"library"`
+		AllowLarge    bool   `json:"allowLarge"`
+		AutoTranslate bool   `json:"autoTranslate"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -125,7 +127,7 @@ func (s *Server) importZotero(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "未知书库")
 		return
 	}
-	result, err := s.importZoteroEntryTo(r.Context(), entry, body.Library, body.AllowLarge)
+	result, err := s.importZoteroEntryTo(r.Context(), entry, body.Library, body.AllowLarge, body.AutoTranslate)
 	var imp importError
 	if errors.As(err, &imp) && imp.code != "" {
 		respond(w, imp.status, map[string]any{"error": imp.message, "code": imp.code, "pages": imp.pages})
@@ -135,13 +137,14 @@ func (s *Server) importZotero(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
+	s.diagnosticEvent(slog.LevelInfo, "import.translation_policy", "requestId", requestID(r.Context()), "documentId", result.DocumentID, "source", "zotero", "outcome", result.Status, "autoTranslate", body.AutoTranslate, "library", body.Library)
 	respond(w, 200, result)
 }
 
 func (s *Server) importZoteroEntry(ctx context.Context, e *zoteroEntry) (zoteroImportResult, error) {
-	return s.importZoteroEntryTo(ctx, e, "papers", false)
+	return s.importZoteroEntryTo(ctx, e, "papers", false, false)
 }
-func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, library string, allowLarge bool) (zoteroImportResult, error) {
+func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, library string, allowLarge, autoTranslate bool) (zoteroImportResult, error) {
 	result := zoteroImportResult{Warnings: append([]string{}, e.Warnings...)}
 	// Serializes file ownership with regular uploads; SQL protects metadata/notes.
 	s.importMu.Lock()
@@ -357,10 +360,7 @@ func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, librar
 		result.Warnings = append(result.Warnings, "Zotero 富文本笔记转为纯文本；格式、嵌入图片和引用链接不转换，原始内容保存在迁移记录中")
 	}
 	if fresh {
-		// Use the same import-time translation threshold as file and reference imports.
-		var settings string
-		_ = tx.QueryRowContext(ctx, "SELECT value FROM settings WHERE key='neoread'").Scan(&settings)
-		p := initialDocumentProcessing(d, settings)
+		p := batchImportProcessing(d, autoTranslate)
 		data, _ := json.Marshal(p)
 		if _, err = tx.ExecContext(ctx, `INSERT INTO document_processing(document_id,phase,status,body) VALUES(?,?,?,?)`, docID, p.Phase, p.Status, data); err != nil {
 			return result, err

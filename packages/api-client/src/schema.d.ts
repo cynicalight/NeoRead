@@ -1510,6 +1510,11 @@ export interface paths {
                         entryId: string;
                         /** @enum {string} */
                         library?: "papers" | "books";
+                        /**
+                         * @description Translate all newly imported PDF papers after parsing, independently of global page limits. False or omitted imports and parses originals only. Existing documents and PDF books keep their processing policy.
+                         * @default false
+                         */
+                        autoTranslate?: boolean;
                         allowLarge?: boolean;
                     };
                 };
@@ -1597,6 +1602,11 @@ export interface paths {
                          * @enum {string}
                          */
                         library?: "papers" | "books";
+                        /**
+                         * @description Translate all newly imported PDF papers after parsing, independently of global page limits. False or omitted imports and parses originals only. Existing documents and PDF books keep their processing policy.
+                         * @default false
+                         */
+                        autoTranslate?: boolean;
                         /** @default false */
                         allowLarge?: boolean;
                     };

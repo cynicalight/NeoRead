@@ -45,6 +45,7 @@ export function ZoteroImportDialog({
   const [directory, setDirectory] = useState("");
   const [linkedBase, setLinkedBase] = useState("");
   const [scan, setScan] = useState<ZoteroScan>();
+  const [autoTranslate, setAutoTranslate] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
   const [phase, setPhase] = useState<
@@ -91,6 +92,7 @@ export function ZoteroImportDialog({
         ? api.scanEndNote(path.trim())
         : api.scanZotero(path.trim(), linkedBase.trim()));
       setScan(result);
+      setAutoTranslate(false);
       setSelected(
         new Set(
           result.entries
@@ -125,7 +127,13 @@ export function ZoteroImportDialog({
       try {
         try {
           result = await importWithPaperNotes(() =>
-            (endnote ? api.importEndNote : api.importZotero)(scan.id, entry.id),
+            (endnote ? api.importEndNote : api.importZotero)(
+              scan.id,
+              entry.id,
+              {
+                autoTranslate,
+              },
+            ),
           );
         } catch (error) {
           if (!(error instanceof RequestError) || error.code !== "large-paper")
@@ -142,6 +150,7 @@ export function ZoteroImportDialog({
               {
                 library,
                 allowLarge: true,
+                autoTranslate,
               },
             ),
           );
@@ -316,8 +325,29 @@ export function ZoteroImportDialog({
             ))}
             <p className="text-muted-foreground text-xs">
               同一论文的多个 PDF 分别导入。超过 100 页且大于 100 MB
-              时需确认是否是论文。自动翻译遵循设置中的页数上限。
+              时需确认是否是论文。
             </p>
+            <div className="grid gap-1.5">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={autoTranslate}
+                  disabled={phase !== "preview"}
+                  onCheckedChange={(checked) =>
+                    setAutoTranslate(checked === true)
+                  }
+                  aria-describedby="batch-import-translation-help"
+                />
+                自动翻译本次导入的所有论文
+              </label>
+              <p
+                id="batch-import-translation-help"
+                className="text-muted-foreground pl-6 text-xs"
+              >
+                {autoTranslate
+                  ? "新增论文解析后将全部排队翻译，不受全局页数上限限制，会消耗模型额度。"
+                  : "只导入并解析原文，需要时可手动翻译。"}
+              </p>
+            </div>
             {phase === "running" && (
               <div role="status" className="grid gap-2">
                 <p className="truncate text-sm">

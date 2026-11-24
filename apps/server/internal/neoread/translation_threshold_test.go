@@ -152,13 +152,13 @@ func TestZoteroLargePaperConfirmation(t *testing.T) {
 			}
 			entry := mustScanZotero(t, dir).Entries[0]
 			s := testServer(t)
-			if _, err := s.importZoteroEntryTo(context.Background(), entry, "papers", false); err == nil {
+			if _, err := s.importZoteroEntryTo(context.Background(), entry, "papers", false, false); err == nil {
 				t.Fatal("large Zotero PDF imported without confirmation")
 			}
 			if docs, _ := s.Store.Documents(); len(docs) != 0 {
 				t.Fatal("unconfirmed migration persisted")
 			}
-			result, err := s.importZoteroEntryTo(context.Background(), entry, library, true)
+			result, err := s.importZoteroEntryTo(context.Background(), entry, library, true, false)
 			if err != nil {
 				t.Fatal(err)
 			}

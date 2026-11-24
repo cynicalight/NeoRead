@@ -1449,6 +1449,12 @@
                                       "type": "string",
                                       "enum": ["papers", "books"],
                                     },
+                                  "autoTranslate":
+                                    {
+                                      "type": "boolean",
+                                      "default": false,
+                                      "description": "Translate all newly imported PDF papers after parsing, independently of global page limits. False or omitted imports and parses originals only. Existing documents and PDF books keep their processing policy.",
+                                    },
                                   "allowLarge": { "type": "boolean" },
                                 },
                             },
@@ -1544,6 +1550,12 @@
                                       "type": "string",
                                       "enum": ["papers", "books"],
                                       "default": "papers",
+                                    },
+                                  "autoTranslate":
+                                    {
+                                      "type": "boolean",
+                                      "default": false,
+                                      "description": "Translate all newly imported PDF papers after parsing, independently of global page limits. False or omitted imports and parses originals only. Existing documents and PDF books keep their processing policy.",
                                     },
                                   "allowLarge":
                                     { "type": "boolean", "default": false },
