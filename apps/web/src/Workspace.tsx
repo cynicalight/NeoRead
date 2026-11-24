@@ -1928,7 +1928,6 @@ export function Workspace({
           key={`export-${doc.id}`}
           document={doc}
           annotations={annotations}
-          messages={chat.messages}
           link={(a) => neoreadLink({ id: doc.id, annotation: a.id })}
           onClose={() => setExportingNotes(false)}
         />

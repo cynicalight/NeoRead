@@ -512,7 +512,7 @@ export function App() {
     filter === "trash" || editingLibrary
       ? undefined
       : documents.find((d) => d.id === detailId);
-  const bookActions: BookMenuActions = {
+  const bookActions: Omit<BookMenuActions, "export"> = {
     overview: setOverviewDocument,
     usage: setUsageDocument,
     move: (doc, library) => void moveDocument(doc, library),

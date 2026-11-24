@@ -24,6 +24,7 @@ import { CoverProcessing } from "./ProcessingStatus";
 import { toggleDocumentSelection, trashWithUndo } from "./library-actions";
 import { BookCoverImage } from "./book-cover";
 import { BookMenuItems } from "./BookMenu";
+import { ExportDocumentDialog } from "./ExportDocumentDialog";
 import { useClickIntent } from "./DetailSheet";
 import { useReaderStore } from "./store";
 import { displayTitleTranslation } from "./library";
@@ -81,6 +82,7 @@ export function LibraryDocuments({
   const overviewJobs = useOverviewJobs();
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState(false);
+  const [exportDocument, setExportDocument] = useState<Document | null>(null);
   const clickIntent = useClickIntent(activeId);
   const pending = useRef(false);
   const anchor = useRef<string | null>(null);
@@ -415,6 +417,7 @@ export function LibraryDocuments({
                   overview: onOverview,
                   usage: onUsage,
                   move: onMove,
+                  export: setExportDocument,
                   trash: (d) => void trash([d.id]),
                 }}
               />
@@ -428,6 +431,13 @@ export function LibraryDocuments({
           </ContextMenu>
         ))}
       </div>
+      {exportDocument && (
+        <ExportDocumentDialog
+          key={exportDocument.id}
+          document={exportDocument}
+          onClose={() => setExportDocument(null)}
+        />
+      )}
     </section>
   );
 }

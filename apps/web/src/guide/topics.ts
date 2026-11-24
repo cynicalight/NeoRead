@@ -185,7 +185,7 @@ export const guideTopics: GuideTopic[] = [
       {
         id: "export-pdf",
         title: "导出带批注的 PDF",
-        body: "在书库中右键 PDF 并选择「导出带批注的 PDF」，或在笔记栏的导出中选择该项。NeoRead 会将高亮、下划线、笔记以及问题和回答写入 PDF 副本，原文件保持不变。",
+        body: "在图书库中右键 PDF，或在图书、论文的详情中打开更多操作，选择「导出带批注的 PDF」把批注写入副本。若要导出独立的批注或 Agent 对话，请在书库菜单选择「导出…」，或从阅读器笔记栏打开导出。",
         scene: "exportPdf",
       },
     ],

@@ -165,6 +165,22 @@ it.each([
   expect(panels.reader!.readingMode).toBe("reflow");
 });
 
+it.each(["pdf", "epub"] as const)(
+  "keeps the source mode while applying the source reflow preference only to PDF (%s)",
+  async (type) => {
+    const document = { ...doc, type };
+    await act(async () => render(0, defaultTheme, document));
+    expect(panels.reader!.theme.textReflow).toBe(false);
+    await act(async () =>
+      render(1, { ...defaultTheme, sourceReflow: true }, document),
+    );
+    expect(panels.reader!.readingMode).toBe("source");
+    expect(panels.reader!.theme.textReflow).toBe(type === "pdf");
+    await act(async () => panels.reader!.onReadingModeChange("parallel"));
+    expect(panels.reader!.theme.textReflow).toBe(false);
+  },
+);
+
 it("saves one latest PDF paragraph across mode switches despite an old global reflow preference", async () => {
   await act(async () => render(0, { ...defaultTheme, textReflow: true }));
   const original = { type: "pdf" as const, page: 4, x: 0.2, y: 0.6 };

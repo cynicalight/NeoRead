@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { Annotation, Message } from "@neoread/core";
-import { annotationDigest, exportCounts, notesMarkdown } from "./notes-export";
+import { annotationDigest, notesMarkdown } from "./notes-export";
 import { paper } from "./papers/fixtures";
 
 const mark = (patch: Partial<Annotation>): Annotation => ({
@@ -61,20 +61,66 @@ it("exports chosen parts in reading order with answers", () => {
   );
 });
 
-it("leaves out unchosen parts and counts what each part holds", () => {
-  const md = notesMarkdown(doc, data, ["chat"]);
-  expect(md).toContain("## AI 对话\n\n**我：**\n\nhi\n\n---\n\n**AI：**");
-  expect(md).not.toContain("论文笔记");
-  expect(md).not.toContain("批注");
-  expect(exportCounts(data)).toEqual({
-    info: 1,
-    paperNote: 1,
-    notes: 0,
-    highlights: 1,
-    questions: 1,
-    bookmarks: 1,
-    chat: 2,
-  });
+it("exports session titles, roles, text and document citations only", () => {
+  const location = { type: "pdf", page: 4 } as const;
+  const md = notesMarkdown(
+    doc,
+    {
+      ...data,
+      chat: [
+        {
+          title: "会话标题",
+          createdAt: "2026-11-24T10:00:00Z",
+          messages: [
+            {
+              ...data.messages[0],
+              references: [{ text: "问题上下文", location }],
+              attachments: [{ id: "image", label: "图片附件", page: 4 }],
+            },
+            {
+              ...data.messages[1],
+              content: "Because **softmax**. [S1]",
+              reasoning: "内部思考",
+              tools: [
+                {
+                  id: "tool",
+                  kind: "tool",
+                  tool: "read_passage",
+                  title: "工具活动",
+                  status: "completed",
+                  startedAt: "",
+                },
+              ],
+              webSources: [
+                {
+                  id: "web",
+                  title: "外部网站",
+                  url: "https://example.com",
+                  kind: "search",
+                  retrievedAt: "",
+                },
+              ],
+              references: [
+                { sourceId: "S1", location, text: "Document text\nsecond line" },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    [],
+  );
+  expect(md).toBe([
+    "# Attention",
+    "## Agent 对话",
+    "### 会话标题 · 2026-11-24",
+    "**我：**",
+    "hi",
+    "---",
+    "**Agent：**",
+    "Because **softmax**. [S1]",
+    "[S1] 第 4 页\n\n> Document text\n> second line",
+  ].join("\n\n") + "\n");
 });
 
 it("omits the duplicate document heading when combining notes with translation", () => {

@@ -1,9 +1,10 @@
 import { reportDiagnostic } from "./diagnostics";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   neoreadLink,
   type Annotation,
   type Document,
+  type DocumentChatSession,
   type Message,
 } from "@neoread/core";
 import { api } from "@neoread/api";
@@ -21,6 +22,7 @@ import { toast } from "sonner";
 import { saveExportBlob, exportCancelled, fileTitle } from "./download";
 import { copyText } from "./chat/clipboard";
 import { readPaperNote } from "./paper-note-state";
+import type { ChatExportSession } from "./notes-export";
 import { exportTranslatedPDF } from "./translated-pdf-export";
 import {
   annotationExportKinds,
@@ -37,6 +39,7 @@ const targetLabels = {
   paperNote: "论文笔记",
   original: "原文",
   translation: "译文",
+  chat: "Agent 对话",
 } satisfies Record<ExportTarget, string>;
 const formatLabels = {
   markdown: "Markdown",
@@ -65,13 +68,11 @@ function savedKinds(): AnnotationExportKind[] {
 export function ExportDocumentDialog({
   document: doc,
   annotations,
-  messages,
   link,
   onClose,
 }: {
   document: Document;
   annotations?: Annotation[];
-  messages?: Message[];
   link?: (annotation: Annotation) => string;
   onClose: () => void;
 }) {
@@ -80,6 +81,26 @@ export function ExportDocumentDialog({
   const [formats, setFormats] = useState<DialogFormat[]>(["markdown"]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [sessions, setSessions] = useState<DocumentChatSession[]>();
+  const [excludedSessions, setExcludedSessions] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [sessionsError, setSessionsError] = useState("");
+  const sessionControlPrefix = useId();
+  const chatSelected = targets.includes("chat");
+  useEffect(() => {
+    if (!chatSelected || sessions || sessionsError) return;
+    const controller = new AbortController();
+    void api.chatSessions(doc.id, controller.signal).then(
+      (list) => {
+        if (!controller.signal.aborted) setSessions(list);
+      },
+      () => {
+        if (!controller.signal.aborted) setSessionsError("无法读取会话");
+      },
+    );
+    return () => controller.abort();
+  }, [chatSelected, doc.id, sessions, sessionsError]);
   const request = useRef<AbortController | null>(null);
   useEffect(
     () => () => {
@@ -109,13 +130,18 @@ export function ExportDocumentDialog({
       annotations.some((a) => kinds.includes(a.kind as AnnotationExportKind)));
   const annotationsUnavailable =
     targets.includes("annotations") && !hasAnnotations;
+  const selectedSessions = sessions?.filter(
+    ({ id }) => !excludedSessions.has(id),
+  );
+  const chatUnavailable = chatSelected && !selectedSessions?.length;
   const noteTargets = targets.filter((target) => !isSource(target));
   const save = async (action: "download" | "copy") => {
     if (
       (action === "download" ? !formats.length : !noteTargets.length) ||
       !targets.length ||
       request.current ||
-      annotationsUnavailable
+      annotationsUnavailable ||
+      chatUnavailable
     )
       return;
     const controller = new AbortController();
@@ -125,20 +151,65 @@ export function ExportDocumentDialog({
     let savedCount = 0;
     let annotationData: Promise<[Annotation[], Message[]]> | undefined;
     let paperNoteData: Promise<string> | undefined;
+    const sessionMessages = new Map<string, Promise<Message[]>>();
+    const messagesFor = (id: string) => {
+      let messages = sessionMessages.get(id);
+      if (!messages) {
+        messages = api.sessionMessages(doc.id, id, controller.signal);
+        sessionMessages.set(id, messages);
+      }
+      return messages;
+    };
+    const loadAnnotations = async (): Promise<[Annotation[], Message[]]> => {
+      const marks =
+        annotations ?? (await api.annotations(doc.id, controller.signal));
+      const answerIds = new Set(
+        kinds.includes("question")
+          ? marks.flatMap((mark) =>
+              mark.kind === "question" && mark.answerId ? [mark.answerId] : [],
+            )
+          : [],
+      );
+      if (!answerIds.size) return [marks, []];
+      controller.signal.throwIfAborted();
+      const allSessions =
+        sessions ?? (await api.chatSessions(doc.id, controller.signal));
+      controller.signal.throwIfAborted();
+      const histories = await Promise.all(
+        allSessions.map(({ id }) => messagesFor(id)),
+      );
+      return [
+        marks,
+        histories.flatMap((history) =>
+          history.filter((message) => answerIds.has(message.id)),
+        ),
+      ];
+    };
+    let chatData: Promise<ChatExportSession[]> | undefined;
+    const loadChat = async () => {
+      const conversations = await Promise.all(
+        (selectedSessions ?? []).map(async ({ id, title, createdAt }) => ({
+          title,
+          createdAt,
+          messages: await messagesFor(id),
+        })),
+      );
+      if (!conversations.some(({ messages }) => messages.length))
+        throw new Error("没有可导出的 Agent 对话");
+      return conversations;
+    };
     const notesFor = async (
       selected: ExportTarget[],
       includeTitle: boolean,
     ) => {
-      const [marks, paperNote] = await Promise.all([
+      const [marks, paperNote, chat] = await Promise.all([
         selected.includes("annotations")
-          ? (annotationData ??= Promise.all([
-              annotations ?? api.annotations(doc.id, controller.signal),
-              messages ?? api.messages(doc.id, controller.signal),
-            ]))
+          ? (annotationData ??= loadAnnotations())
           : undefined,
         selected.includes("paperNote")
           ? (paperNoteData ??= readPaperNote(doc.id))
           : "",
+        selected.includes("chat") ? (chatData ??= loadChat()) : undefined,
       ]);
       controller.signal.throwIfAborted();
       if (
@@ -146,14 +217,15 @@ export function ExportDocumentDialog({
         !marks[0].some((a) => kinds.includes(a.kind as AnnotationExportKind))
       )
         throw new Error("没有可导出的批注");
-      if (!marks && !paperNote.trim()) throw new Error("没有可导出的论文笔记");
+      if (!marks && !chat && !paperNote.trim())
+        throw new Error("没有可导出的论文笔记");
       return selectedNotesMarkdown(
         doc,
         marks?.[0] ?? [],
         marks?.[1] ?? [],
         kinds,
         link ?? ((a) => neoreadLink({ id: doc.id, annotation: a.id })),
-        { paperNote, includeTitle },
+        { paperNote, chat, includeTitle },
       );
     };
     try {
@@ -342,6 +414,61 @@ export function ExportDocumentDialog({
             ))}
           </div>
         )}
+        {chatSelected && (
+          <div
+            className="max-h-[min(12rem,25dvh)] overflow-y-auto px-1 scrollbar-none"
+            role="group"
+            aria-label="选择对话"
+          >
+            {sessionsError ? (
+              <div className="flex items-center gap-2">
+                <p role="alert" className="text-sm text-destructive">
+                  {sessionsError}
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSessionsError("")}
+                >
+                  重试
+                </Button>
+              </div>
+            ) : !sessions ? (
+              <p role="status" className="text-sm text-muted-foreground">
+                正在读取会话…
+              </p>
+            ) : sessions.length ? (
+              sessions.map(({ id, title }) => (
+                <label
+                  key={id}
+                  htmlFor={`${sessionControlPrefix}-${id}`}
+                  className="flex min-h-11 items-center gap-2 text-sm"
+                >
+                  <Checkbox
+                    id={`${sessionControlPrefix}-${id}`}
+                    checked={!excludedSessions.has(id)}
+                    disabled={busy}
+                    onCheckedChange={(checked) =>
+                      setExcludedSessions((current) => {
+                        const next = new Set(current);
+                        if (checked) next.delete(id);
+                        else next.add(id);
+                        return next;
+                      })
+                    }
+                  />
+                  <span className="min-w-0 truncate" title={title}>
+                    {title}
+                  </span>
+                </label>
+              ))
+            ) : (
+              <p role="status" className="text-sm text-muted-foreground">
+                暂无对话
+              </p>
+            )}
+          </div>
+        )}
         <div
           className="flex flex-wrap gap-2"
           role="group"
@@ -376,7 +503,7 @@ export function ExportDocumentDialog({
           <Button
             variant="outline"
             className="w-full"
-            disabled={busy || annotationsUnavailable}
+            disabled={busy || annotationsUnavailable || chatUnavailable}
             onClick={() => void save("copy")}
           >
             复制 Markdown
@@ -385,7 +512,11 @@ export function ExportDocumentDialog({
         <Button
           className="h-10 w-full gap-2 rounded-full"
           disabled={
-            busy || !formats.length || !targets.length || annotationsUnavailable
+            busy ||
+            !formats.length ||
+            !targets.length ||
+            annotationsUnavailable ||
+            chatUnavailable
           }
           onClick={() => void save("download")}
         >
