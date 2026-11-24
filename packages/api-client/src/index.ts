@@ -54,6 +54,8 @@ import type {
 } from "@neoread/core";
 let sessionToken = "";
 export type CustomPrompt = { id: string; description: string; prompt: string };
+export type SkillSummary = components["schemas"]["SkillSummary"];
+export type SkillDraft = components["schemas"]["SkillDraft"];
 export function configureAPI(token: string) {
   sessionToken = token;
 }
@@ -823,6 +825,26 @@ export const api = {
     request<SearchResult[]>(
       `/api/documents/${id}/search?q=${encodeURIComponent(query)}`,
     ),
+  skills: (signal?: AbortSignal) =>
+    request<SkillSummary[]>("/api/skills", { signal }),
+  draftSkill: (
+    input: components["schemas"]["DraftSkillRequest"],
+    signal?: AbortSignal,
+  ) =>
+    request<SkillDraft>("/api/skills/draft", {
+      method: "POST",
+      body: JSON.stringify(input),
+      signal,
+    }),
+  saveSkill: (
+    input: components["schemas"]["SaveSkillRequest"],
+    signal?: AbortSignal,
+  ) =>
+    request<SkillSummary>("/api/skills", {
+      method: "POST",
+      body: JSON.stringify(input),
+      signal,
+    }),
   messages: (id: string, signal?: AbortSignal) =>
     request<Message[]>(`/api/documents/${id}/messages`, { signal }),
   chatSessions: (id: string, signal?: AbortSignal) =>
@@ -859,6 +881,7 @@ export const api = {
     input: {
       provider: string;
       prompt: string;
+      skill?: string;
       context: string;
       userMessageId?: string;
       webSearch?: boolean;
@@ -1093,6 +1116,7 @@ export async function chat(
   readingLocation?: DocumentLocation,
   userMessageId?: string,
   webSearch?: boolean,
+  skill?: string,
 ) {
   const response = await diagnosticFetch(`/api/documents/${id}/chat`, {
     method: "POST",
@@ -1109,6 +1133,7 @@ export async function chat(
       attachments,
       userMessageId,
       webSearch,
+      skill,
     }),
     signal,
   });

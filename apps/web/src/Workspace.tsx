@@ -74,7 +74,6 @@ import {
 import { Button } from "@neoread/ui/components/button";
 import { Badge } from "@neoread/ui/components/badge";
 import { Input } from "@neoread/ui/components/input";
-import { Textarea } from "@neoread/ui/components/textarea";
 import {
   Tabs,
   TabsList,
@@ -105,6 +104,8 @@ import { LiveSourceReferences, SourceReferences } from "./SourceReferences";
 import { ChatSession } from "./chat/chat-session";
 import { getChatSession } from "./chat/session-registry";
 import { SessionPicker } from "./chat/SessionPicker";
+import { ChatCommandInput } from "./chat/ChatCommandInput";
+import { createDocumentChatSession } from "./chat/create-session";
 import { AssistantPanel } from "./chat/AssistantPanel";
 import { ImagePreview, imageLabel } from "./ImagePreview";
 import { readingContext } from "./chat/reading-context";
@@ -454,6 +455,7 @@ export function Workspace({
     };
   }, [refreshSessions]);
   const [prompt, setPrompt] = useState("");
+  const [skill, setSkill] = useState<string>();
   const [quotes, setQuotes] = useState<ReaderSelection[]>([]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [previewImage, setPreviewImage] = useState<ImageAttachment>();
@@ -468,17 +470,23 @@ export function Workspace({
   const composerDrafts = useRef(
     new Map<
       string,
-      { prompt: string; quotes: ReaderSelection[]; images: ImageAttachment[] }
+      {
+        prompt: string;
+        quotes: ReaderSelection[];
+        images: ImageAttachment[];
+        skill?: string;
+      }
     >(),
   );
-  const composerValue = useRef({ prompt, quotes, images });
-  composerValue.current = { prompt, quotes, images };
+  const composerValue = useRef({ prompt, quotes, images, skill });
+  composerValue.current = { prompt, quotes, images, skill };
   const composerKey = `${doc.id}:${currentSession?.id ?? ""}`;
   useEffect(() => {
     const saved = composerDrafts.current.get(composerKey);
     setPrompt(saved?.prompt ?? "");
     setQuotes(saved?.quotes ?? []);
     setImages(saved?.images ?? []);
+    setSkill(saved?.skill);
     return () => {
       composerDrafts.current.set(composerKey, composerValue.current);
     };
@@ -502,6 +510,26 @@ export function Workspace({
     ? getChatSession(doc.id, currentSession.id)
     : emptySession;
   const chat = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const creatingSession = useRef(false);
+  const newChatSession = async () => {
+    if (creatingSession.current) return;
+    creatingSession.current = true;
+    try {
+      await createDocumentChatSession(
+        doc.id,
+        provider,
+        refreshSessions,
+        (id) => {
+          if (currentDocument.current === doc.id) selectSession(id);
+        },
+        { current: currentSession, chat: session.getSnapshot() },
+      );
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      creatingSession.current = false;
+    }
+  };
   useEffect(() => {
     if (
       !currentSession ||
@@ -934,11 +962,15 @@ export function Workspace({
       );
       const { context } = captured;
       if (controller.signal.aborted) return;
-      if (!directImage) setPrompt("");
+      if (!directImage) {
+        setPrompt("");
+        setSkill((current) => (current === skill ? undefined : current));
+      }
       await session.send({
         provider,
         webSearch,
         prompt: question,
+        skill: directImage ? undefined : skill,
         context,
         references: captured.references,
         readingLocation: captured.readingLocation,
@@ -1778,23 +1810,19 @@ export function Workspace({
                     </div>
                   )}
                   {!!images.length && imageAttachments(images, true)}
-                  <Textarea
-                    ref={composeInput}
-                    aria-label="向 AI 提问"
-                    placeholder="问一个问题，或引用选中的文字…"
+                  <ChatCommandInput
+                    key={composerKey}
+                    documentId={doc.id}
+                    sessionId={currentSession?.id}
+                    inputRef={composeInput}
                     value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (
-                        e.key === "Enter" &&
-                        !e.shiftKey &&
-                        !e.altKey &&
-                        !e.nativeEvent.isComposing &&
-                        e.nativeEvent.keyCode !== 229
-                      ) {
-                        e.preventDefault();
-                        if (!e.repeat && adapter && !sending) void send();
-                      }
+                    onChange={setPrompt}
+                    skill={skill}
+                    onSkillChange={setSkill}
+                    onNew={() => void newChatSession()}
+                    onExit={() => setRight(false)}
+                    onSend={() => {
+                      if (adapter && !sending) void send();
                     }}
                   />
                   <div className="compose-footer">

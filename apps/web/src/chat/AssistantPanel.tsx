@@ -4,6 +4,7 @@ import { ArrowDown, BookOpen, LoaderCircle } from "lucide-react";
 import { ProviderGlyph } from "../ProviderIdentity";
 import type { Message } from "@neoread/core";
 import { Button } from "@neoread/ui/components/button";
+import { Badge } from "@neoread/ui/components/badge";
 import { ScrollArea } from "@neoread/ui/components/scroll-area";
 import {
   Trace,
@@ -53,6 +54,7 @@ export function chatRows(state: ChatSnapshot): ChatRow[] {
           documentId: "",
           role: "user",
           content: pending.input.prompt,
+          skill: pending.input.skill,
           context: pending.input.context,
           readingLocation: pending.input.readingLocation,
           references: pending.input.references,
@@ -190,6 +192,14 @@ export function AssistantPanel({
                 ) : (
                   <>
                     {message && references(message)}
+                    {message?.skill && (
+                      <Badge
+                        variant="secondary"
+                        className="mb-1 max-w-full bg-background"
+                      >
+                        <span className="truncate">/{message.skill}</span>
+                      </Badge>
+                    )}
                     <div className="chat-question">{content}</div>
                   </>
                 )}

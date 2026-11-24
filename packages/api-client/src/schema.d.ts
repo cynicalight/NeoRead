@@ -2408,6 +2408,157 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List local skills available for chat */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Skill metadata only; an empty array if no skills are available */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillSummary"][];
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Save a confirmed local skill
+         * @description Writes ~/.agents/skills/<name>/SKILL.md. Skills of the same name in other roots are not modified; the saved skill takes precedence in discovery.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SaveSkillRequest"];
+                };
+            };
+            responses: {
+                /** @description Saved skill metadata */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillSummary"];
+                    };
+                };
+                /** @description The destination already exists and overwrite was not confirmed */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate a local skill draft for review
+         * @description Sends the request and up to 12 recent user and assistant message texts (up to 1024 Unicode characters each) to the configured primary Agent. The session selects transcript context, not the model provider. Does not send document content separately or save a file or a chat turn.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DraftSkillRequest"];
+                };
+            };
+            responses: {
+                /** @description Generated draft */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillDraft"];
+                    };
+                };
+                /** @description The document or selected chat session was not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{id}/chat": {
         parameters: {
             query?: never;
@@ -2432,9 +2583,11 @@ export interface paths {
                         /** @enum {unknown} */
                         provider: "codex" | "claude" | "kimi" | "api";
                         attachments?: string[];
-                        /** @description Stable client-generated user message ID. Reuse only for explicit regeneration of the same unanswered last question, with unchanged prompt, context, references, attachments and reading location. The server uses current model settings, does not insert a duplicate question, and returns 409 if the turn has an answer or later messages. Omit for legacy clients. */
+                        /** @description Stable client-generated user message ID. Reuse only for explicit regeneration of the same unanswered last question, with unchanged prompt, context, references, attachments, reading location and skill. The server uses current model settings, does not insert a duplicate question, and returns 409 if the turn has an answer or later messages. Omit for legacy clients. */
                         userMessageId?: string;
                         prompt: string;
+                        /** @description Name from GET /api/skills, without the leading slash. Applies to this question only. */
+                        skill?: string;
                         context: string;
                         /** @description Reading position captured when sending the question. Navigation context only; does not attach page text or establish evidence. */
                         readingLocation?: components["schemas"]["DocumentLocation"];
@@ -5219,9 +5372,11 @@ export interface paths {
                         /** @enum {unknown} */
                         provider: "codex" | "claude" | "kimi" | "api";
                         attachments?: string[];
-                        /** @description Stable client-generated user message ID. Reuse only for explicit regeneration of the same unanswered last question, with unchanged prompt, context, references, attachments and reading location. The server uses current model settings, does not insert a duplicate question, and returns 409 if the turn has an answer or later messages. Omit for legacy clients. */
+                        /** @description Stable client-generated user message ID. Reuse only for explicit regeneration of the same unanswered last question, with unchanged prompt, context, references, attachments, reading location and skill. The server uses current model settings, does not insert a duplicate question, and returns 409 if the turn has an answer or later messages. Omit for legacy clients. */
                         userMessageId?: string;
                         prompt: string;
+                        /** @description Name from GET /api/skills, without the leading slash. Applies to this question only. */
+                        skill?: string;
                         context: string;
                         /** @description Reading position captured when sending the question. Navigation context only; does not attach page text or establish evidence. */
                         readingLocation?: components["schemas"]["DocumentLocation"];
@@ -5751,12 +5906,37 @@ export interface components {
             excerpt: string;
             location: components["schemas"]["DocumentLocation"];
         };
+        SkillSummary: {
+            name: string;
+            description: string;
+            /** @enum {string} */
+            source: "agents" | "claude" | "codex";
+        };
+        DraftSkillRequest: {
+            documentId: string;
+            /** @description A chat session of the given document. If omitted, uses its default session, or unassigned legacy messages if there is no default session. */
+            sessionId?: string;
+            /** @description Instructions for the skill, 1 to 4096 UTF-8 bytes after trimming. */
+            request: string;
+        };
+        SkillDraft: {
+            name: string;
+            description: string;
+            /** @description Markdown instructions, without YAML front matter. */
+            body: string;
+        };
+        SaveSkillRequest: components["schemas"]["SkillDraft"] & {
+            /** @description True only after the user confirms replacing the existing file. */
+            overwrite: boolean;
+        };
         Message: {
             id: string;
             documentId: string;
             /** @enum {unknown} */
             role: "user" | "assistant";
             content: string;
+            /** @description Name of the local skill explicitly selected for this user question. */
+            skill?: string;
             /** @description Provider-returned thinking displayed separately from the final answer. */
             reasoning?: string;
             createdAt: string;

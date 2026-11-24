@@ -10,6 +10,7 @@ import type {
 import { refreshAIConfig } from "../store";
 export type ChatInput = {
   webSearch?: boolean;
+  skill?: string;
   /** Stable identity of the question across explicit regeneration attempts. */
   userMessageId?: string;
   readingLocation?: DocumentLocation;
@@ -104,6 +105,7 @@ const transport: ChatTransport = {
         input.readingLocation,
         input.userMessageId,
         input.webSearch,
+        input.skill,
       );
     } finally {
       // The server records failed primary attempts even when a fallback succeeds.
@@ -188,6 +190,7 @@ export class ChatSession {
               attachments: last.attachments ?? [],
               readingLocation: last.readingLocation,
               webSearch: last.webSearch,
+              skill: last.skill,
             },
             controller: new AbortController(),
           };
@@ -217,6 +220,7 @@ export class ChatSession {
                 attachments: question.attachments ?? [],
                 readingLocation: question.readingLocation,
                 webSearch: question.webSearch,
+                skill: question.skill,
               },
               this.active,
               run,
@@ -652,10 +656,13 @@ export class ChatSession {
       );
       const user = messages[userIndex],
         assistant = assistants[0];
-      const associated =
+      const sameUser =
         !!user &&
-        assistants.length === 1 &&
         user.content === pending.input.prompt &&
+        user.skill === pending.input.skill;
+      const associated =
+        sameUser &&
+        assistants.length === 1 &&
         messages.every(
           (message) =>
             message.documentId === this.documentId &&
@@ -664,11 +671,9 @@ export class ChatSession {
       pending.regenerationBlocked =
         userIndex >= 0 &&
         !associated &&
-        (userIndex !== messages.length - 1 ||
-          user.content !== pending.input.prompt);
+        (userIndex !== messages.length - 1 || !sameUser);
       const messageKeys = { ...this.state.messageKeys };
-      if (user && user.content === pending.input.prompt)
-        messageKeys[user.id] = `${pending.key}-user`;
+      if (sameUser) messageKeys[user.id] = `${pending.key}-user`;
       if (associated) {
         messageKeys[assistant.id] = pending.key;
         pending.savedId = assistant.id;

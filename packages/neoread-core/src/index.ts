@@ -732,6 +732,8 @@ export interface WebSource {
   truncated?: boolean;
 }
 export interface Message {
+  /** Local skill name explicitly selected for this user question. */
+  skill?: string;
   webSearch?: boolean;
   tools?: ToolActivity[];
   webSources?: WebSource[];

@@ -171,7 +171,7 @@ func imageParagraphs(blocks []PDFBlock, id string) string {
 	return context.String()
 }
 
-func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document Document, provider, question, textContext string, references json.RawMessage, ids []string, readingLocation json.RawMessage, userMessageID string, search ...bool) {
+func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document Document, provider, question, textContext string, references json.RawMessage, ids []string, readingLocation json.RawMessage, userMessageID string, skill *chatSkill, search ...bool) {
 	documentID := document.ID
 	if len(ids) > 4 {
 		fail(w, 400, "每次最多附加 4 张图片")
@@ -241,9 +241,12 @@ func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document D
 		fail(w, 400, err.Error())
 		return
 	}
+	user := Message{WebSearch: webSearch, ID: userMessageID, DocumentID: documentID, Role: "user", Content: question, Context: textContext, References: references, Attachments: attachments, ReadingLocation: readingLocation}
+	if skill != nil {
+		user.Skill = skill.name
+	}
 	if r.PathValue("session") != "" {
-		user := Message{WebSearch: webSearch, ID: userMessageID, DocumentID: documentID, Role: "user", Content: question, Context: textContext, References: references, Attachments: attachments, ReadingLocation: readingLocation}
-		s.startSessionChat(w, r, document, config, user, images, textContext+descriptions.String())
+		s.startSessionChat(w, r, document, config, user, images, textContext+descriptions.String(), skill)
 		return
 	}
 	if !s.aiMu.TryLock() {
@@ -264,13 +267,13 @@ func (s *Server) chatDocument(w http.ResponseWriter, r *http.Request, document D
 		fail(w, 500, "无法读取聊天历史")
 		return
 	}
-	user := Message{WebSearch: webSearch, ID: userMessageID, DocumentID: documentID, Role: "user", Content: question, Context: textContext, References: references, Attachments: attachments, ReadingLocation: readingLocation}
 	history, status, err := s.Store.prepareChatQuestion(messages, user)
 	if err != nil {
 		fail(w, status, err.Error())
 		return
 	}
-	chat := &chatInput{WebAPI: searchAPIConnection(config), WebSearch: webSearch, server: s, DocumentID: documentID, Title: document.Title, Summary: document.Metadata.Abstract, Question: question, CurrentText: textContext + descriptions.String(), History: history, ReadingLocation: readingLocation}
+	s.logSkillAttachment(ctx, skill)
+	chat := &chatInput{WebAPI: searchAPIConnection(config), WebSearch: webSearch, server: s, DocumentID: documentID, Title: document.Title, Summary: document.Metadata.Abstract, Question: question, CurrentText: textContext + descriptions.String(), History: history, ReadingLocation: readingLocation, Skill: skill}
 	s.streamChat(ctx, cancel, w, documentID, config, AIInput{Prompt: question, Images: images, Chat: chat})
 }
 
@@ -286,7 +289,7 @@ func (s *Store) prepareChatQuestion(messages []Message, user Message) ([]Message
 				return nil, 409, errors.New("这轮问题已有回答或后续对话，请同步记录")
 			}
 			if !sameChatQuestion(m, user) {
-				return nil, 409, errors.New("重新生成必须保留原问题、引用、附件和阅读位置")
+				return nil, 409, errors.New("重新生成必须保留原问题、引用、附件、阅读位置和技能")
 			}
 			return messages[:i], 0, nil
 		}
@@ -306,7 +309,7 @@ func (s *Store) prepareChatQuestion(messages []Message, user Message) ([]Message
 }
 
 func sameChatQuestion(a, b Message) bool {
-	if a.WebSearch != b.WebSearch {
+	if a.WebSearch != b.WebSearch || a.Skill != b.Skill {
 		return false
 	}
 	if a.SessionID != b.SessionID || a.Content != b.Content || a.Context != b.Context || !sameChatJSON(a.References, b.References) || !sameChatJSON(a.ReadingLocation, b.ReadingLocation) || len(a.Attachments) != len(b.Attachments) {

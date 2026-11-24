@@ -28,6 +28,7 @@ type chatRunInput struct {
 	QuestionKey string   `json:"questionKey"`
 	Text        string   `json:"text"`
 	Images      [][]byte `json:"images,omitempty"`
+	Skill       string   `json:"skill,omitempty"`
 	ConfigKey   string   `json:"configKey"`
 }
 
@@ -130,6 +131,15 @@ func (s *Server) continueSessionRun(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "原问题已有回答或后续对话，无法继续")
 		return
 	}
+	user := history[len(history)-1]
+	if user.Skill != record.Input.Skill {
+		fail(w, 409, "原问题技能不一致，无法继续")
+		return
+	}
+	skill, ok := s.resolveRequestedSkill(w, r, record.Input.Skill)
+	if !ok {
+		return
+	}
 	fingerprint, fingerprintErr := s.corpusFingerprint(document)
 	if fingerprintErr != nil || fingerprint != record.Checkpoint.DocumentFingerprint {
 		fail(w, 409, "文档内容已改变，无法继续旧的工具结果")
@@ -176,8 +186,8 @@ func (s *Server) continueSessionRun(w http.ResponseWriter, r *http.Request) {
 		s.chatRuns = map[string]*chatRun{}
 	}
 	s.chatRuns[session.ID] = run
-	user := history[len(history)-1]
-	chat := &chatInput{WebAPI: searchAPIConnection(config), WebSearch: user.WebSearch, server: s, SessionID: session.ID, DocumentID: document.ID, Title: document.Title, Summary: document.Metadata.Abstract, Question: user.Content, CurrentText: record.Input.Text, History: history[:len(history)-1], ReadingLocation: user.ReadingLocation, Tools: append([]ToolActivity(nil), checkpoint.Tools...), WebSources: append([]WebSource(nil), checkpoint.WebSources...), piRunID: record.ID, piResume: checkpoint}
+	// Continuation reuses the original prompt from the checkpoint.
+	chat := &chatInput{WebAPI: searchAPIConnection(config), WebSearch: user.WebSearch, server: s, SessionID: session.ID, DocumentID: document.ID, Title: document.Title, Summary: document.Metadata.Abstract, Question: user.Content, CurrentText: record.Input.Text, History: history[:len(history)-1], ReadingLocation: user.ReadingLocation, Skill: skill, Tools: append([]ToolActivity(nil), checkpoint.Tools...), WebSources: append([]WebSource(nil), checkpoint.WebSources...), piRunID: record.ID, piResume: checkpoint}
 	chat.piCheckpoint = func(cp *piCheckpoint) error { return s.checkpointChat(run, cp) }
 	chat.piInvalidateCheckpoint = func() { s.invalidateChatCheckpoint(run) }
 	go func() {
