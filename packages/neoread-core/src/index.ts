@@ -416,6 +416,8 @@ export interface ReaderTheme {
   systemLightMode?: "light" | "sepia";
   /** Following the system: graphite ("soft") or pure black ("high") PDFs while dark. */
   systemDarkContrast?: "high" | "soft";
+  /** Custom #rrggbb accents, keyed by the resolved appearance. */
+  brandColors?: Partial<Record<"light" | "sepia" | "dark" | "black", string>>;
   mode: "light" | "sepia" | "dark";
   fontSize: number;
   /** "sans-serif", "serif" or an installed font family name. */
@@ -456,6 +458,25 @@ export interface ReaderTheme {
   /** Reflowable EPUB text scrolls vertically unless pages are chosen. */
   epubFlow?: "scroll" | "paginated";
 }
+export function validBrandColor(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length === 7 &&
+    /^#[0-9a-f]{6}$/i.test(value)
+  );
+}
+
+/** Keep only the four bounded color values when forwarding settings to another process. */
+export function safeBrandColors(value: unknown): ReaderTheme["brandColors"] {
+  if (!value || typeof value !== "object") return undefined;
+  const colors: NonNullable<ReaderTheme["brandColors"]> = {};
+  for (const mode of ["light", "sepia", "dark", "black"] as const) {
+    const color = (value as Record<string, unknown>)[mode];
+    if (validBrandColor(color)) colors[mode] = color;
+  }
+  return Object.keys(colors).length ? colors : undefined;
+}
+
 export interface HighlightColor {
   /** #rrggbb */
   value: string;

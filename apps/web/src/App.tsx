@@ -201,8 +201,19 @@ export function App() {
     void refreshTrash().catch((e) => toast.error(e.message));
   }, [mode, loading]);
   useSaveReaderSettings(theme, settingsHydrated);
+  const {
+    mode: themeMode,
+    pdfDarkContrast: themeContrast,
+    brandColors,
+  } = resolvedTheme;
   useEffect(() => {
-    applyDocumentTheme(resolvedTheme);
+    applyDocumentTheme({
+      mode: themeMode,
+      pdfDarkContrast: themeContrast,
+      brandColors,
+    });
+  }, [themeMode, themeContrast, brandColors]);
+  useEffect(() => {
     void window.neoreadDesktop
       ?.setAppearance(theme.appearance ?? "system", {
         pdfDarkContrast: theme.pdfDarkContrast,

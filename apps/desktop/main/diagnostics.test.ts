@@ -118,6 +118,15 @@ it("redacts structured secrets, credentials, URL parameters and user paths", () 
   expect(redactText("Authorization: Bearer opaque")).not.toContain("opaque");
 });
 
+it("includes only valid custom brand colors in diagnostic settings", () => {
+  expect(
+    diagnosticSettings({
+      appearance: "dark",
+      brandColors: { dark: "#123456", black: "private text", unknown: "#abcdef" },
+    }),
+  ).toEqual({ appearance: "dark", brandColors: { dark: "#123456" } });
+});
+
 it("exports all retained sessions and levels without any running server, excluding symlinks and document data", async () => {
   const root = directory();
   const logs = new DiagnosticLogs(join(root, "logs"), ["session-secret"]);
