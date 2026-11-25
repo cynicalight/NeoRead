@@ -73,6 +73,28 @@ func redact(v any, secrets []string) any {
 		return v
 	}
 }
+
+// Authorization error responses are retained verbatim at the user's request.
+// This exception applies only to the top-level body of a failed server request.
+func redactLogEntry(value any, secrets []string) any {
+	if event, ok := value.(map[string]any); ok {
+		status, _ := event["upstreamStatus"].(float64)
+		body, hasBody := event["upstreamErrorBody"].(string)
+		if event["source"] == "server" && event["event"] == "ai.connection.request" && status >= 400 && status <= 599 && hasBody {
+			fields := make(map[string]any, len(event)-1)
+			for key, value := range event {
+				if key != "upstreamErrorBody" {
+					fields[key] = value
+				}
+			}
+			safe := redact(fields, secrets).(map[string]any)
+			safe["upstreamErrorBody"] = body
+			return safe
+		}
+	}
+	return redact(value, secrets)
+}
+
 func RedactLog(data []byte, legacy bool, secrets ...string) []byte {
 	if legacy {
 		data = rawOutput.ReplaceAll(data, []byte("--- raw output ---\n[DOCUMENT AND MODEL OUTPUT REMOVED]\n"))
@@ -84,7 +106,7 @@ func RedactLog(data []byte, legacy bool, secrets ...string) []byte {
 		}
 		var value any
 		if json.Unmarshal(line, &value) == nil {
-			b, _ := json.Marshal(redact(value, secrets))
+			b, _ := json.Marshal(redactLogEntry(value, secrets))
 			out.Write(b)
 		} else {
 			out.WriteString(RedactText(string(line), secrets...))
@@ -144,7 +166,7 @@ func (s *Store) Write(b []byte) (int, error) {
 	if _, ok := value["timestamp"]; !ok {
 		value["timestamp"] = time.Now().UTC().Format(time.RFC3339Nano)
 	}
-	data, _ := json.Marshal(redact(value, s.Secrets))
+	data, _ := json.Marshal(redactLogEntry(value, s.Secrets))
 	data = append(data, '\n')
 	rotated := false
 	if s.file == "" {

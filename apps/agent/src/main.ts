@@ -5,6 +5,7 @@ import {
   type PiConnection,
 } from "./connections";
 import { loginInteraction } from "./login-interaction";
+import { loginDiagnostics } from "./login-diagnostics";
 import { connectionQuota } from "./quota";
 import { createInterface } from "node:readline";
 import {
@@ -83,12 +84,17 @@ lines.on("line", (line) => {
       };
       runId = input.runId;
       const fetch = globalThis.fetch;
+      const diagnostics =
+        message.type === "login" ? loginDiagnostics(send) : undefined;
       let errorCode = "";
       let upstreamStatus = 0;
       let phase = "starting";
       globalThis.fetch = async (url, options) => {
         try {
-          const response = await fetch(
+          const request = diagnostics
+            ? diagnostics.fetch.bind(diagnostics, fetch)
+            : fetch;
+          const response = await request(
             url,
             message.type === "quota"
               ? { ...options, redirect: "error" }
@@ -120,6 +126,7 @@ lines.on("line", (line) => {
                 }),
               ).then(() => ({}));
       const finish = (event: Record<string, unknown>, exitCode: 0 | 1) => {
+        diagnostics?.close();
         // SDK callbacks may retain browser preconnect sockets for a minute.
         // This one-shot operation is settled; flush its terminal event before
         // exiting so Go can check the exit status and activate the credential.
@@ -131,7 +138,13 @@ lines.on("line", (line) => {
       };
       void operation.then(
         (result) => finish({ type: "complete", ...result }, 0),
-        () => finish({ type: "error", errorCode, upstreamStatus, phase }, 1),
+        (error) => {
+          const failure = diagnostics?.failure(error);
+          finish(
+            { type: "error", errorCode, upstreamStatus, phase, ...failure },
+            1,
+          );
+        },
       );
     } else if (message.type === "start" && !started) {
       started = true;

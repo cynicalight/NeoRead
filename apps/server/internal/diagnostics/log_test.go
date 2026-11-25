@@ -181,3 +181,87 @@ func TestHistoricalUserMessagesAreRemovedFromExport(t *testing.T) {
 	}
 	t.Fatal("historical log file missing")
 }
+
+func TestVerbatimAuthorizationErrorBodySurvivesDiskAndExport(t *testing.T) {
+	logs, err := New(t.TempDir(), "login-body", "fixture-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Cross the previous export file limit as well as common response-body caps.
+	body := "  {\"error\":\"https://auth.example/?code=raw-code\",\"access_token\":\"fixture-token\"}\n" + strings.Repeat("x", 33<<20)
+	logs.Logger().Warn("ai.connection.request", "upstreamStatus", 403, "upstreamErrorBody", body, "detail", "Bearer fixture-token")
+	check := func(data []byte) {
+		t.Helper()
+		var event map[string]any
+		if err := json.Unmarshal(bytes.TrimSpace(data), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event["upstreamErrorBody"] != body {
+			t.Fatal("upstream response body was altered or truncated")
+		}
+		if strings.Contains(fmt.Sprint(event["detail"]), "fixture-token") {
+			t.Fatal("exception affected other diagnostic fields")
+		}
+	}
+	files, err := os.ReadDir(logs.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, file := range files {
+		data, err := os.ReadFile(filepath.Join(logs.Dir, file.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) == 0 {
+			continue
+		}
+		check(data)
+		found = true
+	}
+	if !found {
+		t.Fatal("body was not persisted")
+	}
+	var buffer bytes.Buffer
+	if err := logs.Export(&buffer, t.TempDir(), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(buffer.Bytes()), int64(buffer.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, file := range archive.File {
+		if !strings.HasPrefix(file.Name, "logs/") || file.UncompressedSize64 == 0 {
+			continue
+		}
+		reader, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(reader)
+		reader.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(data)
+		found = true
+	}
+	if !found {
+		t.Fatal("full response was skipped during export")
+	}
+}
+
+func TestVerbatimBodyExceptionIsRestrictedToFailedServerAuthorizationRequests(t *testing.T) {
+	for _, event := range []map[string]any{
+		{"source": "renderer", "event": "ai.connection.request", "upstreamStatus": float64(403)},
+		{"source": "server", "event": "ai.connection.request", "upstreamStatus": float64(200)},
+		{"source": "server", "event": "other.request", "upstreamStatus": float64(403)},
+	} {
+		event["upstreamErrorBody"] = "Bearer fixture-private"
+		data, _ := json.Marshal(event)
+		if strings.Contains(string(RedactLog(data, false)), "fixture-private") {
+			t.Fatal("body exception escaped its scope")
+		}
+	}
+}

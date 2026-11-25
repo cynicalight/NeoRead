@@ -122,7 +122,11 @@ it("includes only valid custom brand colors in diagnostic settings", () => {
   expect(
     diagnosticSettings({
       appearance: "dark",
-      brandColors: { dark: "#123456", black: "private text", unknown: "#abcdef" },
+      brandColors: {
+        dark: "#123456",
+        black: "private text",
+        unknown: "#abcdef",
+      },
     }),
   ).toEqual({ appearance: "dark", brandColors: { dark: "#123456" } });
 });
@@ -271,4 +275,51 @@ it("removes private user messages from retained server logs during desktop expor
   expect(redactLog('{"userMessage":"' + privateText)).not.toContain(
     "papers.private.corp",
   );
+});
+
+it("preserves the full server authorization error body during desktop export", async () => {
+  const logs = new DiagnosticLogs(directory(), ["fixture-token"]);
+  const body =
+    '  {"error":"https://auth.example/?state=raw-state","access_token":"fixture-token"}\n' +
+    "x".repeat(100_000);
+  const event = {
+    source: "server",
+    event: "ai.connection.request",
+    upstreamStatus: 403,
+    upstreamErrorBody: body,
+    detail: "Bearer fixture-token",
+  };
+  const line = JSON.stringify(event) + "\n";
+  expect(JSON.parse(redactLog(line, ["fixture-token"])).upstreamErrorBody).toBe(
+    body,
+  );
+  expect(JSON.parse(redactLog(line, ["fixture-token"])).detail).not.toContain(
+    "fixture-token",
+  );
+  for (const override of [
+    { source: "renderer" },
+    { upstreamStatus: 200 },
+    { event: "other.request" },
+  ]) {
+    expect(
+      JSON.parse(
+        redactLog(JSON.stringify({ ...event, ...override }), ["fixture-token"]),
+      ),
+    ).not.toMatchObject({ upstreamErrorBody: body });
+  }
+  writeFileSync(join(logs.directory, "server-login.jsonl"), line);
+  const output = join(directory(), "login.zip");
+  await logs.export(output, undefined, {}, {});
+  // Read the real archive using the same Python helper as the existing export tests.
+  const python = process.platform === "win32" ? "python" : "python3";
+  const exported = execFileSync(
+    python,
+    [
+      "-c",
+      "import sys,zipfile;sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read('logs/server-login.jsonl'))",
+      output,
+    ],
+    { maxBuffer: 1024 * 1024 },
+  ).toString("utf8");
+  expect(JSON.parse(exported).upstreamErrorBody).toBe(body);
 });

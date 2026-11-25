@@ -1,3 +1,4 @@
+import { channel } from "node:diagnostics_channel";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,8 +9,12 @@ import { loginInteraction, type LoginEvent } from "./login-interaction";
 
 const fetchNetwork = globalThis.fetch;
 const directories: string[] = [];
+const subscribers: ((event: unknown) => void)[] = [];
+const callbackChannel = channel("neoread.pi.oauth.callback");
 afterEach(async () => {
   vi.unstubAllGlobals();
+  for (const subscriber of subscribers.splice(0))
+    callbackChannel.unsubscribe(subscriber);
   await Promise.all(
     directories
       .splice(0)
@@ -17,7 +22,7 @@ afterEach(async () => {
   );
 });
 
-async function fixture(tokenStatus: number) {
+async function fixture(tokenStatus: number, rejectCallbacks = false) {
   const dir = await mkdtemp(join(tmpdir(), "neoread-login-"));
   directories.push(dir);
   const authPath = join(dir, "auth.json");
@@ -55,6 +60,11 @@ async function fixture(tokenStatus: number) {
       );
     }),
   );
+  const callbackEvents: { stage: string; reasonCode?: string }[] = [];
+  const subscriber = (event: unknown) =>
+    callbackEvents.push(event as (typeof callbackEvents)[number]);
+  subscribers.push(subscriber);
+  callbackChannel.subscribe(subscriber);
   const events: LoginEvent[] = [];
   let browser!: Promise<Response>;
   const operation = loginConnection(
@@ -70,13 +80,31 @@ async function fixture(tokenStatus: number) {
         "state",
         authorization.searchParams.get("state")!,
       );
-      browser = fetchNetwork(callback, { signal: AbortSignal.timeout(3000) });
+      browser = (async () => {
+        if (rejectCallbacks) {
+          const invalidState = new URL(callback);
+          invalidState.searchParams.set("state", "wrong-private-state");
+          expect((await fetchNetwork(invalidState)).status).toBe(400);
+          const missingCode = new URL(callback);
+          missingCode.searchParams.delete("code");
+          expect((await fetchNetwork(missingCode)).status).toBe(400);
+        }
+        return fetchNetwork(callback, { signal: AbortSignal.timeout(3000) });
+      })();
     }),
   );
   // Observe rejection immediately; assertions below still await the original.
   void operation.catch(() => {});
   await exchanging;
-  return { authPath, controller, operation, events, browser, finishExchange };
+  return {
+    authPath,
+    controller,
+    operation,
+    events,
+    callbackEvents,
+    browser,
+    finishExchange,
+  };
 }
 
 test("Claude SDK callback completes and saves credentials without pasted input", async () => {
@@ -91,6 +119,14 @@ test("Claude SDK callback completes and saves credentials without pasted input",
     });
     login.finishExchange();
     await login.operation;
+    expect(login.callbackEvents.map((event) => event.stage)).toEqual([
+      "listen_start",
+      "listening",
+      "received",
+      "accepted",
+      "completed",
+      "close_requested",
+    ]);
     expect(readStoredCredential("anthropic", login.authPath)?.type).toBe(
       "oauth",
     );
@@ -136,3 +172,121 @@ test("the unused SDK manual prompt stays pending until cancellation", async () =
   controller.abort(new Error("cancelled"));
   await expect(manual).rejects.toThrow("cancelled");
 });
+
+test("SDK reports rejected callbacks and keeps waiting for a valid retry", async () => {
+  const login = await fixture(200, true);
+  try {
+    expect((await login.browser).status).toBe(200);
+    login.finishExchange();
+    await login.operation;
+    expect(
+      login.callbackEvents.filter((event) => event.stage === "rejected"),
+    ).toMatchObject([
+      { reasonCode: "state_mismatch" },
+      { reasonCode: "missing_code" },
+    ]);
+    expect(
+      login.callbackEvents.filter((event) => event.stage === "received"),
+    ).toHaveLength(3);
+    expect(JSON.stringify(login.callbackEvents)).not.toMatch(
+      /wrong-private-state|fixture-code/,
+    );
+  } finally {
+    login.finishExchange();
+    login.controller.abort();
+  }
+});
+
+// Exercise the shared helper shipped by the pinned SDK, including failures its
+// provider login catches internally. Resolve from the real package entrypoint.
+test("SDK reports an occupied callback port even when the provider can swallow that failure", async () => {
+  const { createServer } = await import("node:http");
+  const entry = import.meta.resolve("@earendil-works/pi-ai");
+  const { startOAuthCallbackServer } = await import(
+    /* @vite-ignore */ new URL("auth/oauth/callback-server.js", entry).href
+  );
+  const occupied = createServer();
+  await new Promise<void>((resolve) =>
+    occupied.listen(0, "127.0.0.1", resolve),
+  );
+  const port = (occupied.address() as { port: number }).port;
+  const events: { stage: string; error?: { code?: string } }[] = [];
+  const subscriber = (event: unknown) =>
+    events.push(event as (typeof events)[number]);
+  callbackChannel.subscribe(subscriber);
+  try {
+    await expect(
+      startOAuthCallbackServer({
+        providerName: "OpenAI",
+        host: "127.0.0.1",
+        port,
+        path: "/auth/callback",
+        complete: async (code: string) => code,
+      }),
+    ).rejects.toMatchObject({ code: "EADDRINUSE" });
+    expect(events.map((event) => event.stage)).toEqual([
+      "listen_start",
+      "listen_failed",
+    ]);
+    expect(events.at(-1)?.error?.code).toBe("EADDRINUSE");
+  } finally {
+    callbackChannel.unsubscribe(subscriber);
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  }
+});
+
+test.each(["denied", "cancelled", "timeout"])(
+  "SDK records callback terminal reason %s",
+  async (mode) => {
+    const entry = import.meta.resolve("@earendil-works/pi-ai");
+    const { startOAuthCallbackServer } = await import(
+      /* @vite-ignore */ new URL("auth/oauth/callback-server.js", entry).href
+    );
+    const events: { stage: string; reasonCode?: string }[] = [];
+    const subscriber = (event: unknown) =>
+      events.push(event as (typeof events)[number]);
+    callbackChannel.subscribe(subscriber);
+    const controller = new AbortController();
+    const callback = await startOAuthCallbackServer({
+      providerName: "OpenAI",
+      host: "127.0.0.1",
+      port: 0,
+      path: "/auth/callback",
+      state: "private-state",
+      signal: controller.signal,
+      timeoutMs: mode === "timeout" ? 20 : undefined,
+      complete: async (code: string) => code,
+    });
+    const waiting = callback.wait();
+    void waiting.catch(() => {});
+    try {
+      if (mode === "denied") {
+        const target = new URL(callback.redirectUri);
+        target.searchParams.set("state", "private-state");
+        target.searchParams.set("error", "access_denied");
+        target.searchParams.set(
+          "error_description",
+          "private-error-description",
+        );
+        expect((await fetchNetwork(target)).status).toBe(400);
+      } else if (mode === "cancelled") controller.abort();
+      await expect(waiting).rejects.toThrow();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          reasonCode:
+            mode === "denied"
+              ? "authorization_denied"
+              : mode === "cancelled"
+                ? "login_cancelled"
+                : "callback_timeout",
+        }),
+      );
+      expect(JSON.stringify(events)).not.toMatch(
+        /private-state|private-error-description/,
+      );
+    } finally {
+      callback.close();
+      callbackChannel.unsubscribe(subscriber);
+    }
+  },
+);

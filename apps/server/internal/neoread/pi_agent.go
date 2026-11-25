@@ -41,7 +41,9 @@ type piCatalogModel struct {
 }
 
 type piEvent struct {
+	piLoginFailure
 	Diagnostics    *piFailureDiagnostics                                `json:"diagnostics,omitempty"`
+	Diagnostic     *piLoginDiagnostic                                   `json:"diagnostic,omitempty"`
 	Quota          *agentQuota                                          `json:"quota,omitempty"`
 	Phase          string                                               `json:"phase"`
 	UpstreamStatus int                                                  `json:"upstreamStatus"`
@@ -264,7 +266,7 @@ func runPiOperation(ctx context.Context, root, operation, runID string, request 
 			default:
 				return piEvent{}, generationError(ErrorProtocol, "pi 模型调用失败或未正常结束，请检查模型配置后重试")
 			}
-		case "auth_url", "device_code", "progress":
+		case "auth_url", "device_code", "progress", "diagnostic":
 			if operation != "login" || event == nil {
 				return piEvent{}, reject("unexpected_event", "pi 返回了无效授权事件")
 			}

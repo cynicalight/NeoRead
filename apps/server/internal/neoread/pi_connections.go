@@ -217,10 +217,20 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 	connection := piConnection{spec.provider, filepath.Join(newDir, "auth.json")}
 	phase := "starting"
 	upstreamStatus := 0
+	var failure piLoginFailure
+	callbackStage := ""
 	_, err = runPiOperation(ctx, s.Store.Root, "login", runID, map[string]any{
 		"runId": runID, "connection": connection, "deviceId": deviceID,
 	}, false, func(e piEvent) error {
 		switch e.Type {
+		case "diagnostic":
+			if e.Diagnostic != nil && e.Diagnostic.Kind == "callback" {
+				callbackStage = loginDiagnosticValue(e.Diagnostic.Stage, "listen_start listening listen_failed received rejected accepted completed close_requested cancelled timeout failed")
+			}
+			if d := e.Diagnostic; d != nil && d.Kind == "request" && d.UpstreamStatus >= 100 && d.UpstreamStatus <= 599 {
+				upstreamStatus = d.UpstreamStatus
+			}
+			s.recordPiLoginDiagnostic(requestID(ctx), provider, runID, e.Diagnostic)
 		case "progress":
 			if e.Phase != "authorizing" && e.Phase != "exchanging" {
 				return generationError(ErrorProtocol, "授权阶段无效")
@@ -229,6 +239,7 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 			s.diagnosticEvent(slog.LevelInfo, "ai.connection.phase", "requestId", requestID(ctx), "provider", provider, "runId", runID, "phase", phase)
 			return send(map[string]string{"type": "progress", "phase": phase})
 		case "error":
+			failure = e.piLoginFailure.safe()
 			if e.UpstreamStatus >= 100 && e.UpstreamStatus <= 599 {
 				upstreamStatus = e.UpstreamStatus
 			}
@@ -286,7 +297,10 @@ func (s *Server) loginPiProvider(w http.ResponseWriter, r *http.Request) {
 			_ = send(map[string]string{"type": "error", "error": message})
 		}
 	}
-	s.diagnosticEvent(level, "ai.connection.finish", "requestId", requestID(ctx), "provider", provider, "runId", runID, "status", status, "errorCode", kind, "phase", phase, "upstreamStatus", upstreamStatus, "durationMs", time.Since(started).Milliseconds())
+	if kind == ErrorTimeout && failure.ReasonCode == "" {
+		failure.ReasonCode = "login_timeout"
+	}
+	s.diagnosticEvent(level, "ai.connection.finish", "requestId", requestID(ctx), "provider", provider, "runId", runID, "status", status, "errorCode", kind, "phase", phase, "upstreamStatus", upstreamStatus, "reasonCode", failure.ReasonCode, "systemCode", failure.SystemCode, "errorType", failure.ErrorType, "callbackStage", callbackStage, "durationMs", time.Since(started).Milliseconds())
 }
 
 func (s *Server) logoutPiProvider(w http.ResponseWriter, r *http.Request) {
