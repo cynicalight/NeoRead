@@ -159,6 +159,35 @@ it("expands a grouped crop to include full subfigure captions", () => {
   expect(blocks[0].bounds.width).toBeCloseTo(0.31);
 });
 
+it("chains weak stacked panels above a two-column caption into one figure", () => {
+  const r = decodeRegions(
+    [
+      // A, B (weak), C stacked; a weak whole-figure box; a stray weak image.
+      3, 0.55, 15, 6, 85, 14, 0, 3, 0.45, 15, 15, 85, 39, 1, 14, 0.55, 15, 40,
+      85, 81, 2, 14, 0.48, 14, 6, 87, 82, 3, 7, 0.9, 6, 82, 49, 88, 4, 7, 0.9,
+      50, 82, 93, 88, 5, 14, 0.4, 60, 90, 90, 98, 6,
+    ],
+    100,
+    100,
+  );
+  expect(r).toHaveLength(6);
+  const { blocks } = readingRegions(r, [
+    {
+      text: "Fig. 2 | Variation in Spike. A Entropy.",
+      bounds: { x: 0.07, y: 0.83, width: 0.4, height: 0.04 },
+    },
+    {
+      text: "B Scatter. C Structures.",
+      bounds: { x: 0.51, y: 0.83, width: 0.4, height: 0.04 },
+    },
+  ]);
+  const figures = blocks.filter((b) => ["chart", "image"].includes(b.label));
+  expect(figures).toHaveLength(1);
+  expect(figures[0].members).toEqual([0, 1, 2]);
+  expect(figures[0].bounds.y).toBeCloseTo(0.06);
+  expect(figures[0].bounds.height).toBeCloseTo(0.75);
+});
+
 it("keeps OCR geometry with final asset, caption, contents row and unmatched line assignment", () => {
   const regions = decodeRegions(
     [

@@ -9,6 +9,7 @@ import { CustomPromptSettings } from "./CustomPromptSettings";
 import { WebSearchSettings } from "./WebSearchSettings";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { OCRSettings } from "./OCRSettings";
+import { LayoutSettings } from "./LayoutSettings";
 import {
   ChevronLeft,
   FileText,
@@ -1121,6 +1122,7 @@ export function Settings({
               </div>
             </section>
             <OCRSettings open={open} />
+            <LayoutSettings theme={theme} setTheme={setTheme} />
             <section>
               <HighlightColorsEditor />
             </section>

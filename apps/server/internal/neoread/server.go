@@ -301,6 +301,13 @@ func (s *Server) Handler() http.Handler {
 				return
 			}
 		}
+		if value, exists := v["layoutPanelConfidence"]; exists {
+			n, ok := value.(float64)
+			if !ok || n < minLayoutPanelConfidence || n > maxLayoutPanelConfidence {
+				fail(w, 400, "子图置信度须在 0.2—0.5 之间")
+				return
+			}
+		}
 		b, _ := json.Marshal(v)
 		_, err := s.Store.DB.Exec("INSERT INTO settings VALUES('neoread',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", string(b))
 		if err != nil {

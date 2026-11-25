@@ -57,11 +57,18 @@ export function intersection(a: Box, b: Box) {
     Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
   );
 }
+const minimumConfidence = 0.5;
+// Dense plots, embeddings and structures often score below the general
+// threshold. readingRegions keeps such panels only inside a captioned figure.
+// The reading settings adjust the panel threshold within 0.2–0.5.
+export const defaultPanelConfidence = 0.35;
+const isPanel = (label: string) => label === "chart" || label === "image";
 // Match PaddleX postprocessing: confidence filtering and per-class/cross-class NMS.
 export function decodeRegions(
   data: ArrayLike<number>,
   width: number,
   height: number,
+  panelConfidence = defaultPanelConfidence,
 ): Region[] {
   const boxes: Region[] = [];
   for (let i = 0; i + 6 < data.length; i += 7) {
@@ -71,8 +78,8 @@ export function decodeRegions(
     );
     if (
       ![cls, confidence, x1, y1, x2, y2, order].every(Number.isFinite) ||
-      confidence < 0.5 ||
-      !labels[cls]
+      !labels[cls] ||
+      confidence < (isPanel(labels[cls]) ? panelConfidence : minimumConfidence)
     )
       continue;
     const x = Math.max(0, Math.min(1, x1 / width));
@@ -102,7 +109,21 @@ export function decodeRegions(
       continue;
     kept.push(b);
   }
-  return kept.sort((a, b) => a.order - b.order);
+  // A weak box spanning a whole figure duplicates the panels detected in it.
+  return kept
+    .filter(
+      (b) =>
+        b.confidence >= minimumConfidence ||
+        !isPanel(b.label) ||
+        !kept.some(
+          (a) =>
+            a !== b &&
+            isPanel(a.label) &&
+            intersection(a.bounds, b.bounds) >
+              0.8 * a.bounds.width * a.bounds.height,
+        ),
+    )
+    .sort((a, b) => a.order - b.order);
 }
 // Each span belongs to at most one region. Unmatched spans are retained separately.
 function partitionText(regions: Region[], spans: TextSpan[]) {
@@ -263,8 +284,24 @@ function union(boxes: Box[]): Box {
     height: Math.max(...boxes.map((b) => b.y + b.height)) - y,
   };
 }
+// Separated by at most a small gap, side by side or stacked.
+function adjacent(a: Box, b: Box) {
+  const gapX = Math.max(a.x, b.x) - Math.min(a.x + a.width, b.x + b.width),
+    gapY = Math.max(a.y, b.y) - Math.min(a.y + a.height, b.y + b.height);
+  return (gapX < 0 && gapY <= 0.04) || (gapY < 0 && gapX <= 0.04);
+}
+function gapBetween(a: Box, b: Box): Box {
+  const span = (a0: number, a1: number, b0: number, b1: number) =>
+    Math.max(a0, b0) > Math.min(a1, b1)
+      ? [Math.min(a1, b1), Math.max(a0, b0)]
+      : [Math.max(a0, b0), Math.min(a1, b1)];
+  const [x0, x1] = span(a.x, a.x + a.width, b.x, b.x + b.width),
+    [y0, y1] = span(a.y, a.y + a.height, b.y, b.y + b.height);
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+}
 // Inline symbols remain in their paragraph. Group panels only when a nearby
-// numbered caption provides evidence that they belong to one figure.
+// numbered caption provides evidence that they belong to one figure; panels
+// stacked above the caption join through their adjacent grouped neighbours.
 export function readingRegions(
   raw: Region[],
   spans: TextSpan[],
@@ -279,7 +316,33 @@ export function readingRegions(
   const captions = entries.filter(
     (r) => r.label === "figure_title" && mainCaption.test(r.text),
   );
-  const groups = new Map<ReadingRegion, ReadingRegion[]>();
+  // Two-column captions continue in an unnumbered title on the same row.
+  const continuations = new Map(
+    captions.map((c) => [
+      c,
+      entries.filter(
+        (r) =>
+          r.label === "figure_title" &&
+          !mainCaption.test(r.text) &&
+          Math.abs(r.bounds.y - c.bounds.y) < 0.02,
+      ),
+    ]),
+  );
+  const extent = new Map(
+    captions.map((c) => [
+      c,
+      union([c.bounds, ...continuations.get(c)!.map((r) => r.bounds)]),
+    ]),
+  );
+  const tolerance = (c: ReadingRegion) => Math.min(0.12, c.bounds.width / 4);
+  // Prose or another numbered caption separates figures.
+  const separators = entries.filter(
+    (r) =>
+      r.label === "text" ||
+      r.label === "paragraph_title" ||
+      mainCaption.test(r.text),
+  );
+  const owner = new Map<ReadingRegion, ReadingRegion>();
   for (const asset of entries.filter((r) =>
     ["chart", "image", "table"].includes(r.label),
   )) {
@@ -295,22 +358,20 @@ export function readingRegions(
                 Math.abs(b.y - cb.y - cb.height),
               )
             : cb.y - b.y - b.height;
-        const center = b.x + b.width / 2;
+        const center = b.x + b.width / 2,
+          x = asset.label === "table" ? cb : extent.get(c)!;
         if (
           gap < -0.01 ||
           gap > 0.12 ||
-          center < cb.x - Math.min(0.12, cb.width / 4) ||
-          center > cb.x + cb.width + Math.min(0.12, cb.width / 4)
+          center < x.x - tolerance(c) ||
+          center > x.x + x.width + tolerance(c)
         )
           return false;
         // Do not combine across intervening prose or another numbered caption.
-        return !entries.some(
+        return !separators.some(
           (r) =>
             r !== asset &&
             r !== c &&
-            (r.label === "text" ||
-              r.label === "paragraph_title" ||
-              mainCaption.test(r.text)) &&
             r.bounds.y > b.y + b.height &&
             r.bounds.y + r.bounds.height < cb.y &&
             center >= r.bounds.x &&
@@ -323,16 +384,52 @@ export function readingRegions(
           Math.abs(z.bounds.y - b.y - b.height),
       );
     const caption = eligible[0];
-    if (caption) groups.set(caption, [...(groups.get(caption) ?? []), asset]);
+    if (caption) owner.set(asset, caption);
   }
+  const panels = entries.filter((r) => isPanel(r.label));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const asset of panels) {
+      if (owner.has(asset)) continue;
+      const b = asset.bounds,
+        center = b.x + b.width / 2;
+      const candidates = new Set(
+        [...owner]
+          .filter(([member, c]) => {
+            const x = extent.get(c)!;
+            return (
+              isPanel(member.label) &&
+              b.y + b.height <= c.bounds.y + 0.01 &&
+              center >= x.x - tolerance(c) &&
+              center <= x.x + x.width + tolerance(c) &&
+              adjacent(b, member.bounds) &&
+              !separators.some(
+                (r) => intersection(r.bounds, gapBetween(b, member.bounds)) > 0,
+              )
+            );
+          })
+          .map(([, c]) => c),
+      );
+      if (candidates.size !== 1) continue;
+      owner.set(asset, [...candidates][0]);
+      changed = true;
+    }
+  }
+  const groups = new Map<ReadingRegion, ReadingRegion[]>();
+  for (const [asset, caption] of [...owner].sort(
+    ([a], [b]) => a.order - b.order,
+  ))
+    groups.set(caption, [...(groups.get(caption) ?? []), asset]);
   const consumed = new Set<ReadingRegion>();
   const merged: (Region & { members: number[] })[] = [];
   for (const [caption, assets] of groups) {
     let bounds = union([caption.bounds, ...assets.map((a) => a.bounds)]);
+    // Subfigure captions inside the figure, not the caption's next column.
     const parts = entries.filter(
       (r) =>
         r.label === "figure_title" &&
         !mainCaption.test(r.text) &&
+        !continuations.get(caption)!.includes(r) &&
         intersection(r.bounds, bounds) / (r.bounds.width * r.bounds.height) >
           0.8,
     );
@@ -348,9 +445,14 @@ export function readingRegions(
     });
   }
   const composed = orderPageBlocks(
-    [...entries.filter((r) => !consumed.has(r)), ...merged].sort(
-      (a, b) => a.order - b.order,
-    ),
+    [
+      ...entries.filter(
+        (r) =>
+          !consumed.has(r) &&
+          !(isPanel(r.label) && r.confidence < minimumConfidence),
+      ),
+      ...merged,
+    ].sort((a, b) => a.order - b.order),
   );
   const final = partitionText(composed, spans);
   const blocks = composed.flatMap((region, i): ReadingRegion[] => {
@@ -363,7 +465,9 @@ export function readingRegions(
       return lines.map((line) => {
         const block: ReadingRegion = {
           ...region,
-          bounds: split ? union(line.map((span) => span.bounds)) : region.bounds,
+          bounds: split
+            ? union(line.map((span) => span.bounds))
+            : region.bounds,
           text: spanText(line),
         };
         if (ocr) retainOcrLines(block, line, ocr);

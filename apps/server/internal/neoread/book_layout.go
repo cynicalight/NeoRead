@@ -34,6 +34,28 @@ func (s *Server) runLayout(ctx context.Context, d Document, work string, from, t
 	return s.runLayoutWithIdleTimeout(ctx, d, work, from, to, p, layoutIdleTimeout)
 }
 
+// Layout keeps chart/image panels at or above this score; lower values find
+// more subfigures. Panels below 0.5 still need a numbered caption to survive.
+const (
+	defaultLayoutPanelConfidence = 0.35
+	minLayoutPanelConfidence     = 0.2
+	maxLayoutPanelConfidence     = 0.5
+)
+
+func (s *Server) layoutPanelConfidence() float64 {
+	var body string
+	var settings struct {
+		LayoutPanelConfidence *float64 `json:"layoutPanelConfidence"`
+	}
+	if s.Store.DB.QueryRow("SELECT value FROM settings WHERE key='neoread'").Scan(&body) == nil {
+		_ = json.Unmarshal([]byte(body), &settings)
+	}
+	if v := settings.LayoutPanelConfidence; v != nil && *v >= minLayoutPanelConfidence && *v <= maxLayoutPanelConfidence {
+		return *v
+	}
+	return defaultLayoutPanelConfidence
+}
+
 func (s *Server) runLayoutWithIdleTimeout(ctx context.Context, d Document, work string, from, to int, p *Processing, idleTimeout time.Duration) (result error) {
 	runID := id()
 	started := time.Now()
@@ -41,7 +63,8 @@ func (s *Server) runLayoutWithIdleTimeout(ctx context.Context, d Document, work 
 	exitCode := -1
 	stderr := &layoutStderr{}
 	engine, modelDir := s.workerOCREnv()
-	s.diagnosticEvent(slog.LevelInfo, "pdf.parse.start", "runId", runID, "documentId", d.ID, "fromPage", from, "toPage", to, "ocrEngine", engine)
+	panelConfidence := s.layoutPanelConfidence()
+	s.diagnosticEvent(slog.LevelInfo, "pdf.parse.start", "runId", runID, "documentId", d.ID, "fromPage", from, "toPage", to, "ocrEngine", engine, "panelConfidence", panelConfidence)
 	defer func() {
 		level := slog.LevelInfo
 		outcome := "complete"
@@ -71,7 +94,8 @@ func (s *Server) runLayoutWithIdleTimeout(ctx context.Context, d Document, work 
 	defer cancel(nil)
 	idle := time.AfterFunc(idleTimeout, func() { cancel(errLayoutIdle) })
 	defer idle.Stop()
-	args := []string{worker, "--input", s.Store.File(d), "--output", work}
+	args := []string{worker, "--input", s.Store.File(d), "--output", work,
+		"--panel-confidence", strconv.FormatFloat(panelConfidence, 'f', -1, 64)}
 	if from > 0 {
 		args = append(args, "--from-page", strconv.Itoa(from), "--to-page", strconv.Itoa(to))
 	}

@@ -404,6 +404,8 @@ export interface ReaderTheme {
   autoTranslatePDF?: boolean;
   /** 0 means manual only; otherwise auto translate papers up to this many pages. */
   autoTranslateMaxPages?: number;
+  /** Minimum layout score for figure panels, 0.2–0.5; lower finds more subfigures. */
+  layoutPanelConfidence?: number;
   /** How figures and embedded images are displayed when a PDF uses dark mode. */
   pdfDarkImageMode?: "preserve" | "invert" | "adaptive";
   /** Contrast used for PDF text and paper while the dark reading appearance is active. */
