@@ -224,7 +224,23 @@ export function redactLog(
     .split("\n")
     .map((line) => {
       try {
-        return JSON.stringify(redact(JSON.parse(line), secrets));
+        const event = JSON.parse(line);
+        // Match the server's explicit exception for full authorization failures.
+        if (
+          event?.source === "server" &&
+          event.event === "ai.connection.request" &&
+          typeof event.upstreamStatus === "number" &&
+          event.upstreamStatus >= 400 &&
+          event.upstreamStatus <= 599 &&
+          typeof event.upstreamErrorBody === "string"
+        ) {
+          const { upstreamErrorBody, ...fields } = event;
+          return JSON.stringify({
+            ...(redact(fields, secrets) as Record<string, unknown>),
+            upstreamErrorBody,
+          });
+        }
+        return JSON.stringify(redact(event, secrets));
       } catch {
         return redactText(line, secrets);
       }

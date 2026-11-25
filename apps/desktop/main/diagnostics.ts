@@ -175,7 +175,7 @@ export class DiagnosticLogs {
               continue;
             }
             const snapshot = lstatSync(location);
-            if (snapshot.size > 32 * 1024 * 1024)
+            if (legacy && snapshot.size > 32 * 1024 * 1024)
               throw new Error("oversized file");
             zip.addReadStreamLazy(
               archiveName,
@@ -299,7 +299,7 @@ export class DiagnosticLogs {
                   droppedWrites: this.droppedWrites,
                   retention,
                   redactions: [
-                    "credentials, URLs and user paths",
+                    "credentials, URLs and user paths (except verbatim authorization error bodies)",
                     "legacy raw document/model output removed",
                     "settings allowlist; no library database or documents",
                   ],

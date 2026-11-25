@@ -36,7 +36,7 @@ func (s *Store) Export(out io.Writer, library string, environment, settings any)
 	dropped := s.Dropped
 	s.mu.Unlock()
 	z := zip.NewWriter(out)
-	manifest := Manifest{FormatVersion: 1, ExportedAt: time.Now().UTC().Format(time.RFC3339Nano), Files: []Entry{}, Missing: []string{}, DroppedWrites: dropped, Redactions: []string{"credentials, URLs and user paths", "legacy raw document/model output removed", "settings allowlist; no library database or documents"}}
+	manifest := Manifest{FormatVersion: 1, ExportedAt: time.Now().UTC().Format(time.RFC3339Nano), Files: []Entry{}, Missing: []string{}, DroppedWrites: dropped, Redactions: []string{"credentials, URLs and user paths (except verbatim authorization error bodies)", "legacy raw document/model output removed", "settings allowlist; no library database or documents"}}
 	addJSON := func(name string, value any) error {
 		w, err := z.Create(name)
 		if err != nil {
@@ -87,9 +87,9 @@ func (s *Store) Export(out io.Writer, library string, environment, settings any)
 				manifest.Missing = append(manifest.Missing, name+": not a regular file")
 				continue
 			}
-			// Rotation bounds new logs. Legacy files are read one at a time, never all
-			// assembled in memory. Reject oversized foreign files explicitly.
-			if info.Size() > 32<<20 {
+			// Runtime logs may contain a full upstream error response larger than a
+			// rotation unit. Only foreign legacy files retain the size guard.
+			if legacy && info.Size() > 32<<20 {
 				f.Close()
 				manifest.Missing = append(manifest.Missing, name+": exceeds 32 MiB safety limit")
 				continue

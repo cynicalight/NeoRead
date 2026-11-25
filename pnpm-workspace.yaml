@@ -8,4 +8,5 @@ onlyBuiltDependencies:
   - onnxruntime-node
 
 patchedDependencies:
+  '@earendil-works/pi-ai@1.3.0': patches/@earendil-works__pi-ai@1.3.0.patch
   pdfjs-dist@6.3.289: patches/pdfjs-dist@6.3.289.patch

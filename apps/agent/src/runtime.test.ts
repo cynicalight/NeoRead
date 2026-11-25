@@ -1846,6 +1846,7 @@ test.each([200, 400])(
     });
     const lines = createInterface({ input: child.stdout });
     let callback: Promise<Response> | undefined;
+    const diagnostics: any[] = [];
     try {
       child.stdin.write(
         JSON.stringify({
@@ -1863,6 +1864,7 @@ test.each([200, 400])(
       const complete = (async () => {
         for await (const line of lines) {
           const event = JSON.parse(line);
+          if (event.type === "diagnostic") diagnostics.push(event.diagnostic);
           if (event.type === "auth_url") {
             const authorization = new URL(event.url);
             const target = new URL(
@@ -1897,6 +1899,28 @@ test.each([200, 400])(
         1000,
         "Login credentials are saved but the worker stays alive waiting for the browser socket",
       );
+      expect(
+        diagnostics
+          .filter((event) => event.kind === "callback")
+          .map((event) => event.stage),
+      ).toEqual([
+        "listen_start",
+        "listening",
+        "received",
+        "accepted",
+        "completed",
+        "close_requested",
+      ]);
+      if (tokenStatus === 400)
+        expect(diagnostics).toContainEqual(
+          expect.objectContaining({
+            kind: "request",
+            stage: "error_body",
+            upstreamStatus: 400,
+            upstreamErrorBody: '{"error":"invalid_grant"}',
+          }),
+        );
+      else expect(JSON.stringify(diagnostics)).not.toContain("fixture-access");
       expect(terminal.type).toBe(tokenStatus === 200 ? "complete" : "error");
       expect(code).toBe(tokenStatus === 200 ? 0 : 1);
     } finally {
