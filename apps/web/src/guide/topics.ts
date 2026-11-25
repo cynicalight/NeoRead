@@ -90,7 +90,7 @@ export const guideTopics: GuideTopic[] = [
       {
         id: "connector",
         title: "从浏览器收录",
-        body: "从 Chrome 网上应用店安装 NeoRead Connector。在论文页面点击插件图标，选择分类和标签后即可把 PDF 收录到论文库。收录时需要保持 NeoRead 打开。",
+        body: "在 Chrome 或 Edge 中，从 Chrome 网上应用店安装 NeoRead Connector；Edge 首次打开时需允许来自其他应用商店的扩展。在论文页面点击插件图标，选择分类和标签后即可把 PDF 收录到论文库。收录时需要保持 NeoRead 打开。",
         scene: "connector",
       },
     ],
