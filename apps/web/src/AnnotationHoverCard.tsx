@@ -369,9 +369,11 @@ function NoteCard({
         <PopoverTitle className="sr-only">批注</PopoverTitle>
         <div
           ref={setContent}
-          // Safe centering splits leftover height evenly yet falls back to the
-          // top on overflow, so the fit's scrollHeight check stays accurate.
-          className={`min-h-0 flex-1 ${box ? "flex flex-col justify-center-safe overflow-hidden [overflow-wrap:anywhere]" : "overflow-y-auto"}`}
+          // Safe centering splits leftover width and height evenly yet falls
+          // back to the start on overflow, so the fit's scroll checks stay
+          // accurate. The single grid column spans the widest note, keeping
+          // separators equal.
+          className={`min-h-0 flex-1 ${box ? "grid place-content-center-safe overflow-hidden [overflow-wrap:anywhere]" : "overflow-y-auto"}`}
         >
           {notes.map((annotation) => (
             <div
