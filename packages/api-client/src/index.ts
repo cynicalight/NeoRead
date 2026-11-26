@@ -133,6 +133,16 @@ export class RequestError extends Error {
     super(message);
   }
 }
+/** A provider login rejection; the upstream response is kept separate from the user message. */
+export class PiLoginError extends RequestError {
+  constructor(
+    message: string,
+    readonly upstreamStatus?: number,
+    readonly upstreamErrorBody?: string,
+  ) {
+    super(message);
+  }
+}
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await diagnosticFetch(path, {
     ...init,
@@ -988,7 +998,18 @@ export const api = {
           )
             onEvent(event);
           else if (event.type === "complete") complete = true;
-          else if (event.type === "error") throw new RequestError(event.error);
+          else if (event.type === "error")
+            throw new PiLoginError(
+              typeof event.error === "string" ? event.error : "连接失败",
+              Number.isInteger(event.upstreamStatus) &&
+                event.upstreamStatus >= 400 &&
+                event.upstreamStatus <= 599
+                ? event.upstreamStatus
+                : undefined,
+              typeof event.upstreamErrorBody === "string"
+                ? event.upstreamErrorBody
+                : undefined,
+            );
           else throw new RequestError("模型连接返回无效状态");
         }
       }

@@ -3499,7 +3499,7 @@
             ],
           "post":
             {
-              "description": "Connect a built-in Pi provider with browser authorization or a device code. The NDJSON stream emits auth_url, device_code, progress (authorizing or exchanging), complete or error. Browser callbacks are handled by the SDK; complete confirms credentials were saved and activated.",
+              "description": "Connect a built-in Pi provider with browser authorization or a device code. The NDJSON stream emits auth_url, device_code, progress (authorizing or exchanging), complete or error. Browser callbacks are handled by the SDK; complete confirms credentials were saved and activated. Failed upstream requests include optional upstreamStatus (HTTP 400-599) and upstreamErrorBody (the full response text) on the terminal error event.",
               "requestBody":
                 {
                   "required": true,

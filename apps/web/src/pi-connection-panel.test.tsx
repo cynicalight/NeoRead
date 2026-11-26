@@ -95,9 +95,7 @@ it("starts one browser login on entry and closes itself once connected", async (
   // Nothing asks the user to paste a code or callback.
   expect(host.querySelector("input")).toBeNull();
 
-  await act(async () =>
-    login.emit({ type: "progress", phase: "exchanging" }),
-  );
+  await act(async () => login.emit({ type: "progress", phase: "exchanging" }));
   expect(host.querySelector('[role="status"]')?.textContent).toContain(
     "正在完成连接",
   );
@@ -147,4 +145,32 @@ it("shows a failure with retry and aborts the login on close", async () => {
   act(() => root.unmount());
   expect(retry.signal.aborted).toBe(true);
   root = createRoot(host);
+});
+
+it("shows the full upstream failure below the login message as text and clears it on retry", async () => {
+  await render();
+  const body =
+    '  {"error":{"code":"unsupported_country_region_territory","message":"Country, region, or territory not supported"}}\n<script>window.bad = true</script><img src=x onerror=bad()>\n' +
+    "x".repeat(10_000);
+  await act(async () =>
+    logins[0].fail(
+      Object.assign(new Error("授权服务拒绝了请求"), {
+        upstreamStatus: 403,
+        upstreamErrorBody: body,
+      }),
+    ),
+  );
+  const alert = host.querySelector('[role="alert"]')!;
+  expect(alert.textContent).toContain("授权服务拒绝了请求");
+  expect(alert.textContent).toContain("HTTP 403");
+  expect(alert.querySelector("pre")?.textContent === body).toBe(true);
+  expect(alert.querySelector("script, img")).toBeNull();
+  await act(async () => button("重新登录")!.click());
+  expect(host.querySelector("pre")).toBeNull();
+  await act(async () => logins[1].fail(new Error("网络连接失败")));
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+    "网络连接失败",
+  );
+  expect(host.textContent).not.toContain("HTTP 403");
+  expect(host.querySelector("pre")).toBeNull();
 });
