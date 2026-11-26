@@ -51,6 +51,10 @@ export function PiConnectionPanel({
   const label = providerLabel(provider);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
+  const [upstreamError, setUpstreamError] = useState<{
+    status?: number;
+    body?: string;
+  } | null>(null);
   const [authURL, setAuthURL] = useState("");
   const [deviceCode, setDeviceCode] = useState("");
   const active = useRef<AbortController | null>(null);
@@ -68,6 +72,7 @@ export function PiConnectionPanel({
     let opened = "";
     setPhase("starting");
     setError("");
+    setUpstreamError(null);
     setAuthURL("");
     setDeviceCode("");
     try {
@@ -96,6 +101,22 @@ export function PiConnectionPanel({
       setAuthURL("");
       setDeviceCode("");
       setError(e instanceof Error ? e.message : "连接失败");
+      if (e instanceof Error) {
+        const status =
+          "upstreamStatus" in e &&
+          typeof e.upstreamStatus === "number" &&
+          Number.isInteger(e.upstreamStatus) &&
+          e.upstreamStatus >= 400 &&
+          e.upstreamStatus <= 599
+            ? e.upstreamStatus
+            : undefined;
+        const body =
+          "upstreamErrorBody" in e && typeof e.upstreamErrorBody === "string"
+            ? e.upstreamErrorBody
+            : undefined;
+        if (status !== undefined || body !== undefined)
+          setUpstreamError({ status, body });
+      }
       setPhase("failed");
     }
   };
@@ -112,6 +133,7 @@ export function PiConnectionPanel({
   const disconnect = async () => {
     setPhase("disconnecting");
     setError("");
+    setUpstreamError(null);
     try {
       await api.disconnectPiProvider(provider);
       setPhase("disconnected");
@@ -205,13 +227,26 @@ export function PiConnectionPanel({
           </p>
         )}
         {error && (
-          <p
-            role="alert"
-            className="flex items-start gap-2 text-sm text-destructive"
-          >
-            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-            {error}
-          </p>
+          <div role="alert" className="min-w-0 space-y-2">
+            <p className="flex items-start gap-2 text-sm text-destructive">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+              <span className="min-w-0 break-words">{error}</span>
+            </p>
+            {upstreamError && (
+              <div className="min-w-0 space-y-2 rounded-lg border bg-muted/50 p-3 text-xs">
+                {upstreamError.status !== undefined && (
+                  <p className="font-medium text-muted-foreground">
+                    HTTP {upstreamError.status}
+                  </p>
+                )}
+                {upstreamError.body && (
+                  <pre className="max-h-64 overflow-auto font-mono whitespace-pre-wrap break-all select-text">
+                    {upstreamError.body}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
         )}
         <div className="flex flex-wrap gap-2">
           {pending ? (

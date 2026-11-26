@@ -36,10 +36,16 @@ lines.once("line", (line) => {
         "kimi-coding": "https://auth.kimi.com/device"
       })[input.connection.provider]});
     send({type: "progress", phase: "exchanging"});
-    if (process.env.NEOREAD_PI_FIXTURE === "login-failure") {
+    if (["login-failure", "login-network-after-upstream"].includes(process.env.NEOREAD_PI_FIXTURE)) {
       send({type: "diagnostic", diagnostic: {kind: "callback", stage: "listen_failed", reasonCode: "address_in_use", systemCode: "EADDRINUSE", errorType: "Error", callbackPort: 1455, addressFamily: "ipv4"}});
       send({type: "diagnostic", diagnostic: {kind: "request", stage: "response", operation: "token_exchange", upstreamStatus: 400, upstreamErrorBody: '  {"error":{"message":"Denied: https://auth.example/?state=raw-body-state","code":"invalid_grant"},"access_token":"raw-body-token"}\n'}});
-      send({type: "error", errorCode: "upstream", upstreamStatus: 400, reasonCode: "token_exchange_failed", errorType: "Error", message: "fixture-private-code-and-token"});
+      if (process.env.NEOREAD_PI_FIXTURE === "login-network-after-upstream") {
+        send({type: "diagnostic", diagnostic: {kind: "request", stage: "start"}});
+        send({type: "diagnostic", diagnostic: {kind: "request", stage: "failed", reasonCode: "connection_reset", systemCode: "ECONNRESET"}});
+        send({type: "error", errorCode: "network", upstreamStatus: 400});
+      } else {
+        send({type: "error", errorCode: "upstream", upstreamStatus: 400, reasonCode: "token_exchange_failed", errorType: "Error", message: "fixture-private-code-and-token"});
+      }
       lines.close();
       process.stdin.destroy();
       return;
@@ -291,5 +297,44 @@ lines.once("line", async (line) => {
 	current, ok := s.piAPIConnection("codex")
 	if !ok || current.pi.AuthPath != initial.pi.AuthPath {
 		t.Fatal("a failed reconnect replaced the previous credential")
+	}
+}
+
+func TestPiLoginFailureReturnsFullUpstreamBody(t *testing.T) {
+	s := testServer(t)
+	fakePiConnection(t, s, "", "login-failure")
+	response := request(t, s, "POST", "/api/ai/auth/codex", strings.NewReader("{}"))
+	var terminal map[string]any
+	for _, line := range strings.Split(response.Body.String(), "\n") {
+		var event map[string]any
+		if json.Unmarshal([]byte(line), &event) == nil && event["type"] == "error" {
+			terminal = event
+		}
+	}
+	expected := `  {"error":{"message":"Denied: https://auth.example/?state=raw-body-state","code":"invalid_grant"},"access_token":"raw-body-token"}` + "\n"
+	if terminal["upstreamStatus"] != float64(400) || terminal["upstreamErrorBody"] != expected {
+		t.Fatal("login error did not preserve upstream status and full body")
+	}
+	if strings.Contains(response.Body.String(), "fixture-private-code-and-token") {
+		t.Fatal("worker exception text was forwarded")
+	}
+}
+
+func TestPiLoginNetworkFailureDoesNotReturnAnEarlierUpstreamResponse(t *testing.T) {
+	s := testServer(t)
+	fakePiConnection(t, s, "", "login-network-after-upstream")
+	response := request(t, s, "POST", "/api/ai/auth/codex", strings.NewReader("{}"))
+	var terminal map[string]any
+	for _, line := range strings.Split(response.Body.String(), "\n") {
+		var event map[string]any
+		if json.Unmarshal([]byte(line), &event) == nil && event["type"] == "error" {
+			terminal = event
+		}
+	}
+	if terminal == nil {
+		t.Fatal("missing terminal login error")
+	}
+	if terminal["upstreamStatus"] != nil || terminal["upstreamErrorBody"] != nil {
+		t.Fatal("an earlier response survived the failed retry")
 	}
 }
