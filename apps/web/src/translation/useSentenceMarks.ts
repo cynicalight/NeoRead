@@ -34,7 +34,16 @@ import {
   segmentSentences,
 } from "./reflow";
 import { pdfSourceMarkRanges } from "./pdf-source-marks";
+import {
+  addNoteAnchorSource,
+  noteAnchorsChanged,
+  visibleIn,
+} from "../readers/note-anchors";
 
+// Controls, block actions and annotation cards (rendered inside the reader
+// over PDF text) are not marked text.
+const skipTargets =
+  "a,button,input,textarea,[data-block-action],[data-annotation-preview]";
 type Mark = { annotation: Annotation; range: Range };
 const hit = (range: Range, x: number, y: number) =>
   Array.from(range.getClientRects()).some((r) => inside(r, x, y));
@@ -307,6 +316,7 @@ export function useSentenceMarks(
           markFormulas(host, searchName, ranges);
         }
       }
+      noteAnchorsChanged();
       if (pointer.current && activeRanges.length && leaveTimer === undefined)
         resolveHover(pointer.current);
     };
@@ -335,7 +345,7 @@ export function useSentenceMarks(
       const event = { clientX: point.x, clientY: point.y };
       if (
         !host.contains(target) ||
-        target.closest("a,button,input,textarea,[data-block-action]") ||
+        target.closest(skipTargets) ||
         window.getSelection()?.toString().trim()
       ) {
         deferClear();
@@ -534,8 +544,7 @@ export function useSentenceMarks(
       )
         return;
       const target = event.target instanceof Element ? event.target : undefined;
-      if (target?.closest("a,button,input,textarea,[data-block-action]"))
-        return;
+      if (target?.closest(skipTargets)) return;
       const matches = allMarks().filter((m) =>
         hit(m.range, event.clientX, event.clientY),
       );
@@ -578,6 +587,27 @@ export function useSentenceMarks(
     const resize = new ResizeObserver(schedule);
     resize.observe(host);
     repaint.current = paint;
+    const removeNoteAnchors = addNoteAnchorSource((id) => {
+      const range = marks
+        .filter(
+          (mark) => mark.annotation.id === id && mark.annotation.note?.trim(),
+        )
+        .at(-1)?.range;
+      const rect = Array.from(range?.getClientRects() ?? [])
+        .filter((r) => r.width > 0 && r.height > 0)
+        .at(-1);
+      const visible = visibleIn(host, rect);
+      if (!visible || !range) return;
+      // PDF text layers inherit PDF.js --scale-factor (zoom × 96/72); reflowed
+      // and translated text does not zoom.
+      const node = range.endContainer;
+      const factor = parseFloat(
+        getComputedStyle(
+          node instanceof Element ? node : node.parentElement!,
+        ).getPropertyValue("--scale-factor"),
+      );
+      return { rect: visible, scale: factor > 0 ? factor / (96 / 72) : 1 };
+    });
     paint();
     host.addEventListener("pointermove", move);
     host.addEventListener("pointerleave", clearHover);
@@ -600,6 +630,7 @@ export function useSentenceMarks(
       host.removeEventListener("click", click, true);
       window.removeEventListener("scroll", interruptHover, true);
       repaint.current = undefined;
+      removeNoteAnchors();
       latest.current.events.annotationHover?.(null);
       hover.destroy();
       names.forEach((name) => registry.delete(name));

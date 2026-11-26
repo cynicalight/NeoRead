@@ -776,8 +776,22 @@ export function Workspace({
       setTranslationSelection(null);
     }
     setSelection(next);
+    if (!next) setContextAnchor(null);
     selectionClipboard.selection(next);
   };
+  // Optionally the selection toolbar waits for a right click on the selection;
+  // a right click recaptures the selection, so match it by text, not identity.
+  const contextToolbar = theme.selectionToolbarOnContextMenu === true;
+  const [contextAnchor, setContextAnchor] = useState<{
+    text: string;
+    anchor: SelectionAnchor;
+  } | null>(null);
+  const toolbarAnchor = contextToolbar
+    ? contextAnchor &&
+      selection?.text.replace(/\s+/g, "") === contextAnchor.text
+      ? contextAnchor.anchor
+      : undefined
+    : selection?.anchor;
   const editAnnotationNote = (
     annotation: Annotation,
     anchor: SelectionAnchor,
@@ -789,19 +803,6 @@ export function Workspace({
     setNote(annotation.note);
     setNoteAnchor(anchor);
     adapter?.clearSelection();
-  };
-  // Removes only the note; the highlight stays and Cmd+Z restores the text.
-  const deleteAnnotationNote = async (annotation: Annotation) => {
-    if (annotationSaving.current) return;
-    annotationSaving.current = true;
-    try {
-      const saved = await api.updateAnnotationNote(doc.id, annotation.id, "");
-      setAnnotations((items) => applySavedAnnotation(items, saved));
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      annotationSaving.current = false;
-    }
   };
   const askAnnotationAI = (annotation: Annotation) => {
     const quote = { text: annotation.quote, location: annotation.location };
@@ -1472,7 +1473,24 @@ export function Workspace({
           className={left ? "" : "sidebar-handle-closed"}
         />
         <ResizablePanel id="reading" minSize="30%">
-          <div className="reading-pane" ref={readingPane}>
+          <div
+            className="reading-pane"
+            ref={readingPane}
+            onContextMenu={(event) => {
+              // Readers may rebuild the text (sides, parts), so keep their own.
+              const text = selection?.text.replace(/\s+/g, "");
+              if (!contextToolbar || !text) return;
+              event.preventDefault();
+              setContextAnchor({
+                text,
+                anchor: {
+                  x: event.clientX,
+                  top: event.clientY,
+                  bottom: event.clientY,
+                },
+              });
+            }}
+          >
             {(() => {
               const ReadingView =
                 doc.type === "pdf" ? PDFReadingView : EPUBReadingView;
@@ -1536,8 +1554,8 @@ export function Workspace({
               />
             )}
 
-            {selection?.anchor && (
-              <SelectionToolbar anchor={selection.anchor} pane={readingPane}>
+            {toolbarAnchor && selection && (
+              <SelectionToolbar anchor={toolbarAnchor} pane={readingPane}>
                 <ColorSwatches
                   action="高亮"
                   onPick={(color) => {
@@ -1558,7 +1576,7 @@ export function Workspace({
                     setEditingAnnotation(null);
                     setNoteSelection(selection);
                     setNote("");
-                    setNoteAnchor(selection.anchor!);
+                    setNoteAnchor(toolbarAnchor);
                     adapter?.clearSelection();
                   }}
                 >
@@ -1571,7 +1589,7 @@ export function Workspace({
                     setEditingAnnotation(null);
                     setNoteSelection(selection);
                     setNote("");
-                    setNoteAnchor(selection.anchor!);
+                    setNoteAnchor(toolbarAnchor);
                     adapter?.clearSelection();
                   }}
                 >
@@ -1908,6 +1926,7 @@ export function Workspace({
                 anchor: noteAnchor,
                 documentId: doc.id,
                 kind: noteKind,
+                annotationId: editingAnnotation?.id,
                 editing: !!editingAnnotation,
                 initial: editingAnnotation?.note ?? "",
                 value: note,
@@ -1928,7 +1947,18 @@ export function Workspace({
             : null
         }
         onEdit={editAnnotationNote}
-        onDelete={(annotation) => void deleteAnnotationNote(annotation)}
+        alwaysShow={active && theme.alwaysShowAnnotationCards !== false}
+        opacity={theme.annotationCardOpacity ?? 0.9}
+        layouts={theme.annotationCardLayouts}
+        onLayout={(id, layout) => {
+          const state = useReaderStore.getState();
+          state.setTheme({
+            annotationCardLayouts: {
+              ...state.theme.annotationCardLayouts,
+              [id]: layout,
+            },
+          });
+        }}
       />
       <LinkPreviewPanel
         key={doc.id}

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, type ComponentProps } from "react";
+import { addNoteAnchorSource } from "./readers/note-anchors";
 import { reportDiagnostic } from "./diagnostics";
 vi.mock("./diagnostics", () => ({ reportDiagnostic: vi.fn() }));
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import type { Annotation, ReaderAnnotationTarget } from "@neoread/core";
 import { api } from "@neoread/api";
 import {
@@ -19,12 +20,13 @@ const annotations = [
   { id: "b", note: "第二条批注" },
 ] as Annotation[];
 const edit = vi.fn();
-const remove = vi.fn();
+const move = vi.fn();
 let root: Root, host: HTMLDivElement;
 const render = async (
   value: ReaderAnnotationTarget | null,
   notes = annotations,
   editor: AnnotationNoteEditor | null = null,
+  options: Partial<ComponentProps<typeof AnnotationHoverCard>> = {},
 ) => {
   await act(async () =>
     root.render(
@@ -33,7 +35,8 @@ const render = async (
         annotations={notes}
         editor={editor}
         onEdit={edit}
-        onDelete={remove}
+        onLayout={move}
+        {...options}
       />,
     ),
   );
@@ -53,7 +56,7 @@ beforeEach(() => {
   );
   vi.mocked(reportDiagnostic).mockClear();
   edit.mockClear();
-  remove.mockClear();
+  move.mockClear();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -64,21 +67,28 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-it("shows all notes without stealing focus and edits the chosen note", async () => {
+it("shows all notes without stealing focus and edits the double-clicked note", async () => {
   const input = document.createElement("input");
-  host.append(input);
+  document.body.append(input);
+  onTestFinished(() => input.remove());
   input.focus();
   await render(target);
   expect(document.body.textContent).toContain("具体批注内容");
   expect(document.body.textContent).toContain("第二条批注");
-  expect(document.activeElement).not.toBe(
-    document.querySelector('[aria-label="编辑批注"]'),
+  expect(document.activeElement).toBe(input);
+  // The action row is gone: deleting lives on the annotation toolbar.
+  expect(
+    document.querySelectorAll("[data-annotation-preview] button"),
+  ).toHaveLength(0);
+  const second = [
+    ...document.querySelectorAll("[data-annotation-preview] [data-note-id]"),
+  ].find((item) => item.textContent?.includes("第二条批注"))!;
+  await act(async () =>
+    second.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 })),
   );
-  const buttons = document.querySelectorAll<HTMLButtonElement>(
-    '[aria-label="编辑批注"]',
-  );
-  await act(async () => buttons[1].click());
-  expect(edit).toHaveBeenCalledExactlyOnceWith(annotations[1], target.anchor);
+  expect(edit).toHaveBeenCalledOnce();
+  expect(edit.mock.calls[0][0]).toBe(annotations[1]);
+  expect(document.querySelector("[data-annotation-preview]")).toBeNull();
 });
 it("allows crossing into the card and closes after leaving", async () => {
   await render(target);
@@ -88,14 +98,14 @@ it("allows crossing into the card and closes after leaving", async () => {
     card.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })),
   );
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(400);
+    await vi.advanceTimersByTimeAsync(800);
   });
   expect(document.body.textContent).toContain("具体批注内容");
   await act(async () =>
     card.dispatchEvent(new MouseEvent("pointerout", { bubbles: true })),
   );
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(400);
+    await vi.advanceTimersByTimeAsync(800);
   });
   expect(document.querySelector("[data-annotation-preview]")).toBeNull();
 });
@@ -118,16 +128,6 @@ it("closes when reading scrolls so it cannot remain attached to an old position"
     await vi.advanceTimersByTimeAsync(300);
   });
   expect(document.querySelector("[data-annotation-preview]")).toBeNull();
-});
-
-it("deletes the chosen note from the card", async () => {
-  await render(target);
-  const buttons = document.querySelectorAll<HTMLButtonElement>(
-    '[aria-label="删除批注"]',
-  );
-  expect(buttons).toHaveLength(2);
-  await act(async () => buttons[0].click());
-  expect(remove).toHaveBeenCalledExactlyOnceWith(annotations[0]);
 });
 
 const editor = (value: string, initial = ""): AnnotationNoteEditor => ({
@@ -159,6 +159,7 @@ it("edits in the same card and keeps a typed draft on Escape only", async () => 
     "[data-annotation-preview] textarea",
   )!;
   expect(input.value).toBe("新批注");
+  console.log("ACTIVE", document.activeElement?.outerHTML.slice(0, 200));
   expect(document.activeElement).toBe(input);
   await act(async () =>
     document.querySelector<HTMLButtonElement>('[aria-label="保存"]')!.click(),
@@ -185,13 +186,10 @@ it("cannot save an empty new note", async () => {
   ).toBe(true);
 });
 
-it("stays open after being dragged away from the highlight", async () => {
-  await render(target);
-  const grip =
-    document.querySelector<HTMLButtonElement>('[aria-label="拖动"]')!;
-  grip.setPointerCapture = () => {};
+const dragCard = async (card: HTMLElement, from: Element = card) => {
+  card.setPointerCapture = () => {};
   await act(async () =>
-    grip.dispatchEvent(
+    from.dispatchEvent(
       new MouseEvent("pointerdown", {
         bubbles: true,
         button: 0,
@@ -201,23 +199,170 @@ it("stays open after being dragged away from the highlight", async () => {
     ),
   );
   await act(async () =>
-    grip.dispatchEvent(
+    card.dispatchEvent(
       new MouseEvent("pointermove", { clientX: 50, clientY: 30 }),
     ),
   );
-  await act(async () => grip.dispatchEvent(new MouseEvent("pointerup")));
+  await act(async () => card.dispatchEvent(new MouseEvent("pointerup")));
+};
+
+it("drags without a mode switch, then stays open until dismissed", async () => {
+  await render(target);
   const card = document.querySelector<HTMLElement>(
     "[data-annotation-preview]",
   )!;
-  expect(card.style.translate).toBe("40px 20px");
+  await dragCard(card);
+  expect(edit).not.toHaveBeenCalled();
   await render(null);
   await act(async () =>
     card.dispatchEvent(new MouseEvent("pointerout", { bubbles: true })),
   );
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(400);
+    await vi.advanceTimersByTimeAsync(800);
   });
   expect(document.body.textContent).toContain("具体批注内容");
+  await act(async () =>
+    card.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    ),
+  );
+  expect(document.querySelector("[data-annotation-preview]")).toBeNull();
+});
+
+it("remembers a dropped card in zoom-independent card units", async () => {
+  // The page is zoomed to 200%, so screen offsets halve when stored.
+  const remove = addNoteAnchorSource((id) =>
+    id === "a" ? { rect: new DOMRect(200, 300, 9, 9), scale: 2 } : undefined,
+  );
+  try {
+    await render(target, [annotations[0]]);
+    const card = document.querySelector<HTMLElement>(
+      "[data-annotation-preview]",
+    )!;
+    expect(card.style.zoom).toBe("2");
+    card.getBoundingClientRect = () => new DOMRect(260, 280, 288, 100);
+    await dragCard(card);
+    expect(move).toHaveBeenCalledExactlyOnceWith("a", { x: 25.5, y: -10 });
+  } finally {
+    remove();
+  }
+});
+
+it("pins always-shown PDF cards to the live note end inside the reader", async () => {
+  const page = document.createElement("div");
+  const layer = document.createElement("div");
+  document.body.append(page, layer);
+  onTestFinished(() => {
+    page.remove();
+    layer.remove();
+  });
+  const end = {
+    contextElement: page,
+    getBoundingClientRect: () => new DOMRect(200, 300, 9, 9),
+  };
+  const remove = addNoteAnchorSource((id) =>
+    id === "a"
+      ? {
+          rect: end.getBoundingClientRect(),
+          scale: 2,
+          element: end,
+          container: layer,
+        }
+      : undefined,
+  );
+  try {
+    await render(null, [annotations[0]], null, {
+      alwaysShow: true,
+      layouts: { a: { x: 30, y: 5 } },
+    });
+    const card = document.querySelector<HTMLElement>(
+      "[data-annotation-preview]",
+    )!;
+    // Rendered in the reader's clipping layer, not over the toolbar.
+    expect(layer.contains(card)).toBe(true);
+    // Starts where the layout puts it (marker end + 30 × 2, top + 5 × 2),
+    // then follows the 40 × 20 px drag: 20 × 10 card units at 200%.
+    let calls = 0;
+    card.getBoundingClientRect = () =>
+      calls++
+        ? new DOMRect(309, 330, 288, 100)
+        : new DOMRect(269, 310, 288, 100);
+    await dragCard(card);
+    expect(card.className).toContain("data-open:animate-none");
+    expect(move).toHaveBeenCalledExactlyOnceWith("a", { x: 50, y: 15 });
+  } finally {
+    remove();
+  }
+});
+
+it("resizes from an edge and keeps the box in card units", async () => {
+  const remove = addNoteAnchorSource((id) =>
+    id === "a" ? { rect: new DOMRect(200, 300, 9, 9), scale: 2 } : undefined,
+  );
+  try {
+    await render(target, [annotations[0]], null, {
+      layouts: { a: { x: 51, y: -20, w: 144, h: 50 } },
+    });
+    const card = document.querySelector<HTMLElement>(
+      "[data-annotation-preview]",
+    )!;
+    expect(card.style.width).toBe("144px");
+    expect(card.style.height).toBe("50px");
+    // A resized card fits its text to the box.
+    expect(
+      card.querySelector<HTMLElement>("[data-note-id]")!.parentElement!.style
+        .fontSize,
+    ).not.toBe("");
+    card.getBoundingClientRect = () => new DOMRect(260, 280, 288, 100);
+    await dragCard(card, card.querySelector('[data-resize="se"]')!);
+    // 40 × 20 screen px at 200% is 20 × 10 card units.
+    expect(move).toHaveBeenCalledExactlyOnceWith("a", {
+      x: 25.5,
+      y: -10,
+      w: 164,
+      h: 60,
+    });
+  } finally {
+    remove();
+  }
+});
+
+it("always shows visible notes without hovering, ignoring outside presses", async () => {
+  const remove = addNoteAnchorSource((id) =>
+    id === "b" ? { rect: new DOMRect(200, 300, 9, 9), scale: 1 } : undefined,
+  );
+  try {
+    await render(null, annotations, null, { alwaysShow: true, opacity: 0.6 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    const cards = document.querySelectorAll<HTMLElement>(
+      "[data-annotation-preview]",
+    );
+    expect(cards).toHaveLength(1);
+    expect(cards[0].textContent).toContain("第二条批注");
+    expect(cards[0].style.opacity).toBe("0.6");
+    await act(async () =>
+      document.body.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true }),
+      ),
+    );
+    expect(document.querySelectorAll("[data-annotation-preview]")).toHaveLength(
+      1,
+    );
+    // Double clicking an always-shown card edits its note.
+    const note = cards[0].querySelector("[data-note-id]")!;
+    await act(async () =>
+      note.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })),
+    );
+    expect(edit).not.toHaveBeenCalled();
+    await act(async () =>
+      note.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 })),
+    );
+    expect(edit.mock.calls[0][0]).toBe(annotations[1]);
+  } finally {
+    remove();
+  }
 });
 
 it("renders saved Markdown in the hover preview", async () => {

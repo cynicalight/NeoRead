@@ -4,6 +4,11 @@ import {
   annotationsAtPoint,
   type AnnotationRange,
 } from "../translation/annotation-hover";
+import {
+  addNoteAnchorSource,
+  noteAnchorsChanged,
+  visibleIn,
+} from "./note-anchors";
 import { api } from "@neoread/api";
 import type {
   Annotation,
@@ -57,7 +62,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   private annotations: Annotation[] = [];
   private marks: AnnotationRange[] = [];
   /** Last range of each annotation that has note text. */
-  private noted: { range: Range; color: string }[] = [];
+  private noted: { id: string; range: Range; color: string }[] = [];
   private noteLayer = document.createElement("div");
   private focus: EPUBLocation[] = [];
   /**
@@ -106,6 +111,17 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       (block, action) => this.events.epubBlockAction?.(block, action),
     );
     const signal = this.abort.signal;
+    signal.addEventListener(
+      "abort",
+      addNoteAnchorSource((id) => {
+        const range = this.noted.find((note) => note.id === id)?.range;
+        const rect = Array.from(range?.getClientRects?.() ?? [])
+          .filter((r) => r.width > 0 && r.height > 0)
+          .at(-1);
+        const visible = visibleIn(container, rect);
+        return visible && { rect: visible, scale: 1 };
+      }),
+    );
     container.addEventListener("scroll", this.onScroll, {
       passive: true,
       signal,
@@ -1021,6 +1037,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
       else groups.set(rule, ranges);
       if (annotation.note?.trim())
         this.noted.push({
+          id: annotation.id,
           range: ranges[ranges.length - 1]!,
           color: annotation.color,
         });
@@ -1080,6 +1097,7 @@ export class EPUBReaderAdapter implements ReaderAdapter {
   /** Marks the end of each annotation that has a note. */
   private placeNotes() {
     const layer = this.noteLayer;
+    noteAnchorsChanged();
     // Measuring would force a layout on every repaint; skip it without notes.
     if (!this.noted.length) {
       if (layer.parentElement) {
