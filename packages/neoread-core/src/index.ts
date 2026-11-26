@@ -459,6 +459,20 @@ export interface ReaderTheme {
   highlightColors?: HighlightColor[];
   /** Reflowable EPUB text scrolls vertically unless pages are chosen. */
   epubFlow?: "scroll" | "paginated";
+  /** Show annotation note cards for visible notes without hovering. */
+  alwaysShowAnnotationCards?: boolean;
+  /** Annotation note card opacity, 0.2–1. */
+  annotationCardOpacity?: number;
+  /**
+   * Per annotation: card top-left from the end of its annotation and an
+   * optional resized box, in card units (CSS px at 100% PDF zoom).
+   */
+  annotationCardLayouts?: Record<
+    string,
+    { x: number; y: number; w?: number; h?: number }
+  >;
+  /** The text selection toolbar opens on right click instead of on selecting. */
+  selectionToolbarOnContextMenu?: boolean;
 }
 export function validBrandColor(value: unknown): value is string {
   return (
@@ -513,6 +527,9 @@ export const defaultTheme: ReaderTheme = {
   sourceReflow: false,
   blockFocus: true,
   epubFlow: "scroll",
+  alwaysShowAnnotationCards: true,
+  annotationCardOpacity: 0.9,
+  selectionToolbarOnContextMenu: false,
 };
 export type PDFBlockAction =
   "attach" | "preview" | "copy" | "explain" | "translate";
