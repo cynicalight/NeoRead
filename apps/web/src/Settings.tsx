@@ -2,6 +2,7 @@ import { PiConnectionPanel } from "./PiConnectionPanel";
 import { loadModelCatalog } from "./model-catalog";
 import { useLocalQuota, type LocalQuota } from "./useLocalQuota";
 import { Switch } from "@neoread/ui/components/switch";
+import { Slider } from "@neoread/ui/components/slider";
 import { PaperServiceSettings } from "./papers/PaperServiceSettings";
 import { AutoTranslationSettings } from "./papers/AutoTranslationSettings";
 import { TranslationPromptSettings } from "./TranslationPromptSettings";
@@ -997,6 +998,57 @@ export function Settings({
                   }
                 />
               </div>
+            </section>
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <div>
+                  <span id="selection-toolbar-context-label">
+                    右键弹出高亮浮窗
+                  </span>
+                  <p
+                    id="selection-toolbar-context-description"
+                    className="text-xs text-muted-foreground"
+                  >
+                    关闭时选中文字即弹出；开启后选中文字再右键才弹出。
+                  </p>
+                </div>
+                <Switch
+                  aria-labelledby="selection-toolbar-context-label"
+                  aria-describedby="selection-toolbar-context-description"
+                  checked={theme.selectionToolbarOnContextMenu === true}
+                  onCheckedChange={(checked) =>
+                    setTheme({ selectionToolbarOnContextMenu: !!checked })
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span id="always-annotation-cards-label">始终显示批注浮窗</span>
+                <Switch
+                  aria-labelledby="always-annotation-cards-label"
+                  checked={theme.alwaysShowAnnotationCards !== false}
+                  onCheckedChange={(checked) =>
+                    setTheme({ alwaysShowAnnotationCards: !!checked })
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 text-sm">
+                <span>批注浮窗透明度</span>
+                <span className="rounded bg-muted px-2 py-0.5 tabular-nums">
+                  {Math.round((theme.annotationCardOpacity ?? 0.9) * 100)}%
+                </span>
+              </div>
+              <Slider
+                thumbLabel="批注浮窗透明度"
+                thumbAlignment="center"
+                min={20}
+                max={100}
+                step={5}
+                value={[Math.round((theme.annotationCardOpacity ?? 0.9) * 100)]}
+                onValueChange={(value) => {
+                  const next = Array.isArray(value) ? value[0] : value;
+                  setTheme({ annotationCardOpacity: next / 100 });
+                }}
+              />
             </section>
             <section>
               <fieldset>

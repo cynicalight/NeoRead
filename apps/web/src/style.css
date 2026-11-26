@@ -1086,6 +1086,14 @@ kbd {
   inset: 0;
   overflow: hidden;
 }
+/* Annotation cards over a PDF: the reader viewport clips them, so they never
+   cover the toolbar; the layer itself passes pointer input to the PDF. */
+.neoread-card-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
 .neoread-engine.pdf-container {
   /* PDF.js assigns increasing z-index values to native annotations. Keep
      those layers inside the reader, below app dialogs and popovers. */
@@ -4842,7 +4850,8 @@ textarea.paper-note-editor-input {
 [data-annotation-preview] .message-markdown > :first-child {
   margin-top: 0;
 }
-.annotation-markdown-editor .ProseMirror > :last-child {
+.annotation-markdown-editor .ProseMirror > :last-child,
+[data-annotation-preview] .message-markdown > :last-child {
   margin-bottom: 0;
 }
 

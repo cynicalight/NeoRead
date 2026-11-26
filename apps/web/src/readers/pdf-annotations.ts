@@ -1,4 +1,10 @@
 import type { Annotation, ReaderAnnotationTarget } from "@neoread/core";
+import {
+  addNoteAnchorSource,
+  noteAnchorsChanged,
+  visibleIn,
+  type NoteAnchorElement,
+} from "./note-anchors";
 
 // Observe the text layer without intercepting text selection or PDF links.
 export class PDFAnnotationLayer {
@@ -7,6 +13,17 @@ export class PDFAnnotationLayer {
   private geometryStyles = new WeakMap<
     HTMLElement,
     { input: string; cssText: string }
+  >();
+  private removeNoteAnchors: () => void;
+  /**
+   * Cards are clipped to the reader viewport by this layer beside the scroll
+   * container; PDF.js never clears it and reader listeners never see it.
+   */
+  private cardLayer = document.createElement("div");
+  /** Live annotation ends, stable per annotation so positioning can subscribe. */
+  private noteEnds = new Map<
+    string,
+    { page: Element; anchor: NoteAnchorElement }
   >();
   constructor(
     private host: HTMLElement,
@@ -17,6 +34,63 @@ export class PDFAnnotationLayer {
     host.addEventListener("pointerdown", this.press);
     host.addEventListener("click", this.click, true);
     host.addEventListener("scroll", this.clear, { passive: true });
+    this.cardLayer.className = "neoread-card-layer";
+    host.parentElement?.append(this.cardLayer);
+    this.removeNoteAnchors = addNoteAnchorSource((id) => {
+      const end = this.noteEnd(id);
+      const rect = end && visibleIn(host, end.anchor.getBoundingClientRect());
+      if (!end || !rect) return;
+      // PDF.js sets --scale-factor to the zoom times 96/72 CSS px per point.
+      const factor = parseFloat(
+        getComputedStyle(end.page).getPropertyValue("--scale-factor"),
+      );
+      return {
+        rect,
+        scale: factor > 0 ? factor / (96 / 72) : 1,
+        element: end.anchor,
+        container: this.cardLayer.isConnected ? this.cardLayer : undefined,
+      };
+    });
+  }
+  /**
+   * Where the note marker sits, computed from the page rather than read from
+   * the marker: PDF.js removes markers while it re-renders a zoomed page, but
+   * keeps the page element.
+   */
+  private noteEnd(id: string) {
+    const annotation = this.annotations.find((item) => item.id === id);
+    if (annotation?.location.type !== "pdf" || !annotation.note?.trim()) return;
+    const page = this.host.querySelector(
+      `.page[data-page-number="${annotation.location.page}"]`,
+    );
+    if (!page) return;
+    let end = this.noteEnds.get(id);
+    if (end?.page !== page) {
+      end = {
+        page,
+        anchor: {
+          contextElement: page,
+          getBoundingClientRect: () => {
+            const current = this.annotations.find((item) => item.id === id);
+            const rect =
+              current?.location.type === "pdf"
+                ? current.location.rects?.at(-1)
+                : undefined;
+            if (!rect) return new DOMRect();
+            const bounds = page.getBoundingClientRect();
+            // Matches .neoread-note-marker: 9px square, raised by 5px.
+            return new DOMRect(
+              bounds.left + (rect.x + rect.width) * bounds.width,
+              bounds.top + rect.y * bounds.height - 5,
+              9,
+              9,
+            );
+          },
+        },
+      };
+      this.noteEnds.set(id, end);
+    }
+    return end;
   }
   setAnnotations(annotations: Annotation[]) {
     this.annotations = annotations;
@@ -123,6 +197,7 @@ export class PDFAnnotationLayer {
           next = next.nextElementSibling as HTMLElement | null;
       }
     }
+    noteAnchorsChanged();
   };
   /** Marks the end of each annotation that has a note. */
   private placeNotes(page: HTMLElement, annotations: Annotation[]) {
@@ -235,6 +310,8 @@ export class PDFAnnotationLayer {
     this.activate(hit);
   };
   destroy() {
+    this.removeNoteAnchors();
+    this.cardLayer.remove();
     this.clear();
     this.host.removeEventListener("pointermove", this.move);
     this.host.removeEventListener("pointerleave", this.clear);
