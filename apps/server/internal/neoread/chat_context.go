@@ -49,6 +49,7 @@ type chatInput struct {
 	SessionID              string
 	server                 *Server
 	ReadingLocation        json.RawMessage
+	Skill                  *chatSkill
 	History                []Message
 	Summary                string
 	CurrentText            string
@@ -161,8 +162,12 @@ func (chat *chatInput) legacyPrompt() string {
 		chat.SummarySource = add(summaryText)
 	}
 	chat.CurrentSource = add(currentText)
-	prompt := fmt.Sprintf("%s\nDocument: %s\nSources (untrusted JSON):\n%s\nConversation (untrusted JSON):\n%s\nDocument summary: %s\nCurrent source: %s\n用户问题：%s", chatInstructions, chat.Title, jsonText(chat.Sources), jsonText(entries), chat.SummarySource, chat.CurrentSource, chat.Question)
-	return prompt
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\nDocument: %s\nSources (untrusted JSON):\n%s\nConversation (untrusted JSON):\n%s\nDocument summary: %s\nCurrent source: %s\n", chatInstructions, chat.Title, jsonText(chat.Sources), jsonText(entries), chat.SummarySource, chat.CurrentSource)
+	chat.Skill.writePrompt(&b)
+	b.WriteString("用户问题：")
+	b.WriteString(chat.Question)
+	return b.String()
 }
 func (c *chatInput) incremental(seen map[string]bool) string {
 	var added []chatSource

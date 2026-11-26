@@ -41,3 +41,42 @@ it("does not treat the browser callback phase as success when exchange fails", a
     api.connectPiProvider("claude", new AbortController().signal, vi.fn()),
   ).rejects.toThrow("授权失败");
 });
+
+it("retains the upstream status and full response body on a failed login", async () => {
+  const body =
+    '  {"error":{"message":"Country, region, or territory not supported","code":"unsupported_country_region_territory"}}\n' +
+    "x".repeat(10_000);
+  stream([
+    { type: "progress", phase: "exchanging" },
+    {
+      type: "error",
+      error: "授权服务拒绝了请求",
+      upstreamStatus: 403,
+      upstreamErrorBody: body,
+    },
+  ]);
+  const error = await api
+    .connectPiProvider("codex", new AbortController().signal, vi.fn())
+    .catch((error) => error);
+  expect(error).toBeInstanceOf(Error);
+  expect(error.message).toBe("授权服务拒绝了请求");
+  expect(error.upstreamStatus).toBe(403);
+  expect(error.upstreamErrorBody === body).toBe(true);
+});
+
+it("ignores malformed upstream detail fields without losing the login error", async () => {
+  stream([
+    {
+      type: "error",
+      error: "授权失败",
+      upstreamStatus: "403",
+      upstreamErrorBody: { html: "not a string" },
+    },
+  ]);
+  const error = await api
+    .connectPiProvider("codex", new AbortController().signal, vi.fn())
+    .catch((error) => error);
+  expect(error.message).toBe("授权失败");
+  expect(error.upstreamStatus).toBeUndefined();
+  expect(error.upstreamErrorBody).toBeUndefined();
+});

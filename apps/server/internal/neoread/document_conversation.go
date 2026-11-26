@@ -263,6 +263,7 @@ func (a *documentAgent) conversationInput(in AIInput, initial bool) string {
 	if question == "" {
 		question = in.Prompt
 	}
+	in.Chat.Skill.writePrompt(&b)
 	b.WriteString("用户问题：" + question)
 	return b.String()
 }

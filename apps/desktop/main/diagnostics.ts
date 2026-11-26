@@ -21,6 +21,7 @@ import {
   redactLog,
   type DiagnosticEvent,
 } from "../../../packages/neoread-core/src/diagnostics";
+import { safeBrandColors } from "../../../packages/neoread-core/src/index";
 
 export const retention = {
   days: 7,
@@ -174,7 +175,7 @@ export class DiagnosticLogs {
               continue;
             }
             const snapshot = lstatSync(location);
-            if (snapshot.size > 32 * 1024 * 1024)
+            if (legacy && snapshot.size > 32 * 1024 * 1024)
               throw new Error("oversized file");
             zip.addReadStreamLazy(
               archiveName,
@@ -298,7 +299,7 @@ export class DiagnosticLogs {
                   droppedWrites: this.droppedWrites,
                   retention,
                   redactions: [
-                    "credentials, URLs and user paths",
+                    "credentials, URLs and user paths (except verbatim authorization error bodies)",
                     "legacy raw document/model output removed",
                     "settings allowlist; no library database or documents",
                   ],
@@ -328,15 +329,18 @@ export class DiagnosticLogs {
   }
 }
 
-/** Safe scalar settings cached by the main process; no API keys, endpoint or text. */
+/** Safe appearance and scalar settings; no API keys, endpoint or text. */
 export function diagnosticSettings(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const safe: Record<string, unknown> = {};
   const v = value as Record<string, unknown>;
+  const brandColors = safeBrandColors(v.brandColors);
+  if (brandColors) safe.brandColors = brandColors;
   for (const key of [
     "appearance",
     "autoTranslatePDF",
     "linkTranslationAnnotations",
+    "sourceReflow",
     "textReflow",
     "translationFontFamily",
     "translationFontSize",

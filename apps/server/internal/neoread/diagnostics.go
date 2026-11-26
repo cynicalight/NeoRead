@@ -148,13 +148,13 @@ func (s *Server) recordDiagnostic(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(204)
 }
 
-// Only reproducibility-related scalars. Never serialize the complete settings or AI config.
+// Only reproducibility-related scalars and bounded appearance colors. Never serialize the complete settings or AI config.
 func (s *Server) diagnosticSettings() map[string]any {
 	result := map[string]any{}
 	for _, item := range []struct {
 		key     string
 		allowed []string
-	}{{"neoread", []string{"appearance", "autoTranslatePDF", "linkTranslationAnnotations", "textReflow", "translationFontFamily", "translationFontSize"}}, {"preferences:library", []string{"mode", "primaryMode"}}} {
+	}{{"neoread", []string{"appearance", "autoTranslatePDF", "linkTranslationAnnotations", "sourceReflow", "textReflow", "translationFontFamily", "translationFontSize"}}, {"preferences:library", []string{"mode", "primaryMode"}}} {
 		var body string
 		if s.Store.DB.QueryRow("SELECT value FROM settings WHERE key=?", item.key).Scan(&body) != nil {
 			continue
@@ -171,6 +171,19 @@ func (s *Server) diagnosticSettings() map[string]any {
 			case string:
 				if len(v) < 100 {
 					safe[key] = v
+				}
+			}
+		}
+		if item.key == "neoread" {
+			if colors, ok := value["brandColors"].(map[string]any); ok {
+				brandColors := map[string]string{}
+				for _, mode := range []string{"light", "sepia", "dark", "black"} {
+					if color, ok := colors[mode].(string); ok && colorPattern.MatchString(color) {
+						brandColors[mode] = color
+					}
+				}
+				if len(brandColors) > 0 {
+					safe["brandColors"] = brandColors
 				}
 			}
 		}

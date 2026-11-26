@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, LoaderCircle, Plus, Pencil, Trash2 } from "lucide-react";
 import { api } from "@neoread/api";
 import type { DocumentChatSession } from "@neoread/core";
+import { createDocumentChatSession } from "./create-session";
 import { Button } from "@neoread/ui/components/button";
 import {
   Select,
@@ -63,12 +64,7 @@ export function SessionPicker({
   const create = async () => {
     setSaving(true);
     try {
-      const session = await api.createChatSession(
-        documentId,
-        provider || "api",
-      );
-      await onRefresh();
-      onChange(session.id);
+      await createDocumentChatSession(documentId, provider, onRefresh, onChange);
     } catch (error) {
       toast.error((error as Error).message);
     } finally {

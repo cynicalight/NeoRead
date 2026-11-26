@@ -225,6 +225,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/documents/{id}/search", s.search)
 	mux.HandleFunc("GET /api/documents/{id}/text", s.documentText)
 	mux.HandleFunc("GET /api/search", s.librarySearch)
+	mux.HandleFunc("GET /api/skills", s.listSkills)
+	mux.HandleFunc("POST /api/skills", s.saveSkill)
+	mux.HandleFunc("POST /api/skills/draft", s.draftSkill)
 	mux.HandleFunc("GET /api/documents/{id}/messages", s.messages)
 	mux.HandleFunc("GET /api/documents/{id}/messages/{message}/sources/{source}", s.validateChatEvidence)
 	mux.HandleFunc("POST /api/documents/{id}/chat", s.chat)
@@ -295,6 +298,13 @@ func (s *Server) Handler() http.Handler {
 			n, ok := value.(float64)
 			if !ok || n < 0 || n > 150 || n != float64(int(n)) || int(n)%10 != 0 {
 				fail(w, 400, "自动翻译页数须为 0—150 之间的 10 的整数倍")
+				return
+			}
+		}
+		if value, exists := v["layoutPanelConfidence"]; exists {
+			n, ok := value.(float64)
+			if !ok || n < minLayoutPanelConfidence || n > maxLayoutPanelConfidence {
+				fail(w, 400, "子图置信度须在 0.2—0.5 之间")
 				return
 			}
 		}

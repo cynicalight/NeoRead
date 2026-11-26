@@ -230,7 +230,7 @@ assets/            # Logo 源文件与应用图标
 欢迎交流/分享/催更, 加群获得最新动向.
 
 微信群:
-<img width="720" height="1232" alt="image" src="https://github.com/user-attachments/assets/dd527037-8725-4402-bd7e-35b38297e413" />
+<img width="360" alt="NeoRead 微信交流群二维码" src="assets/community/wechat-group.png" />
 
 抖音搜 bu44er 有 500 人反馈大群.
 

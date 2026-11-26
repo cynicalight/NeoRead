@@ -1,7 +1,49 @@
 import { useMemo, useSyncExternalStore } from "react";
-import { defaultTheme, type ReaderTheme } from "@neoread/core";
+import { defaultTheme, validBrandColor, type ReaderTheme } from "@neoread/core";
 const query = "(prefers-color-scheme: dark)";
-export function applyDocumentTheme(theme: ReaderTheme) {
+
+type BrandMode = keyof NonNullable<ReaderTheme["brandColors"]>;
+type ThemePalette = Pick<ReaderTheme, "mode" | "pdfDarkContrast" | "brandColors">;
+
+// Native color inputs need sRGB hex; the grays match the CSS OKLCH defaults.
+const defaultBrandColors: Record<BrandMode, string> = {
+  light: "#1e1e1e",
+  sepia: "#c2643e",
+  dark: "#e4dfda",
+  black: "#e4e4e4",
+};
+
+function brandForeground(color: string, sepia: boolean) {
+  const rgb = Number.parseInt(color.slice(1), 16);
+  const linear = (value: number, surface: number) => {
+    const channel = (sepia ? value * 0.9 + surface * 0.1 : value) / 255;
+    return channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4;
+  };
+  // Paper's primary is 90% opaque on its #f7f6f2 surface.
+  const luminance =
+    0.2126 * linear(rgb >> 16, 247) +
+    0.7152 * linear((rgb >> 8) & 255, 246) +
+    0.0722 * linear(rgb & 255, 242);
+  // Pick the higher WCAG contrast ratio against black or white.
+  return luminance >= Math.sqrt(1.05 * 0.05) - 0.05 ? "#000000" : "#ffffff";
+}
+
+export function themeBrandColor(theme: ThemePalette) {
+  const mode: BrandMode =
+    theme.mode === "dark" && theme.pdfDarkContrast === "high"
+      ? "black"
+      : theme.mode;
+  const saved = theme.brandColors?.[mode];
+  return {
+    mode,
+    defaultColor: defaultBrandColors[mode],
+    customColor: validBrandColor(saved) ? saved : undefined,
+  };
+}
+
+export function applyDocumentTheme(theme: ThemePalette) {
   const dark = theme.mode === "dark";
   const root = document.documentElement;
   root.classList.toggle("dark", dark);
@@ -9,6 +51,17 @@ export function applyDocumentTheme(theme: ReaderTheme) {
   if (dark) root.dataset.darkContrast = theme.pdfDarkContrast ?? "soft";
   else delete root.dataset.darkContrast;
   root.style.colorScheme = dark ? "dark" : "light";
+  const { customColor } = themeBrandColor(theme);
+  if (customColor) {
+    root.style.setProperty("--brand", customColor);
+    root.style.setProperty(
+      "--primary-foreground",
+      brandForeground(customColor, theme.mode === "sepia"),
+    );
+  } else {
+    root.style.removeProperty("--brand");
+    root.style.removeProperty("--primary-foreground");
+  }
 }
 
 /** Run before mounting React so its first effect uses the native window's theme. */

@@ -2626,6 +2626,110 @@
                 ],
             },
         },
+      "/api/skills": {
+        "get": {
+          "summary": "List local skills available for chat",
+          "responses": {
+            "200": {
+              "description": "Skill metadata only; an empty array if no skills are available",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "array",
+                    "items": { "$ref": "#/components/schemas/SkillSummary" }
+                  }
+                }
+              }
+            },
+            "default": {
+              "description": "Error",
+              "content": {
+                "application/json": {
+                  "schema": { "$ref": "#/components/schemas/Error" }
+                }
+              }
+            }
+          }
+        },
+        "post": {
+          "summary": "Save a confirmed local skill",
+          "description": "Writes ~/.agents/skills/<name>/SKILL.md. Skills of the same name in other roots are not modified; the saved skill takes precedence in discovery.",
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SaveSkillRequest" }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Saved skill metadata",
+              "content": {
+                "application/json": {
+                  "schema": { "$ref": "#/components/schemas/SkillSummary" }
+                }
+              }
+            },
+            "409": {
+              "description": "The destination already exists and overwrite was not confirmed",
+              "content": {
+                "application/json": {
+                  "schema": { "$ref": "#/components/schemas/Error" }
+                }
+              }
+            },
+            "default": {
+              "description": "Error",
+              "content": {
+                "application/json": {
+                  "schema": { "$ref": "#/components/schemas/Error" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/skills/draft": {
+        "post": {
+          "summary": "Generate a local skill draft for review",
+          "description": "Sends the request and up to 12 recent user and assistant message texts (up to 1024 Unicode characters each) to the configured primary Agent. The session selects transcript context, not the model provider. Does not send document content separately or save a file or a chat turn.",
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DraftSkillRequest" }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Generated draft",
+              "content": {
+                "application/json": {
+                  "schema": { "$ref": "#/components/schemas/SkillDraft" }
+                }
+              }
+            },
+            "404": {
+              "description": "The document or selected chat session was not found",
+              "content": {
+                "application/json": {
+                  "schema": { "$ref": "#/components/schemas/Error" }
+                }
+              }
+            },
+            "default": {
+              "description": "Error",
+              "content": {
+                "application/json": {
+                  "schema": { "$ref": "#/components/schemas/Error" }
+                }
+              }
+            }
+          }
+        }
+      },
       "/api/documents/{id}/chat":
         {
           "post":
@@ -2711,9 +2815,14 @@
                                     {
                                       "type": "string",
                                       "pattern": "^[a-f0-9]{32}$",
-                                      "description": "Stable client-generated user message ID. Reuse only for explicit regeneration of the same unanswered last question, with unchanged prompt, context, references, attachments and reading location. The server uses current model settings, does not insert a duplicate question, and returns 409 if the turn has an answer or later messages. Omit for legacy clients.",
+                                      "description": "Stable client-generated user message ID. Reuse only for explicit regeneration of the same unanswered last question, with unchanged prompt, context, references, attachments, reading location and skill. The server uses current model settings, does not insert a duplicate question, and returns 409 if the turn has an answer or later messages. Omit for legacy clients.",
                                     },
                                   "prompt": { "type": "string" },
+                                  "skill":
+                                    {
+                                      "type": "string",
+                                      "description": "Name from GET /api/skills, without the leading slash. Applies to this question only.",
+                                    },
                                   "context": { "type": "string" },
                                   "readingLocation":
                                     {
@@ -3402,7 +3511,7 @@
             ],
           "post":
             {
-              "description": "Connect a built-in Pi provider with browser authorization or a device code. The NDJSON stream emits auth_url, device_code, progress (authorizing or exchanging), complete or error. Browser callbacks are handled by the SDK; complete confirms credentials were saved and activated.",
+              "description": "Connect a built-in Pi provider with browser authorization or a device code. The NDJSON stream emits auth_url, device_code, progress (authorizing or exchanging), complete or error. Browser callbacks are handled by the SDK; complete confirms credentials were saved and activated. Failed upstream requests include optional upstreamStatus (HTTP 400-599) and upstreamErrorBody (the full response text) on the terminal error event.",
               "requestBody":
                 {
                   "required": true,
@@ -5854,9 +5963,14 @@
                                     {
                                       "type": "string",
                                       "pattern": "^[a-f0-9]{32}$",
-                                      "description": "Stable client-generated user message ID. Reuse only for explicit regeneration of the same unanswered last question, with unchanged prompt, context, references, attachments and reading location. The server uses current model settings, does not insert a duplicate question, and returns 409 if the turn has an answer or later messages. Omit for legacy clients.",
+                                      "description": "Stable client-generated user message ID. Reuse only for explicit regeneration of the same unanswered last question, with unchanged prompt, context, references, attachments, reading location and skill. The server uses current model settings, does not insert a duplicate question, and returns 409 if the turn has an answer or later messages. Omit for legacy clients.",
                                     },
                                   "prompt": { "type": "string" },
+                                  "skill":
+                                    {
+                                      "type": "string",
+                                      "description": "Name from GET /api/skills, without the leading slash. Applies to this question only.",
+                                    },
                                   "context": { "type": "string" },
                                   "readingLocation":
                                     {
@@ -6861,6 +6975,57 @@
                 },
               "required": ["id", "excerpt", "location"],
             },
+          "SkillSummary": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "source": { "type": "string", "enum": ["agents", "claude", "codex"] }
+            },
+            "required": ["name", "description", "source"]
+          },
+          "DraftSkillRequest": {
+            "type": "object",
+            "properties": {
+              "documentId": { "type": "string" },
+              "sessionId": {
+                "type": "string",
+                "description": "A chat session of the given document. If omitted, uses its default session, or unassigned legacy messages if there is no default session."
+              },
+              "request": {
+                "type": "string",
+                "description": "Instructions for the skill, 1 to 4096 UTF-8 bytes after trimming."
+              }
+            },
+            "required": ["documentId", "request"]
+          },
+          "SkillDraft": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "body": {
+                "type": "string",
+                "description": "Markdown instructions, without YAML front matter."
+              }
+            },
+            "required": ["name", "description", "body"]
+          },
+          "SaveSkillRequest": {
+            "allOf": [
+              { "$ref": "#/components/schemas/SkillDraft" },
+              {
+                "type": "object",
+                "properties": {
+                  "overwrite": {
+                    "type": "boolean",
+                    "description": "True only after the user confirms replacing the existing file."
+                  }
+                },
+                "required": ["overwrite"]
+              }
+            ]
+          },
           "Message":
             {
               "type": "object",
@@ -6870,6 +7035,11 @@
                   "documentId": { "type": "string" },
                   "role": { "enum": ["user", "assistant"] },
                   "content": { "type": "string" },
+                  "skill":
+                    {
+                      "type": "string",
+                      "description": "Name of the local skill explicitly selected for this user question.",
+                    },
                   "reasoning":
                     {
                       "type": "string",
@@ -7413,6 +7583,24 @@
                 },
               "required": ["url", "model", "hasKey"],
             },
+          "APIProfile":
+            {
+              "type": "object",
+              "properties":
+                {
+                  "id": { "type": "string" },
+                  "name": { "type": "string" },
+                  "protocol":
+                    {
+                      "type": "string",
+                      "enum": ["openai", "responses", "anthropic", "auto"],
+                    },
+                  "url": { "type": "string" },
+                  "key": { "type": "string", "writeOnly": true },
+                  "hasKey": { "type": "boolean" },
+                },
+              "required": ["id", "name", "url", "hasKey"],
+            },
           "AgentModel":
             {
               "type": "object",
@@ -7567,10 +7755,21 @@
                       "description": "Model IDs the user added beside the api endpoint's /models list.",
                       "items": { "type": "string" },
                     },
+                  "apiProfiles":
+                    {
+                      "type": "array",
+                      "description": "Saved API connections without model settings. On PUT, an empty array deletes all profiles; a key omitted with hasKey true keeps the saved key for the same profile and base URL.",
+                      "items": { "$ref": "#/components/schemas/APIProfile" },
+                    },
+                  "activeAPIProfile":
+                    {
+                      "type": "string",
+                      "description": "ID of the active connection. If the active profile is deleted, the first remaining profile is selected.",
+                    },
                   "api":
                     {
                       "$ref": "#/components/schemas/APIConnection",
-                      "description": "OpenAI-compatible endpoint of the api agent. Its models are chosen in models and translationModels; model here is unused.",
+                      "description": "Active endpoint of the api agent. The server mirrors the selected profile here. Model settings are separate.",
                     },
                   "textAPI": { "$ref": "#/components/schemas/APIConnection" },
                   "imageAPI": { "$ref": "#/components/schemas/APIConnection" },

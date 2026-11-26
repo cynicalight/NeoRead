@@ -65,10 +65,15 @@ func TestSimilarTextIgnoresGreekVariablesOnBothSides(t *testing.T) {
 func TestTranslationPromptSplitsParagraphsIntoSentences(t *testing.T) {
 	for _, doc := range []Document{{Title: "t"}, {Title: "t", Type: "epub"}} {
 		prompt := translationPrompt(doc, layoutManifest{Pages: 1}, translationBatch{}, "")
-		for _, rule := range []string{`{"source":"第一句原文","target":"第一句译文"},{"source":"第二句原文"`, "必须按原文句子拆分", "不能把整段放进一个元素"} {
+		for _, rule := range []string{"必须按原文句子拆分", "不能把整段放进一个元素", "不沿用已输出行的格式"} {
 			if !strings.Contains(prompt, rule) {
 				t.Fatalf("%s prompt lacks %q", doc.Type, rule)
 			}
+		}
+		// The split rule is restated after the document data, the last thing read before output.
+		_, tail, _ := strings.Cut(prompt, "输入资料：\n")
+		if !strings.Contains(tail[strings.LastIndex(tail, "}")+1:], "多句段落必须输出多个元素") {
+			t.Fatalf("%s prompt does not restate the split rule after the data", doc.Type)
 		}
 		// Paragraph rules must not read as forbidding sentence splits.
 		if strings.Contains(prompt, "不合并、拆分或遗漏") {

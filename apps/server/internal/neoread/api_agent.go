@@ -184,11 +184,15 @@ func (a apiAgentAdapter) Stream(ctx context.Context, req GenerateRequest, emit f
 	return streamCompletion(ctx, a.conn, completion, req.Input, emit)
 }
 
+func apiCatalogKey(c APIConnection) string {
+	sum := sha256.Sum256([]byte(c.URL + "\x00" + c.Key + "\x00" + c.Protocol))
+	return "api:" + hex.EncodeToString(sum[:])
+}
+
 // apiCatalog binds model discovery to one endpoint snapshot. The cache key
 // covers the URL and key, so an edited connection never reuses another list.
 func (s *Server) apiCatalog(c APIConnection) func(context.Context) ([]AgentModel, error) {
-	sum := sha256.Sum256([]byte(c.URL + "\x00" + c.Key + "\x00" + c.Protocol))
-	key := "api:" + hex.EncodeToString(sum[:])
+	key := apiCatalogKey(c)
 	return func(ctx context.Context) ([]AgentModel, error) {
 		return s.cachedCatalog(ctx, key, func(ctx context.Context) ([]AgentModel, error) {
 			return discoverAPIModels(ctx, c)

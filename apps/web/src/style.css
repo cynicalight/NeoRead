@@ -12,7 +12,10 @@
   --card-foreground: oklch(0.205 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.205 0 0);
-  --primary: oklch(0.235 0 0);
+  --brand: oklch(0.235 0 0);
+  --primary: var(--brand);
+  --primary-5: color-mix(in srgb, var(--primary) 5%, transparent);
+  --primary-10: color-mix(in srgb, var(--primary) 10%, transparent);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.965 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -36,7 +39,8 @@
   --card-foreground: #e4dfda;
   --popover: #383438;
   --popover-foreground: #e4dfda;
-  --primary: #e4dfda;
+  --brand: #e4dfda;
+  --primary: var(--brand);
   --primary-foreground: #2f2c2f;
   --secondary: #3a363a;
   --secondary-foreground: #e4dfda;
@@ -57,7 +61,8 @@
   --card-foreground: oklch(0.92 0 0);
   --popover: oklch(0.22 0 0);
   --popover-foreground: oklch(0.92 0 0);
-  --primary: oklch(0.92 0 0);
+  --brand: oklch(0.92 0 0);
+  --primary: var(--brand);
   --primary-foreground: oklch(0.205 0 0);
   --secondary: oklch(0.25 0 0);
   --secondary-foreground: oklch(0.92 0 0);
@@ -114,17 +119,13 @@
 :root[data-theme="sepia"] {
   color-scheme: light;
   --brand: #c2643e;
-  --brand-90: color-mix(in srgb, var(--brand) 90%, transparent);
-  --brand-10: color-mix(in srgb, var(--brand) 10%, transparent);
-  --brand-30: color-mix(in srgb, var(--brand) 30%, transparent);
-  --brand-text: #ac512e;
   --background: #f7f6f2;
   --foreground: #1f1e1d;
   --card: #f7f6f2;
   --card-foreground: #1f1e1d;
   --popover: #f7f6f2;
   --popover-foreground: #1f1e1d;
-  --primary: var(--brand-90);
+  --primary: color-mix(in srgb, var(--brand) 90%, transparent);
   --primary-foreground: #ffffff;
   --secondary: #eeede7;
   --secondary-foreground: #1f1e1d;
@@ -134,25 +135,10 @@
   --accent-foreground: #1f1e1d;
   --border: #e2e1db;
   --input: #e2e1db;
-  --ring: var(--brand-90);
+  --ring: color-mix(in srgb, #c2643e 90%, transparent);
 }
 :root[data-theme="sepia"] .app {
   background: #eeede7;
-}
-:root[data-theme="sepia"] .nav-item.active {
-  background: var(--brand-10);
-  color: var(--brand-text);
-}
-:root[data-theme="sepia"]
-  :is([data-slot="button"], [data-slot="badge"]).text-primary {
-  color: var(--brand-text);
-}
-:root[data-theme="sepia"] .book-card[data-selected="true"],
-:root[data-theme="sepia"]
-  :is(.paper-row, .paper-table-row, .paper-card)[data-selected],
-:root[data-theme="sepia"]
-  :is(.paper-row, .paper-table-row, .paper-card)[data-picked] {
-  background: var(--brand-10);
 }
 :root[data-theme="sepia"]
   .model-select-menu
@@ -160,7 +146,7 @@
   color: var(--primary);
 }
 :root[data-theme="sepia"] .effort-panel {
-  --effort-blue: var(--brand-90);
+  --effort-blue: color-mix(in srgb, #c2643e 90%, transparent);
 }
 @theme inline {
   --color-background: var(--background);
@@ -357,7 +343,7 @@ kbd {
   padding-inline: 12px;
 }
 .nav-item.active {
-  background: color-mix(in oklch, var(--foreground) 6%, var(--background));
+  background: var(--primary-10);
   color: var(--foreground);
 }
 .nav-count {
@@ -1968,9 +1954,6 @@ kbd {
   background: var(--primary);
   opacity: 0.3;
 }
-:root[data-theme="sepia"] .neoread-block-reference-flash {
-  background: var(--brand);
-}
 @keyframes processing-light {
   from {
     transform: translateX(-120%);
@@ -2719,7 +2702,7 @@ kbd {
 .book-card[data-selected="true"] {
   outline: 2px solid var(--primary);
   outline-offset: 5px;
-  background: var(--accent);
+  background: var(--primary-10);
 }
 .book-card:focus-visible {
   outline: 2px solid var(--ring);
@@ -3298,7 +3281,7 @@ kbd {
 }
 .paper-row[data-selected],
 .paper-row[data-picked] {
-  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  background: var(--primary-10);
 }
 .paper-table-tags {
   display: flex;
@@ -3514,7 +3497,7 @@ body[data-resizing] * {
 }
 .paper-table-row[data-selected],
 .paper-table-row[data-picked] {
-  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  background: var(--primary-10);
 }
 .paper-row-main {
   flex: 1;
@@ -3601,7 +3584,7 @@ body[data-resizing] * {
 }
 .paper-card[data-selected],
 .paper-card[data-picked] {
-  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  background: var(--primary-10);
 }
 .paper-card-cover.book-cover {
   padding: 14px 12px;
@@ -4303,9 +4286,16 @@ textarea.citation-preview {
   width: 10px;
   height: 10px;
 }
+/* Sized by the active tab's content, up to the former fixed height; longer
+   tabs scroll inside their panel. The top edge stays where the tallest
+   dialog would start, so shorter tabs only raise the bottom edge. */
 .settings-dialog {
-  height: min(620px, 85vh);
-  grid-template-rows: auto minmax(0, 1fr);
+  --settings-dialog-max: min(620px, 85vh);
+  display: flex;
+  flex-direction: column;
+  max-height: var(--settings-dialog-max);
+  top: calc(50% - var(--settings-dialog-max) / 2);
+  --tw-translate-y: 0;
 }
 /* Panels scroll up under the nav into the same fading blur as the assistant
    sidebar header (::before surface + 16px blur, ::after 4px blur). */

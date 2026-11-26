@@ -33,7 +33,7 @@ export class SentenceHover {
     private host: HTMLElement,
     private name: string,
   ) {
-    const background = "var(--sentence-hover-background, rgb(128 128 128 / 22%))";
+    const background = "var(--sentence-hover-background, var(--primary-10))";
     const rules: string[] = [];
     for (const slot of [0, 1])
       for (let level = 1; level <= levels; level++) {

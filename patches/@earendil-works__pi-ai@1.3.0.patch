@@ -1,0 +1,131 @@
+diff --git a/dist/auth/oauth/callback-server.js b/dist/auth/oauth/callback-server.js
+--- a/dist/auth/oauth/callback-server.js
++++ b/dist/auth/oauth/callback-server.js
+@@ -5,6 +5,9 @@
+  * loaded OAuth flow modules, never from browser-facing entry points.
+  */
+ import { createServer } from "node:http";
++import { channel } from "node:diagnostics_channel";
++// Optional, in-process diagnostics. Never publish URLs, codes, state, or tokens.
++const diagnostics = channel("neoread.pi.oauth.callback");
+ import { oauthErrorHtml, oauthSuccessHtml } from "../../utils/oauth-page.js";
+ function sendPage(response, status, html) {
+     response.writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+@@ -12,6 +15,12 @@
+ }
+ export async function startOAuthCallbackServer(options) {
+     const { providerName, signal } = options;
++    let callbackPort = options.port;
++    const report = (stage, reasonCode, error) => {
++        if (diagnostics.hasSubscribers)
++            diagnostics.publish({ stage, reasonCode, error, callbackPort,
++                addressFamily: options.host === "127.0.0.1" ? "ipv4" : options.host === "::1" ? "ipv6" : "other" });
++    };
+     if (signal?.aborted)
+         throw new Error("Login cancelled");
+     let resolveWait = () => { };
+@@ -25,7 +34,10 @@
+     let claimed = false;
+     let settled = false;
+     let timer;
+-    const onAbort = () => finish({ error: new Error("Login cancelled") });
++    const onAbort = () => {
++        report("cancelled", "login_cancelled");
++        finish({ error: new Error("Login cancelled") });
++    };
+     const finish = (result) => {
+         if (settled)
+             return;
+@@ -41,20 +53,25 @@
+     const server = createServer((request, response) => {
+         void (async () => {
+             const url = new URL(request.url ?? "/", "http://localhost");
++            report("received");
+             if (request.method !== "GET" || url.pathname !== options.path) {
++                report("rejected", request.method !== "GET" ? "unexpected_method" : "unexpected_route");
+                 sendPage(response, 404, oauthErrorHtml("Callback route not found."));
+                 return;
+             }
+             if (options.state !== undefined && url.searchParams.get("state") !== options.state) {
++                report("rejected", "state_mismatch");
+                 sendPage(response, 400, oauthErrorHtml("State mismatch."));
+                 return;
+             }
+             if (claimed || settled) {
++                report("rejected", "already_handled");
+                 sendPage(response, 409, oauthErrorHtml("This sign-in has already been handled."));
+                 return;
+             }
+             const error = url.searchParams.get("error");
+             if (error) {
++                report("rejected", "authorization_denied");
+                 const description = url.searchParams.get("error_description") ?? error;
+                 sendPage(response, 400, oauthErrorHtml(`${providerName} authorization failed.`, description));
+                 finish({ error: new Error(`${providerName} authorization failed: ${description}`) });
+@@ -62,26 +79,35 @@
+             }
+             const code = url.searchParams.get("code");
+             if (!code) {
++                report("rejected", "missing_code");
+                 sendPage(response, 400, oauthErrorHtml("Missing authorization code."));
+                 return;
+             }
++            report("accepted");
+             claimed = true;
+             try {
+                 const value = await options.complete(code);
++                report("completed");
+                 sendPage(response, 200, oauthSuccessHtml(`Signed in to ${providerName}. You may now close this page.`));
+                 finish({ value });
+             }
+             catch (error) {
++                report("failed", "callback_completion_failed", error);
+                 const failure = error instanceof Error ? error : new Error(String(error));
+                 sendPage(response, 502, oauthErrorHtml(`${providerName} sign-in failed.`, failure.message));
+                 finish({ error: failure });
+             }
+         })();
+     });
++    report("listen_start");
+     await new Promise((resolve, reject) => {
+-        server.once("error", reject);
++        const onListenError = (error) => {
++            report("listen_failed", "callback_bind_failed", error);
++            reject(error);
++        };
++        server.once("error", onListenError);
+         server.listen(options.port, options.host, () => {
+-            server.off("error", reject);
++            server.off("error", onListenError);
+             resolve();
+         });
+     });
+@@ -90,10 +116,18 @@
+         server.close();
+         throw new Error("OAuth callback server did not bind to TCP");
+     }
+-    server.on("error", (error) => finish({ error }));
++    callbackPort = address.port;
++    report("listening");
++    server.on("error", (error) => {
++        report("failed", "callback_server_failed", error);
++        finish({ error });
++    });
+     signal?.addEventListener("abort", onAbort, { once: true });
+     if (options.timeoutMs !== undefined) {
+-        timer = setTimeout(() => finish({ error: new Error(`${providerName} sign-in timed out`) }), options.timeoutMs);
++        timer = setTimeout(() => {
++            report("timeout", "callback_timeout");
++            finish({ error: new Error(`${providerName} sign-in timed out`) });
++        }, options.timeoutMs);
+     }
+     const redirectHost = options.redirectHost ?? options.host;
+     return {
+@@ -104,6 +138,7 @@
+                 finish({ value: undefined });
+         },
+         close: () => {
++            report("close_requested");
+             finish({ error: new Error("OAuth callback server closed") });
+             server.close();
+         },

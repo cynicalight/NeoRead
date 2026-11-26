@@ -6,7 +6,12 @@ import { resolve, join, dirname } from "node:path";
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
 import { detectRegions } from "./detect";
-import { readingRegions, isAsset, type ReadingRegion } from "./layout";
+import {
+  readingRegions,
+  isAsset,
+  defaultPanelConfidence,
+  type ReadingRegion,
+} from "./layout";
 import { extractTextSpans } from "./text";
 import { digest, model, resolveModel } from "./model";
 import { renderPage } from "./render-page";
@@ -38,13 +43,20 @@ const { values } = parseArgs({
     "from-page": { type: "string" },
     "to-page": { type: "string" },
     debug: { type: "boolean", default: false },
+    // Minimum score for chart/image panels; others keep the 0.5 threshold.
+    "panel-confidence": { type: "string" },
   },
 });
 const probe = values["scan-only"];
 if (!values.input || (!probe && !values.output))
   throw new Error(
-    "Usage: --input PDF --output DIRECTORY [--from-page N] [--to-page N] [--model FILE] [--debug]",
+    "Usage: --input PDF --output DIRECTORY [--from-page N] [--to-page N] [--model FILE] [--panel-confidence 0.2-0.5] [--debug]",
   );
+const panelConfidence = Number(
+  values["panel-confidence"] ?? defaultPanelConfidence,
+);
+if (!(panelConfidence >= 0.2 && panelConfidence <= 0.5))
+  throw new Error("子图置信度须在 0.2—0.5 之间");
 const pageBound = (value: string | undefined) => {
   if (value === undefined) return undefined;
   const page = Number(value);
@@ -129,7 +141,7 @@ async function processPages() {
     const { canvas, scale } = await renderPage(page);
     const context = canvas.getContext("2d");
     stage("page_inference", number);
-    const regions = await detectRegions(session, canvas);
+    const regions = await detectRegions(session, canvas, panelConfidence);
     stage("page_text", number);
     let spans = await extractTextSpans(page, scale);
     const [x0, y0, x1, y1] = page.view;

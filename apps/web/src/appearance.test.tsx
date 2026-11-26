@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { defaultTheme, type ReaderTheme } from "@neoread/core";
+import { defaultTheme, validBrandColor, type ReaderTheme } from "@neoread/core";
 import {
   appearanceChoice,
   initialDesktopTheme,
@@ -21,13 +21,20 @@ afterEach(() => {
 });
 it("applies the saved desktop appearance before React mounts, even when the OS differs", () => {
   const theme = initialDesktopTheme(
-    { appearance: "dark", pdfDarkContrast: "high" },
+    {
+      appearance: "dark",
+      pdfDarkContrast: "high",
+      brandColors: { black: "#112233" },
+    },
     false,
   );
   expect(theme.appearance).toBe("dark");
   expect(document.documentElement.classList.contains("dark")).toBe(true);
   expect(document.documentElement.dataset.darkContrast).toBe("high");
   expect(document.documentElement.style.colorScheme).toBe("dark");
+  expect(document.documentElement.style.getPropertyValue("--brand")).toBe(
+    "#112233",
+  );
   // React resolves the same seeded state and cannot overwrite it with system defaults.
   applyDocumentTheme(resolveTheme(theme, false));
   expect(document.documentElement.dataset.theme).toBe("dark");
@@ -38,6 +45,61 @@ it("applies the saved desktop appearance before React mounts, even when the OS d
   expect(document.documentElement.dataset.theme).toBe("sepia");
   expect(document.documentElement.dataset.darkContrast).toBeUndefined();
 });
+it("applies and clears the custom accent for each resolved palette", () => {
+  const theme: ReaderTheme = {
+    ...defaultTheme,
+    systemLightMode: "sepia",
+    systemDarkContrast: "high",
+    brandColors: {
+      light: "#757575",
+      sepia: "#757575",
+      dark: "#fefefe",
+      black: "#001122",
+    },
+  };
+  const style = document.documentElement.style;
+  for (const [resolved, expectedColor, expectedForeground] of [
+    [resolveTheme({ ...theme, appearance: "light" }, true), "#757575", "#ffffff"],
+    [resolveTheme(theme, false), "#757575", "#000000"],
+    [
+      resolveTheme({ ...theme, systemDarkContrast: "soft" }, true),
+      "#fefefe",
+      "#000000",
+    ],
+    [resolveTheme(theme, true), "#001122", "#ffffff"],
+  ] as const) {
+    applyDocumentTheme(resolved);
+    expect(style.getPropertyValue("--brand")).toBe(expectedColor);
+    expect(style.getPropertyValue("--primary-foreground")).toBe(
+      expectedForeground,
+    );
+  }
+  applyDocumentTheme({ ...theme, mode: "dark", brandColors: { dark: "red" } });
+  expect(style.getPropertyValue("--brand")).toBe("");
+  expect(style.getPropertyValue("--primary-foreground")).toBe("");
+
+  applyDocumentTheme(theme);
+  applyDocumentTheme(defaultTheme);
+  expect(style.getPropertyValue("--brand")).toBe("");
+  expect(style.getPropertyValue("--primary-foreground")).toBe("");
+});
+
+it("accepts only six-digit hex brand colors", () => {
+  expect(validBrandColor("#00aAbB")).toBe(true);
+  for (const color of [
+    "#abc",
+    "#00aabbff",
+    "#00gabb",
+    "#00aabb\n",
+    "red",
+    123456,
+    null,
+    { toString: () => "#00aabb" },
+  ]) {
+    expect(validBrandColor(color)).toBe(false);
+  }
+});
+
 it("resolves explicit appearance independently from OS and preserves paper mode", () => {
   expect(
     resolveTheme({ ...defaultTheme, appearance: "light" }, true).mode,

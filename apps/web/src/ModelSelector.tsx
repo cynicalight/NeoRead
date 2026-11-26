@@ -395,6 +395,7 @@ export function catalogRevision(config: AIConfig | null | undefined) {
     .map(([key, value]) => `${key}@${value.checkedAt}`)
     .sort();
   return [
+    config.activeAPIProfile ?? "",
     config.api.url,
     config.api.protocol ?? "auto",
     ...(config.apiModels ?? []),

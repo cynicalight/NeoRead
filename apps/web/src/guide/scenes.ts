@@ -1789,7 +1789,7 @@ const connector = scene({
       else
         paragraph(
           f,
-          "首次收录时，Chrome 会请求网站访问权限。",
+          "首次收录时，浏览器会请求网站访问权限。",
           P.x + 14,
           P.y + 236,
           P.w - 28,

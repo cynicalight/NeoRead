@@ -24,7 +24,7 @@ vi.mock("../annotated-pdf-export", () => ({
 vi.mock("@neoread/api", () => ({
   api: {
     annotations: vi.fn(async () => []),
-    messages: vi.fn(async () => []),
+    chatSessions: vi.fn(async () => []),
     paperAttachments: vi.fn(async () => []),
     removePaperAttachment: vi.fn(async () => {}),
     snapshotStatus: vi.fn(async () => ({ available: false })),
@@ -2794,10 +2794,6 @@ it("opens the shared export dialog for the context-clicked paper", async () => {
     toggles.find((el) => el.textContent === "导出")!.click(),
   );
   expect(api.annotations).toHaveBeenCalledWith(
-    docs[1].id,
-    expect.any(AbortSignal),
-  );
-  expect(api.messages).toHaveBeenCalledWith(
     docs[1].id,
     expect.any(AbortSignal),
   );

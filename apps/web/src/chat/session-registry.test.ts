@@ -67,6 +67,7 @@ it("reconnects one run automatically, then continues its checkpoint through the 
           sessionId: "session",
           role: "user",
           content: input.prompt,
+          skill: input.skill,
           createdAt: "",
         },
       ];
@@ -106,6 +107,7 @@ it("reconnects one run automatically, then continues its checkpoint through the 
   const sending = session.send({
     provider: "api",
     prompt: "question",
+    skill: "review",
     context: "",
     references: [],
     attachments: [],
@@ -113,6 +115,11 @@ it("reconnects one run automatically, then continues its checkpoint through the 
   await vi.advanceTimersByTimeAsync(1000);
   await sending;
   expect(api.startChatRun).toHaveBeenCalledOnce();
+  expect(api.startChatRun).toHaveBeenCalledWith(
+    "registry-doc",
+    "session",
+    expect.objectContaining({ prompt: "question", skill: "review" }),
+  );
   expect(watchChatRun).toHaveBeenCalledTimes(2);
   expect(session.getSnapshot().pending?.content).toBe("partial");
   expect(session.getSnapshot().pending?.resumable).toBe(true);
@@ -124,6 +131,7 @@ it("reconnects one run automatically, then continues its checkpoint through the 
     "run",
   );
   expect(history.filter((m) => m.role === "user")).toHaveLength(1);
+  expect(history[0].skill).toBe("review");
   expect(session.getSnapshot().pending?.content).toBe("continued");
   session.dispose();
 });

@@ -7,7 +7,7 @@ import type {
 } from "@neoread/core";
 import { api, publicationURL } from "@neoread/api";
 import { saveExportBlob, exportCancelled, fileTitle } from "./download";
-import { notesMarkdown } from "./notes-export";
+import { notesMarkdown, type ChatExportSession } from "./notes-export";
 import { reportDiagnostic } from "./diagnostics";
 
 export const annotationExportKinds = {
@@ -19,7 +19,7 @@ export const annotationExportKinds = {
 export type AnnotationExportKind = keyof typeof annotationExportKinds;
 export type ExportFormat = "markdown" | "pdf";
 export type ExportTarget =
-  "annotations" | "paperNote" | "original" | "translation";
+  "annotations" | "paperNote" | "chat" | "original" | "translation";
 
 export function selectedNotesMarkdown(
   doc: Document,
@@ -27,7 +27,11 @@ export function selectedNotesMarkdown(
   messages: Message[],
   kinds: AnnotationExportKind[],
   link?: (annotation: Annotation) => string,
-  options: { paperNote?: string; includeTitle?: boolean } = {},
+  options: {
+    paperNote?: string;
+    chat?: ChatExportSession[];
+    includeTitle?: boolean;
+  } = {},
 ) {
   return notesMarkdown(
     doc,
@@ -37,6 +41,7 @@ export function selectedNotesMarkdown(
       ),
       messages,
       paperNote: options.paperNote ?? "",
+      chat: options.chat,
     },
     ["paperNote", "notes", "highlights", "questions"],
     link,

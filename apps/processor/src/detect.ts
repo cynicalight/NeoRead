@@ -1,6 +1,6 @@
 import { createCanvas, type Canvas } from "@napi-rs/canvas";
 import * as ort from "onnxruntime-node";
-import { decodeRegions } from "./layout";
+import { decodeRegions, defaultPanelConfidence } from "./layout";
 import { model } from "./model";
 
 const size = 800;
@@ -9,6 +9,7 @@ const size = 800;
 export async function detectRegions(
   session: ort.InferenceSession,
   page: Canvas,
+  panelConfidence = defaultPanelConfidence,
 ) {
   const input = createCanvas(size, size),
     context = input.getContext("2d");
@@ -34,7 +35,12 @@ export async function detectRegions(
     [model.output],
   );
   try {
-    return decodeRegions(result[model.output].data as Float32Array, size, size);
+    return decodeRegions(
+      result[model.output].data as Float32Array,
+      size,
+      size,
+      panelConfidence,
+    );
   } finally {
     for (const tensor of Object.values(result)) tensor.dispose();
   }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +17,8 @@ import (
 
 func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 	piTestRuntime(t)
+	home := localSkillTestHome(t)
+	skillPath := writeLocalSkillTestFile(t, filepath.Join(home, ".agents", "skills", "check", "SKILL.md"), "---\nname: check\n---\nCHECKPOINT-SKILL-BODY")
 	s, a := prepareConversationFixture(t)
 	read := a.passageEvidence(0)
 	var models, searches atomic.Int32
@@ -34,6 +37,9 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			io.WriteString(w, `{"results":[{"title":"Saved source","url":"https://example.org/saved","summary":"SAVED TOOL RESULT"}]}`)
 			return
+		}
+		if strings.Count(string(raw), "CHECKPOINT-SKILL-BODY") != 1 || strings.Contains(string(raw), "REPLACEMENT-SKILL-BODY") {
+			t.Error("missing or replaced checkpoint skill")
 		}
 		n := models.Add(1)
 		switch n {
@@ -77,7 +83,7 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 	if response.Code != 201 || json.Unmarshal(response.Body.Bytes(), &chatSession) != nil {
 		t.Fatal(response.Code, response.Body.String())
 	}
-	response = request(t, s, "POST", "/api/documents/doc/chat-sessions/"+chatSession.ID+"/chat", strings.NewReader(`{"provider":"api","prompt":"QUESTION-ONCE","context":"","webSearch":true}`))
+	response = request(t, s, "POST", "/api/documents/doc/chat-sessions/"+chatSession.ID+"/chat", strings.NewReader(`{"provider":"api","prompt":"QUESTION-ONCE","context":"","webSearch":true,"skill":"check"}`))
 	var run ChatRun
 	if response.Code != 202 || json.Unmarshal(response.Body.Bytes(), &run) != nil {
 		t.Fatal(response.Code, response.Body.String())
@@ -88,6 +94,9 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 	}
 	if failed.Checkpoint.RunID != run.ID || !strings.Contains(string(failed.Checkpoint.Entries), "SAVED TOOL RESULT") || !failed.Checkpoint.TurnRead[read.SourceID] {
 		t.Fatal("durable tools/run identity missing")
+	}
+	if failed.Input == nil || failed.Input.Skill != "check" || strings.Contains(jsonText(failed.Input), "SKILL-BODY") {
+		t.Fatal("stored run omitted skill selection or copied skill text into run input")
 	}
 	var previousAttempt string
 	for _, event := range failed.Events {
@@ -118,6 +127,9 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 	if len(history) != 1 {
 		t.Fatalf("partial assistant saved: %d", len(history))
 	}
+	if history[0].Skill != "check" || history[0].Context != "" {
+		t.Fatal("saved user turn did not preserve the skill independently from context")
+	}
 	// 模拟持久化检查点后的进程退出：重启恢复只能标记 interrupted，不能补写回答。
 	if _, err := s.Store.DB.Exec("UPDATE chat_runs SET body=json_set(body,'$.status','running','$.events',json(?)) WHERE id=?", jsonText(failed.Events[:len(failed.Events)-1]), run.ID); err != nil {
 		t.Fatal(err)
@@ -138,6 +150,13 @@ func TestBYOKFailedRunContinuesWithoutRepeatingTools(t *testing.T) {
 		t.Fatal("interrupted checkpoint replay lacks terminal event")
 	}
 	endpoint := runPath + "/continue"
+	if err := os.Remove(skillPath); err != nil {
+		t.Fatal(err)
+	}
+	if out := request(t, s, "POST", endpoint, nil); out.Code != 400 || !strings.Contains(out.Body.String(), "未找到技能 check") {
+		t.Fatalf("removed skill accepted for continuation: %d %s", out.Code, out.Body.String())
+	}
+	writeLocalSkillTestFile(t, skillPath, "---\nname: check\n---\nREPLACEMENT-SKILL-BODY")
 	originalUser := history[0]
 	altered := originalUser
 	altered.Content = "altered question"

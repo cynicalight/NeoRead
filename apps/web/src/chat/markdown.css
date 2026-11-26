@@ -108,7 +108,7 @@
 }
 :root[data-theme="sepia"] .message-markdown a[href^="#neoread-citation?"],
 :root[data-theme="sepia"] .reflow-source a[href^="#neoread-citation?"] {
-  color: var(--brand-text);
+  color: #ac512e;
 }
 .message-markdown a[href^="#neoread-citation?"]:hover,
 .reflow-source a[href^="#neoread-citation?"]:hover {

@@ -404,6 +404,8 @@ export interface ReaderTheme {
   autoTranslatePDF?: boolean;
   /** 0 means manual only; otherwise auto translate papers up to this many pages. */
   autoTranslateMaxPages?: number;
+  /** Minimum layout score for figure panels, 0.2–0.5; lower finds more subfigures. */
+  layoutPanelConfidence?: number;
   /** How figures and embedded images are displayed when a PDF uses dark mode. */
   pdfDarkImageMode?: "preserve" | "invert" | "adaptive";
   /** Contrast used for PDF text and paper while the dark reading appearance is active. */
@@ -416,6 +418,8 @@ export interface ReaderTheme {
   systemLightMode?: "light" | "sepia";
   /** Following the system: graphite ("soft") or pure black ("high") PDFs while dark. */
   systemDarkContrast?: "high" | "soft";
+  /** Custom #rrggbb accents, keyed by the resolved appearance. */
+  brandColors?: Partial<Record<"light" | "sepia" | "dark" | "black", string>>;
   mode: "light" | "sepia" | "dark";
   fontSize: number;
   /** "sans-serif", "serif" or an installed font family name. */
@@ -444,8 +448,10 @@ export interface ReaderTheme {
   /** "sans-serif", "serif" or an installed font family name. */
   translationFontFamily?: string;
   linkTranslationAnnotations?: boolean;
-  /** Source and translation paragraphs alternate in one reflowed text column. */
+  /** The active reading mode uses a reflowed text column. */
   textReflow?: boolean;
+  /** Show only reflowed source text in PDF original mode. */
+  sourceReflow?: boolean;
   /** Clicking a paragraph centers and outlines it, with or without reflow. */
   blockFocus?: boolean;
   translationFontWeight?: "normal" | "bold";
@@ -454,6 +460,25 @@ export interface ReaderTheme {
   /** Reflowable EPUB text scrolls vertically unless pages are chosen. */
   epubFlow?: "scroll" | "paginated";
 }
+export function validBrandColor(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length === 7 &&
+    /^#[0-9a-f]{6}$/i.test(value)
+  );
+}
+
+/** Keep only the four bounded color values when forwarding settings to another process. */
+export function safeBrandColors(value: unknown): ReaderTheme["brandColors"] {
+  if (!value || typeof value !== "object") return undefined;
+  const colors: NonNullable<ReaderTheme["brandColors"]> = {};
+  for (const mode of ["light", "sepia", "dark", "black"] as const) {
+    const color = (value as Record<string, unknown>)[mode];
+    if (validBrandColor(color)) colors[mode] = color;
+  }
+  return Object.keys(colors).length ? colors : undefined;
+}
+
 export interface HighlightColor {
   /** #rrggbb */
   value: string;
@@ -485,6 +510,7 @@ export const defaultTheme: ReaderTheme = {
   translationFontWeight: "bold",
   linkTranslationAnnotations: true,
   textReflow: false,
+  sourceReflow: false,
   blockFocus: true,
   epubFlow: "scroll",
 };
@@ -708,6 +734,8 @@ export interface WebSource {
   truncated?: boolean;
 }
 export interface Message {
+  /** Local skill name explicitly selected for this user question. */
+  skill?: string;
   webSearch?: boolean;
   tools?: ToolActivity[];
   webSources?: WebSource[];
@@ -824,6 +852,10 @@ export interface APIConnection {
   key?: string;
   hasKey: boolean;
 }
+export interface APIProfile extends Omit<APIConnection, "model"> {
+  id: string;
+  name: string;
+}
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export interface WebSearchConfig {
@@ -848,7 +880,10 @@ export interface AIConfig {
   visionEfforts?: Record<string, Record<string, ReasoningEffort>>;
   /** Model IDs the user added beside the API endpoint's /models list. */
   apiModels?: string[];
-  /** Endpoint of the "api" agent; its models are chosen per task above. */
+  /** Named connections; model settings are not stored with a profile. */
+  apiProfiles?: APIProfile[];
+  activeAPIProfile?: string;
+  /** Active connection mirrored by the server. Its models are chosen per task above. */
   api: APIConnection;
   textAPI: APIConnection;
   imageAPI: APIConnection;

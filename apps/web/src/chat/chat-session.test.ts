@@ -70,7 +70,12 @@ describe("chat request lifecycle", () => {
     const stream = vi.fn<ChatTransport["stream"]>(
       async (_, request, _signal, emit) => {
         requests.push(request);
-        history = [message(request.userMessageId!, "user", request.prompt)];
+        history = [
+          {
+            ...message(request.userMessageId!, "user", request.prompt),
+            skill: request.skill,
+          },
+        ];
         if (requests.length === 1) {
           emit({ event: "reasoning", data: { text: "old thinking" } });
           emit({ event: "draft", data: { text: "old draft", reset: false } });
@@ -96,6 +101,7 @@ describe("chat request lifecycle", () => {
     const original: ChatInput = {
       ...input,
       context: "original selection",
+      skill: "review",
       readingLocation: { type: "pdf", page: 4 },
       attachments: [
         { id: "p4-b1", page: 4, label: "Figure", caption: "original" },
@@ -404,7 +410,11 @@ describe("independent session lifecycle", () => {
       messages: vi
         .fn()
         .mockResolvedValue([
-          { ...message("q", "user", "old question"), sessionId: "a" },
+          {
+            ...message("q", "user", "old question"),
+            sessionId: "a",
+            skill: "review",
+          },
         ]),
       latestRun: vi.fn().mockResolvedValue(run),
       stream,
@@ -415,6 +425,7 @@ describe("independent session lifecycle", () => {
     await session.load();
     expect(stream).not.toHaveBeenCalled();
     expect(resume).toHaveBeenCalledOnce();
+    expect(session.getSnapshot().pending?.input.skill).toBe("review");
     expect(session.getSnapshot().busy).toBe(true);
     await vi.waitFor(() =>
       expect(session.getSnapshot().pending?.draft).toBe("restored"),
