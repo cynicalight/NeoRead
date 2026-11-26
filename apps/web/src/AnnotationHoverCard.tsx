@@ -359,7 +359,7 @@ function NoteCard({
         // `height`, `zoom` and position, lagging behind resizes and PDF zoom.
         // Pinned cards mount as their marker scrolls into view; an open
         // animation there reads as a pop-in instead of page content.
-        className={`pointer-events-auto relative cursor-grab overflow-hidden py-0.5 transition-none select-none active:cursor-grabbing ${element ? "data-open:animate-none" : ""} ${box ? "" : "max-h-[min(30rem,80vh)] w-max max-w-[min(18rem,calc(100vw-2rem))]"}`}
+        className={`pointer-events-auto relative cursor-grab overflow-hidden px-1 py-0.5 transition-none select-none active:cursor-grabbing ${element ? "data-open:animate-none" : ""} ${box ? "" : "max-h-[min(30rem,80vh)] w-max max-w-[min(18rem,calc(100vw-2rem))]"}`}
         data-annotation-preview=""
         onPointerDown={press}
         onClick={click}
