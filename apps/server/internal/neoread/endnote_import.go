@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"neoread.local/server/internal/runtimeenv"
 	"net/http"
 	"os"
@@ -63,10 +64,11 @@ func migrateEndnotePDF(ctx context.Context, input, work string) (string, endnote
 }
 func (s *Server) importEndNote(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ScanID     string `json:"scanId"`
-		EntryID    string `json:"entryId"`
-		Library    string `json:"library"`
-		AllowLarge bool   `json:"allowLarge"`
+		ScanID        string `json:"scanId"`
+		EntryID       string `json:"entryId"`
+		Library       string `json:"library"`
+		AllowLarge    bool   `json:"allowLarge"`
+		AutoTranslate bool   `json:"autoTranslate"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -99,7 +101,7 @@ func (s *Server) importEndNote(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, entry.Issue)
 		return
 	}
-	result, err := s.importEndnoteEntry(r.Context(), entry, body.Library, body.AllowLarge, migrateEndnotePDF)
+	result, err := s.importEndnoteEntry(r.Context(), entry, body.Library, body.AllowLarge, body.AutoTranslate, migrateEndnotePDF)
 	var imp importError
 	if errors.As(err, &imp) && imp.code != "" {
 		respond(w, imp.status, map[string]any{"error": imp.message, "code": imp.code, "pages": imp.pages})
@@ -110,12 +112,13 @@ func (s *Server) importEndNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.connectorRevision.Add(1)
+	s.diagnosticEvent(slog.LevelInfo, "import.translation_policy", "requestId", requestID(r.Context()), "documentId", result.DocumentID, "importSource", "endnote", "outcome", result.Status, "autoTranslate", body.AutoTranslate, "library", body.Library)
 	respond(w, 200, result)
 }
 
 type endnoteConverter func(context.Context, string, string) (string, endnotePDFResult, error)
 
-func (s *Server) importEndnoteEntry(ctx context.Context, e *endnoteEntry, library string, allowLarge bool, convert endnoteConverter) (zoteroImportResult, error) {
+func (s *Server) importEndnoteEntry(ctx context.Context, e *endnoteEntry, library string, allowLarge, autoTranslate bool, convert endnoteConverter) (zoteroImportResult, error) {
 	result := zoteroImportResult{Warnings: append([]string{}, e.Warnings...)}
 	s.importMu.Lock()
 	defer s.importMu.Unlock()
@@ -258,9 +261,7 @@ func (s *Server) importEndnoteEntry(ctx context.Context, e *endnoteEntry, librar
 		}
 		result.Notes = 1
 	}
-	var settings string
-	_ = tx.QueryRowContext(ctx, "SELECT value FROM settings WHERE key='neoread'").Scan(&settings)
-	p := initialDocumentProcessing(d, settings)
+	p := batchImportProcessing(d, autoTranslate)
 	raw, _ := json.Marshal(p)
 	if _, err = tx.ExecContext(ctx, "INSERT INTO document_processing(document_id,phase,status,body) VALUES(?,?,?,?)", docID, p.Phase, p.Status, raw); err != nil {
 		return result, err

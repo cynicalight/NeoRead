@@ -377,7 +377,11 @@ export const api = {
   importEndNote: (
     scanId: string,
     entryId: string,
-    options?: { library: LibraryMode; allowLarge: boolean },
+    options?: {
+      library?: LibraryMode;
+      allowLarge?: boolean;
+      autoTranslate?: boolean;
+    },
   ) =>
     request<ZoteroImportResult>("/api/import/endnote", {
       method: "POST",
@@ -392,7 +396,11 @@ export const api = {
   importZotero: (
     scanId: string,
     entryId: string,
-    options?: { library: LibraryMode; allowLarge: boolean },
+    options?: {
+      library?: LibraryMode;
+      allowLarge?: boolean;
+      autoTranslate?: boolean;
+    },
   ) =>
     request<ZoteroImportResult>("/api/import/zotero", {
       method: "POST",

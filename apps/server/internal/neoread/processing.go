@@ -186,6 +186,16 @@ func importedProcessing(id, library, value string) Processing {
 	return p
 }
 
+// A migration batch explicitly chooses translation independently of global settings.
+// Keep original parsing queued even when translation is disabled; books stay on demand.
+func batchImportProcessing(d Document, autoTranslate bool) Processing {
+	p := initialDocumentProcessing(d, `{"autoTranslateMaxPages":0}`)
+	if d.Type == "pdf" && d.Library == "papers" && autoTranslate {
+		p.AutoTranslateMaxPages = nil
+	}
+	return p
+}
+
 // EPUB has no layout pass and waits for explicit chapter requests.
 func initialDocumentProcessing(d Document, settings string) Processing {
 	if d.Type == "pdf" {

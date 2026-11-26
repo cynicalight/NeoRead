@@ -22,6 +22,8 @@ Agent 未连接时，点击卡片直接在浏览器发起授权；应用自动�
 
 `agent.quota.read` 记录 `requestId`、`provider`、`outcome`（`success` / `unavailable` / `failed` / `cancelled`）、`durationMs` 和安全 `errorCode`。仅实际失败时分类错误，成功及明确不可用的错误码为空；不保存凭据、请求头、账号 ID、额度响应原文或上游错误正文，界面错误也使用固定安全文案。
 
+Zotero / EndNote 批量导入成功后，`import.translation_policy` 记录本次请求的 `autoTranslate`、目标 `library`、导入来源 `importSource` 和结果 `outcome`，通过 `requestId`、`documentId` 关联后续处理。该选项只用于新增论文，不改写已存在文档的任务状态；日志不记录论文内容或源文件路径。
+
 ## 导出范围
 
 导出当前保留的全部 NeoRead 运行日志，包括正常、警告和错误事件、轮转文件以及之前的应用会话。不是仅提取错误或故障前后的时间窗口。功能上线前没有记录的历史和已经被保留策略删除的文件不能恢复。

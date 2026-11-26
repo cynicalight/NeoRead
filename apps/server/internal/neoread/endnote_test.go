@@ -102,7 +102,7 @@ func TestEndnoteImportAtomicAndRepeatable(t *testing.T) {
 		}
 		return dest, endnotePDFResult{Marks: []endnotePDFMark{{Key: "1:4R", Kind: "underline", Location: json.RawMessage(`{"type":"pdf","page":1,"rects":[{"x":0.1,"y":0.1,"width":0.2,"height":0.03}]}`), Color: "#fc6a08"}}}, nil
 	}
-	result, err := s.importEndnoteEntry(context.Background(), e, "papers", true, convert)
+	result, err := s.importEndnoteEntry(context.Background(), e, "papers", true, false, convert)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestEndnoteImportAtomicAndRepeatable(t *testing.T) {
 	if _, err = s.Store.DB.Exec("DELETE FROM annotations WHERE document_id=?", result.DocumentID); err != nil {
 		t.Fatal(err)
 	}
-	again, err := s.importEndnoteEntry(context.Background(), e, "papers", true, convert)
+	again, err := s.importEndnoteEntry(context.Background(), e, "papers", true, false, convert)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestEndnoteFailedConversionLeavesNoDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := testServer(t)
-	_, err = s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, func(context.Context, string, string) (string, endnotePDFResult, error) {
+	_, err = s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, false, func(context.Context, string, string) (string, endnotePDFResult, error) {
 		return "", endnotePDFResult{}, errors.New("failure")
 	})
 	if err == nil {
@@ -176,7 +176,7 @@ func TestEndnoteLiveSnapshot(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, err := s.importEndnoteEntry(context.Background(), e, "papers", true, migrateEndnotePDF)
+		result, err := s.importEndnoteEntry(context.Background(), e, "papers", true, false, migrateEndnotePDF)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -184,7 +184,7 @@ func TestEndnoteLiveSnapshot(t *testing.T) {
 			t.Fatalf("%+v", result)
 		}
 		total += result.Annotations
-		again, err := s.importEndnoteEntry(context.Background(), e, "papers", true, migrateEndnotePDF)
+		again, err := s.importEndnoteEntry(context.Background(), e, "papers", true, false, migrateEndnotePDF)
 		if err != nil || again.Status != "exists" {
 			t.Fatalf("retry: %+v %v", again, err)
 		}
@@ -249,7 +249,7 @@ func TestEndnoteNullableMetadataDoesNotBlockOtherPapers(t *testing.T) {
 		if e.Issue != "" {
 			t.Fatalf("unavailable PDF: %s", e.Issue)
 		}
-		result, err := s.importEndnoteEntry(context.Background(), e, "papers", true, convert)
+		result, err := s.importEndnoteEntry(context.Background(), e, "papers", true, false, convert)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -282,12 +282,12 @@ func TestEndnoteDifferentSourceSamePDFReportsUnmergedData(t *testing.T) {
 		calls++
 		return input, endnotePDFResult{}, nil
 	}
-	first, err := s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, convert)
+	first, err := s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, false, convert)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		result, err := s.importEndnoteEntry(context.Background(), scan.Entries[1], "papers", true, convert)
+		result, err := s.importEndnoteEntry(context.Background(), scan.Entries[1], "papers", true, false, convert)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -295,7 +295,7 @@ func TestEndnoteDifferentSourceSamePDFReportsUnmergedData(t *testing.T) {
 			t.Fatalf("silent skip: %+v", result)
 		}
 	}
-	repeat, err := s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, convert)
+	repeat, err := s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, false, convert)
 	if err != nil || repeat.Status != "exists" || len(repeat.Warnings) != 0 || calls != 1 {
 		t.Fatalf("repeat: %+v %v calls=%d", repeat, err, calls)
 	}
@@ -324,7 +324,7 @@ func TestEndnoteRejectedMetadataIsReportedAndArchived(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := testServer(t)
-	result, err := s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, func(ctx context.Context, input, work string) (string, endnotePDFResult, error) {
+	result, err := s.importEndnoteEntry(context.Background(), scan.Entries[0], "papers", true, false, func(ctx context.Context, input, work string) (string, endnotePDFResult, error) {
 		return input, endnotePDFResult{}, nil
 	})
 	if err != nil {
