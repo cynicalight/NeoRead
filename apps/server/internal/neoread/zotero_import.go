@@ -137,7 +137,7 @@ func (s *Server) importZotero(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	s.diagnosticEvent(slog.LevelInfo, "import.translation_policy", "requestId", requestID(r.Context()), "documentId", result.DocumentID, "source", "zotero", "outcome", result.Status, "autoTranslate", body.AutoTranslate, "library", body.Library)
+	s.diagnosticEvent(slog.LevelInfo, "import.translation_policy", "requestId", requestID(r.Context()), "documentId", result.DocumentID, "importSource", "zotero", "outcome", result.Status, "autoTranslate", body.AutoTranslate, "library", body.Library)
 	respond(w, 200, result)
 }
 

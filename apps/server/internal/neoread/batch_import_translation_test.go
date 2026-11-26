@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"neoread.local/server/internal/diagnostics"
 )
 
 func TestBatchImportTranslationPolicy(t *testing.T) {
@@ -104,6 +106,11 @@ func TestZoteroImportTranslationRequest(t *testing.T) {
 	for _, choice := range []string{"", `,"autoTranslate":false`, `,"autoTranslate":true`} {
 		t.Run(choice, func(t *testing.T) {
 			s := testServer(t)
+			logs, err := diagnostics.New(t.TempDir(), "import-policy")
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.SetDiagnostics(logs)
 			reparseSettings(t, s, `{"autoTranslateMaxPages":150}`)
 			dir, _ := zoteroFixture(t)
 			scan := mustScanZotero(t, dir)
@@ -120,6 +127,33 @@ func TestZoteroImportTranslationRequest(t *testing.T) {
 			p, err := s.Store.processing(result.DocumentID)
 			if err != nil || (p.AutoTranslateMaxPages == nil) != strings.Contains(choice, "true") {
 				t.Fatalf("request policy: %+v %v", p, err)
+			}
+			files, err := filepath.Glob(filepath.Join(logs.Dir, "server-*.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, path := range files {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+					var event map[string]any
+					if err := json.Unmarshal([]byte(line), &event); err != nil {
+						t.Fatal(err)
+					}
+					if event["event"] != "import.translation_policy" {
+						continue
+					}
+					found = true
+					if event["source"] != "server" || event["importSource"] != "zotero" || event["autoTranslate"] != strings.Contains(choice, "true") || event["documentId"] != result.DocumentID {
+						t.Fatalf("missing import policy context: %+v", event)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("missing import policy event")
 			}
 		})
 	}

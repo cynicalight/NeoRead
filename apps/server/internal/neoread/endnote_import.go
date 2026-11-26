@@ -112,7 +112,7 @@ func (s *Server) importEndNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.connectorRevision.Add(1)
-	s.diagnosticEvent(slog.LevelInfo, "import.translation_policy", "requestId", requestID(r.Context()), "documentId", result.DocumentID, "source", "endnote", "outcome", result.Status, "autoTranslate", body.AutoTranslate, "library", body.Library)
+	s.diagnosticEvent(slog.LevelInfo, "import.translation_policy", "requestId", requestID(r.Context()), "documentId", result.DocumentID, "importSource", "endnote", "outcome", result.Status, "autoTranslate", body.AutoTranslate, "library", body.Library)
 	respond(w, 200, result)
 }
 
