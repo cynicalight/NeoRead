@@ -138,7 +138,7 @@ type Placement =
 const interactive = (target: EventTarget) =>
   target instanceof Element && !!target.closest("a, button, img");
 
-const MIN_BOX: CardBox = { w: 64, h: 28 };
+const MIN_BOX: CardBox = { w: 64, h: 16 };
 // Edges and corners resize the card; its interior drags it.
 const RESIZE_HANDLES = [
   ["n", "inset-x-2 top-0 h-1 cursor-ns-resize"],
@@ -369,7 +369,9 @@ function NoteCard({
         <PopoverTitle className="sr-only">批注</PopoverTitle>
         <div
           ref={setContent}
-          className={`min-h-0 flex-1 ${box ? "overflow-hidden [overflow-wrap:anywhere]" : "overflow-y-auto"}`}
+          // Safe centering splits leftover height evenly yet falls back to the
+          // top on overflow, so the fit's scrollHeight check stays accurate.
+          className={`min-h-0 flex-1 ${box ? "flex flex-col justify-center-safe overflow-hidden [overflow-wrap:anywhere]" : "overflow-y-auto"}`}
         >
           {notes.map((annotation) => (
             <div
