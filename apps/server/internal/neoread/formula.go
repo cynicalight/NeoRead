@@ -66,6 +66,24 @@ func generateFormula(ctx context.Context, service *GenerationService, input AIIn
 	}
 }
 
+// Failed formulas wait for an explicit retry instead of repeating automatically.
+func needsFormulaConversion(b PDFBlock, t TranslationBlock) bool {
+	return isFormula(b) && b.Image != "" && t.Status != "complete" && t.Status != "idle" && t.Status != "failed"
+}
+
+func hasPendingFormulas(m layoutManifest, items []TranslationBlock) bool {
+	saved := make(map[string]TranslationBlock, len(items))
+	for _, t := range items {
+		saved[t.BlockID] = t
+	}
+	for _, b := range m.Blocks {
+		if needsFormulaConversion(b, saved[b.ID]) {
+			return true
+		}
+	}
+	return false
+}
+
 // One bounded image worker runs independently of text batches. Only complete
 // provider responses are saved; each save publishes through the translation SSE.
 func (s *Server) convertFormulas(ctx context.Context, documentID string, m layoutManifest) error {
@@ -78,14 +96,8 @@ func (s *Server) convertFormulas(ctx context.Context, documentID string, m layou
 		saved[t.BlockID] = t
 	}
 	for _, b := range m.Blocks {
-		if !isFormula(b) || b.Image == "" {
-			continue
-		}
 		t := saved[b.ID]
-		if t.Status == "complete" || t.Status == "idle" {
-			continue
-		}
-		if t.Status == "failed" {
+		if !needsFormulaConversion(b, t) {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -154,6 +166,21 @@ func (s *Server) translateContent(ctx context.Context, p *Processing, input tran
 	p.Detail = "正在翻译正文并转换公式"
 	if err = s.Store.saveProcessing(*p); err != nil {
 		return err
+	}
+	// Without a usable agent every formula would be saved as failed and never
+	// retried after sign-in; wait like text translation instead.
+	items, err := s.translations(p.DocumentID, m)
+	if err != nil {
+		return err
+	}
+	if hasPendingFormulas(m, items) {
+		options, err := s.retranslationOptions(p)
+		if err != nil {
+			return err
+		}
+		if _, waiting, err := s.translationAgentConfig(p, options); err != nil || waiting {
+			return err
+		}
 	}
 	result := make(chan error, 1)
 	go func() { result <- s.convertFormulas(ctx, p.DocumentID, m) }()

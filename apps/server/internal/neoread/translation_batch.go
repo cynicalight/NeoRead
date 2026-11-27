@@ -478,20 +478,9 @@ func (s *Server) settleTranslations(ctx context.Context, p *Processing, m transl
 		if len(batches) == 0 {
 			return nil
 		}
-		config := options.apply(s.aiConfig())
-		if !validAgent(config.Primary) || !(primaryCapable(config, taskTranslation) || capable(config, "text-api", false)) {
-			s.configMu.Lock()
-			config = options.apply(s.readAIConfig())
-			if !validAgent(config.Primary) || !(primaryCapable(config, taskTranslation) || capable(config, "text-api", false)) {
-				s.processingMu.Lock()
-				p.Status = "waiting"
-				p.Detail = "请选择主 Agent 并完成文字能力测试，随后继续翻译"
-				err = s.Store.saveProcessing(*p)
-				s.processingMu.Unlock()
-				s.configMu.Unlock()
-				return err
-			}
-			s.configMu.Unlock()
+		config, waiting, err := s.translationAgentConfig(p, options)
+		if err != nil || waiting {
+			return err
 		}
 		var progressMu sync.Mutex
 		progress := func() {
@@ -596,4 +585,29 @@ func translationCounts(items []TranslationBlock) (done, total int) {
 		}
 	}
 	return done, total
+}
+
+func translationAgentReady(c AIConfig) bool {
+	return validAgent(c.Primary) && (primaryCapable(c, taskTranslation) || capable(c, "text-api", false))
+}
+
+// translationAgentConfig returns the config translation work should use. When
+// no agent can serve it (signed out, untested connection), the stage is saved
+// as waiting under configMu so a concurrent connection change still wakes it.
+func (s *Server) translationAgentConfig(p *Processing, options *translationRunOptions) (AIConfig, bool, error) {
+	config := options.apply(s.aiConfig())
+	if translationAgentReady(config) {
+		return config, false, nil
+	}
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	config = options.apply(s.readAIConfig())
+	if translationAgentReady(config) {
+		return config, false, nil
+	}
+	s.processingMu.Lock()
+	defer s.processingMu.Unlock()
+	p.Status = "waiting"
+	p.Detail = "请选择主 Agent 并完成文字能力测试，随后继续翻译"
+	return config, true, s.Store.saveProcessing(*p)
 }

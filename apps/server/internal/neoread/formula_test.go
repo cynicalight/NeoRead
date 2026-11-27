@@ -179,6 +179,46 @@ func TestFormulaConversionDoesNotBlockCaptionTranslation(t *testing.T) {
 		t.Fatal("repeated completed formula conversion")
 	}
 }
+func TestFormulaWaitsForAgentAndResumesAfterConnection(t *testing.T) {
+	s, p, m := formulaFixture(t)
+	if err := s.learnPDF(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.translations("doc", m)
+	if err != nil || p.Status != "waiting" || items[0].Status != "pending" {
+		t.Fatalf("formula did not wait for an agent: %+v %+v %v", p, items, err)
+	}
+	images := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sendTranslationDelta(w, "$$\nx=1\n$$")
+		finishTranslationStream(w)
+	}))
+	defer images.Close()
+	text := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		input := readTranslationInput(t, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, para := range input.Batch.Paragraphs {
+			sendTranslationDelta(w, translationParagraphLine(para))
+		}
+		finishTranslationStream(w)
+	}))
+	defer text.Close()
+	configureFormulaTest(t, s, text.URL, images.URL)
+	s.wakeProcessing()
+	if p, err = s.Store.processing("doc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	items, _ = s.translations("doc", m)
+	if p.Status != "complete" || items[0].Status != "complete" || items[1].Status != "complete" {
+		t.Fatalf("translation did not resume after connection: %+v %+v", p, items)
+	}
+}
 func TestFormulaFailurePreservesCaptionAndCanRetry(t *testing.T) {
 	s, p, m := formulaFixture(t)
 	var valid atomic.Bool
