@@ -2095,3 +2095,204 @@ test.each(["401", "503", "empty", "network"])(
   },
   15000,
 );
+
+test("Google Generative AI bridges tools, preserves thought signatures, and classifies safety stops", async () => {
+  const requests: {
+    url?: string;
+    apiKey?: string | string[];
+    body: any;
+  }[] = [];
+  let safetyStop = false;
+  const upstream = createServer(async (req, res) => {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    requests.push({
+      url: req.url,
+      apiKey: req.headers["x-goog-api-key"],
+      body: JSON.parse(raw),
+    });
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    if (safetyStop) {
+      res.end(
+        `data: ${JSON.stringify({
+          candidates: [
+            {
+              content: { role: "model", parts: [{ text: "partial" }] },
+              finishReason: "SAFETY",
+            },
+          ],
+        })}\n\n`,
+      );
+      return;
+    }
+    const hasToolResponse = requests
+      .at(-1)!
+      .body.contents?.some((c: any) =>
+        c.parts?.some((p: any) => p.functionResponse),
+      );
+    if (!hasToolResponse) {
+      res.end(
+        `data: ${JSON.stringify({
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [
+                  { text: "先检索", thought: true },
+                  {
+                    functionCall: {
+                      id: "gcall_1",
+                      name: "read_passage",
+                      args: { full: true },
+                    },
+                    thoughtSignature: "c2lnbmF0dXJl",
+                  },
+                ],
+              },
+              finishReason: "STOP",
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 12,
+            candidatesTokenCount: 4,
+            thoughtsTokenCount: 3,
+            totalTokenCount: 19,
+          },
+        })}\n\n`,
+      );
+      return;
+    }
+    res.end(
+      `data: ${JSON.stringify({
+        candidates: [
+          {
+            content: {
+              role: "model",
+              parts: [{ text: "Gemini 查证结果是 42 [S1]。" }],
+            },
+            finishReason: "STOP",
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 20,
+          candidatesTokenCount: 8,
+          totalTokenCount: 28,
+        },
+      })}\n\n`,
+    );
+  });
+  await new Promise<void>((resolve) =>
+    upstream.listen(0, "127.0.0.1", resolve),
+  );
+  const base = `http://127.0.0.1:${(upstream.address() as { port: number }).port}/v1beta`;
+  const run = async (key = "AIza-fixture-secret") => {
+    const child = spawn(process.execPath, ["dist/main.mjs"], { cwd: root });
+    const events: any[] = [];
+    let stderr = "";
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    createInterface({ input: child.stdout }).on("line", (line) => {
+      const event = JSON.parse(line);
+      events.push(event);
+      if (event.type === "tool") {
+        child.stdin.write(
+          JSON.stringify({
+            type: "toolResult",
+            runId: "gemini-run",
+            id: event.id,
+            content: [{ type: "text", text: "[S1] 原文是 42" }],
+          }) + "\n",
+        );
+      }
+    });
+    child.stdin.write(
+      JSON.stringify({
+        type: "start",
+        input: {
+          version: 1,
+          runId: "gemini-run",
+          prompt: "读原文",
+          system: "只读当前论文",
+          key,
+          effort: "off",
+          endpoint: `${base}/models/gemini-3-flash-preview:streamGenerateContent?alt=sse`,
+          payload: {
+            generationConfig: {
+              maxOutputTokens: 8192,
+              thinkingConfig: { includeThoughts: true, thinkingLevel: "HIGH" },
+            },
+          },
+          model: {
+            id: "gemini-3-flash-preview",
+            name: "Gemini 3 Flash Preview",
+            provider: "neoread-api",
+            api: "google-generative-ai",
+            baseUrl: base,
+            reasoning: false,
+            input: ["text", "image"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 1048576,
+            maxTokens: 8192,
+          },
+          tools: [
+            {
+              name: "read_passage",
+              description: "read text",
+              schema: {
+                type: "object",
+                properties: { full: { type: "boolean" } },
+                required: ["full"],
+              },
+            },
+          ],
+        },
+      }) + "\n",
+    );
+    const code = await new Promise((resolve) => child.on("exit", resolve));
+    return { code, events, stderr };
+  };
+  try {
+    const ok = await run();
+    expect({
+      code: ok.code,
+      stderr: ok.stderr,
+      errors: ok.events.filter((e) => e.type === "error"),
+    }).toEqual({ code: 0, stderr: "", errors: [] });
+    expect(ok.events.at(-1)).toMatchObject({
+      type: "complete",
+      text: "Gemini 查证结果是 42 [S1]。",
+    });
+    expect(
+      ok.events.some((e) => e.type === "reasoning" && e.text === "先检索"),
+    ).toBe(true);
+    expect(requests).toHaveLength(2);
+    expect(requests[0].url).toBe(
+      "/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse",
+    );
+    expect(requests[0].apiKey).toBe("AIza-fixture-secret");
+    expect(JSON.stringify(requests[0].body.systemInstruction)).not.toContain(
+      "<cwd>",
+    );
+    expect(requests[0].body.generationConfig).toEqual({
+      maxOutputTokens: 8192,
+      thinkingConfig: { includeThoughts: true, thinkingLevel: "HIGH" },
+    });
+    expect(JSON.stringify(requests[1].body.contents)).toContain(
+      '"thoughtSignature":"c2lnbmF0dXJl"',
+    );
+
+    safetyStop = true;
+    const blocked = await run("");
+    expect(blocked.code).toBe(1);
+    expect(requests.at(-1)!.apiKey).toBeUndefined();
+    expect(
+      blocked.events.find((e) => e.type === "error")?.diagnostics,
+    ).toMatchObject({
+      reasonCode: "content_policy",
+      providerStopReason: "SAFETY",
+      upstreamStatus: 200,
+    });
+  } finally {
+    upstream.close();
+    upstream.closeAllConnections();
+  }
+}, 20000);

@@ -15,7 +15,7 @@ const apiRulesVersion = "2026-10-13.1"
 type apiEndpoint struct{ Vendor, Protocol, Base string }
 
 // apiProtocols lists the supported API connection protocols.
-var apiProtocols = []string{"openai", "responses", "anthropic"}
+var apiProtocols = []string{"openai", "responses", "anthropic", "gemini"}
 
 func validAPIProtocol(protocol string) bool { return slices.Contains(apiProtocols, protocol) }
 
@@ -39,7 +39,11 @@ func resolveAPIEndpoint(c APIConnection) apiEndpoint {
 		case "generativelanguage.googleapis.com":
 			if slices.Contains([]string{"", "/v1beta", "/v1beta/openai"}, path) {
 				e.Vendor = "google"
-				path = "/v1beta/openai"
+				if c.Protocol == "gemini" {
+					path = "/v1beta"
+				} else {
+					path = "/v1beta/openai"
+				}
 			}
 		case "api.moonshot.ai", "api.moonshot.cn":
 			if path == "" || path == "/v1" {
@@ -93,6 +97,18 @@ func reasoningRule(e apiEndpoint, model string, advertised []string) apiReasonin
 	fixed := func() { r.Mode = "fixed"; r.Source = "official" }
 	// Selecting a protocol on a relay does not import model-name heuristics.
 	if e.Vendor == "custom" {
+		if e.Protocol == "gemini" {
+			if len(advertised) > 0 {
+				r.Levels = advertised
+				r.Source = "catalog"
+				r.Mode = "levels"
+				r.Thinking = "level"
+				if apiEffort("medium", r.Levels) == "" {
+					r.Mode = "unknown"
+				}
+			}
+			return r
+		}
 		if validAPIProtocol(e.Protocol) {
 			r.Levels = advertised
 			if len(advertised) == 0 {
@@ -110,7 +126,7 @@ func reasoningRule(e apiEndpoint, model string, advertised []string) apiReasonin
 	switch e.Vendor {
 	case "openai":
 		// Chat Completions 与 Responses 同属 OpenAI 官方端点，强度档位相同。
-		if e.Protocol == "anthropic" {
+		if e.Protocol == "anthropic" || e.Protocol == "gemini" {
 			return r
 		}
 		switch m {
@@ -128,6 +144,9 @@ func reasoningRule(e apiEndpoint, model string, advertised []string) apiReasonin
 			fixed()
 		}
 	case "anthropic":
+		if e.Protocol == "gemini" {
+			return r
+		}
 		if e.Protocol == "openai" {
 			fixed()
 			return r
@@ -148,10 +167,34 @@ func reasoningRule(e apiEndpoint, model string, advertised []string) apiReasonin
 			r.Thinking = "budget"
 		}
 	case "google":
+		m = strings.TrimPrefix(m, "models/")
+		if e.Protocol == "gemini" {
+			if slices.Contains([]string{"gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-3.1-pro-preview-customtools", "gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-flash-latest", "gemini-flash-lite-latest"}, m) {
+				levels("low", "medium", "high")
+				r.Thinking = "level"
+			}
+			if m == "gemini-3-pro-preview" {
+				levels("low", "high")
+				r.Thinking = "level"
+			}
+			if m == "gemma-4-26b-a4b-it" || m == "gemma-4-31b-it" {
+				levels("minimal", "high")
+				r.Thinking = "level"
+			}
+			if slices.Contains([]string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"}, m) {
+				r.Mode = "budget"
+				r.Source = "official"
+				r.Thinking = "budget"
+			}
+			if slices.Contains([]string{"gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash-001", "gemini-2.0-flash-lite-001"}, m) {
+				fixed()
+			}
+			return r
+		}
 		if e.Protocol != "openai" {
 			return r
 		}
-		if slices.Contains([]string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"}, m) {
+		if slices.Contains([]string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-3.1-pro-preview-customtools", "gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-flash-latest", "gemini-flash-lite-latest"}, m) {
 			levels("low", "medium", "high")
 		}
 		if m == "gemini-3-pro-preview" {
@@ -261,6 +304,25 @@ func (r apiReasoningRule) apply(payload map[string]any, protocol, requested, res
 	if protocol == "responses" {
 		if resolved != "" {
 			payload["reasoning"] = map[string]string{"effort": resolved}
+		}
+		return
+	}
+	if protocol == "gemini" {
+		genConfig, _ := payload["generationConfig"].(map[string]any)
+		if genConfig == nil {
+			genConfig = map[string]any{}
+		}
+		if r.Thinking == "level" && resolved != "" {
+			genConfig["thinkingConfig"] = map[string]any{"includeThoughts": true, "thinkingLevel": strings.ToUpper(resolved)}
+		} else if r.Thinking == "budget" && resolved != "" {
+			budget := map[string]int{"low": 1024, "medium": 4096, "high": 8192, "max": 16384}[requested]
+			if budget == 0 {
+				budget = 4096
+			}
+			genConfig["thinkingConfig"] = map[string]any{"includeThoughts": true, "thinkingBudget": budget}
+		}
+		if len(genConfig) > 0 {
+			payload["generationConfig"] = genConfig
 		}
 		return
 	}

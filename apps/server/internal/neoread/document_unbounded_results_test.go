@@ -204,4 +204,11 @@ func TestNativeStreamsPreserveLongAnswers(t *testing.T) {
 			}
 		})
 	}
+	t.Run("gemini", func(t *testing.T) {
+		wire := "data: " + jsonText(map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{map[string]any{"text": answer}}}, "finishReason": "STOP"}}}) + "\n\n"
+		result, err := readGeminiStream(t.Context(), strings.NewReader(wire), APIConnection{}, nil)
+		if err != nil || result.Text != answer {
+			t.Fatalf("Gemini answer clipped: %d %v", len(result.Text), err)
+		}
+	})
 }

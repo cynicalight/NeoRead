@@ -13,7 +13,7 @@ import (
 )
 
 func TestAPIProtocolValidationAndLegacyDisplay(t *testing.T) {
-	for _, protocol := range []string{"", "auto", "openai", "responses", "anthropic"} {
+	for _, protocol := range []string{"", "auto", "openai", "responses", "anthropic", "gemini"} {
 		if validateAPIProtocol(protocol) != nil {
 			t.Fatal("rejected", protocol)
 		}

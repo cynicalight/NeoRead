@@ -703,7 +703,7 @@ func streamPiPrompt(ctx context.Context, root string, c APIConnection, req compl
 // newPiRequest builds the model request for the configured API protocol.
 func newPiRequest(c APIConnection, req completionRequest) (piRequest, string, int) {
 	endpoint := resolveAPIEndpoint(c)
-	api, path := piWireAPI(endpoint.Protocol)
+	api, path := piWireAPI(endpoint.Protocol, req.Model)
 	window := req.ContextWindow
 	if window <= 0 {
 		window = defaultDocumentContextTokens
@@ -715,12 +715,16 @@ func newPiRequest(c APIConnection, req completionRequest) (piRequest, string, in
 	if c.pi == nil && api == "openai-completions" {
 		payload["n"] = 1
 	}
+	modelID := req.Model
+	if api == "google-generative-ai" {
+		modelID = geminiModelID(req.Model)
+	}
 	request := piRequest{Connection: c.pi, Version: 1, RunID: id(), Key: c.Key, Effort: "off", Payload: payload, Endpoint: endpoint.Base + path, Tools: []map[string]any{}}
-	request.Model = map[string]any{"id": req.Model, "name": req.Model, "api": api, "provider": "neoread-api", "baseUrl": endpoint.Base, "reasoning": false, "input": []string{"text", "image"}, "contextWindow": window, "maxTokens": min(8192, window/4), "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "compat": map[string]any{"supportsStore": false, "supportsDeveloperRole": false, "supportsReasoningEffort": false, "maxTokensField": "max_tokens"}}
+	request.Model = map[string]any{"id": modelID, "name": req.Model, "api": api, "provider": "neoread-api", "baseUrl": endpoint.Base, "reasoning": false, "input": []string{"text", "image"}, "contextWindow": window, "maxTokens": min(8192, window/4), "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "compat": map[string]any{"supportsStore": false, "supportsDeveloperRole": false, "supportsReasoningEffort": false, "maxTokensField": "max_tokens"}}
 	if c.pi != nil {
 		request.Model["provider"] = c.pi.Provider
 	}
-	if api == "anthropic-messages" {
+	if api == "anthropic-messages" || api == "google-generative-ai" {
 		delete(request.Model, "compat")
 	}
 	if req.MaxOutput > 0 {
@@ -729,12 +733,14 @@ func newPiRequest(c APIConnection, req completionRequest) (piRequest, string, in
 	return request, path, window
 }
 
-func piWireAPI(protocol string) (api, path string) {
+func piWireAPI(protocol, model string) (api, path string) {
 	switch protocol {
 	case "anthropic":
 		return "anthropic-messages", "/messages"
 	case "responses":
 		return "openai-responses", "/responses"
+	case "gemini":
+		return "google-generative-ai", geminiGeneratePath(model)
 	default:
 		return "openai-completions", "/chat/completions"
 	}

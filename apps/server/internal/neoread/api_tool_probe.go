@@ -23,7 +23,7 @@ func probeAPIDocumentTools(ctx context.Context, c APIConnection, model string) (
 		return "unsupported", fmt.Errorf("模型未返回合法工具调用")
 	}
 	nonce := "neoread-" + id()
-	messages = append(messages, toolCompletionMessage{Role: "assistant", Content: result.Text, Calls: result.Calls, Reasoning: result.Reasoning}, toolCompletionMessage{Role: "tool", CallID: result.Calls[0].ID, Content: nonce})
+	messages = append(messages, toolCompletionMessage{Role: "assistant", Content: result.Text, Calls: result.Calls, Reasoning: result.Reasoning, ResponsesOutput: result.ResponsesOutput, GeminiParts: result.GeminiParts}, toolCompletionMessage{Role: "tool", CallID: result.Calls[0].ID, Content: nonce})
 	result, e = toolCompletion(ctx, c, req, messages, nil)
 	if e != nil {
 		return "failed", e

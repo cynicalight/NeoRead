@@ -86,6 +86,13 @@ func applyOutputLimit(payload map[string]any, protocol string, limit int) {
 	switch protocol {
 	case "responses":
 		payload["max_output_tokens"] = limit
+	case "gemini":
+		genConfig, _ := payload["generationConfig"].(map[string]any)
+		if genConfig == nil {
+			genConfig = map[string]any{}
+		}
+		genConfig["maxOutputTokens"] = limit
+		payload["generationConfig"] = genConfig
 	default:
 		payload["max_tokens"] = limit
 	}
@@ -111,11 +118,18 @@ func apiRequest(ctx context.Context, c APIConnection, method, path string, body 
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Accept", "text/event-stream")
 	}
-	if resolveAPIEndpoint(c).Protocol == "anthropic" {
+	switch resolveAPIEndpoint(c).Protocol {
+	case "anthropic":
 		request.Header.Set("anthropic-version", "2023-06-01")
 		request.Header.Set("x-api-key", c.Key)
-	} else if c.Key != "" {
-		request.Header.Set("Authorization", "Bearer "+c.Key)
+	case "gemini":
+		if c.Key != "" {
+			request.Header.Set("x-goog-api-key", c.Key)
+		}
+	default:
+		if c.Key != "" {
+			request.Header.Set("Authorization", "Bearer "+c.Key)
+		}
 	}
 	if t, ok := ctx.Value(apiTraceKey{}).(*apiTrace); ok {
 		t.Stage = "http"
@@ -159,8 +173,13 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 			trace.EffortField = "output_config.effort"
 		case "responses":
 			trace.EffortField = "reasoning.effort"
+		case "gemini":
+			trace.EffortField = "generationConfig.thinkingConfig.thinkingLevel"
+			if rule.Mode == "budget" {
+				trace.EffortField = "generationConfig.thinkingConfig.thinkingBudget"
+			}
 		}
-		if rule.Mode == "budget" {
+		if rule.Mode == "budget" && endpoint.Protocol != "gemini" {
 			trace.EffortField = "thinking.budget_tokens"
 		}
 	}
@@ -192,6 +211,8 @@ func streamCompletion(ctx context.Context, c APIConnection, req completionReques
 		return streamAnthropic(ctx, c, req, in, payload, emit)
 	case "responses":
 		return streamResponses(ctx, c, req, in, payload, emit)
+	case "gemini":
+		return streamGemini(ctx, c, req, in, payload, emit)
 	}
 	body, _ := json.Marshal(payload)
 	response, e := apiRequest(ctx, c, "POST", "/chat/completions", body)

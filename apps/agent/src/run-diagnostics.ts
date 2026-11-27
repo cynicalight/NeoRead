@@ -179,6 +179,19 @@ export class RunDiagnostics {
               "tool_calls",
               "content_filter",
               "function_call",
+              "STOP",
+              "MAX_TOKENS",
+              "SAFETY",
+              "RECITATION",
+              "BLOCKLIST",
+              "PROHIBITED_CONTENT",
+              "SPII",
+              "IMAGE_SAFETY",
+              "IMAGE_PROHIBITED_CONTENT",
+              "IMAGE_RECITATION",
+              "MALFORMED_FUNCTION_CALL",
+              "UNEXPECTED_TOOL_CALL",
+              "TOO_MANY_TOOL_CALLS",
             ].includes(rawStopReason)
           ? rawStopReason
           : "unrecognized";
@@ -188,9 +201,19 @@ export class RunDiagnostics {
         ? stopReason
         : "unrecognized";
     if (
-      ["refusal", "sensitive", "content_filter"].includes(
-        this.providerStopReason,
-      )
+      [
+        "refusal",
+        "sensitive",
+        "content_filter",
+        "SAFETY",
+        "RECITATION",
+        "BLOCKLIST",
+        "PROHIBITED_CONTENT",
+        "SPII",
+        "IMAGE_SAFETY",
+        "IMAGE_PROHIBITED_CONTENT",
+        "IMAGE_RECITATION",
+      ].includes(this.providerStopReason)
     )
       this.reasonCode = "content_policy";
     else if (contextOverflow) this.reasonCode = "context_limit";

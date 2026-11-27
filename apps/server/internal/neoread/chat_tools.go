@@ -203,7 +203,7 @@ func (c *chatInput) addWebSource(v WebSource) WebSource {
 
 func deepSeekSearchConnection(c APIConnection) bool {
 	u, e := url.Parse(strings.TrimRight(c.URL, "/"))
-	return e == nil && u.Scheme == "https" && strings.EqualFold(u.Host, "api.deepseek.com") && u.User == nil && u.RawQuery == "" && u.Fragment == "" && (u.Path == "" || u.Path == "/v1" || u.Path == "/beta") && c.Key != "" && c.Protocol != "anthropic"
+	return e == nil && u.Scheme == "https" && strings.EqualFold(u.Host, "api.deepseek.com") && u.User == nil && u.RawQuery == "" && u.Fragment == "" && (u.Path == "" || u.Path == "/v1" || u.Path == "/beta") && c.Key != "" && c.Protocol != "anthropic" && c.Protocol != "gemini"
 }
 func validateWebSearchConfig(c AIConfig) error {
 	if webSearchEnabled(c, c.Primary) {
