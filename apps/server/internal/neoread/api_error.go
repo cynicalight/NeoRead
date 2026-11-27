@@ -177,7 +177,7 @@ func providerFailure(ctx context.Context, c APIConnection, status int, header ht
 	// Only known parameter names are extracted, never arbitrary upstream prose.
 	param := ""
 	message := envelope.Error.Message + " " + envelope.Base.Message
-	for _, p := range []string{"reasoning_effort", "output_config.effort", "thinking.type", "thinking.budget_tokens", "thinking", "temperature", "top_p", "max_tokens", "max_completion_tokens", "stream_options", "model", "messages"} {
+	for _, p := range []string{"reasoning_effort", "output_config.effort", "thinking.type", "thinking.budget_tokens", "thinkingConfig", "thinkingLevel", "thinkingBudget", "thinking", "temperature", "top_p", "max_tokens", "max_completion_tokens", "maxOutputTokens", "stream_options", "model", "messages"} {
 		if envelope.Error.Param == p || strings.Contains(message, p) {
 			param = p
 			break

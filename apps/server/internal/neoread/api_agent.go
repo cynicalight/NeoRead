@@ -259,7 +259,12 @@ func discoverAPIModels(ctx context.Context, c APIConnection) (models []AgentMode
 	if e := validateAgentAPI(c); e != nil {
 		return nil, generationError(ErrorConfiguration, e.Error())
 	}
-	response, err := apiRequest(ctx, c, "GET", "/models", nil)
+	endpoint := resolveAPIEndpoint(c)
+	path := "/models"
+	if endpoint.Protocol == "gemini" {
+		path = "/models?pageSize=1000"
+	}
+	response, err := apiRequest(ctx, c, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +276,16 @@ func discoverAPIModels(ctx context.Context, c APIConnection) (models []AgentMode
 	if hasAPIError(body) {
 		return nil, providerFailure(ctx, c, response.StatusCode, response.Header, body, "catalog")
 	}
-	return decodeAPIModels(body)
+	if endpoint.Protocol == "gemini" {
+		return decodeGeminiModels(body)
+	}
+	models, err = decodeAPIModels(body)
+	if err == nil && endpoint.Vendor == "google" {
+		for i := range models {
+			models[i].ID = geminiModelID(models[i].ID)
+		}
+	}
+	return models, err
 }
 
 // Only id is standard. DeepSeek context_window and OpenRouter context_length

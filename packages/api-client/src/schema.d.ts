@@ -6180,7 +6180,7 @@ export interface components {
              * @default openai
              * @enum {string}
              */
-            protocol: "openai" | "responses" | "anthropic" | "auto";
+            protocol: "openai" | "responses" | "anthropic" | "gemini" | "auto";
             url: string;
             model: string;
             key?: string;
@@ -6190,7 +6190,7 @@ export interface components {
             id: string;
             name: string;
             /** @enum {string} */
-            protocol?: "openai" | "responses" | "anthropic" | "auto";
+            protocol?: "openai" | "responses" | "anthropic" | "gemini" | "auto";
             url: string;
             key?: string;
             hasKey: boolean;

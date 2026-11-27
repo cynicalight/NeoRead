@@ -19,8 +19,9 @@ type completionToolCall struct {
 	} `json:"function"`
 }
 type toolCompletionMessage struct {
-	// ResponsesOutput retains opaque protocol state in memory, never in generic JSON or logs.
+	// ResponsesOutput and GeminiParts retain opaque protocol state in memory, never in generic JSON or logs.
 	ResponsesOutput []json.RawMessage    `json:"-"`
+	GeminiParts     []json.RawMessage    `json:"-"`
 	PageImages      []documentPageImage  `json:"readerPageImages,omitempty"`
 	Reasoning       string               `json:"reasoning_content,omitempty"`
 	Role            string               `json:"role"`
@@ -30,6 +31,7 @@ type toolCompletionMessage struct {
 }
 type toolCompletionResult struct {
 	ResponsesOutput []json.RawMessage
+	GeminiParts     []json.RawMessage
 	Reasoning       string
 	Text            string
 	Calls           []completionToolCall
@@ -249,6 +251,8 @@ func toolCompletion(ctx context.Context, c APIConnection, req completionRequest,
 		return anthropicDocumentCompletion(ctx, c, payload, messages, callbacks...)
 	case "responses":
 		return responsesToolCompletion(ctx, c, payload, wire, tools, callbacks...)
+	case "gemini":
+		return geminiToolCompletion(ctx, c, req, payload, wire, tools, callbacks...)
 	}
 	body, _ := json.Marshal(payload)
 	response, err := apiRequest(ctx, c, "POST", "/chat/completions", body)
@@ -369,7 +373,7 @@ func streamAPIDocumentChat(ctx context.Context, c APIConnection, req completionR
 		if err != nil {
 			return GenerateResult{}, err
 		}
-		assistant := toolCompletionMessage{Role: "assistant", Content: response.Text, Calls: response.Calls, Reasoning: response.Reasoning, ResponsesOutput: response.ResponsesOutput}
+		assistant := toolCompletionMessage{Role: "assistant", Content: response.Text, Calls: response.Calls, Reasoning: response.Reasoning, ResponsesOutput: response.ResponsesOutput, GeminiParts: response.GeminiParts}
 		messages = append(messages, assistant)
 		a.conversationEvents = append(a.conversationEvents, assistant)
 		if len(response.Calls) == 0 {

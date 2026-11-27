@@ -52,7 +52,7 @@ it("persists a relay protocol override while retaining its saved key", async () 
   }
 });
 
-it("offers exactly the three wire protocols and saves Responses", async () => {
+it("offers the four wire protocols and saves Responses and Gemini", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("PointerEvent", MouseEvent);
   const host = document.createElement("div");
@@ -80,6 +80,7 @@ it("offers exactly the three wire protocols and saves Responses", async () => {
       "Chat",
       "Responses",
       "Anthropic",
+      "Gemini",
     ]);
     // A legacy value is shown as Chat Completions and is not a pending change.
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
@@ -91,6 +92,12 @@ it("offers exactly the three wire protocols and saves Responses", async () => {
     await act(async () => submit.click());
     expect(save).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ protocol: "responses" }),
+    );
+    save.mockClear();
+    await act(async () => tabs[3].click());
+    await act(async () => submit.click());
+    expect(save).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ protocol: "gemini" }),
     );
   } finally {
     await act(async () => root.unmount());

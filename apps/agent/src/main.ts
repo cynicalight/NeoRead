@@ -173,6 +173,7 @@ lines.on("line", (line) => {
         if (!input.key && !input.connection) {
           headers.delete("authorization");
           headers.delete("x-api-key");
+          headers.delete("x-goog-api-key");
         }
         let body = init?.body;
         if (input.payload && typeof body === "string") {
@@ -197,6 +198,12 @@ lines.on("line", (line) => {
             if (typeof part.text === "string")
               part.text = part.text.replace(cwd, "").trimEnd();
           }
+          for (const part of Array.isArray(payload.systemInstruction?.parts)
+            ? payload.systemInstruction.parts
+            : []) {
+            if (typeof part.text === "string")
+              part.text = part.text.replace(cwd, "").trimEnd();
+          }
           for (const field of [
             "reasoning_effort",
             "reasoning",
@@ -208,7 +215,34 @@ lines.on("line", (line) => {
             "max_output_tokens",
           ])
             delete payload[field];
-          Object.assign(payload, input.payload);
+          if (input.model.api === "google-generative-ai") {
+            const genConfig =
+              payload.generationConfig &&
+              typeof payload.generationConfig === "object"
+                ? { ...(payload.generationConfig as Record<string, unknown>) }
+                : {};
+            delete genConfig.thinkingConfig;
+            delete genConfig.maxOutputTokens;
+            const nextGenConfig =
+              input.payload.generationConfig &&
+              typeof input.payload.generationConfig === "object"
+                ? {
+                    ...genConfig,
+                    ...(input.payload.generationConfig as Record<
+                      string,
+                      unknown
+                    >),
+                  }
+                : genConfig;
+            const { generationConfig: _ignored, ...restPayload } =
+              input.payload;
+            Object.assign(payload, restPayload);
+            if (Object.keys(nextGenConfig).length > 0)
+              payload.generationConfig = nextGenConfig;
+            else delete payload.generationConfig;
+          } else {
+            Object.assign(payload, input.payload);
+          }
           if (
             !input.connection &&
             input.model.api === "openai-completions" &&

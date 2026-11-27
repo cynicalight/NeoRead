@@ -9,7 +9,7 @@ import (
 )
 
 func TestTranslationInstructionsReachPublicAPIProtocols(t *testing.T) {
-	for _, protocol := range []string{"openai", "anthropic"} {
+	for _, protocol := range []string{"openai", "anthropic", "gemini"} {
 		t.Run(protocol, func(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
@@ -21,6 +21,8 @@ func TestTranslationInstructionsReachPublicAPIProtocols(t *testing.T) {
 				var system any
 				if protocol == "anthropic" {
 					system = body["system"]
+				} else if protocol == "gemini" {
+					system = body["systemInstruction"].(map[string]any)["parts"].([]any)[0].(map[string]any)["text"]
 				} else {
 					system = body["messages"].([]any)[0].(map[string]any)["content"]
 				}
@@ -30,6 +32,9 @@ func TestTranslationInstructionsReachPublicAPIProtocols(t *testing.T) {
 				if protocol == "anthropic" {
 					w.Header().Set("Content-Type", "text/event-stream")
 					fmt.Fprint(w, anthropicTestWire("ok"))
+				} else if protocol == "gemini" {
+					w.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprint(w, geminiTestWire("ok"))
 				} else {
 					writeAPIReply(w, "ok")
 				}

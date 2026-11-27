@@ -25,6 +25,7 @@ import {
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
+import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
 import { Type } from "typebox";
 
 export interface AgentRequest {
@@ -152,9 +153,12 @@ export async function runAgent(
     throw new Error("不兼容的 Agent 请求");
   const model = input.model;
   if (
-    !["openai-completions", "openai-responses", "anthropic-messages"].includes(
-      model.api,
-    )
+    ![
+      "openai-completions",
+      "openai-responses",
+      "anthropic-messages",
+      "google-generative-ai",
+    ].includes(model.api)
   )
     throw new Error("不支持的模型协议");
   const connected = input.connection
@@ -175,9 +179,11 @@ export async function runAgent(
   const native =
     model.api === "anthropic-messages"
       ? anthropicMessagesApi()
-      : model.api === "openai-responses"
-        ? responsesApi(diagnostics)
-        : openAICompletionsApi();
+      : model.api === "google-generative-ai"
+        ? googleGenerativeAIApi()
+        : model.api === "openai-responses"
+          ? responsesApi(diagnostics)
+          : openAICompletionsApi();
   // SDK 在自己的重试/压缩循环中发起下一次请求；只在请求边界等待宿主持久化。
   const withCheckpoint = <T extends StreamOptions>(options?: T) => ({
     ...options,

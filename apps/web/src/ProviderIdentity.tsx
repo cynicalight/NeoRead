@@ -1,4 +1,4 @@
-import { Claude, DeepSeek, Kimi, OpenAI, Qwen } from "@lobehub/icons";
+import { Claude, DeepSeek, Gemini, Kimi, OpenAI, Qwen } from "@lobehub/icons";
 import { KeyRound } from "lucide-react";
 
 // The API agent is not one brand, so it uses a neutral key mark.
@@ -62,6 +62,7 @@ export function ProviderIcon({
         .map((name) => {
           if (/gpt|openai/i.test(name)) return OpenAI;
           if (/claude/i.test(name)) return Claude;
+          if (/gemini|gemma|google/i.test(name)) return Gemini;
           if (/qwen/i.test(name)) return Qwen;
           if (/deepseek|^ds[\s-]/i.test(name)) return DeepSeek;
           if (/kimi/i.test(name)) return Kimi;
