@@ -25,12 +25,14 @@ const protocols = {
   openai: "OpenAI Chat Completions",
   responses: "OpenAI Responses",
   anthropic: "Anthropic Messages",
+  gemini: "Google Gemini",
 } as const;
 type Protocol = keyof typeof protocols;
 const tabLabels: Record<Protocol, string> = {
   openai: "Chat",
   responses: "Responses",
   anthropic: "Anthropic",
+  gemini: "Gemini",
 };
 const isProtocol = (value: unknown): value is Protocol =>
   typeof value === "string" && value in protocols;
@@ -116,7 +118,9 @@ export function APIProfilesForm({
               </Button>
               <AlertDialog open={confirming} onOpenChange={setConfirming}>
                 <AlertDialogTrigger
-                  render={<Button type="button" variant="ghost" disabled={disabled} />}
+                  render={
+                    <Button type="button" variant="ghost" disabled={disabled} />
+                  }
                 >
                   删除
                 </AlertDialogTrigger>
@@ -128,7 +132,9 @@ export function APIProfilesForm({
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel ref={cancelDelete}>取消</AlertDialogCancel>
+                    <AlertDialogCancel ref={cancelDelete}>
+                      取消
+                    </AlertDialogCancel>
                     <Button
                       type="button"
                       variant="destructive"
@@ -138,7 +144,9 @@ export function APIProfilesForm({
                           (latest) => ({
                             ...latest,
                             apiProfiles:
-                              latest.apiProfiles?.filter(({ id }) => id !== active.id) ?? [],
+                              latest.apiProfiles?.filter(
+                                ({ id }) => id !== active.id,
+                              ) ?? [],
                           }),
                           true,
                         );

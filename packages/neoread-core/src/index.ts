@@ -863,7 +863,7 @@ export interface AICapability {
 }
 export interface APIConnection {
   /** openai is Chat Completions. "auto" only appears in configurations saved before the explicit choice. */
-  protocol?: "openai" | "responses" | "anthropic" | "auto";
+  protocol?: "openai" | "responses" | "anthropic" | "gemini" | "auto";
   url: string;
   model: string;
   key?: string;

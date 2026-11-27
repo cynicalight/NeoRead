@@ -7573,7 +7573,7 @@
                     {
                       "type": "string",
                       "description": "openai is Chat Completions. Responses return the protocol in use; auto is accepted only for configurations saved before the explicit choice.",
-                      "enum": ["openai", "responses", "anthropic", "auto"],
+                      "enum": ["openai", "responses", "anthropic", "gemini", "auto"],
                       "default": "openai",
                     },
                   "url": { "type": "string" },
@@ -7593,7 +7593,7 @@
                   "protocol":
                     {
                       "type": "string",
-                      "enum": ["openai", "responses", "anthropic", "auto"],
+                      "enum": ["openai", "responses", "anthropic", "gemini", "auto"],
                     },
                   "url": { "type": "string" },
                   "key": { "type": "string", "writeOnly": true },
