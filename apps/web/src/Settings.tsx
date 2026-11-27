@@ -11,6 +11,7 @@ import { WebSearchSettings } from "./WebSearchSettings";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { OCRSettings } from "./OCRSettings";
 import { LayoutSettings } from "./LayoutSettings";
+import { FormulaSettings } from "./FormulaSettings";
 import {
   ChevronLeft,
   FileText,
@@ -1175,6 +1176,7 @@ export function Settings({
             </section>
             <OCRSettings open={open} />
             <LayoutSettings theme={theme} setTheme={setTheme} />
+            <FormulaSettings theme={theme} setTheme={setTheme} />
             <section>
               <HighlightColorsEditor />
             </section>

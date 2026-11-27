@@ -2,12 +2,14 @@ package neoread
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -84,14 +86,34 @@ func hasPendingFormulas(m layoutManifest, items []TranslationBlock) bool {
 	return false
 }
 
-// One bounded image worker runs independently of text batches. Only complete
-// provider responses are saved; each save publishes through the translation SSE.
-func (s *Server) convertFormulas(ctx context.Context, documentID string, m layoutManifest) error {
+// Formula workers come from the reading settings; 0 turns conversion off.
+const (
+	defaultFormulaConcurrency = 3
+	maxFormulaConcurrency     = 5
+)
+
+func (s *Server) formulaConcurrency() int {
+	var body string
+	var settings struct {
+		FormulaConcurrency *int `json:"formulaConcurrency"`
+	}
+	if s.Store.DB.QueryRow("SELECT value FROM settings WHERE key='neoread'").Scan(&body) == nil {
+		_ = json.Unmarshal([]byte(body), &settings)
+	}
+	if v := settings.FormulaConcurrency; v != nil && *v >= 0 && *v <= maxFormulaConcurrency {
+		return *v
+	}
+	return defaultFormulaConcurrency
+}
+
+// With conversion off, unconverted formulas become idle: they show the original
+// image (or a retained earlier result), leave progress, and are not requeued.
+func (s *Server) skipFormulas(documentID string, m layoutManifest) error {
 	items, err := s.translations(documentID, m)
 	if err != nil {
 		return err
 	}
-	saved := map[string]TranslationBlock{}
+	saved := make(map[string]TranslationBlock, len(items))
 	for _, t := range items {
 		saved[t.BlockID] = t
 	}
@@ -100,47 +122,111 @@ func (s *Server) convertFormulas(ctx context.Context, documentID string, m layou
 		if !needsFormulaConversion(b, t) {
 			continue
 		}
-		if err := ctx.Err(); err != nil {
+		t.Status, t.Error, t.FormulaMarkdown = "idle", "", ""
+		if err = s.saveTranslation(documentID, t); err != nil {
 			return err
 		}
-		t.Status = "running"
+	}
+	return nil
+}
+
+// Bounded image workers run independently of text batches. Only complete
+// provider responses are saved; each save publishes through the translation SSE.
+func (s *Server) convertFormulas(ctx context.Context, documentID string, m layoutManifest, workers int) error {
+	items, err := s.translations(documentID, m)
+	if err != nil {
+		return err
+	}
+	saved := map[string]TranslationBlock{}
+	for _, t := range items {
+		saved[t.BlockID] = t
+	}
+	var blocks []PDFBlock
+	for _, b := range m.Blocks {
+		if needsFormulaConversion(b, saved[b.ID]) {
+			blocks = append(blocks, b)
+		}
+	}
+	if len(blocks) == 0 || workers < 1 {
+		return nil
+	}
+	jobs := make(chan PDFBlock)
+	failures := make(chan error, workers)
+	work, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var wg sync.WaitGroup
+	for range min(workers, len(blocks)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for b := range jobs {
+				if err := s.convertFormula(work, documentID, b, saved[b.ID]); err != nil {
+					failures <- err
+					cancel()
+					return
+				}
+			}
+		}()
+	}
+send:
+	for _, b := range blocks {
+		select {
+		case jobs <- b:
+		case <-work.Done():
+			break send
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	close(failures)
+	// The first failure cancelled its siblings; report it rather than their ctx errors.
+	if err := <-failures; err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+func (s *Server) convertFormula(ctx context.Context, documentID string, b PDFBlock, t TranslationBlock) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	t.Status = "running"
+	t.Error = ""
+	t.FormulaMarkdown = ""
+	if err := s.saveTranslation(documentID, t); err != nil {
+		return err
+	}
+	image, callErr := os.ReadFile(filepath.Join(s.analysisDir(documentID), b.Image))
+	if callErr == nil {
+		service := s.generationService(s.aiConfig())
+		service.usageSink = s.processingUsageSink(documentID, "translating", b.ID)
+		service.timeout = 15 * time.Minute
+		t.FormulaMarkdown, callErr = generateFormula(ctx, service, AIInput{Prompt: formulaPrompt + b.Text, Image: image})
+	}
+	t.Status = "complete"
+	if callErr != nil {
+		t.Status = "failed"
+		t.Error = callErr.Error()
+	}
+	if ctx.Err() != nil {
+		t.Status = "pending"
 		t.Error = ""
 		t.FormulaMarkdown = ""
-		if err = s.saveTranslation(documentID, t); err != nil {
-			return err
+	}
+	if err := s.saveTranslation(documentID, t); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if t.Status == "failed" {
+		reason := "provider_error"
+		if strings.Contains(callErr.Error(), "公式转换未返回完整的") {
+			reason = "invalid_formula"
+		} else if errors.Is(callErr, os.ErrNotExist) {
+			reason = "image_missing"
 		}
-		image, callErr := os.ReadFile(filepath.Join(s.analysisDir(documentID), b.Image))
-		if callErr == nil {
-			service := s.generationService(s.aiConfig())
-			service.usageSink = s.processingUsageSink(documentID, "translating", b.ID)
-			service.timeout = 15 * time.Minute
-			t.FormulaMarkdown, callErr = generateFormula(ctx, service, AIInput{Prompt: formulaPrompt + b.Text, Image: image})
-		}
-		t.Status = "complete"
-		if callErr != nil {
-			t.Status = "failed"
-			t.Error = callErr.Error()
-		}
-		if ctx.Err() != nil {
-			t.Status = "pending"
-			t.Error = ""
-			t.FormulaMarkdown = ""
-		}
-		if err = s.saveTranslation(documentID, t); err != nil {
-			return err
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if t.Status == "failed" {
-			reason := "provider_error"
-			if strings.Contains(callErr.Error(), "公式转换未返回完整的") {
-				reason = "invalid_formula"
-			} else if errors.Is(callErr, os.ErrNotExist) {
-				reason = "image_missing"
-			}
-			s.diagnosticEvent(slog.LevelError, "translation.item_failed", "documentId", documentID, "blockId", b.ID, "phase", "formula", "reasonCode", reason)
-		}
+		s.diagnosticEvent(slog.LevelError, "translation.item_failed", "documentId", documentID, "blockId", b.ID, "phase", "formula", "reasonCode", reason)
 	}
 	return nil
 }
@@ -162,8 +248,15 @@ func (s *Server) translateContent(ctx context.Context, p *Processing, input tran
 		textErr := s.settleTranslations(ctx, p, input)
 		return errors.Join(textErr, s.refreshTranslationCounts(p, input))
 	}
+	workers := s.formulaConcurrency()
 	p.Phase = "translating"
 	p.Detail = "正在翻译正文并转换公式"
+	if workers == 0 {
+		p.Detail = "正在翻译正文"
+		if err = s.skipFormulas(p.DocumentID, m); err != nil {
+			return err
+		}
+	}
 	if err = s.Store.saveProcessing(*p); err != nil {
 		return err
 	}
@@ -183,9 +276,9 @@ func (s *Server) translateContent(ctx context.Context, p *Processing, input tran
 		}
 	}
 	result := make(chan error, 1)
-	go func() { result <- s.convertFormulas(ctx, p.DocumentID, m) }()
+	go func() { result <- s.convertFormulas(ctx, p.DocumentID, m, workers) }()
 	textErr := s.settleTranslations(ctx, p, m)
-	if textErr == nil && p.Status != "waiting" {
+	if textErr == nil && p.Status != "waiting" && workers > 0 {
 		p.Detail = "正文翻译已完成，正在完成公式转换"
 		if err := s.Store.saveProcessing(*p); err != nil {
 			textErr = err
