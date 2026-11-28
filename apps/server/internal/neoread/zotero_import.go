@@ -395,6 +395,7 @@ func (s *Server) importZoteroEntryTo(ctx context.Context, e *zoteroEntry, librar
 		return result, err
 	}
 	success = true
+	s.sealOriginal(dest)
 	return result, nil
 }
 

@@ -3,6 +3,7 @@ package neoread
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -49,8 +50,18 @@ func TestCheckOriginalsFlagsEditedFilesUntilRestored(t *testing.T) {
 	if s.connectorRevision.Load() == before {
 		t.Fatal("library was not told about the modified original")
 	}
-	// Restoring the imported bytes clears the warning on the next check.
-	check(os.WriteFile(s.Store.File(edited), []byte("%PDF edited"), 0600))
+	// Every scanned original is stored read-only, so editors cannot save over it.
+	for _, d := range []Document{intact, edited, endnote} {
+		info, err := os.Stat(s.Store.File(d))
+		check(err)
+		if info.Mode().Perm()&0o222 != 0 {
+			t.Fatalf("original %s left writable: %v", d.ID, info.Mode())
+		}
+	}
+	// Overwriting a sealed original requires changing its mode first, as a
+	// user would. Restoring the imported bytes clears the warning.
+	check(os.Chmod(s.Store.File(edited), 0o600))
+	check(os.WriteFile(s.Store.File(edited), []byte("%PDF edited"), 0o600))
 	later := time.Now().Add(time.Second)
 	check(os.Chtimes(s.Store.File(edited), later, later))
 	if got := flagged(); len(got) != 0 {
@@ -59,4 +70,20 @@ func TestCheckOriginalsFlagsEditedFilesUntilRestored(t *testing.T) {
 	if got := flagged(); got[intact.ID] {
 		t.Fatal("intact original flagged")
 	}
+	// Deleting a document still removes its read-only original.
+	if status, msg := s.purgeDocument(t.Context(), edited.ID); status != 204 {
+		t.Fatalf("delete returned %d %s", status, msg)
+	}
+	if _, err := os.Stat(s.Store.File(edited)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("sealed original not removed: %v", err)
+	}
+}
+
+// writeOriginal replaces a read-only original in tests that simulate a
+// changed file.
+func writeOriginal(path string, data []byte) error {
+	if err := os.Chmod(path, 0o600); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
 }

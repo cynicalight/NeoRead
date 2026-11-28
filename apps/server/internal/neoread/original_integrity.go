@@ -20,6 +20,20 @@ import (
 // identity and are not checked.
 const originalCheckInterval = 10 * time.Minute
 
+// sealOriginal stores an original read-only so editors such as Preview or
+// Acrobat cannot save over it. It is not a lock: users can change the mode,
+// which the integrity check still catches. Removal is unaffected; Go's
+// os.Remove clears the Windows read-only attribute before deleting.
+func (s *Server) sealOriginal(path string) {
+	st, err := os.Lstat(path)
+	if err != nil || !st.Mode().IsRegular() || st.Mode().Perm()&0o222 == 0 {
+		return
+	}
+	if err = os.Chmod(path, 0o444); err != nil {
+		s.diagnosticEvent(slog.LevelWarn, "original.seal_failed", "errorCode", errorKind(err))
+	}
+}
+
 func (s *Server) originalIntegrityWorker(ctx context.Context) {
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
@@ -37,7 +51,7 @@ func (s *Server) originalIntegrityWorker(ctx context.Context) {
 }
 
 func (s *Server) checkOriginals(ctx context.Context) error {
-	rows, err := s.Store.DB.QueryContext(ctx, "SELECT id,type FROM documents d WHERE NOT EXISTS(SELECT 1 FROM endnote_imports e WHERE e.document_id=d.id)")
+	rows, err := s.Store.DB.QueryContext(ctx, "SELECT id,type FROM documents")
 	if err != nil {
 		return err
 	}
@@ -59,6 +73,8 @@ func (s *Server) checkOriginals(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		// Existing libraries and imports from other paths become read-only here.
+		s.sealOriginal(s.Store.File(d))
 		_, flipped, err := s.inspectOriginal(ctx, d)
 		if err != nil {
 			if ctx.Err() != nil {
