@@ -85,6 +85,7 @@ import { filterDocuments, initialFilters } from "./library";
 import { GuideHost } from "./guide/GuideHost";
 import { SearchInput } from "./SearchInput";
 import { openExternalLink } from "./reading-links";
+import { useModifiedOriginalNotice } from "./original-integrity";
 // Scan detection may finish without changing processing rows, so every poll
 // re-reads OCR notices; refreshOCR coalesces the requests.
 const pollOCR = () => void refreshOCR();
@@ -120,6 +121,7 @@ export function App() {
   const { jobs, error: processingError } = useProcessing(pollOCR);
   useEffect(() => observeReparsedLayouts(jobs), [jobs]);
   useUpdateProgress();
+  useModifiedOriginalNotice(allDocuments);
   const jobsById = useMemo(
     () => new Map(jobs.map((job) => [job.documentId, job])),
     [jobs],

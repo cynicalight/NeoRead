@@ -121,6 +121,8 @@ ZIP 包含：
 
 排查未找到事件的情况时，先核对实例、版本、会话、时间范围和 `manifest.json` 的缺失报告，不据此断言操作未执行。
 
+原件检查记录 `original.integrity_changed`（`documentId`、`modified`），检查失败记录 `original.integrity_check_failed` / `original.integrity_scan_failed`；日志不写书名。
+
 ## 故障时导出
 
 - React 渲染错误的备用界面保留「导出全部日志」按钮。

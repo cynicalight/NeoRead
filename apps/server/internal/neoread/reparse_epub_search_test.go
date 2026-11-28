@@ -92,7 +92,7 @@ func TestReparseEPUBPreservesCanonicalSearchAndCurrentPublicationHref(t *testing
 		t.Fatal(err)
 	}
 	original := epubSearchPublication(t, "current.xhtml")
-	if err := os.WriteFile(s.Store.File(d), original, 0600); err != nil {
+	if err := writeOriginal(s.Store.File(d), original); err != nil {
 		t.Fatal(err)
 	}
 	queueReparseForTest(t, s, d.ID)

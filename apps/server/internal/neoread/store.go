@@ -11,6 +11,8 @@ import (
 )
 
 type Document struct {
+	// OriginalModified marks a stored original edited after import.
+	OriginalModified     bool     `json:"originalModified,omitempty"`
 	Category             string   `json:"category"`
 	CategorySource       string   `json:"categorySource"`
 	ClassificationStatus string   `json:"classificationStatus"`
@@ -98,6 +100,7 @@ func OpenStore(root string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS endnote_imports(source_id TEXT NOT NULL,document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,source_hash TEXT NOT NULL,body TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(source_id,document_id));
  CREATE TABLE IF NOT EXISTS zotero_imports(source_id TEXT NOT NULL,document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,body TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(source_id,document_id));
  CREATE TABLE IF NOT EXISTS zotero_note_imports(source_id TEXT NOT NULL,document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,PRIMARY KEY(source_id,document_id));
+ CREATE TABLE IF NOT EXISTS document_integrity(document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,size INTEGER NOT NULL,mtime INTEGER NOT NULL,modified INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS document_navigation(document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,revision INTEGER NOT NULL,body TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS annotations(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,body TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,body TEXT NOT NULL,created_at TEXT NOT NULL);
@@ -172,14 +175,15 @@ const documentColumns = `id,type,title,author,size,created_at,last_opened_at,fav
 	`(SELECT count(*) FROM annotations a WHERE a.document_id=documents.id AND json_extract(a.body,'$.kind') IN ('highlight','underline')),` +
 	`(SELECT count(*) FROM annotations a WHERE a.document_id=documents.id AND json_extract(a.body,'$.kind')='question' AND COALESCE(json_extract(a.body,'$.answerId'),'')='' AND NOT COALESCE(json_extract(a.body,'$.resolved'),0)),` +
 	`(SELECT json_group_array(CASE WHEN r.a=documents.id THEN r.b ELSE r.a END) FROM document_relations r WHERE r.a=documents.id OR r.b=documents.id),` +
-	`(SELECT count(*) FROM paper_attachments a WHERE a.document_id=documents.id)`
+	`(SELECT count(*) FROM paper_attachments a WHERE a.document_id=documents.id),` +
+	`EXISTS(SELECT 1 FROM document_integrity i WHERE i.document_id=documents.id AND i.modified=1)`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanDocument(row rowScanner) (Document, error) {
 	var d Document
 	var progress, tags, folders, metadata, related string
-	err := row.Scan(&d.ID, &d.Type, &d.Title, &d.Author, &d.Size, &d.CreatedAt, &d.LastOpenedAt, &d.Favorite, &progress, &d.Percentage, &d.Category, &d.CategorySource, &d.ClassificationStatus, &d.ClassificationError, &tags, &folders, &d.Library, &d.DeletedAt, &metadata, &d.ReadingStatus, &d.NoteCount, &d.HighlightCount, &d.OpenQuestionCount, &related, &d.AttachmentCount)
+	err := row.Scan(&d.ID, &d.Type, &d.Title, &d.Author, &d.Size, &d.CreatedAt, &d.LastOpenedAt, &d.Favorite, &progress, &d.Percentage, &d.Category, &d.CategorySource, &d.ClassificationStatus, &d.ClassificationError, &tags, &folders, &d.Library, &d.DeletedAt, &metadata, &d.ReadingStatus, &d.NoteCount, &d.HighlightCount, &d.OpenQuestionCount, &related, &d.AttachmentCount, &d.OriginalModified)
 	if err == nil {
 		err = json.Unmarshal([]byte(tags), &d.Tags)
 	}

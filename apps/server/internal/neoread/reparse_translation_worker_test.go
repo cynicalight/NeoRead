@@ -169,7 +169,7 @@ func TestReparseEPUBResumesPublishedCacheBeforeReadyCheckpoint(t *testing.T) {
 	if _, err := s.Store.DB.Exec("DROP TRIGGER reject_epub_ready"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(s.Store.File(d), []byte("cannot parse this again"), 0600); err != nil {
+	if err := writeOriginal(s.Store.File(d), []byte("cannot parse this again")); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.refreshRetranslationLayout(context.Background(), &p); err != nil {

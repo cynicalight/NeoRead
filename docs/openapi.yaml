@@ -6723,6 +6723,7 @@
               "type": "object",
               "properties":
                 {
+                  "originalModified": { "type": "boolean" },
                   "category": { "enum": ["book", "article", "paper"] },
                   "categorySource": { "enum": ["default", "ai", "manual"] },
                   "classificationStatus":

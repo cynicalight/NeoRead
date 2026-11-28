@@ -112,7 +112,7 @@ func TestFailedReparsePreservesOldEPUBCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(s.Store.File(d), []byte("invalid EPUB"), 0600); err != nil {
+	if err = writeOriginal(s.Store.File(d), []byte("invalid EPUB")); err != nil {
 		t.Fatal(err)
 	}
 	response = request(t, s, "POST", "/api/documents/"+d.ID+"/reparse", nil)
@@ -289,7 +289,7 @@ func TestReparseEPUBRefreshesCoverFromChangedOriginal(t *testing.T) {
 			if err = w.Close(); err != nil {
 				t.Fatal(err)
 			}
-			if err = os.WriteFile(s.Store.File(d), updated.Bytes(), 0600); err != nil {
+			if err = writeOriginal(s.Store.File(d), updated.Bytes()); err != nil {
 				t.Fatal(err)
 			}
 			stale := request(t, s, "GET", coverURL, nil)

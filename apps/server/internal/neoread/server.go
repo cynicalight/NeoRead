@@ -634,6 +634,7 @@ func (s *Server) importFileToCategory(ctx context.Context, temp, filename, libra
 		return failure(500, "书库保存失败")
 	}
 	success = true
+	s.sealOriginal(dest)
 	if saved, e := s.Store.Document(d.ID); e == nil {
 		d = saved
 	}

@@ -281,6 +281,7 @@ func (s *Server) importEndnoteEntry(ctx context.Context, e *endnoteEntry, librar
 		_ = os.Remove(dest)
 		return result, err
 	}
+	s.sealOriginal(dest)
 	result.Status = "imported"
 	return result, nil
 }
