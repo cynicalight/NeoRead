@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -86,4 +87,31 @@ func writeOriginal(path string, data []byte) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o600)
+}
+
+func TestCheckOriginalsFlagsSymlinkedOriginal(t *testing.T) {
+	s := testServer(t)
+	data := []byte("%PDF linked")
+	sum := sha256.Sum256(data)
+	d := Document{ID: hex.EncodeToString(sum[:16]), Type: "pdf"}
+	if _, err := s.Store.DB.Exec(`INSERT INTO documents(id,type,title,author,size,created_at,last_opened_at,library) VALUES(?,'pdf','t','',?,'2026','','papers')`, d.ID, len(data)); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(t.TempDir(), "other.pdf")
+	if err := os.WriteFile(other, []byte("%PDF other"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, s.Store.File(d)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.checkOriginals(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	docs, err := s.Store.Documents()
+	if err != nil || len(docs) != 1 || !docs[0].OriginalModified {
+		t.Fatalf("symlinked original not flagged: %v %v", docs, err)
+	}
+	if info, err := os.Stat(other); err != nil || info.Mode().Perm()&0o222 == 0 {
+		t.Fatalf("link target was sealed: %v %v", info, err)
+	}
 }

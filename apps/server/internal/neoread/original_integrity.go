@@ -116,31 +116,38 @@ func (s *Server) inspectOriginal(ctx context.Context, d Document) (modified, cha
 		}
 		return false, had && modified, err
 	}
-	if err != nil || !before.Mode().IsRegular() {
-		return false, false, err
-	}
-	if had && before.Size() == size && before.ModTime().UnixNano() == mtime {
-		return modified, false, nil
-	}
-	f, err := os.Open(path)
 	if err != nil {
 		return false, false, err
 	}
-	h := sha256.New()
-	_, err = io.Copy(h, f)
-	f.Close()
-	if err != nil {
-		return false, false, err
+	after := before
+	var now bool
+	if !before.Mode().IsRegular() {
+		// A symlink or other non-regular entry is never the imported file, and
+		// the reader would follow it to unrelated bytes.
+		now = true
+	} else {
+		if had && before.Size() == size && before.ModTime().UnixNano() == mtime {
+			return modified, false, nil
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return false, false, err
+		}
+		h := sha256.New()
+		_, err = io.Copy(h, f)
+		f.Close()
+		if err != nil {
+			return false, false, err
+		}
+		if after, err = os.Lstat(path); err != nil {
+			return false, false, err
+		}
+		if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+			// Still being written; the next check sees the settled file.
+			return had && modified, false, nil
+		}
+		now = !strings.HasPrefix(hex.EncodeToString(h.Sum(nil)), d.ID)
 	}
-	after, err := os.Lstat(path)
-	if err != nil {
-		return false, false, err
-	}
-	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
-		// Still being written; the next check sees the settled file.
-		return had && modified, false, nil
-	}
-	now := !strings.HasPrefix(hex.EncodeToString(h.Sum(nil)), d.ID)
 	if _, err = s.Store.DB.ExecContext(ctx, "INSERT INTO document_integrity(document_id,size,mtime,modified) VALUES(?,?,?,?) ON CONFLICT(document_id) DO UPDATE SET size=excluded.size,mtime=excluded.mtime,modified=excluded.modified", d.ID, after.Size(), after.ModTime().UnixNano(), now); err != nil {
 		return false, false, err
 	}
