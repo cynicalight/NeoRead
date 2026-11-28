@@ -593,21 +593,34 @@ func translationAgentReady(c AIConfig) bool {
 
 // translationAgentConfig returns the config translation work should use. When
 // no agent can serve it (signed out, untested connection), the stage is saved
-// as waiting under configMu so a concurrent connection change still wakes it.
+// as waiting.
 func (s *Server) translationAgentConfig(p *Processing, options *translationRunOptions) (AIConfig, bool, error) {
+	return s.agentConfigOrWait(p, options, translationAgentReady, "text_capability", "请选择主 Agent 并完成文字能力测试，随后继续翻译")
+}
+
+// Formula images need a vision-capable primary or image-api, exactly as the
+// generation service routes them.
+func (s *Server) formulaAgentReady(c AIConfig) bool {
+	return s.generationService(c).ValidateInput(AIInput{Image: []byte{0}}, false) == nil
+}
+
+// The final check runs under configMu so a concurrent connection change still
+// wakes the saved waiting stage.
+func (s *Server) agentConfigOrWait(p *Processing, options *translationRunOptions, ready func(AIConfig) bool, reason, detail string) (AIConfig, bool, error) {
 	config := options.apply(s.aiConfig())
-	if translationAgentReady(config) {
+	if ready(config) {
 		return config, false, nil
 	}
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	config = options.apply(s.readAIConfig())
-	if translationAgentReady(config) {
+	if ready(config) {
 		return config, false, nil
 	}
 	s.processingMu.Lock()
 	defer s.processingMu.Unlock()
 	p.Status = "waiting"
-	p.Detail = "请选择主 Agent 并完成文字能力测试，随后继续翻译"
+	p.Detail = detail
+	s.diagnosticEvent(slog.LevelWarn, "translation.agent_waiting", "documentId", p.DocumentID, "reasonCode", reason)
 	return config, true, s.Store.saveProcessing(*p)
 }

@@ -249,6 +249,11 @@ func (s *Server) translateContent(ctx context.Context, p *Processing, input tran
 		return errors.Join(textErr, s.refreshTranslationCounts(p, input))
 	}
 	workers := s.formulaConcurrency()
+	if workers == 0 && len(p.TranslationBlocks) > 0 {
+		// An explicit block or range request converts its formulas even when
+		// automatic conversion is off.
+		workers = 1
+	}
 	p.Phase = "translating"
 	p.Detail = "正在翻译正文并转换公式"
 	if workers == 0 {
@@ -260,28 +265,26 @@ func (s *Server) translateContent(ctx context.Context, p *Processing, input tran
 	if err = s.Store.saveProcessing(*p); err != nil {
 		return err
 	}
-	// Without a usable agent every formula would be saved as failed and never
-	// retried after sign-in; wait like text translation instead.
 	items, err := s.translations(p.DocumentID, m)
 	if err != nil {
 		return err
 	}
-	if hasPendingFormulas(m, items) {
-		options, err := s.retranslationOptions(p)
-		if err != nil {
-			return err
-		}
-		if _, waiting, err := s.translationAgentConfig(p, options); err != nil || waiting {
-			return err
-		}
-	}
+	// Without a vision-capable route every formula would be saved as failed and
+	// never retried; text still translates and the stage then waits instead.
+	formulasWaiting := workers > 0 && hasPendingFormulas(m, items) && !s.formulaAgentReady(s.aiConfig())
 	result := make(chan error, 1)
-	go func() { result <- s.convertFormulas(ctx, p.DocumentID, m, workers) }()
+	if formulasWaiting {
+		result <- nil
+	} else {
+		go func() { result <- s.convertFormulas(ctx, p.DocumentID, m, workers) }()
+	}
 	textErr := s.settleTranslations(ctx, p, m)
-	if textErr == nil && p.Status != "waiting" && workers > 0 {
-		p.Detail = "正文翻译已完成，正在完成公式转换"
-		if err := s.Store.saveProcessing(*p); err != nil {
-			textErr = err
+	if textErr == nil && p.Status != "waiting" {
+		if formulasWaiting {
+			_, _, textErr = s.agentConfigOrWait(p, nil, s.formulaAgentReady, "vision_capability", "公式转换需要能识别图片的模型，完成图片能力测试后继续")
+		} else if workers > 0 {
+			p.Detail = "正文翻译已完成，正在完成公式转换"
+			textErr = s.Store.saveProcessing(*p)
 		}
 	}
 	formulaErr := <-result

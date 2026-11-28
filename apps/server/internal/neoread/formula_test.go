@@ -383,3 +383,69 @@ func TestFormulaConversionOffLeavesFormulasIdle(t *testing.T) {
 		t.Fatalf("status=%s calls=%d items=%+v", p.Status, imageCalls.Load(), items)
 	}
 }
+
+func TestFormulaWaitsForVisionWhileTextTranslates(t *testing.T) {
+	s, p, m := formulaFixture(t)
+	text := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		input := readTranslationInput(t, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, para := range input.Batch.Paragraphs {
+			sendTranslationDelta(w, translationParagraphLine(para))
+		}
+		finishTranslationStream(w)
+	}))
+	defer text.Close()
+	// Text-only fallback: no route can read formula images.
+	configureTranslationTest(t, s, text.URL)
+	if err := s.learnPDF(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := s.translations("doc", m)
+	if p.Status != "waiting" || items[0].Status != "pending" || items[1].Status != "complete" {
+		t.Fatalf("formula should wait for vision after text: %+v %+v", p, items)
+	}
+}
+
+func TestExplicitFormulaRequestConvertsWhenConversionOff(t *testing.T) {
+	s, p, m := formulaFixture(t)
+	if w := request(t, s, "PUT", "/api/settings", strings.NewReader(`{"formulaConcurrency":0}`)); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	images := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sendTranslationDelta(w, "$$x=1$$")
+		finishTranslationStream(w)
+	}))
+	defer images.Close()
+	text := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		input := readTranslationInput(t, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, para := range input.Batch.Paragraphs {
+			sendTranslationDelta(w, translationParagraphLine(para))
+		}
+		finishTranslationStream(w)
+	}))
+	defer text.Close()
+	configureFormulaTest(t, s, text.URL, images.URL)
+	if err := s.learnPDF(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	// The reader's 转换公式 button sends a forced block request.
+	if w := request(t, s, "POST", "/api/documents/doc/translations", strings.NewReader(`{"blockId":"p1-b1","force":true}`)); w.Code != 202 {
+		t.Fatalf("explicit request failed: %s", w.Body.String())
+	}
+	p, _ = s.Store.processing("doc")
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := s.translations("doc", m)
+	if items[0].Status != "complete" || items[0].FormulaMarkdown != "$$x=1$$\n" {
+		t.Fatalf("explicit formula request was skipped: %+v", items)
+	}
+}
