@@ -5818,6 +5818,7 @@ export interface components {
             translation?: components["schemas"]["TranslationLocation"];
         } | components["schemas"]["EPUBLocation"];
         Document: {
+            originalModified?: boolean;
             /** @enum {unknown} */
             category: "book" | "article" | "paper";
             /** @enum {unknown} */

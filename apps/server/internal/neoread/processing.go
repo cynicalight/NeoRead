@@ -401,6 +401,8 @@ func (s *Server) StartProcessing(parent context.Context) func() {
 	}
 	var workers sync.WaitGroup
 	workers.Add(1)
+	go func() { defer workers.Done(); s.originalIntegrityWorker(ctx) }()
+	workers.Add(1)
 	go func() {
 		defer workers.Done()
 		if ctx.Err() != nil {

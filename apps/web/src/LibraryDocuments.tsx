@@ -7,7 +7,9 @@ import {
   CheckSquare,
   Trash2,
   Check,
+  TriangleAlert,
 } from "lucide-react";
+import { modifiedOriginalLabel } from "./original-integrity";
 import type { Document, LibraryMode, Processing } from "@neoread/core";
 import { api } from "@neoread/api";
 import { toast } from "sonner";
@@ -378,6 +380,14 @@ export function LibraryDocuments({
                   variant="ghost"
                   onClick={onActivate ? undefined : () => openDocument(doc)}
                 >
+                  {doc.originalModified && (
+                    <span
+                      aria-label={modifiedOriginalLabel}
+                      title={modifiedOriginalLabel}
+                    >
+                      <TriangleAlert className="size-3.5 text-destructive" />
+                    </span>
+                  )}
                   <span>{doc.title}</span>
                   {showBilingualTitles && <BookTitleTranslation doc={doc} />}
                 </Button>

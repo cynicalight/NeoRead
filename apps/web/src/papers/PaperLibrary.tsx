@@ -1,3 +1,5 @@
+import { TriangleAlert } from "lucide-react";
+import { modifiedOriginalLabel } from "../original-integrity";
 import { usePaperColumns } from "./PaperColumns";
 import { setPaperDragImage } from "./paper-drag-image";
 import type { TableColumn } from "./columns";
@@ -1612,6 +1614,14 @@ function PaperRow({
         )}
         {doc.favorite && (
           <Star className="mr-1 inline size-3 fill-current text-amber-500" />
+        )}
+        {doc.originalModified && (
+          <span
+            aria-label={modifiedOriginalLabel}
+            title={modifiedOriginalLabel}
+          >
+            <TriangleAlert className="mr-1 inline size-3.5 text-destructive" />
+          </span>
         )}
         {doc.title}
       </span>

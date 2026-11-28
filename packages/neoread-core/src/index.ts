@@ -276,6 +276,8 @@ export interface TagBoard {
   match: "all" | "any";
 }
 export interface Document {
+  /** The stored original was edited after import and must be imported again. */
+  originalModified?: boolean;
   category: DocumentCategory;
   categorySource: "default" | "ai" | "manual";
   classificationStatus: "idle" | "pending" | "running" | "failed" | "done";
