@@ -308,6 +308,13 @@ func (s *Server) Handler() http.Handler {
 				return
 			}
 		}
+		if value, exists := v["formulaConcurrency"]; exists {
+			n, ok := value.(float64)
+			if !ok || n < 0 || n > maxFormulaConcurrency || n != float64(int(n)) {
+				fail(w, 400, "公式转换并发数须为 0—5 的整数")
+				return
+			}
+		}
 		b, _ := json.Marshal(v)
 		_, err := s.Store.DB.Exec("INSERT INTO settings VALUES('neoread',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", string(b))
 		if err != nil {

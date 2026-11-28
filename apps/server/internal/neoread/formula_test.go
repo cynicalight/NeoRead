@@ -179,6 +179,46 @@ func TestFormulaConversionDoesNotBlockCaptionTranslation(t *testing.T) {
 		t.Fatal("repeated completed formula conversion")
 	}
 }
+func TestFormulaWaitsForAgentAndResumesAfterConnection(t *testing.T) {
+	s, p, m := formulaFixture(t)
+	if err := s.learnPDF(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.translations("doc", m)
+	if err != nil || p.Status != "waiting" || items[0].Status != "pending" {
+		t.Fatalf("formula did not wait for an agent: %+v %+v %v", p, items, err)
+	}
+	images := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sendTranslationDelta(w, "$$\nx=1\n$$")
+		finishTranslationStream(w)
+	}))
+	defer images.Close()
+	text := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		input := readTranslationInput(t, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, para := range input.Batch.Paragraphs {
+			sendTranslationDelta(w, translationParagraphLine(para))
+		}
+		finishTranslationStream(w)
+	}))
+	defer text.Close()
+	configureFormulaTest(t, s, text.URL, images.URL)
+	s.wakeProcessing()
+	if p, err = s.Store.processing("doc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	items, _ = s.translations("doc", m)
+	if p.Status != "complete" || items[0].Status != "complete" || items[1].Status != "complete" {
+		t.Fatalf("translation did not resume after connection: %+v %+v", p, items)
+	}
+}
 func TestFormulaFailurePreservesCaptionAndCanRetry(t *testing.T) {
 	s, p, m := formulaFixture(t)
 	var valid atomic.Bool
@@ -255,7 +295,7 @@ func TestFormulaCancellationResumesWithoutSavingPartialResult(t *testing.T) {
 	configureFormulaTest(t, s, images.URL, images.URL)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- s.convertFormulas(ctx, "doc", m) }()
+	go func() { done <- s.convertFormulas(ctx, "doc", m, defaultFormulaConcurrency) }()
 	waitFormulaSignal(t, started)
 	cancel()
 	if err := <-done; err == nil {
@@ -264,5 +304,148 @@ func TestFormulaCancellationResumesWithoutSavingPartialResult(t *testing.T) {
 	items, _ := s.translations("doc", m)
 	if items[0].Status != "pending" || items[0].FormulaMarkdown != "" {
 		t.Fatalf("partial formula saved: %+v", items[0])
+	}
+}
+
+func TestFormulaConversionRunsConfiguredWorkersConcurrently(t *testing.T) {
+	s, _, m := formulaFixture(t)
+	formula := m.Blocks[0]
+	m.Blocks = nil
+	for _, id := range []string{"p1-b1", "p1-b3", "p1-b4"} {
+		formula.ID, formula.Image = id, "assets/"+id+".png"
+		m.Blocks = append(m.Blocks, formula)
+		if err := os.WriteFile(filepath.Join(s.analysisDir("doc"), formula.Image), []byte("fixture"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var active atomic.Int32
+	allStarted := make(chan struct{})
+	images := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if active.Add(1) == 3 {
+			close(allStarted)
+		}
+		select {
+		case <-allStarted:
+		case <-time.After(10 * time.Second):
+			t.Error("formula requests did not overlap")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		sendTranslationDelta(w, "$$x=1$$")
+		finishTranslationStream(w)
+	}))
+	defer images.Close()
+	configureFormulaTest(t, s, images.URL, images.URL)
+	if err := s.convertFormulas(t.Context(), "doc", m, 3); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := s.translations("doc", m)
+	for _, item := range items {
+		if item.Status != "complete" || item.FormulaMarkdown != "$$x=1$$\n" {
+			t.Fatalf("%+v", items)
+		}
+	}
+}
+
+func TestFormulaConversionOffLeavesFormulasIdle(t *testing.T) {
+	s, p, m := formulaFixture(t)
+	if w := request(t, s, "PUT", "/api/settings", strings.NewReader(`{"formulaConcurrency":0}`)); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if w := request(t, s, "PUT", "/api/settings", strings.NewReader(`{"formulaConcurrency":6}`)); w.Code != 400 {
+		t.Fatalf("accepted out-of-range concurrency: %d", w.Code)
+	}
+	var imageCalls atomic.Int32
+	images := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		imageCalls.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		sendTranslationDelta(w, "$$x=1$$")
+		finishTranslationStream(w)
+	}))
+	defer images.Close()
+	text := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		input := readTranslationInput(t, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, para := range input.Batch.Paragraphs {
+			sendTranslationDelta(w, translationParagraphLine(para))
+		}
+		finishTranslationStream(w)
+	}))
+	defer text.Close()
+	configureFormulaTest(t, s, text.URL, images.URL)
+	if err := s.learnPDF(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := s.translations("doc", m)
+	if p.Status != "complete" || imageCalls.Load() != 0 || items[0].Status != "idle" || items[1].Status != "complete" {
+		t.Fatalf("status=%s calls=%d items=%+v", p.Status, imageCalls.Load(), items)
+	}
+}
+
+func TestFormulaWaitsForVisionWhileTextTranslates(t *testing.T) {
+	s, p, m := formulaFixture(t)
+	text := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		input := readTranslationInput(t, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, para := range input.Batch.Paragraphs {
+			sendTranslationDelta(w, translationParagraphLine(para))
+		}
+		finishTranslationStream(w)
+	}))
+	defer text.Close()
+	// Text-only fallback: no route can read formula images.
+	configureTranslationTest(t, s, text.URL)
+	if err := s.learnPDF(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := s.translations("doc", m)
+	if p.Status != "waiting" || items[0].Status != "pending" || items[1].Status != "complete" {
+		t.Fatalf("formula should wait for vision after text: %+v %+v", p, items)
+	}
+}
+
+func TestExplicitFormulaRequestConvertsWhenConversionOff(t *testing.T) {
+	s, p, m := formulaFixture(t)
+	if w := request(t, s, "PUT", "/api/settings", strings.NewReader(`{"formulaConcurrency":0}`)); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	images := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sendTranslationDelta(w, "$$x=1$$")
+		finishTranslationStream(w)
+	}))
+	defer images.Close()
+	text := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		input := readTranslationInput(t, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, para := range input.Batch.Paragraphs {
+			sendTranslationDelta(w, translationParagraphLine(para))
+		}
+		finishTranslationStream(w)
+	}))
+	defer text.Close()
+	configureFormulaTest(t, s, text.URL, images.URL)
+	if err := s.learnPDF(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	// The reader's 转换公式 button sends a forced block request.
+	if w := request(t, s, "POST", "/api/documents/doc/translations", strings.NewReader(`{"blockId":"p1-b1","force":true}`)); w.Code != 202 {
+		t.Fatalf("explicit request failed: %s", w.Body.String())
+	}
+	p, _ = s.Store.processing("doc")
+	if err := s.processTranslation(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := s.translations("doc", m)
+	if items[0].Status != "complete" || items[0].FormulaMarkdown != "$$x=1$$\n" {
+		t.Fatalf("explicit formula request was skipped: %+v", items)
 	}
 }

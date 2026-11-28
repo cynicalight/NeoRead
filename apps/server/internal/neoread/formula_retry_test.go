@@ -111,7 +111,7 @@ func TestFormulaTimeoutRetrySavesOnlyCompletedResult(t *testing.T) {
 	}))
 	defer images.Close()
 	configureFormulaTest(t, s, images.URL, images.URL)
-	if err := s.convertFormulas(t.Context(), "doc", manifest); err != nil {
+	if err := s.convertFormulas(t.Context(), "doc", manifest, defaultFormulaConcurrency); err != nil {
 		t.Fatal(err)
 	}
 	items, err := s.translations("doc", manifest)

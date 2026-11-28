@@ -406,6 +406,8 @@ export interface ReaderTheme {
   autoTranslateMaxPages?: number;
   /** Minimum layout score for figure panels, 0.2–0.5; lower finds more subfigures. */
   layoutPanelConfidence?: number;
+  /** Concurrent PDF formula conversions, 0–5; 0 leaves formulas as images. */
+  formulaConcurrency?: number;
   /** How figures and embedded images are displayed when a PDF uses dark mode. */
   pdfDarkImageMode?: "preserve" | "invert" | "adaptive";
   /** Contrast used for PDF text and paper while the dark reading appearance is active. */

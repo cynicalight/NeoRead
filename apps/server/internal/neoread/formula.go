@@ -2,12 +2,14 @@ package neoread
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -66,9 +68,71 @@ func generateFormula(ctx context.Context, service *GenerationService, input AIIn
 	}
 }
 
-// One bounded image worker runs independently of text batches. Only complete
+// Failed formulas wait for an explicit retry instead of repeating automatically.
+func needsFormulaConversion(b PDFBlock, t TranslationBlock) bool {
+	return isFormula(b) && b.Image != "" && t.Status != "complete" && t.Status != "idle" && t.Status != "failed"
+}
+
+func hasPendingFormulas(m layoutManifest, items []TranslationBlock) bool {
+	saved := make(map[string]TranslationBlock, len(items))
+	for _, t := range items {
+		saved[t.BlockID] = t
+	}
+	for _, b := range m.Blocks {
+		if needsFormulaConversion(b, saved[b.ID]) {
+			return true
+		}
+	}
+	return false
+}
+
+// Formula workers come from the reading settings; 0 turns conversion off.
+const (
+	defaultFormulaConcurrency = 3
+	maxFormulaConcurrency     = 5
+)
+
+func (s *Server) formulaConcurrency() int {
+	var body string
+	var settings struct {
+		FormulaConcurrency *int `json:"formulaConcurrency"`
+	}
+	if s.Store.DB.QueryRow("SELECT value FROM settings WHERE key='neoread'").Scan(&body) == nil {
+		_ = json.Unmarshal([]byte(body), &settings)
+	}
+	if v := settings.FormulaConcurrency; v != nil && *v >= 0 && *v <= maxFormulaConcurrency {
+		return *v
+	}
+	return defaultFormulaConcurrency
+}
+
+// With conversion off, unconverted formulas become idle: they show the original
+// image (or a retained earlier result), leave progress, and are not requeued.
+func (s *Server) skipFormulas(documentID string, m layoutManifest) error {
+	items, err := s.translations(documentID, m)
+	if err != nil {
+		return err
+	}
+	saved := make(map[string]TranslationBlock, len(items))
+	for _, t := range items {
+		saved[t.BlockID] = t
+	}
+	for _, b := range m.Blocks {
+		t := saved[b.ID]
+		if !needsFormulaConversion(b, t) {
+			continue
+		}
+		t.Status, t.Error, t.FormulaMarkdown = "idle", "", ""
+		if err = s.saveTranslation(documentID, t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Bounded image workers run independently of text batches. Only complete
 // provider responses are saved; each save publishes through the translation SSE.
-func (s *Server) convertFormulas(ctx context.Context, documentID string, m layoutManifest) error {
+func (s *Server) convertFormulas(ctx context.Context, documentID string, m layoutManifest, workers int) error {
 	items, err := s.translations(documentID, m)
 	if err != nil {
 		return err
@@ -77,58 +141,92 @@ func (s *Server) convertFormulas(ctx context.Context, documentID string, m layou
 	for _, t := range items {
 		saved[t.BlockID] = t
 	}
+	var blocks []PDFBlock
 	for _, b := range m.Blocks {
-		if !isFormula(b) || b.Image == "" {
-			continue
+		if needsFormulaConversion(b, saved[b.ID]) {
+			blocks = append(blocks, b)
 		}
-		t := saved[b.ID]
-		if t.Status == "complete" || t.Status == "idle" {
-			continue
+	}
+	if len(blocks) == 0 || workers < 1 {
+		return nil
+	}
+	jobs := make(chan PDFBlock)
+	failures := make(chan error, workers)
+	work, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var wg sync.WaitGroup
+	for range min(workers, len(blocks)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for b := range jobs {
+				if err := s.convertFormula(work, documentID, b, saved[b.ID]); err != nil {
+					failures <- err
+					cancel()
+					return
+				}
+			}
+		}()
+	}
+send:
+	for _, b := range blocks {
+		select {
+		case jobs <- b:
+		case <-work.Done():
+			break send
 		}
-		if t.Status == "failed" {
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		t.Status = "running"
+	}
+	close(jobs)
+	wg.Wait()
+	close(failures)
+	// The first failure cancelled its siblings; report it rather than their ctx errors.
+	if err := <-failures; err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+func (s *Server) convertFormula(ctx context.Context, documentID string, b PDFBlock, t TranslationBlock) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	t.Status = "running"
+	t.Error = ""
+	t.FormulaMarkdown = ""
+	if err := s.saveTranslation(documentID, t); err != nil {
+		return err
+	}
+	image, callErr := os.ReadFile(filepath.Join(s.analysisDir(documentID), b.Image))
+	if callErr == nil {
+		service := s.generationService(s.aiConfig())
+		service.usageSink = s.processingUsageSink(documentID, "translating", b.ID)
+		service.timeout = 15 * time.Minute
+		t.FormulaMarkdown, callErr = generateFormula(ctx, service, AIInput{Prompt: formulaPrompt + b.Text, Image: image})
+	}
+	t.Status = "complete"
+	if callErr != nil {
+		t.Status = "failed"
+		t.Error = callErr.Error()
+	}
+	if ctx.Err() != nil {
+		t.Status = "pending"
 		t.Error = ""
 		t.FormulaMarkdown = ""
-		if err = s.saveTranslation(documentID, t); err != nil {
-			return err
+	}
+	if err := s.saveTranslation(documentID, t); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if t.Status == "failed" {
+		reason := "provider_error"
+		if strings.Contains(callErr.Error(), "公式转换未返回完整的") {
+			reason = "invalid_formula"
+		} else if errors.Is(callErr, os.ErrNotExist) {
+			reason = "image_missing"
 		}
-		image, callErr := os.ReadFile(filepath.Join(s.analysisDir(documentID), b.Image))
-		if callErr == nil {
-			service := s.generationService(s.aiConfig())
-			service.usageSink = s.processingUsageSink(documentID, "translating", b.ID)
-			service.timeout = 15 * time.Minute
-			t.FormulaMarkdown, callErr = generateFormula(ctx, service, AIInput{Prompt: formulaPrompt + b.Text, Image: image})
-		}
-		t.Status = "complete"
-		if callErr != nil {
-			t.Status = "failed"
-			t.Error = callErr.Error()
-		}
-		if ctx.Err() != nil {
-			t.Status = "pending"
-			t.Error = ""
-			t.FormulaMarkdown = ""
-		}
-		if err = s.saveTranslation(documentID, t); err != nil {
-			return err
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if t.Status == "failed" {
-			reason := "provider_error"
-			if strings.Contains(callErr.Error(), "公式转换未返回完整的") {
-				reason = "invalid_formula"
-			} else if errors.Is(callErr, os.ErrNotExist) {
-				reason = "image_missing"
-			}
-			s.diagnosticEvent(slog.LevelError, "translation.item_failed", "documentId", documentID, "blockId", b.ID, "phase", "formula", "reasonCode", reason)
-		}
+		s.diagnosticEvent(slog.LevelError, "translation.item_failed", "documentId", documentID, "blockId", b.ID, "phase", "formula", "reasonCode", reason)
 	}
 	return nil
 }
@@ -150,18 +248,43 @@ func (s *Server) translateContent(ctx context.Context, p *Processing, input tran
 		textErr := s.settleTranslations(ctx, p, input)
 		return errors.Join(textErr, s.refreshTranslationCounts(p, input))
 	}
+	workers := s.formulaConcurrency()
+	if workers == 0 && len(p.TranslationBlocks) > 0 {
+		// An explicit block or range request converts its formulas even when
+		// automatic conversion is off.
+		workers = 1
+	}
 	p.Phase = "translating"
 	p.Detail = "正在翻译正文并转换公式"
+	if workers == 0 {
+		p.Detail = "正在翻译正文"
+		if err = s.skipFormulas(p.DocumentID, m); err != nil {
+			return err
+		}
+	}
 	if err = s.Store.saveProcessing(*p); err != nil {
 		return err
 	}
+	items, err := s.translations(p.DocumentID, m)
+	if err != nil {
+		return err
+	}
+	// Without a vision-capable route every formula would be saved as failed and
+	// never retried; text still translates and the stage then waits instead.
+	formulasWaiting := workers > 0 && hasPendingFormulas(m, items) && !s.formulaAgentReady(s.aiConfig())
 	result := make(chan error, 1)
-	go func() { result <- s.convertFormulas(ctx, p.DocumentID, m) }()
+	if formulasWaiting {
+		result <- nil
+	} else {
+		go func() { result <- s.convertFormulas(ctx, p.DocumentID, m, workers) }()
+	}
 	textErr := s.settleTranslations(ctx, p, m)
 	if textErr == nil && p.Status != "waiting" {
-		p.Detail = "正文翻译已完成，正在完成公式转换"
-		if err := s.Store.saveProcessing(*p); err != nil {
-			textErr = err
+		if formulasWaiting {
+			_, _, textErr = s.agentConfigOrWait(p, nil, s.formulaAgentReady, "vision_capability", "公式转换需要能识别图片的模型，完成图片能力测试后继续")
+		} else if workers > 0 {
+			p.Detail = "正文翻译已完成，正在完成公式转换"
+			textErr = s.Store.saveProcessing(*p)
 		}
 	}
 	formulaErr := <-result
